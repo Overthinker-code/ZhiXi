@@ -1,0 +1,58 @@
+fastapi[standard]
+python-multipart
+email-validator
+passlib[bcrypt]
+tenacity
+pydantic
+emails
+jinja2
+alembic
+httpx
+psycopg[binary]
+sqlmodel
+bcrypt
+pydantic-settings
+sentry-sdk[fastapi]
+pyjwt
+
+# dev dependencies
+pytest
+mypy
+ruff
+pre-commit
+types-passlib
+coverage
+
+psycopg2-binary
+
+# LLM and RAG dependencies
+langchain
+langchain-community
+langchain-openai
+chromadb
+duckduckgo-search
+
+# Document processing
+python-docx
+PyPDF2
+pdfplumber
+python-pptx
+aiofiles
+typing-extensions
+
+# Video and image processing
+opencv-python
+numpy
+Pillow
+python-magic
+ffmpeg-python
+
+# Async support
+aiohttp
+asyncio
+
+# Utils
+python-jose[cryptography]
+python-dateutil
+pytz
+duckduckgo-search

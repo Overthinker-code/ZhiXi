@@ -1,0 +1,20 @@
+export default {
+  'login.form.title': '登录数据库课程教学系统',
+  'login.form.userName.errMsg': '用户名不能为空',
+  'login.form.password.errMsg': '密码不能为空',
+  'login.form.login.errMsg': '登录出错，轻刷新重试',
+  'login.form.login.success': '欢迎使用',
+  'login.form.userName.placeholder': '用户名：admin',
+  'login.form.password.placeholder': '密码：admin',
+  'login.form.rememberPassword': '记住密码',
+  'login.form.forgetPassword': '忘记密码',
+  'login.form.login': '登录',
+  'login.form.register': '注册账号',
+  'login.banner.slogan1': '支持学生的个性化学习与反馈生成',
+  'login.banner.subSlogan1': '对多模态课堂数据进行分析',
+  'login.banner.slogan2': '内置课堂知识库',
+  'login.banner.subSlogan2': '动态检索与当前内容相关的知识资料',
+  'login.banner.slogan3':
+    '通过长河算法可视化开发平台快速构建和调试深度学习模型',
+  'login.banner.subSlogan3': '准确捕捉学生的上课表现',
+};
