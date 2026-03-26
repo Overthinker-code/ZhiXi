@@ -8,7 +8,6 @@ from app.schemas.chat import ChatCreate, ChatUpdate
 from app.ai.chat_service import (
     chat_service as ai_chat_service,
     ChatRequest,
-    ChatResponse,
     resolve_system_prompt,
 )
 from app.providers.chat_thread_provider import chat_thread_provider
@@ -64,6 +63,9 @@ class ChatProvider(BaseProvider[Chat, ChatCreate, ChatUpdate]):
         db.refresh(db_obj)
         
         setattr(db_obj, "tool_calls", ai_response.tool_calls)
+        setattr(db_obj, "agent", ai_response.agent)
+        setattr(db_obj, "intent", ai_response.intent)
+        setattr(db_obj, "routing_reason", ai_response.routing_reason)
         return db_obj
     
     def get_chat_history(
