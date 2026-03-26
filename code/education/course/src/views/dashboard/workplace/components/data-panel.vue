@@ -10,7 +10,7 @@
         </a-avatar>
         <a-statistic
           :title="$t('workplace.onlineContent')"
-          :value="42"
+          :value="3735"
           :precision="0"
           :value-from="0"
           animation
@@ -32,7 +32,7 @@
         </a-avatar>
         <a-statistic
           :title="$t('workplace.putIn')"
-          :value="1268"
+          :value="768"
           :value-from="0"
           animation
           show-group-separator
@@ -53,7 +53,7 @@
         </a-avatar>
         <a-statistic
           :title="$t('workplace.newDay')"
-          :value="9386"
+          :value="8874"
           :value-from="0"
           animation
           show-group-separator

@@ -27,10 +27,10 @@
       legend: {
         left: 'center',
         data: [
-          t('workplace.category.sqlBasics'),
-          t('workplace.category.indexing'),
-          t('workplace.category.transaction'),
-          t('workplace.category.design'),
+          t('workplace.category.resources'),
+          t('workplace.category.courses'),
+          t('workplace.category.homework'),
+          t('workplace.category.discussions'),
         ],
         bottom: 0,
         icon: 'circle',
@@ -89,29 +89,29 @@
           },
           data: [
             {
-              value: [3342],
-              name: t('workplace.category.sqlBasics'),
+              value: [5179],
+              name: t('workplace.category.resources'),
               itemStyle: {
                 color: isDark ? '#1677ff' : '#1677ff',
               },
             },
             {
-              value: [2420],
-              name: t('workplace.category.indexing'),
+              value: [2301],
+              name: t('workplace.category.courses'),
               itemStyle: {
                 color: isDark ? '#0f9d8a' : '#0f9d8a',
               },
             },
             {
-              value: [1825],
-              name: t('workplace.category.transaction'),
+              value: [1116],
+              name: t('workplace.category.homework'),
               itemStyle: {
                 color: isDark ? '#00b2c9' : '#00b2c9',
               },
             },
             {
-              value: [1698],
-              name: t('workplace.category.design'),
+              value: [689],
+              name: t('workplace.category.discussions'),
               itemStyle: {
                 color: isDark ? '#f59e0b' : '#f59e0b',
               },

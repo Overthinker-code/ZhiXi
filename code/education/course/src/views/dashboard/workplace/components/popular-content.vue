@@ -26,6 +26,9 @@
           <a-radio value="video">
             {{ $t('workplace.popularContent.video') }}
           </a-radio>
+          <a-radio value="homework">
+            {{ $t('workplace.popularContent.homework') }}
+          </a-radio>
         </a-radio-group>
         <a-table
           :data="renderList"

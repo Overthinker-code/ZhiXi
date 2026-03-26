@@ -32,16 +32,16 @@ const COURSE: AppRouteRecordRaw = {
         roles: ['*'],
       },
     },
-    // {
-    //   path: 'course-list', // The midline path complies with SEO specifications
-    //   name: 'CourseList',
-    //   component: () => import('@/views/course/courselist/index.vue'),
-    //   meta: {
-    //     locale: '课程总览',
-    //     requiresAuth: true,
-    //     roles: ['*'],
-    //   },
-    // },
+    {
+      path: 'course-list', // The midline path complies with SEO specifications
+      name: 'CourseList',
+      component: () => import('@/views/course/courselist/index.vue'),
+      meta: {
+        locale: '课程总览',
+        requiresAuth: true,
+        roles: ['*'],
+      },
+    },
     {
       path: 'course-content', // The midline path complies with SEO specifications
       name: 'CourseContent',

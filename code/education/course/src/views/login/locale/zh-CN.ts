@@ -1,5 +1,6 @@
 export default {
   'login.form.title': '登录数据库课程教学系统',
+  'login.form.subTitle': '支持学生的个性化学习与反馈生成',
   'login.form.userName.errMsg': '用户名不能为空',
   'login.form.password.errMsg': '密码不能为空',
   'login.form.login.errMsg': '登录出错，轻刷新重试',
