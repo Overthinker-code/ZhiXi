@@ -6,8 +6,18 @@ export interface ContentDataRecord {
   y: number;
 }
 
+export interface DashboardOverview {
+  total_classes: number;
+  total_teachers: number;
+  total_resources: number;
+}
+
+export function queryDashboardOverview() {
+  return axios.get<DashboardOverview>('/dashboard/overview');
+}
+
 export function queryContentData() {
-  return axios.get<ContentDataRecord[]>('/api/content-data');
+  return axios.get<ContentDataRecord[]>('/dashboard/visits-trend');
 }
 
 export interface PopularRecord {
@@ -18,5 +28,17 @@ export interface PopularRecord {
 }
 
 export function queryPopularList(params: { type: string }) {
-  return axios.get<TableData[]>('/api/popular/list', { params });
+  return axios.get<TableData[]>('/dashboard/popular', { params });
+}
+
+export interface ContentDistribution {
+  total: number;
+  items: Array<{
+    name: 'resources' | 'courses' | 'homework' | 'discussions';
+    value: number;
+  }>;
+}
+
+export function queryContentDistribution() {
+  return axios.get<ContentDistribution>('/dashboard/content-distribution');
 }

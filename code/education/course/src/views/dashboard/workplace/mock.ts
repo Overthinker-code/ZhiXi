@@ -134,7 +134,7 @@ const homeworkList = [
 ];
 setupMock({
   setup() {
-    Mock.mock(new RegExp('/api/content-data'), () => {
+    const visitsResponse = () => {
       const presetData = [1234, 1380, 1498, 1572, 1641, 1703, 1766, 1820];
       const start = dayjs('2025-05-23');
       const lineData = presetData.map((value, idx) => ({
@@ -142,19 +142,45 @@ setupMock({
         y: value,
       }));
       return successResponseWrap(lineData);
-    });
-    Mock.mock(new RegExp('/api/popular/list'), (params: GetParams) => {
+    };
+
+    const popularResponse = (params: GetParams) => {
       const { type = 'text' } = qs.parseUrl(params.url).query;
-      if (type === 'image') {
+      if (type === 'resource' || type === 'image') {
         return successResponseWrap([...imageList]);
       }
-      if (type === 'video') {
+      if (type === 'discussion' || type === 'video') {
         return successResponseWrap([...videoList]);
       }
       if (type === 'homework') {
         return successResponseWrap([...homeworkList]);
       }
       return successResponseWrap([...textList]);
-    });
+    };
+
+    Mock.mock(new RegExp('/api/content-data'), visitsResponse);
+    Mock.mock(new RegExp('/dashboard/visits-trend'), visitsResponse);
+    Mock.mock(new RegExp('/api/popular/list'), popularResponse);
+    Mock.mock(new RegExp('/dashboard/popular'), popularResponse);
+
+    Mock.mock(new RegExp('/dashboard/overview'), () =>
+      successResponseWrap({
+        total_classes: 3735,
+        total_teachers: 768,
+        total_resources: 8874,
+      })
+    );
+
+    Mock.mock(new RegExp('/dashboard/content-distribution'), () =>
+      successResponseWrap({
+        total: 9285,
+        items: [
+          { name: 'resources', value: 5179 },
+          { name: 'courses', value: 2301 },
+          { name: 'homework', value: 1116 },
+          { name: 'discussions', value: 689 },
+        ],
+      })
+    );
   },
 });

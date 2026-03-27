@@ -16,12 +16,71 @@
 </template>
 
 <script lang="ts" setup>
+  import { computed, ref } from 'vue';
   import { useI18n } from 'vue-i18n';
   import useLoading from '@/hooks/loading';
   import useChartOption from '@/hooks/chart-option';
+  import { queryContentDistribution } from '@/api/dashboard';
 
   const { loading } = useLoading();
   const { t } = useI18n();
+  const total = ref(9285);
+  const distribution = ref({
+    resources: 5179,
+    courses: 2301,
+    homework: 1116,
+    discussions: 689,
+  });
+
+  const chartItems = computed(() => [
+    {
+      value: [distribution.value.resources],
+      name: t('workplace.category.resources'),
+      itemStyle: {
+        color: '#1677ff',
+      },
+    },
+    {
+      value: [distribution.value.courses],
+      name: t('workplace.category.courses'),
+      itemStyle: {
+        color: '#0f9d8a',
+      },
+    },
+    {
+      value: [distribution.value.homework],
+      name: t('workplace.category.homework'),
+      itemStyle: {
+        color: '#00b2c9',
+      },
+    },
+    {
+      value: [distribution.value.discussions],
+      name: t('workplace.category.discussions'),
+      itemStyle: {
+        color: '#f59e0b',
+      },
+    },
+  ]);
+
+  const fetchDistribution = async () => {
+    try {
+      const { data } = await queryContentDistribution();
+      total.value = data.total;
+      data.items.forEach((item) => {
+        if (item.name === 'resources') distribution.value.resources = item.value;
+        if (item.name === 'courses') distribution.value.courses = item.value;
+        if (item.name === 'homework') distribution.value.homework = item.value;
+        if (item.name === 'discussions')
+          distribution.value.discussions = item.value;
+      });
+    } catch (error) {
+      // keep fallback values for demo stability
+    }
+  };
+
+  fetchDistribution();
+
   const { chartOption } = useChartOption((isDark) => {
     return {
       legend: {
@@ -64,7 +123,7 @@
             left: 'center',
             top: '50%',
             style: {
-              text: '9,285',
+              text: total.value.toLocaleString(),
               textAlign: 'center',
               fill: isDark ? '#ffffffb3' : '#1D2129',
               fontSize: 16,
@@ -87,36 +146,7 @@
             borderColor: isDark ? '#232324' : '#fff',
             borderWidth: 1,
           },
-          data: [
-            {
-              value: [5179],
-              name: t('workplace.category.resources'),
-              itemStyle: {
-                color: isDark ? '#1677ff' : '#1677ff',
-              },
-            },
-            {
-              value: [2301],
-              name: t('workplace.category.courses'),
-              itemStyle: {
-                color: isDark ? '#0f9d8a' : '#0f9d8a',
-              },
-            },
-            {
-              value: [1116],
-              name: t('workplace.category.homework'),
-              itemStyle: {
-                color: isDark ? '#00b2c9' : '#00b2c9',
-              },
-            },
-            {
-              value: [689],
-              name: t('workplace.category.discussions'),
-              itemStyle: {
-                color: isDark ? '#f59e0b' : '#f59e0b',
-              },
-            },
-          ],
+          data: chartItems.value,
         },
       ],
     };

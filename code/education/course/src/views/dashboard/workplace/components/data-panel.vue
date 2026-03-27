@@ -10,7 +10,7 @@
         </a-avatar>
         <a-statistic
           :title="$t('workplace.onlineContent')"
-          :value="3735"
+          :value="overview.total_classes"
           :precision="0"
           :value-from="0"
           animation
@@ -32,7 +32,7 @@
         </a-avatar>
         <a-statistic
           :title="$t('workplace.putIn')"
-          :value="768"
+          :value="overview.total_teachers"
           :value-from="0"
           animation
           show-group-separator
@@ -53,7 +53,7 @@
         </a-avatar>
         <a-statistic
           :title="$t('workplace.newDay')"
-          :value="8874"
+          :value="overview.total_resources"
           :value-from="0"
           animation
           show-group-separator
@@ -83,7 +83,29 @@
   </a-grid>
 </template>
 
-<script lang="ts" setup></script>
+<script lang="ts" setup>
+  import { reactive } from 'vue';
+  import { queryDashboardOverview } from '@/api/dashboard';
+
+  const overview = reactive({
+    total_classes: 3735,
+    total_teachers: 768,
+    total_resources: 8874,
+  });
+
+  const fetchOverview = async () => {
+    try {
+      const { data } = await queryDashboardOverview();
+      overview.total_classes = data.total_classes;
+      overview.total_teachers = data.total_teachers;
+      overview.total_resources = data.total_resources;
+    } catch (error) {
+      // keep local fallback values for demo stability
+    }
+  };
+
+  fetchOverview();
+</script>
 
 <style lang="less" scoped>
   .arco-grid.panel {
