@@ -86,15 +86,22 @@ axios.interceptors.response.use(
   },
   (error) => {
     const url: string = error?.config?.url || '';
+    const status = error?.response?.status;
     const isTimeout = error?.code === 'ECONNABORTED';
     const isChat = url.includes('/chat/');
     const isFeedback = url.includes('/chat/feedback');
+    const isLogin = url.includes('/login/');
+
+    if (status === 401 && !isLogin) {
+      const userStore = useUserStore();
+      userStore.logoutCallBack();
+      window.location.href = '/login';
+      return Promise.reject(new Error('登录已过期，请重新登录'));
+    }
 
     const message =
       error?.response?.data?.detail || error?.message || 'Request Error';
 
-    // Silence chat timeout errors (LLM inference can be slow) and
-    // feedback endpoint 404s (backend may not implement it yet)
     if (!(isChat && isTimeout) && !isFeedback) {
       Message.error({
         content: message,

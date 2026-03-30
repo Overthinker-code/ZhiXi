@@ -23,7 +23,28 @@ const COURSE: AppRouteRecordRaw = {
       },
     },
     {
-      path: 'course-one', // The midline path complies with SEO specifications
+      path: 'list',
+      name: 'CourseList',
+      component: () => import('@/views/course/courselist/index.vue'),
+      meta: {
+        locale: '课程总览',
+        requiresAuth: true,
+        roles: ['*'],
+      },
+    },
+    {
+      path: 'detail/:id',
+      name: 'CourseDetail',
+      component: () => import('@/views/course/courseone/index.vue'),
+      meta: {
+        locale: '课程详情',
+        requiresAuth: true,
+        roles: ['*'],
+        hideInMenu: true,
+      },
+    },
+    {
+      path: 'course-one',
       name: 'CourseOne',
       component: () => import('@/views/course/courseone/index.vue'),
       meta: {
@@ -32,18 +53,8 @@ const COURSE: AppRouteRecordRaw = {
         roles: ['*'],
       },
     },
-    // {
-    //   path: 'course-list', // The midline path complies with SEO specifications
-    //   name: 'CourseList',
-    //   component: () => import('@/views/course/courselist/index.vue'),
-    //   meta: {
-    //     locale: '课程总览',
-    //     requiresAuth: true,
-    //     roles: ['*'],
-    //   },
-    // },
     {
-      path: 'course-content', // The midline path complies with SEO specifications
+      path: 'course-content',
       name: 'CourseContent',
       component: () => import('@/views/course/coursevideo/index.vue'),
       meta: {

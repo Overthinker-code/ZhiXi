@@ -20,3 +20,28 @@ export interface PopularRecord {
 export function queryPopularList(params: { type: string }) {
   return axios.get<TableData[]>('/api/popular/list', { params });
 }
+
+export interface DashboardOverview {
+  onlineContent: number;
+  putIn: number;
+  newDay: number;
+  growthRate: number;
+}
+
+export function queryDashboardOverview() {
+  return axios.get<DashboardOverview>('/api/dashboard/overview');
+}
+
+export interface CategoryItem {
+  name: string;
+  value: number;
+}
+
+export interface DashboardCategories {
+  total: number;
+  categories: CategoryItem[];
+}
+
+export function queryDashboardCategories() {
+  return axios.get<DashboardCategories>('/api/dashboard/categories');
+}

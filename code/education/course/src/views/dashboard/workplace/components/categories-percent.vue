@@ -16,22 +16,37 @@
 </template>
 
 <script lang="ts" setup>
+  import { ref, onMounted, computed } from 'vue';
   import { useI18n } from 'vue-i18n';
   import useLoading from '@/hooks/loading';
   import useChartOption from '@/hooks/chart-option';
+  import { queryDashboardCategories, CategoryItem } from '@/api/dashboard';
 
-  const { loading } = useLoading();
+  const { loading, setLoading } = useLoading(true);
   const { t } = useI18n();
+  const total = ref(0);
+  const categories = ref<CategoryItem[]>([]);
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const { data } = await queryDashboardCategories();
+      total.value = data.total;
+      categories.value = data.categories;
+    } catch (err) {
+      console.error('Failed to fetch categories:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const colorPalette = ['#1677ff', '#0f9d8a', '#00b2c9', '#f59e0b', '#86efac', '#f472b6'];
+
   const { chartOption } = useChartOption((isDark) => {
     return {
       legend: {
         left: 'center',
-        data: [
-          t('workplace.category.sqlBasics'),
-          t('workplace.category.indexing'),
-          t('workplace.category.transaction'),
-          t('workplace.category.design'),
-        ],
+        data: categories.value.map((item) => item.name),
         bottom: 0,
         icon: 'circle',
         itemWidth: 8,
@@ -64,7 +79,7 @@
             left: 'center',
             top: '50%',
             style: {
-              text: '9,285',
+              text: total.value.toLocaleString(),
               textAlign: 'center',
               fill: isDark ? '#ffffffb3' : '#1D2129',
               fontSize: 16,
@@ -87,39 +102,20 @@
             borderColor: isDark ? '#232324' : '#fff',
             borderWidth: 1,
           },
-          data: [
-            {
-              value: [3342],
-              name: t('workplace.category.sqlBasics'),
-              itemStyle: {
-                color: isDark ? '#1677ff' : '#1677ff',
-              },
+          data: categories.value.map((item, index) => ({
+            value: item.value,
+            name: item.name,
+            itemStyle: {
+              color: colorPalette[index % colorPalette.length],
             },
-            {
-              value: [2420],
-              name: t('workplace.category.indexing'),
-              itemStyle: {
-                color: isDark ? '#0f9d8a' : '#0f9d8a',
-              },
-            },
-            {
-              value: [1825],
-              name: t('workplace.category.transaction'),
-              itemStyle: {
-                color: isDark ? '#00b2c9' : '#00b2c9',
-              },
-            },
-            {
-              value: [1698],
-              name: t('workplace.category.design'),
-              itemStyle: {
-                color: isDark ? '#f59e0b' : '#f59e0b',
-              },
-            },
-          ],
+          })),
         },
       ],
     };
+  });
+
+  onMounted(() => {
+    fetchData();
   });
 </script>
 

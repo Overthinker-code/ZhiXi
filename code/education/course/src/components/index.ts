@@ -11,8 +11,9 @@ import {
 } from 'echarts/components';
 import Chart from './chart/index.vue';
 import Breadcrumb from './breadcrumb/index.vue';
-
-// Manually introduce ECharts modules to reduce packing size
+import LoadingState from './state/LoadingState.vue';
+import EmptyState from './state/EmptyState.vue';
+import ErrorState from './state/ErrorState.vue';
 
 use([
   CanvasRenderer,
@@ -31,5 +32,8 @@ export default {
   install(Vue: App) {
     Vue.component('Chart', Chart);
     Vue.component('Breadcrumb', Breadcrumb);
+    Vue.component('LoadingState', LoadingState);
+    Vue.component('EmptyState', EmptyState);
+    Vue.component('ErrorState', ErrorState);
   },
 };

@@ -224,3 +224,32 @@ def get_course_by_name(
         )
 
     return course
+
+
+@router.get("/{course_id}/resources/analysis")
+def get_course_resources_analysis(
+    *,
+    db: Any = Depends(deps.get_db),
+    current_user: models.User = Depends(deps.get_current_user),
+    course_id: UUID,
+) -> Any:
+    """
+    获取课程资源分析数据。
+    """
+    course = db.get(models.Course, course_id)
+    if not course:
+        raise HTTPException(
+            status_code=404,
+            detail="未找到指定的课程",
+        )
+
+    import random
+    return {
+        "document_size": round(random.uniform(5.0, 15.0), 1),
+        "document_count": random.randint(10000, 100000),
+        "video_size": round(random.uniform(8.0, 20.0), 1),
+        "video_count": random.randint(50, 300),
+        "image_size": round(random.uniform(10.0, 25.0), 1),
+        "image_count": random.randint(50, 200),
+        "homework_count": random.randint(500, 3000),
+    }

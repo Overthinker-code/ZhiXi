@@ -58,3 +58,26 @@ def popular_list(type: Optional[str] = Query(default="text")):
             "increases": 8,
         },
     ]
+
+
+@router.get("/api/dashboard/overview")
+def dashboard_overview():
+    return {
+        "onlineContent": 42,
+        "putIn": 1268,
+        "newDay": 9386,
+        "growthRate": 2.8,
+    }
+
+
+@router.get("/api/dashboard/categories")
+def dashboard_categories():
+    return {
+        "total": 9285,
+        "categories": [
+            {"name": "SQL基础", "value": 3342},
+            {"name": "索引优化", "value": 2420},
+            {"name": "事务处理", "value": 1825},
+            {"name": "数据库设计", "value": 1698},
+        ],
+    }
