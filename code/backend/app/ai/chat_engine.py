@@ -16,9 +16,17 @@ from app.ai.chat_runtime import (
     ANALYST_KEYWORDS,
     resolve_system_prompt,
 )
-from app.ai.chat_tools import TOOLS_BY_AGENT, get_llm, message_text, collect_tool_calls
+from app.ai.chat_tools import (
+    TOOL_KEYS_BY_AGENT,
+    get_tools_for_agent,
+    get_llm,
+    message_text,
+    collect_tool_calls,
+)
 from app.services.rag_tools import set_rag_request_context, reset_rag_request_context
 from app.services.rag_service import RAGService
+from app.services.pending_actions import pending_action_store
+from app.services.chat_semantic_cache import chat_semantic_cache
 
 rag_service = RAGService()
 
@@ -77,7 +85,15 @@ def _build_agent_messages(state: State, agent: AgentName) -> list:
 
 
 def _invoke_agent(state: State, agent: AgentName):
-    llm = get_llm(agent, enable_tools=True)
+    llm = get_llm(
+        agent,
+        enable_tools=True,
+        active_tools=state.get("active_tools"),
+        temperature=state.get("temperature"),
+        max_tokens=state.get("max_tokens"),
+        top_p=state.get("top_p"),
+        top_k=state.get("top_k"),
+    )
     ai_msg = llm.invoke(_build_agent_messages(state, agent))
     return {"messages": [ai_msg]}
 
@@ -116,7 +132,14 @@ def summarize_tool_result(state: State):
         ),
     }
     selected_agent: AgentName = state.get("selected_agent", "code_tutor")
-    llm = get_llm(selected_agent, enable_tools=False)
+    llm = get_llm(
+        selected_agent,
+        enable_tools=False,
+        temperature=state.get("temperature"),
+        max_tokens=state.get("max_tokens"),
+        top_p=state.get("top_p"),
+        top_k=state.get("top_k"),
+    )
     summary_msg = llm.invoke([summary_prompt])
     return {"messages": [summary_msg]}
 
@@ -129,15 +152,19 @@ def _route_after_summarize(state: State):
     return state.get("selected_agent", "code_tutor")
 
 
-def _build_multi_agent_graph():
+def _build_multi_agent_graph(active_tools: list[str] | None = None):
+    code_tools = get_tools_for_agent("code_tutor", active_tools)
+    planner_tools = get_tools_for_agent("planner", active_tools)
+    analyst_tools = get_tools_for_agent("analyst", active_tools)
+
     builder = StateGraph(State)
     builder.add_node("router", router_node)
     builder.add_node("code_tutor", code_tutor_node)
     builder.add_node("planner", planner_node)
     builder.add_node("analyst", analyst_node)
-    builder.add_node("code_tutor_tools", ToolNode(tools=TOOLS_BY_AGENT["code_tutor"]))
-    builder.add_node("planner_tools", ToolNode(tools=TOOLS_BY_AGENT["planner"]))
-    builder.add_node("analyst_tools", ToolNode(tools=TOOLS_BY_AGENT["analyst"]))
+    builder.add_node("code_tutor_tools", ToolNode(tools=code_tools))
+    builder.add_node("planner_tools", ToolNode(tools=planner_tools))
+    builder.add_node("analyst_tools", ToolNode(tools=analyst_tools))
     builder.add_node("summarize", summarize_tool_result)
 
     builder.add_edge(START, "router")
@@ -185,6 +212,43 @@ def _build_multi_agent_graph():
 
 
 multi_agent_graph = _build_multi_agent_graph()
+
+
+def _build_selection_prompt(request: ChatRequest) -> str:
+    selected = (request.selected_text or "").strip()
+    context = (request.surrounding_context or "").strip()
+    module = (request.course_module or "当前课程").strip()
+    video_time = (request.video_time or "").strip()
+    if not selected:
+        return request.user_input
+
+    prompt = (
+        f"学生在学习《{module}》时选中了“{selected}”。\n"
+        f"上下文片段：{context or '（无）'}\n"
+    )
+    if video_time:
+        prompt += f"当前视频时间点：{video_time}\n"
+    prompt += (
+        "请用引导式、教学友好的口吻回答。"
+        "如果适合，请补充一个简短示例帮助理解。"
+    )
+    return prompt
+
+
+def _requires_hitl(intent: str, user_input: str) -> bool:
+    if intent != "study_plan_adjustment":
+        return False
+    text = (user_input or "").lower()
+    return any(k in text for k in ["进度", "复习", "计划", "落后", "冲刺"])
+
+
+def _tool_status_text(agent: AgentName, active_tools: list[str] | None) -> tuple[list[str], list[str]]:
+    allowed = TOOL_KEYS_BY_AGENT[agent]
+    if not active_tools:
+        return allowed, []
+    enabled = [key for key in allowed if key in set(active_tools)]
+    disabled = [key for key in allowed if key not in set(active_tools)]
+    return enabled, disabled
 
 
 def _chat_with_ollama_rag(
@@ -241,7 +305,14 @@ def _chat_with_ollama_rag(
         messages.append(SystemMessage(content=resolved_system_prompt))
     messages.append({"role": "user", "content": prompt})
 
-    llm = get_llm(selected_agent, enable_tools=False)
+    llm = get_llm(
+        selected_agent,
+        enable_tools=False,
+        temperature=request.temperature,
+        max_tokens=request.max_tokens,
+        top_p=request.top_p,
+        top_k=request.top_k,
+    )
     ai_msg = llm.invoke(messages)
     if request.strict_mode:
         max_citation = len(results)
@@ -282,16 +353,33 @@ def _chat_with_ollama_rag(
 
 
 def chat_service(request: ChatRequest) -> ChatResponse:
+    if request.selected_text:
+        request.user_input = _build_selection_prompt(request)
+
     selected_agent, intent, routing_reason = route_intent(
         request.user_input, request.force_agent
     )
+
+    cache_hit = chat_semantic_cache.get(request.user_input)
+    if cache_hit:
+        return ChatResponse(
+            response=cache_hit.answer,
+            tool_calls=[],
+            agent=selected_agent,
+            intent=intent,
+            routing_reason=f"语义缓存命中（hit_count={cache_hit.hit_count}）",
+            thoughts=["⚡ 语义缓存命中，直接返回历史高相似答案。"],
+        )
+
     if settings.CHAT_PROVIDER.lower() == "ollama":
-        return _chat_with_ollama_rag(
+        response = _chat_with_ollama_rag(
             request,
             selected_agent=selected_agent,
             intent=intent,
             routing_reason=routing_reason,
         )
+        chat_semantic_cache.put(request.user_input, response.response)
+        return response
 
     state: State = {
         "messages": [{"role": "user", "content": request.user_input}],
@@ -302,6 +390,11 @@ def chat_service(request: ChatRequest) -> ChatResponse:
             request.prompt_key, request.system_prompt
         ),
         "force_agent": request.force_agent,
+        "active_tools": request.active_tools,
+        "max_tokens": request.max_tokens,
+        "temperature": request.temperature,
+        "top_p": request.top_p,
+        "top_k": request.top_k,
     }
     thread_config = {"configurable": {"thread_id": request.thread_id}}
 
@@ -309,18 +402,95 @@ def chat_service(request: ChatRequest) -> ChatResponse:
         request.user_id, request.is_admin, request.rag_k
     )
     try:
-        result = multi_agent_graph.invoke(state, config=thread_config)
+        graph = (
+            multi_agent_graph
+            if not request.active_tools
+            else _build_multi_agent_graph(request.active_tools)
+        )
+        result = graph.invoke(state, config=thread_config)
         final_agent = result.get("selected_agent", selected_agent)
         final_intent = result.get("intent", intent)
         final_reason = result.get("routing_reason", routing_reason)
 
         last_message = result["messages"][-1]
-        return ChatResponse(
+        response = ChatResponse(
             response=message_text(last_message),
             tool_calls=collect_tool_calls(result.get("messages", [])),
             agent=final_agent,
             intent=final_intent,
             routing_reason=final_reason,
+            thoughts=[
+                f"🤔 Router 判定意图：{final_intent}",
+                f"📤 分配 Agent：{final_agent}",
+            ],
         )
+        if _requires_hitl(final_intent, request.user_input):
+            action = pending_action_store.create(
+                user_id=request.user_id or "anonymous",
+                thread_id=request.thread_id,
+                plan_text=response.response,
+            )
+            response.requires_confirmation = True
+            response.pending_action_id = action.action_id
+            response.thoughts.append("⏸ 已触发 HITL，请用户确认后写入日历。")
+
+        chat_semantic_cache.put(request.user_input, response.response)
+        return response
     finally:
         reset_rag_request_context(token_user_id, token_is_admin, token_top_k)
+
+
+def stream_chat_events(request: ChatRequest):
+    user_input = request.user_input
+    if request.selected_text:
+        user_input = _build_selection_prompt(request)
+    selected_agent, intent, routing_reason = route_intent(user_input, request.force_agent)
+    enabled_tools, disabled_tools = _tool_status_text(selected_agent, request.active_tools)
+
+    yield {
+        "type": "thought",
+        "content": f"🤔 正在分析意图：识别为 {intent}，分配给 {selected_agent}",
+    }
+    if request.active_tools is not None:
+        yield {
+            "type": "thought",
+            "content": f"🧰 工具开关状态：启用 {enabled_tools or ['none']}，禁用 {disabled_tools or ['none']}",
+        }
+        if not enabled_tools:
+            yield {
+                "type": "thought",
+                "content": "⚠️ 当前可用工具为空，系统将降级为纯模型回答。",
+            }
+
+    try:
+        response = chat_service(
+            ChatRequest(
+                **{
+                    **request.model_dump(),
+                    "user_input": user_input,
+                    "force_agent": selected_agent,
+                }
+            )
+        )
+    except Exception as exc:
+        yield {"type": "error", "content": f"处理失败：{exc}"}
+        return
+
+    for thought in response.thoughts:
+        yield {"type": "thought", "content": thought}
+
+    text = response.response or ""
+    chunk_size = 24
+    for i in range(0, len(text), chunk_size):
+        yield {"type": "token", "content": text[i : i + chunk_size]}
+
+    yield {
+        "type": "final",
+        "content": text,
+        "agent": response.agent,
+        "intent": response.intent,
+        "routing_reason": response.routing_reason,
+        "tool_calls": response.tool_calls,
+        "requires_confirmation": response.requires_confirmation,
+        "pending_action_id": response.pending_action_id,
+    }

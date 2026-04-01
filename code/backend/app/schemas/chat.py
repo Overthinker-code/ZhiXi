@@ -9,6 +9,11 @@ class ChatBase(BaseModel):
     prompt_key: Optional[str] = "tutor"
     rag_k: Optional[int] = 4
     strict_mode: Optional[bool] = False
+    active_tools: Optional[List[str]] = None
+    max_tokens: Optional[int] = None
+    temperature: Optional[float] = None
+    top_p: Optional[float] = None
+    top_k: Optional[int] = None
 
 class ChatCreate(ChatBase):
     pass

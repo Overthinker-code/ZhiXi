@@ -14,6 +14,11 @@ class State(TypedDict):
     routing_reason: str
     resolved_system_prompt: str
     force_agent: AgentName | None
+    active_tools: list[str] | None
+    max_tokens: int | None
+    temperature: float | None
+    top_p: float | None
+    top_k: int | None
 
 
 class ChatRequest(BaseModel):
@@ -26,6 +31,16 @@ class ChatRequest(BaseModel):
     user_id: str | None = None
     is_admin: bool = False
     force_agent: AgentName | None = None
+    active_tools: list[str] | None = None
+    stream: bool = False
+    max_tokens: int | None = None
+    temperature: float | None = None
+    top_p: float | None = None
+    top_k: int | None = None
+    selected_text: str | None = None
+    surrounding_context: str | None = None
+    video_time: str | None = None
+    course_module: str | None = None
 
 
 class ChatResponse(BaseModel):
@@ -34,3 +49,6 @@ class ChatResponse(BaseModel):
     agent: AgentName = "code_tutor"
     intent: str = "general_tutoring"
     routing_reason: str = "默认路由"
+    thoughts: List[str] = []
+    requires_confirmation: bool = False
+    pending_action_id: str | None = None

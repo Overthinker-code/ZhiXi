@@ -141,6 +141,29 @@ def get_chat_runtime_settings() -> dict:
             }
             for key, value in AGENT_CONFIG.items()
         ],
+        "tool_options": [
+            {
+                "key": "knowledge_base",
+                "label": "知识库检索",
+                "description": "检索课程与文档知识片段。",
+            },
+            {
+                "key": "web_search",
+                "label": "联网搜索",
+                "description": "从外部网络检索公开信息。",
+            },
+            {
+                "key": "code_sandbox",
+                "label": "代码沙盒",
+                "description": "在安全沙盒中运行代码并返回结果。",
+            },
+            {
+                "key": "behavior_analysis",
+                "label": "行为分析",
+                "description": "对课堂行为图片进行分析。",
+            },
+        ],
+        "default_active_tools": ["knowledge_base", "web_search", "code_sandbox"],
     }
 
 

@@ -1,4 +1,5 @@
 <script setup>
+  import AgentThoughtCard from './AgentThoughtCard.vue';
   import { renderMarkdown } from '@/utils/markdown';
   import { submitChatFeedback } from '@/api/rag';
   import { useSettingStore } from '@/store/setting';
@@ -34,7 +35,7 @@
   const isCopied = ref(false);
 
   // 添加重新生成的事件
-  const emit = defineEmits(['regenerate']);
+  const emit = defineEmits(['regenerate', 'resume-action']);
 
   // 添加展开/折叠状态控制
   const isReasoningExpanded = ref(true);
@@ -98,6 +99,13 @@
   // 添加重新生成的事件
   const handleRegenerate = () => {
     emit('regenerate');
+  };
+
+  const handleResumeAction = (approve) => {
+    emit('resume-action', {
+      pendingActionId: props.message.pending_action_id,
+      approve,
+    });
   };
 
   // 处理代码块的复制
@@ -232,6 +240,7 @@
         />
         <span>内容生成中...</span>
       </div>
+      <AgentThoughtCard :thoughts="message.thoughts || []" />
       <!-- reasoning toggle button -->
       <div
         v-if="message.reasoning_content"
@@ -255,6 +264,15 @@
       ></div>
       <!-- content -->
       <div class="bubble markdown-body" v-html="renderedContent"></div>
+      <div v-if="message.requires_confirmation" class="hitl-card">
+        <p>系统生成了学习计划，是否确认写入你的学习日历？</p>
+        <div class="hitl-actions">
+          <button class="action-btn" @click="handleResumeAction(true)">确认</button>
+          <button class="action-btn reject" @click="handleResumeAction(false)">
+            取消
+          </button>
+        </div>
+      </div>
       <!-- 只在 AI 助手消息中显示操作按钮和 tokens 信息 -->
       <div
         v-if="message.role === 'assistant' && message.loading === false"
@@ -547,6 +565,39 @@
             pre.hljs {
               background: #0f172a;
               color: #d7e3ff;
+            }
+          }
+        }
+      }
+
+      .hitl-card {
+        margin-top: 8px;
+        padding: 10px;
+        border: 1px solid #dbeafe;
+        border-radius: 10px;
+        background: #f0f7ff;
+
+        p {
+          margin: 0 0 8px;
+          font-size: 13px;
+          color: #1e3a8a;
+        }
+
+        .hitl-actions {
+          display: flex;
+          gap: 8px;
+
+          .action-btn {
+            border: none;
+            border-radius: 6px;
+            padding: 4px 10px;
+            background: #2563eb;
+            color: #fff;
+            cursor: pointer;
+            font-size: 12px;
+
+            &.reject {
+              background: #64748b;
             }
           }
         }

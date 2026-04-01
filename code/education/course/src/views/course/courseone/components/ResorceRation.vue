@@ -16,6 +16,7 @@
 <script>
   import * as echarts from 'echarts';
   import { defineComponent, onMounted, ref } from 'vue';
+  import { demoCourseResourcePie } from '@/mock/demoData';
 
   export default defineComponent({
     name: 'DoughnutChart',
@@ -64,10 +65,26 @@
                 },
               },
               data: [
-                { value: 20.33, name: '文档', itemStyle: { color: '#249eff' } },
-                { value: 10, name: '作业', itemStyle: { color: '#6399ca' } },
-                { value: 60.23, name: '视频', itemStyle: { color: '#21ccff' } },
-                { value: 10.17, name: '图片', itemStyle: { color: '#313ca9' } },
+                {
+                  value: demoCourseResourcePie[0]?.value || 1884,
+                  name: demoCourseResourcePie[0]?.name || '文档',
+                  itemStyle: { color: '#249eff' },
+                },
+                {
+                  value: demoCourseResourcePie[1]?.value || 920,
+                  name: demoCourseResourcePie[1]?.name || '作业',
+                  itemStyle: { color: '#6399ca' },
+                },
+                {
+                  value: demoCourseResourcePie[2]?.value || 5548,
+                  name: demoCourseResourcePie[2]?.name || '视频',
+                  itemStyle: { color: '#21ccff' },
+                },
+                {
+                  value: demoCourseResourcePie[3]?.value || 933,
+                  name: demoCourseResourcePie[3]?.name || '图片',
+                  itemStyle: { color: '#313ca9' },
+                },
               ],
               emphasis: {
                 itemStyle: {

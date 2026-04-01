@@ -4,8 +4,11 @@ import { useSettingStore } from '@/store/setting';
 import { messageHandler } from '@/utils/messageHandler';
 import {
   createAssistantChat,
+  createAssistantChatStream,
   fetchAssistantSettings,
   fetchChatHistory,
+  askSelectionQuery,
+  resumeChatAction,
 } from '@/api/rag';
 
 /**
@@ -102,6 +105,15 @@ export function useChat() {
       if (settings?.prompt_options?.length) {
         settingStore.promptOptions = settings.prompt_options;
       }
+      if (settings?.tool_options?.length) {
+        settingStore.toolOptions = settings.tool_options;
+      }
+      if (
+        settings?.default_active_tools?.length &&
+        !(settingStore.settings.activeTools || []).length
+      ) {
+        settingStore.settings.activeTools = settings.default_active_tools;
+      }
       if (
         settings?.rag_k_default &&
         ![3, 4, 5].includes(settingStore.settings.ragK)
@@ -146,23 +158,87 @@ export function useChat() {
       const lastMessage = chatStore.getLastMessage();
       if (lastMessage) lastMessage.loading = true;
 
-      const response = await createAssistantChat(
-        messageContent.text,
-        currentThreadId.value,
-        {
-          systemPrompt: settingStore.settings.customSystemPrompt || '',
-          ragK: settingStore.settings.ragK as 3 | 4 | 5,
-          promptKey: settingStore.settings.promptKey,
-          strictMode: settingStore.settings.strictMode,
+      const commonOptions = {
+        systemPrompt: settingStore.settings.customSystemPrompt || '',
+        ragK: settingStore.settings.ragK as 3 | 4 | 5,
+        promptKey: settingStore.settings.promptKey,
+        strictMode: settingStore.settings.strictMode,
+        activeTools: settingStore.settings.activeTools || [],
+        maxTokens: settingStore.settings.maxTokens,
+        temperature: settingStore.settings.temperature,
+        topP: settingStore.settings.topP,
+        topK: settingStore.settings.topK,
+      };
+
+      const shouldStream = Boolean(settingStore.settings.stream);
+      if (shouldStream) {
+        const thoughts: string[] = [];
+        let answer = '';
+        let streamError = '';
+        let requiresConfirmation = false;
+        let pendingActionId = '';
+        await createAssistantChatStream(
+          messageContent.text,
+          currentThreadId.value,
+          commonOptions,
+          (event) => {
+            if (event.type === 'thought') {
+              if (event.content) thoughts.push(event.content);
+              chatStore.updateLastMessage(
+                answer,
+                thoughts.join('\n\n'),
+                0,
+                0,
+                [...thoughts],
+                requiresConfirmation,
+                pendingActionId
+              );
+            } else if (event.type === 'token') {
+              answer += event.content || '';
+              chatStore.updateLastMessage(
+                answer,
+                thoughts.join('\n\n'),
+                0,
+                0,
+                [...thoughts],
+                requiresConfirmation,
+                pendingActionId
+              );
+            } else if (event.type === 'final') {
+              answer = event.content || answer;
+              requiresConfirmation = Boolean(event.requires_confirmation);
+              pendingActionId = event.pending_action_id || '';
+              chatStore.updateLastMessage(
+                answer,
+                thoughts.join('\n\n'),
+                0,
+                0,
+                [...thoughts],
+                requiresConfirmation,
+                pendingActionId
+              );
+            } else if (event.type === 'error') {
+              streamError = event.content || 'Stream failed';
+            }
+          }
+        );
+        if (streamError) {
+          throw new Error(streamError);
         }
-      );
-      const { content, reasoning } = parseAssistantResponse(
-        response.response || ''
-      );
-      chatStore.updateLastMessage(content, reasoning, 0, 0);
+      } else {
+        const response = await createAssistantChat(
+          messageContent.text,
+          currentThreadId.value,
+          commonOptions
+        );
+        const { content, reasoning } = parseAssistantResponse(
+          response.response || ''
+        );
+        chatStore.updateLastMessage(content, reasoning, 0, 0);
+      }
     } catch (error) {
       chatStore.updateLastMessage(
-        'Sorry, something went wrong. Please try again later.'
+        '当前连接时空有点波动，请稍后再试哦~'
       );
     } finally {
       chatStore.setIsLoading(false);
@@ -197,6 +273,63 @@ export function useChat() {
     chatStore.setCurrentConversationMessages([]);
   }
 
+  async function sendSelectionQuery(params: {
+    selectedText: string;
+    surroundingContext: string;
+    videoTime?: string;
+    courseModule?: string;
+  }) {
+    const text = params.selectedText?.trim();
+    if (!text) return;
+    chatStore.addMessage(messageHandler.formatMessage('user', `划词提问：${text}`));
+    chatStore.addMessage(messageHandler.formatMessage('assistant', '', ''));
+    chatStore.setIsLoading(true);
+    const lastMessage = chatStore.getLastMessage();
+    if (lastMessage) lastMessage.loading = true;
+
+    try {
+      const response = await askSelectionQuery(
+        text,
+        params.surroundingContext,
+        currentThreadId.value,
+        {
+          systemPrompt: settingStore.settings.customSystemPrompt || '',
+          ragK: settingStore.settings.ragK as 3 | 4 | 5,
+          promptKey: settingStore.settings.promptKey,
+          strictMode: settingStore.settings.strictMode,
+          activeTools: settingStore.settings.activeTools || [],
+          maxTokens: settingStore.settings.maxTokens,
+          temperature: settingStore.settings.temperature,
+          topP: settingStore.settings.topP,
+          topK: settingStore.settings.topK,
+          selectedText: text,
+          surroundingContext: params.surroundingContext,
+          videoTime: params.videoTime,
+          courseModule: params.courseModule,
+        }
+      );
+      const { content, reasoning } = parseAssistantResponse(response.response || '');
+      chatStore.updateLastMessage(content, reasoning, 0, 0);
+    } catch (error) {
+      chatStore.updateLastMessage(
+        '当前提问人数较多，正在为您从缓存中检索，请稍后重试。'
+      );
+    } finally {
+      chatStore.setIsLoading(false);
+      const msg = chatStore.getLastMessage();
+      if (msg) msg.loading = false;
+    }
+  }
+
+  async function confirmPendingAction(pendingActionId: string, approve = true) {
+    if (!pendingActionId) return null;
+    try {
+      return await resumeChatAction(pendingActionId, approve);
+    } catch {
+      return null;
+    }
+  }
+
   return {
     // State
     currentThreadId,
@@ -209,5 +342,7 @@ export function useChat() {
     loadHistory,
     loadAssistantSettings,
     createNewChat,
+    sendSelectionQuery,
+    confirmPendingAction,
   };
 }

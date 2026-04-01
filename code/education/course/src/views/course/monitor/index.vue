@@ -14,6 +14,7 @@
       <div class="layout-right-side">
         <a-space :size="16" direction="vertical" fill>
           <StudioStatus />
+          <AttendanceGrid />
           <QuickOperation />
           <StudioInformation />
         </a-space>
@@ -27,6 +28,7 @@
   import Studio from './components/studio.vue';
   import DataStatistic from './components/data-statistic.vue';
   import StudioStatus from './components/studio-status.vue';
+  import AttendanceGrid from './components/attendance-grid.vue';
   import QuickOperation from './components/quick-operation.vue';
   import StudioInformation from './components/studio-information.vue';
 </script>

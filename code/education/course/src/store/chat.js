@@ -117,6 +117,9 @@ export const useChatStore = defineStore(
       _messagesMap.value[id].push({
         id: Date.now(),
         timestamp: new Date().toISOString(),
+        thoughts: [],
+        requires_confirmation: false,
+        pending_action_id: '',
         ...message,
       });
     };
@@ -140,7 +143,10 @@ export const useChatStore = defineStore(
       content,
       reasoning_content,
       completion_tokens,
-      speed
+      speed,
+      thoughts = [],
+      requiresConfirmation = false,
+      pendingActionId = ''
     ) => {
       const msgs = _messagesMap.value[currentConversationId.value];
       if (msgs && msgs.length > 0) {
@@ -149,6 +155,9 @@ export const useChatStore = defineStore(
         lastMessage.reasoning_content = reasoning_content;
         lastMessage.completion_tokens = completion_tokens;
         lastMessage.speed = speed;
+        lastMessage.thoughts = thoughts;
+        lastMessage.requires_confirmation = requiresConfirmation;
+        lastMessage.pending_action_id = pendingActionId;
       }
     };
 

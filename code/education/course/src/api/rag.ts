@@ -45,6 +45,12 @@ export interface AssistantSettings {
   strict_mode_default: boolean;
   default_prompt_key: string;
   prompt_options: PromptOption[];
+  tool_options?: Array<{
+    key: string;
+    label: string;
+    description: string;
+  }>;
+  default_active_tools?: string[];
 }
 
 export function uploadReferenceFile(file: File) {
@@ -190,6 +196,11 @@ export function createAssistantChat(
         ragK?: 3 | 4 | 5;
         promptKey?: string;
         strictMode?: boolean;
+        activeTools?: string[];
+        maxTokens?: number;
+        temperature?: number;
+        topP?: number;
+        topK?: number;
       } = ''
 ) {
   const normalized =
@@ -205,12 +216,198 @@ export function createAssistantChat(
         rag_k: normalized.ragK,
         prompt_key: normalized.promptKey,
         strict_mode: normalized.strictMode,
+        active_tools: normalized.activeTools,
+        max_tokens: normalized.maxTokens,
+        temperature: normalized.temperature,
+        top_p: normalized.topP,
+        top_k: normalized.topK,
       },
       {
         timeout: 0,
       }
     )
     .then((res: any) => res.data as ChatRecord);
+}
+
+export interface ChatStreamEvent {
+  type: 'thought' | 'token' | 'final' | 'error';
+  content?: string;
+  agent?: string;
+  intent?: string;
+  routing_reason?: string;
+  tool_calls?: any[];
+  requires_confirmation?: boolean;
+  pending_action_id?: string;
+}
+
+export interface ChatAdvancedOptions {
+  systemPrompt?: string;
+  ragK?: 3 | 4 | 5;
+  promptKey?: string;
+  strictMode?: boolean;
+  activeTools?: string[];
+  maxTokens?: number;
+  temperature?: number;
+  topP?: number;
+  topK?: number;
+  selectedText?: string;
+  surroundingContext?: string;
+  videoTime?: string;
+  courseModule?: string;
+}
+
+export function createAssistantChatStream(
+  userInput: string,
+  threadId: string,
+  options: ChatAdvancedOptions,
+  onEvent: (event: ChatStreamEvent) => void
+) {
+  const normalized = options || {};
+  return new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const base = axios.defaults.baseURL || import.meta.env.VITE_API_BASE_URL || '';
+    const url = base ? `${base.replace(/\/+$/, '')}/chat/stream` : '/chat/stream';
+
+    xhr.open('POST', url, true);
+    const token = getToken();
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    }
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.setRequestHeader('Accept', 'text/event-stream');
+
+    const payload = {
+      user_input: userInput,
+      thread_id: threadId,
+      system_prompt: normalized.systemPrompt || '',
+      rag_k: normalized.ragK,
+      prompt_key: normalized.promptKey,
+      strict_mode: normalized.strictMode,
+      active_tools: normalized.activeTools,
+      max_tokens: normalized.maxTokens,
+      temperature: normalized.temperature,
+      top_p: normalized.topP,
+      top_k: normalized.topK,
+      selected_text: normalized.selectedText,
+      surrounding_context: normalized.surroundingContext,
+      video_time: normalized.videoTime,
+      course_module: normalized.courseModule,
+    };
+
+    let lastProcessedLength = 0;
+    xhr.onprogress = () => {
+      const text = xhr.responseText || '';
+      const newText = text.substring(lastProcessedLength);
+      lastProcessedLength = text.length;
+      const lines = newText.split('\n');
+      lines.forEach((line) => {
+        if (!line.startsWith('data: ')) return;
+        try {
+          const event = JSON.parse(line.substring(6)) as ChatStreamEvent;
+          onEvent(event);
+          if (event.type === 'error') {
+            reject(new Error(event.content || 'Stream error'));
+          }
+        } catch {
+          // ignore incomplete line
+        }
+      });
+    };
+
+    xhr.onload = () => {
+      if (xhr.status === 200) {
+        resolve();
+      } else {
+        reject(new Error(`HTTP ${xhr.status}: ${xhr.statusText}`));
+      }
+    };
+
+    xhr.onerror = () => reject(new Error('Network error'));
+    xhr.send(JSON.stringify(payload));
+  });
+}
+
+export function askSelectionQuery(
+  selectedText: string,
+  surroundingContext: string,
+  threadId: string,
+  options: ChatAdvancedOptions
+) {
+  const normalized = options || {};
+  return axios
+    .post('/chat/selection-query', {
+      user_input: selectedText,
+      selected_text: selectedText,
+      surrounding_context: surroundingContext,
+      video_time: normalized.videoTime,
+      course_module: normalized.courseModule,
+      thread_id: threadId,
+      system_prompt: normalized.systemPrompt || '',
+      rag_k: normalized.ragK,
+      prompt_key: normalized.promptKey,
+      strict_mode: normalized.strictMode,
+      active_tools: normalized.activeTools,
+      max_tokens: normalized.maxTokens,
+      temperature: normalized.temperature,
+      top_p: normalized.topP,
+      top_k: normalized.topK,
+    })
+    .then((res: any) => res.data as ChatRecord);
+}
+
+export function resumeChatAction(pendingActionId: string, approve = true) {
+  return axios
+    .post('/chat/resume', {
+      pending_action_id: pendingActionId,
+      approve,
+    })
+    .then((res: any) => res.data);
+}
+
+export interface InterventionEvent {
+  type: 'intervention';
+  event_type: string;
+  content: string;
+  payload?: Record<string, any>;
+  created_at: string;
+}
+
+export function streamInterventionEvents(
+  onEvent: (event: InterventionEvent) => void
+) {
+  return new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const base = axios.defaults.baseURL || import.meta.env.VITE_API_BASE_URL || '';
+    const url = base
+      ? `${base.replace(/\/+$/, '')}/chat/events/stream`
+      : '/chat/events/stream';
+    xhr.open('GET', url, true);
+    const token = getToken();
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    }
+    xhr.setRequestHeader('Accept', 'text/event-stream');
+
+    let lastProcessedLength = 0;
+    xhr.onprogress = () => {
+      const text = xhr.responseText || '';
+      const newText = text.substring(lastProcessedLength);
+      lastProcessedLength = text.length;
+      const lines = newText.split('\n');
+      lines.forEach((line) => {
+        if (!line.startsWith('data: ')) return;
+        try {
+          const event = JSON.parse(line.substring(6)) as InterventionEvent;
+          onEvent(event);
+        } catch {
+          // ignore incomplete chunks
+        }
+      });
+    };
+    xhr.onload = () => resolve();
+    xhr.onerror = () => reject(new Error('Event stream failed'));
+    xhr.send();
+  });
 }
 
 export function fetchAssistantSettings() {

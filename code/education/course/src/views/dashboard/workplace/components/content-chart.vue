@@ -22,6 +22,7 @@
   import { useI18n } from 'vue-i18n';
   import useLoading from '@/hooks/loading';
   import { queryContentData, ContentDataRecord } from '@/api/dashboard';
+  import { demoVisitsTrend } from '@/mock/demoData';
   import useChartOption from '@/hooks/chart-option';
   import { ToolTipFormatterParams } from '@/types/echarts';
   import { AnyObject } from '@/types/global';
@@ -193,7 +194,17 @@
         }
       });
     } catch (err) {
-      // you can report use errorHandler or other
+      // fallback to stable demo data to avoid empty chart during demos
+      demoVisitsTrend.forEach((el: ContentDataRecord, idx: number) => {
+        xAxis.value.push(el.x);
+        chartsData.value.push(el.y);
+        if (idx === 0) {
+          graphicElements.value[0].style.text = el.x;
+        }
+        if (idx === demoVisitsTrend.length - 1) {
+          graphicElements.value[1].style.text = el.x;
+        }
+      });
     } finally {
       setLoading(false);
     }

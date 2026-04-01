@@ -1,5 +1,8 @@
 from typing import Any, List
 import base64
+import subprocess
+import tempfile
+import textwrap
 
 from langchain.tools import tool
 from langchain_community.tools import DuckDuckGoSearchRun
@@ -22,6 +25,35 @@ def search_web(query: str) -> str:
         return f"搜索结果：{results}"
     except Exception as e:
         return f"搜索出错：{str(e)}"
+
+
+@tool
+def execute_code_sandbox(code: str, language: str = "python") -> str:
+    """Execute code in a sandbox-like subprocess with strict limits."""
+    if language.lower() not in {"python", "py"}:
+        return "当前演示版沙盒仅支持 Python 代码执行。"
+    safe_code = textwrap.dedent(code or "").strip()
+    if not safe_code:
+        return "未检测到可执行代码。"
+    try:
+        with tempfile.NamedTemporaryFile("w", suffix=".py", delete=True) as f:
+            f.write(safe_code)
+            f.flush()
+            result = subprocess.run(
+                ["python", "-I", f.name],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        stdout = (result.stdout or "").strip()
+        stderr = (result.stderr or "").strip()
+        if result.returncode != 0:
+            return f"沙盒执行失败（code={result.returncode}）：{stderr[:800]}"
+        return f"沙盒执行成功：\n{stdout[:1200] or '(无输出)'}"
+    except subprocess.TimeoutExpired:
+        return "沙盒执行超时（>5秒），已终止。"
+    except Exception as exc:
+        return f"沙盒执行异常：{exc}"
 
 
 @tool
@@ -79,19 +111,60 @@ def _generate_suggestions(behaviors: List[dict], overall_score: float) -> str:
     return "\n".join(f"- {s}" for s in suggestions)
 
 
+TOOL_REGISTRY: dict[str, Any] = {
+    "knowledge_base": query_knowledge_base,
+    "web_search": search_web,
+    "behavior_analysis": analyze_student_behavior,
+    "code_sandbox": execute_code_sandbox,
+}
+
+TOOL_KEYS_BY_AGENT: dict[AgentName, list[str]] = {
+    "code_tutor": ["knowledge_base", "web_search", "code_sandbox"],
+    "planner": ["knowledge_base"],
+    "analyst": ["knowledge_base", "behavior_analysis"],
+}
+
 TOOLS_BY_AGENT: dict[AgentName, list] = {
-    "code_tutor": [query_knowledge_base, search_web],
-    "planner": [query_knowledge_base],
-    "analyst": [query_knowledge_base, analyze_student_behavior],
+    agent: [TOOL_REGISTRY[key] for key in keys]
+    for agent, keys in TOOL_KEYS_BY_AGENT.items()
 }
 
 
-def get_llm(agent: AgentName, enable_tools: bool):
+def get_tools_for_agent(agent: AgentName, active_tools: list[str] | None = None) -> list:
+    tool_keys = TOOL_KEYS_BY_AGENT[agent]
+    if not active_tools:
+        return [TOOL_REGISTRY[key] for key in tool_keys]
+    active = set(active_tools)
+    filtered = [TOOL_REGISTRY[key] for key in tool_keys if key in active]
+    # Ensure the agent always has at least one safe baseline tool.
+    return filtered or [query_knowledge_base]
+
+
+def get_llm(
+    agent: AgentName,
+    enable_tools: bool,
+    *,
+    active_tools: list[str] | None = None,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+    top_p: float | None = None,
+    top_k: int | None = None,
+):
+    llm = (
+        _base_llm
+        if all(v is None for v in (temperature, max_tokens, top_p, top_k))
+        else ChatModelFactory.create(
+            temperature=temperature,
+            max_tokens=max_tokens,
+            top_p=top_p,
+            top_k=top_k,
+        )
+    )
     if not enable_tools:
-        return _base_llm
+        return llm
     if settings.CHAT_PROVIDER.lower() == "ollama":
-        return _base_llm
-    return _base_llm.bind_tools(TOOLS_BY_AGENT[agent])
+        return llm
+    return llm.bind_tools(get_tools_for_agent(agent, active_tools))
 
 
 def message_text(message: Any) -> str:

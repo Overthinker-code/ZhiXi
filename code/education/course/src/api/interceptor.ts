@@ -89,13 +89,19 @@ axios.interceptors.response.use(
     const isTimeout = error?.code === 'ECONNABORTED';
     const isChat = url.includes('/chat/');
     const isFeedback = url.includes('/chat/feedback');
+    const isNetworkError = !error?.response;
 
-    const message =
+    const rawMessage =
       error?.response?.data?.detail || error?.message || 'Request Error';
+    const friendlyChatMessage = '当前连接时空有点波动，请稍后再试哦~';
+    const message = isChat && isNetworkError ? friendlyChatMessage : rawMessage;
 
     // Silence chat timeout errors (LLM inference can be slow) and
-    // feedback endpoint 404s (backend may not implement it yet)
-    if (!(isChat && isTimeout) && !isFeedback) {
+    // feedback endpoint 404s (backend may not implement it yet).
+    // Also avoid showing global red error toast for chat network jitter.
+    const shouldSilenceGlobalToast =
+      (isChat && isTimeout) || isFeedback || (isChat && isNetworkError);
+    if (!shouldSilenceGlobalToast) {
       Message.error({
         content: message,
         duration: 5 * 1000,

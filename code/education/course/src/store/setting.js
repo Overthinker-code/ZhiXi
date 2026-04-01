@@ -12,6 +12,7 @@ export const useSettingStore = defineStore(
       temperature: 0.7,
       topP: 0.7,
       topK: 50,
+      activeTools: ['knowledge_base', 'web_search'],
       modelDisplay: 'deepseek-r1:7b',
       ragK: 4,
       strictMode: false,
@@ -40,10 +41,28 @@ export const useSettingStore = defineStore(
         description: '先提关键问题，再给提示与答案。',
       },
     ]);
+    const toolOptions = ref([
+      {
+        key: 'knowledge_base',
+        label: '知识库检索',
+        description: '检索课程资料与引用片段',
+      },
+      {
+        key: 'web_search',
+        label: '联网搜索',
+        description: '用于补充最新公开信息',
+      },
+      {
+        key: 'behavior_analysis',
+        label: '行为分析',
+        description: '用于课堂行为图像分析',
+      },
+    ]);
 
     return {
       settings,
       promptOptions,
+      toolOptions,
     };
   },
   {

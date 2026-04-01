@@ -1,10 +1,11 @@
 <script setup>
   import '@/assets/styles/main.scss';
   import { useChatStore } from '@/store/chat';
+  import { streamInterventionEvents } from '@/api/rag';
   import { useChat } from '@/hooks/useChat';
   import { Plus } from '@element-plus/icons-vue';
   import 'animate.css';
-  import { nextTick, onMounted, ref, watch } from 'vue';
+  import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 
   import ChatInput from './components/ChatInput.vue';
   import ChatMessage from './components/ChatMessage.vue';
@@ -23,6 +24,8 @@
     loadHistory,
     loadAssistantSettings,
     createNewChat,
+    sendSelectionQuery,
+    confirmPendingAction,
   } = useChat();
 
   const messagesContainer = ref(null);
@@ -61,6 +64,17 @@
     await regenerateLastMessage();
   };
 
+  const handleResumeAction = async ({ pendingActionId, approve }) => {
+    const result = await confirmPendingAction(pendingActionId, approve);
+    const text = result?.message || (approve ? '计划已确认。' : '已取消计划。');
+    chatStore.addMessage({
+      role: 'assistant',
+      content: text,
+      reasoning_content: '',
+      thoughts: ['🧑‍💼 HITL 已完成人工确认。'],
+    });
+  };
+
   const settingDrawer = ref(null);
   const popupMenu = ref(null);
 
@@ -69,6 +83,94 @@
   };
 
   const dialogEdit = ref(null);
+  const selectionMenu = ref({
+    visible: false,
+    text: '',
+    x: 0,
+    y: 0,
+    context: '',
+  });
+
+  const hideSelectionMenu = () => {
+    selectionMenu.value.visible = false;
+  };
+
+  const handleMouseUp = () => {
+    const selection = window.getSelection();
+    const selectedText = selection?.toString()?.trim() || '';
+    if (!selection || !selectedText || selectedText.length < 2 || selectedText.length > 200) {
+      hideSelectionMenu();
+      return;
+    }
+    try {
+      const range = selection.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      if (!rect.width && !rect.height) {
+        hideSelectionMenu();
+        return;
+      }
+      const full = selection.anchorNode?.textContent || '';
+      const anchorOffset = selection.anchorOffset || 0;
+      const start = Math.max(0, anchorOffset - 120);
+      const end = Math.min(full.length, anchorOffset + selectedText.length + 120);
+      selectionMenu.value = {
+        visible: true,
+        text: selectedText,
+        x: rect.left + window.scrollX,
+        y: rect.bottom + window.scrollY + 8,
+        context: full.slice(start, end),
+      };
+    } catch {
+      hideSelectionMenu();
+    }
+  };
+
+  const askWithSelection = async (mode) => {
+    const selectedText = selectionMenu.value.text;
+    if (!selectedText) return;
+    const prefixMap = {
+      explain: '请解释这个概念并给一个简单例子：',
+      example: '请基于当前上下文给一个更贴近课堂的例子：',
+      bug: '请从代码排错角度解释这个概念的常见问题：',
+    };
+    await sendSelectionQuery({
+      selectedText: `${prefixMap[mode] || ''}${selectedText}`,
+      surroundingContext: selectionMenu.value.context,
+      videoTime: '01:10',
+      courseModule: '并发控制',
+    });
+    hideSelectionMenu();
+    window.getSelection()?.removeAllRanges();
+  };
+
+  const handleDocumentClick = (e) => {
+    const target = e.target;
+    if (!(target instanceof HTMLElement)) return;
+    if (!target.closest('.selection-menu')) hideSelectionMenu();
+  };
+
+  onMounted(() => {
+    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('scroll', hideSelectionMenu, true);
+    document.addEventListener('click', handleDocumentClick);
+    streamInterventionEvents((event) => {
+      if (event.type !== 'intervention') return;
+      chatStore.addMessage({
+        role: 'assistant',
+        content: event.content,
+        reasoning_content: '',
+        thoughts: ['📢 Intervention_Agent 主动介入提醒。'],
+      });
+    }).catch(() => {
+      // keep silent in demo mode
+    });
+  });
+
+  onUnmounted(() => {
+    document.removeEventListener('mouseup', handleMouseUp);
+    document.removeEventListener('scroll', hideSelectionMenu, true);
+    document.removeEventListener('click', handleDocumentClick);
+  });
 </script>
 
 <template>
@@ -112,6 +214,7 @@
             index === currentMessages.length - 1 && message.role === 'assistant'
           "
           @regenerate="handleRegenerate"
+          @resume-action="handleResumeAction"
         />
       </template>
       <div v-else class="empty-state">
@@ -121,6 +224,16 @@
           <p>有什么想和我聊的吗？</p>
         </div>
       </div>
+    </div>
+
+    <div
+      v-if="selectionMenu.visible"
+      class="selection-menu"
+      :style="{ left: `${selectionMenu.x}px`, top: `${selectionMenu.y}px` }"
+    >
+      <button class="menu-btn" @click="askWithSelection('explain')">解释</button>
+      <button class="menu-btn" @click="askWithSelection('example')">举例</button>
+      <button class="menu-btn" @click="askWithSelection('bug')">找Bug</button>
     </div>
 
     <div class="chat-input-container">
@@ -350,6 +463,32 @@
     width: min(100%, 940px);
     margin: 0 auto;
     padding: 0 1.1rem 1.1rem;
+  }
+
+  .selection-menu {
+    position: fixed;
+    z-index: 1200;
+    display: inline-flex;
+    gap: 6px;
+    padding: 6px;
+    border-radius: 10px;
+    border: 1px solid rgba(17, 36, 61, 0.12);
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+
+    .menu-btn {
+      border: none;
+      border-radius: 8px;
+      padding: 4px 8px;
+      background: #edf4ff;
+      color: #11458e;
+      font-size: 12px;
+      cursor: pointer;
+
+      &:hover {
+        background: #d9e9ff;
+      }
+    }
   }
 
   @keyframes float-in {

@@ -1,4 +1,4 @@
-﻿<script setup>
+<script setup>
   import { computed, ref } from 'vue';
   import { useSettingStore } from '@/store/setting';
 
@@ -16,6 +16,12 @@
     strictMode: false,
     promptKey: 'tutor',
     customSystemPrompt: '',
+    stream: true,
+    maxTokens: 4096,
+    temperature: 0.7,
+    topP: 0.7,
+    topK: 50,
+    activeTools: [] as string[],
   });
 
   const resetDraft = () => {
@@ -24,6 +30,12 @@
       strictMode: Boolean(settingStore.settings.strictMode),
       promptKey: settingStore.settings.promptKey,
       customSystemPrompt: settingStore.settings.customSystemPrompt || '',
+      stream: Boolean(settingStore.settings.stream),
+      maxTokens: Number(settingStore.settings.maxTokens || 4096),
+      temperature: Number(settingStore.settings.temperature || 0.7),
+      topP: Number(settingStore.settings.topP || 0.7),
+      topK: Number(settingStore.settings.topK || 50),
+      activeTools: [...(settingStore.settings.activeTools || [])],
     };
   };
 
@@ -49,6 +61,12 @@
     settingStore.settings.strictMode = draft.value.strictMode;
     settingStore.settings.promptKey = draft.value.promptKey;
     settingStore.settings.customSystemPrompt = draft.value.customSystemPrompt;
+    settingStore.settings.stream = draft.value.stream;
+    settingStore.settings.maxTokens = draft.value.maxTokens;
+    settingStore.settings.temperature = draft.value.temperature;
+    settingStore.settings.topP = draft.value.topP;
+    settingStore.settings.topK = draft.value.topK;
+    settingStore.settings.activeTools = [...draft.value.activeTools];
     visible.value = false;
   };
 
@@ -96,6 +114,53 @@
         <p class="setting-tip">
           开启后必须基于检索片段并附 citation，无法满足时会拒答。
         </p>
+      </div>
+
+      <div class="setting-item">
+        <div class="setting-label-row">
+          <div class="setting-label">流式响应</div>
+          <el-switch v-model="draft.stream" />
+        </div>
+        <p class="setting-tip">开启后可展示思考链与增量生成内容。</p>
+      </div>
+
+      <div class="setting-item">
+        <div class="setting-label">MCP工具开关（演示版）</div>
+        <el-checkbox-group v-model="draft.activeTools" class="tool-grid">
+          <el-checkbox
+            v-for="tool in settingStore.toolOptions"
+            :key="tool.key"
+            :label="tool.key"
+          >
+            {{ tool.label }}
+          </el-checkbox>
+        </el-checkbox-group>
+      </div>
+
+      <div class="setting-item">
+        <div class="setting-label">Max Tokens</div>
+        <el-slider v-model="draft.maxTokens" :min="256" :max="8192" :step="128" />
+      </div>
+
+      <div class="setting-item">
+        <div class="setting-label">Temperature</div>
+        <el-slider
+          v-model="draft.temperature"
+          :min="0"
+          :max="1"
+          :step="0.1"
+          show-input
+        />
+      </div>
+
+      <div class="setting-item">
+        <div class="setting-label">Top-P</div>
+        <el-slider v-model="draft.topP" :min="0" :max="1" :step="0.1" show-input />
+      </div>
+
+      <div class="setting-item">
+        <div class="setting-label">Top-K</div>
+        <el-slider v-model="draft.topK" :min="1" :max="100" :step="1" show-input />
       </div>
 
       <div class="setting-item">
@@ -187,6 +252,12 @@
     display: flex;
     justify-content: flex-end;
     gap: 10px;
+  }
+
+  .tool-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
   }
 
   .level-group :deep(.el-radio-button__inner) {
