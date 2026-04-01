@@ -42,3 +42,28 @@ export interface ContentDistribution {
 export function queryContentDistribution() {
   return axios.get<ContentDistribution>('/dashboard/content-distribution');
 }
+
+export interface DashboardOverview {
+  onlineContent: number;
+  putIn: number;
+  newDay: number;
+  growthRate: number;
+}
+
+export function queryDashboardOverview() {
+  return axios.get<DashboardOverview>('/api/dashboard/overview');
+}
+
+export interface CategoryItem {
+  name: string;
+  value: number;
+}
+
+export interface DashboardCategories {
+  total: number;
+  categories: CategoryItem[];
+}
+
+export function queryDashboardCategories() {
+  return axios.get<DashboardCategories>('/api/dashboard/categories');
+}

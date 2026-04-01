@@ -16,20 +16,21 @@
 </template>
 
 <script lang="ts" setup>
-  import { computed, ref } from 'vue';
+  import { ref, computed, onMounted } from 'vue';
   import { useI18n } from 'vue-i18n';
   import useLoading from '@/hooks/loading';
   import useChartOption from '@/hooks/chart-option';
   import { queryContentDistribution } from '@/api/dashboard';
+  import { demoResourceDistribution } from '@/mock/demoData';
 
-  const { loading } = useLoading();
+  const { loading, setLoading } = useLoading(true);
   const { t } = useI18n();
-  const total = ref(9285);
+  const total = ref(demoResourceDistribution.total);
   const distribution = ref({
-    resources: 5179,
-    courses: 2301,
-    homework: 1116,
-    discussions: 689,
+    resources: demoResourceDistribution.items.find((x) => x.name === 'resources')?.value || 5179,
+    courses: demoResourceDistribution.items.find((x) => x.name === 'courses')?.value || 2301,
+    homework: demoResourceDistribution.items.find((x) => x.name === 'homework')?.value || 1116,
+    discussions: demoResourceDistribution.items.find((x) => x.name === 'discussions')?.value || 689,
   });
 
   const chartItems = computed(() => [
@@ -64,6 +65,7 @@
   ]);
 
   const fetchDistribution = async () => {
+    setLoading(true);
     try {
       const { data } = await queryContentDistribution();
       total.value = data.total;
@@ -74,12 +76,12 @@
         if (item.name === 'discussions')
           distribution.value.discussions = item.value;
       });
-    } catch (error) {
-      // keep fallback values for demo stability
+    } catch (err) {
+      // keep demo fallback values
+    } finally {
+      setLoading(false);
     }
   };
-
-  fetchDistribution();
 
   const { chartOption } = useChartOption((isDark) => {
     return {
@@ -147,9 +149,14 @@
             borderWidth: 1,
           },
           data: chartItems.value,
+          data: chartItems.value,
         },
       ],
     };
+  });
+
+  onMounted(() => {
+    fetchDistribution();
   });
 </script>
 

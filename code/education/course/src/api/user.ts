@@ -13,8 +13,17 @@ export interface LoginRes {
 
 export interface RegisterData {
   email: string;
-  full_name: string;
   password: string;
+  full_name?: string;
+}
+
+export interface PasswordRecoveryData {
+  email: string;
+}
+
+export interface ResetPasswordData {
+  token: string;
+  new_password: string;
 }
 
 export function login(data: LoginData) {
@@ -51,4 +60,12 @@ export function getUserInfo() {
 
 export function getMenuList() {
   return Promise.resolve({ data: [] as RouteRecordNormalized[] });
+}
+
+export function register(data: RegisterData) {
+  return axios.post('/users/signup', data);
+}
+
+export function resetPassword(data: ResetPasswordData) {
+  return axios.post('/reset-password/', data);
 }
