@@ -133,6 +133,10 @@ class Settings(BaseSettings):
     CHAT_DEFAULT_MAX_TOKENS: int = 16384
     # 主管结构化路由 JSON 不需要过长，单独设上限即可
     CHAT_SUPERVISOR_MAX_TOKENS: int = 4096
+    # 协作图多次累加消息后发给模型前截断，降低上下文窗口撑爆概率（首条一般为 RAG 系统消息）
+    CHAT_CONTEXT_HEAD_MESSAGES: int = 1
+    CHAT_CONTEXT_TAIL_MESSAGES: int = 16
+    CHAT_CONTEXT_MAX_MESSAGE_CHARS: int = 8000
 
     EMBEDDINGS_PROVIDER: str = "ollama"
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"

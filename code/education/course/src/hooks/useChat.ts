@@ -258,9 +258,15 @@ export function useChat() {
         );
         chatStore.updateLastMessage(content, reasoning, 0, 0);
       }
-    } catch (error) {
+    } catch (error: unknown) {
+      const detail =
+        error instanceof Error && error.message
+          ? error.message.slice(0, 500)
+          : '';
       chatStore.updateLastMessage(
-        '当前连接时空有点波动，请稍后再试哦~'
+        detail
+          ? `生成未成功：${detail}`
+          : '当前连接时空有点波动，请稍后再试哦~'
       );
     } finally {
       chatStore.setIsLoading(false);

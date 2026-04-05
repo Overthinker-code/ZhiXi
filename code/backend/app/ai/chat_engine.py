@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 import re
 from typing import Any, cast
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, START, StateGraph
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import ToolNode
@@ -41,6 +42,99 @@ _JSON_OBJ = re.compile(r"\{[\s\S]*\}")
 
 # 防止异常超大请求；实际需要更长可在 .env 提高 CHAT_DEFAULT_MAX_TOKENS
 _MAX_OUTPUT_CAP = 131072
+
+
+def _supervisor_fallback_decision() -> SupervisorDecision:
+    return SupervisorDecision(
+        next_agent="knowledge_mentor",
+        routing_reason="主管结构化输出解析失败或调用异常，已默认交给学科讲师处理。",
+        task_breakdown="",
+    )
+
+
+def _strip_llm_json_fences(text: str) -> str:
+    s = (text or "").strip()
+    if not s.startswith("```"):
+        return s
+    s = re.sub(r"^```[a-zA-Z0-9]*\s*", "", s, count=1)
+    s = re.sub(r"\s*```\s*$", "", s)
+    return s.strip()
+
+
+def _parse_supervisor_decision_safe(text: str) -> SupervisorDecision:
+    """主管路由 JSON 容错解析，永不抛异常。"""
+    fb = _supervisor_fallback_decision()
+    raw_in = _strip_llm_json_fences(str(text or "").strip())
+    if not raw_in:
+        return fb
+    candidates = [raw_in]
+    m = _JSON_OBJ.search(raw_in)
+    if m and m.group() not in candidates:
+        candidates.append(m.group())
+    for cand in candidates:
+        try:
+            return SupervisorDecision.model_validate_json(cand)
+        except Exception:
+            pass
+        try:
+            i, j = cand.find("{"), cand.rfind("}")
+            if i < 0 or j <= i:
+                continue
+            blob = cand[i : j + 1]
+            obj = json.loads(blob)
+            if isinstance(obj, dict):
+                return SupervisorDecision.model_validate(obj)
+        except Exception:
+            continue
+    return fb
+
+
+def _truncate_message_contents(messages: list, max_chars: int) -> list:
+    """单条消息正文过长时截断，避免工具返回/RAG 块撑爆上下文。"""
+    out: list = []
+    for m in messages:
+        c = getattr(m, "content", "")
+        if isinstance(c, str):
+            if len(c) <= max_chars:
+                out.append(m)
+                continue
+            nc = c[:max_chars] + "\n…[已截断]"
+        elif isinstance(c, list):
+            flat = message_text(m)
+            if len(flat) <= max_chars:
+                out.append(m)
+                continue
+            nc = flat[:max_chars] + "\n…[已截断]"
+        else:
+            out.append(m)
+            continue
+        if isinstance(m, SystemMessage):
+            out.append(SystemMessage(content=nc))
+        elif isinstance(m, HumanMessage):
+            out.append(HumanMessage(content=nc))
+        elif isinstance(m, AIMessage):
+            out.append(
+                AIMessage(content=nc, tool_calls=getattr(m, "tool_calls", None))
+            )
+        elif isinstance(m, ToolMessage):
+            out.append(ToolMessage(content=nc, tool_call_id=m.tool_call_id))
+        else:
+            out.append(m)
+    return out
+
+
+def _clip_messages_for_llm(messages: list) -> list:
+    """保留首段（通常为 RAG 系统消息）+ 最近若干条，再按单条长度截断。"""
+    if not messages:
+        return messages
+    h = max(1, int(settings.CHAT_CONTEXT_HEAD_MESSAGES))
+    t = max(4, int(settings.CHAT_CONTEXT_TAIL_MESSAGES))
+    mc = max(512, int(settings.CHAT_CONTEXT_MAX_MESSAGE_CHARS))
+    if len(messages) <= h + t:
+        clipped = list(messages)
+    else:
+        clipped = list(messages[:h]) + list(messages[-t:])
+    return _truncate_message_contents(clipped, mc)
 
 
 def _resolve_max_tokens(request: ChatRequest) -> int:
@@ -100,46 +194,41 @@ def _rag_system_message(request: ChatRequest) -> SystemMessage:
     return SystemMessage(content=body)
 
 
-def _parse_supervisor_decision(text: str) -> SupervisorDecision:
-    raw = (text or "").strip()
-    try:
-        return SupervisorDecision.model_validate_json(raw)
-    except Exception:
-        m = _JSON_OBJ.search(raw)
-        if m:
-            return SupervisorDecision.model_validate_json(m.group())
-        raise
-
-
 def _invoke_supervisor_llm(state: State) -> SupervisorDecision:
-    trim = state["messages"][-24:] if len(state["messages"]) > 24 else state["messages"]
-    human_sys = SystemMessage(
-        content=SUPERVISOR_SYSTEM_PROMPT
-        + "\n\n当前 task_breakdown 草稿（可覆盖）：\n"
-        + (state.get("task_breakdown") or "（空）")
-    )
-    messages = [human_sys, *trim]
-
-    worker_cap = int(state.get("max_tokens") or settings.CHAT_DEFAULT_MAX_TOKENS)
-    sup_cap = max(
-        1024,
-        min(worker_cap, int(settings.CHAT_SUPERVISOR_MAX_TOKENS)),
-    )
-    llm = ChatModelFactory.create(
-        temperature=state.get("temperature") if state.get("temperature") is not None else 0.25,
-        max_tokens=sup_cap,
-    )
     try:
-        structured = llm.with_structured_output(SupervisorDecision)
-        decision = structured.invoke(messages)
-        if isinstance(decision, SupervisorDecision):
-            return decision
-        if isinstance(decision, dict):
-            return SupervisorDecision.model_validate(decision)
+        trim = _clip_messages_for_llm(state["messages"])
+        human_sys = SystemMessage(
+            content=SUPERVISOR_SYSTEM_PROMPT
+            + "\n\n当前 task_breakdown 草稿（可覆盖）：\n"
+            + (state.get("task_breakdown") or "（空）")
+        )
+        messages = [human_sys, *trim]
+
+        worker_cap = int(state.get("max_tokens") or settings.CHAT_DEFAULT_MAX_TOKENS)
+        sup_cap = max(
+            1024,
+            min(worker_cap, int(settings.CHAT_SUPERVISOR_MAX_TOKENS)),
+        )
+        llm = ChatModelFactory.create(
+            temperature=state.get("temperature") if state.get("temperature") is not None else 0.25,
+            max_tokens=sup_cap,
+        )
+        try:
+            structured = llm.with_structured_output(SupervisorDecision)
+            decision = structured.invoke(messages)
+            if isinstance(decision, SupervisorDecision):
+                return decision
+            if isinstance(decision, dict):
+                try:
+                    return SupervisorDecision.model_validate(decision)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        resp = llm.invoke(messages)
+        return _parse_supervisor_decision_safe(str(resp.content or ""))
     except Exception:
-        pass
-    resp = llm.invoke(messages)
-    return _parse_supervisor_decision(str(resp.content or ""))
+        return _supervisor_fallback_decision()
 
 
 def supervisor_node(state: State) -> dict[str, Any]:
@@ -218,7 +307,16 @@ def finalize_node(state: State) -> dict[str, Any]:
     resolved = (state.get("resolved_system_prompt") or "").strip()
     if resolved:
         prelude.insert(0, SystemMessage(content=f"全局辅导偏好：\n{resolved}"))
-    msg = llm.invoke([*prelude, *state["messages"]])
+    clipped = _clip_messages_for_llm(state["messages"])
+    try:
+        msg = llm.invoke([*prelude, *clipped])
+    except Exception as e:
+        msg = AIMessage(
+            content=(
+                "汇总阶段暂时无法完成（常见于上下文过长或服务限制）。请尝试缩短问题或开启新对话。"
+                f"\n（详情：{str(e)[:400]}）"
+            )
+        )
     return {
         "messages": [msg],
         "selected_agent": "supervisor",
@@ -263,7 +361,16 @@ def _invoke_worker(state: State, agent: str) -> dict[str, Any]:
         top_p=state.get("top_p"),
         top_k=state.get("top_k"),
     )
-    ai_msg = llm.invoke([sys, *state["messages"]])
+    clipped = _clip_messages_for_llm(state["messages"])
+    try:
+        ai_msg = llm.invoke([sys, *clipped])
+    except Exception as e:
+        ai_msg = AIMessage(
+            content=(
+                f"本专员（{AGENT_CONFIG[agent]['label']}）处理时出错，已跳过本轮模型调用。"
+                f" 可稍后重试或缩短问题。详情：{str(e)[:500]}"
+            )
+        )
     return {
         "messages": [ai_msg],
         "selected_agent": agent,

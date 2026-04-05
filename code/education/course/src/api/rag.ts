@@ -4,6 +4,9 @@ import { getToken } from '@/utils/auth';
 /** 会话列表/设置/知识库列表等：尽快失败，避免 AI 页长时间白屏等待 */
 const READ_TIMEOUT_MS = 8000;
 
+/** LangGraph 多轮 + 多专员 + 工具，整体可能远长于普通对话；fetch 无默认超时，此处显式放宽 */
+const CHAT_STREAM_TIMEOUT_MS = 600000;
+
 export type ReferenceScope = 'system' | 'personal';
 export type ReferenceScopeFilter = 'all' | ReferenceScope;
 
@@ -269,61 +272,80 @@ async function consumeAssistantChatStream(
   onEvent: (event: ChatStreamEvent) => void
 ): Promise<void> {
   const token = getToken();
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'text/event-stream',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(errText || `HTTP ${res.status}`);
-  }
-  if (!res.body) {
-    throw new Error('响应无正文（流不可用）');
-  }
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buf = '';
-
-  const handleLine = (line: string) => {
-    const trimmed = line.replace(/\r$/, '').trim();
-    if (!trimmed.startsWith('data: ')) return;
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => {
+    controller.abort();
+  }, CHAT_STREAM_TIMEOUT_MS);
+  try {
+    let res: Response;
     try {
-      const event = JSON.parse(trimmed.slice(6)) as ChatStreamEvent;
-      onEvent(event);
-      if (event.type === 'error') {
-        throw new Error(event.content || 'Stream error');
+      res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+    } catch (e: unknown) {
+      if (e instanceof Error && e.name === 'AbortError') {
+        throw new Error(
+          `对话生成超时（>${Math.round(CHAT_STREAM_TIMEOUT_MS / 1000)}s），请稍后重试或缩短问题`
+        );
       }
-    } catch (e) {
-      if (e instanceof SyntaxError) return;
       throw e;
     }
-  };
-
-  /* SSE 只能顺序 read；此处 await 不可避免 */
-  /* eslint-disable no-await-in-loop */
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (value?.length) {
-      buf += decoder.decode(value, { stream: true });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(errText || `HTTP ${res.status}`);
     }
+    if (!res.body) {
+      throw new Error('响应无正文（流不可用）');
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    const handleLine = (line: string) => {
+      const trimmed = line.replace(/\r$/, '').trim();
+      if (!trimmed.startsWith('data: ')) return;
+      try {
+        const event = JSON.parse(trimmed.slice(6)) as ChatStreamEvent;
+        onEvent(event);
+        if (event.type === 'error') {
+          throw new Error(event.content || 'Stream error');
+        }
+      } catch (e) {
+        if (e instanceof SyntaxError) return;
+        throw e;
+      }
+    };
+
+    /* SSE 只能顺序 read；此处 await 不可避免 */
+    /* eslint-disable no-await-in-loop */
     for (;;) {
-      const nl = buf.indexOf('\n');
-      if (nl < 0) break;
-      const line = buf.slice(0, nl);
-      buf = buf.slice(nl + 1);
-      handleLine(line);
+      const { value, done } = await reader.read();
+      if (value?.length) {
+        buf += decoder.decode(value, { stream: true });
+      }
+      for (;;) {
+        const nl = buf.indexOf('\n');
+        if (nl < 0) break;
+        const line = buf.slice(0, nl);
+        buf = buf.slice(nl + 1);
+        handleLine(line);
+      }
+      if (done) break;
     }
-    if (done) break;
-  }
-  /* eslint-enable no-await-in-loop */
+    /* eslint-enable no-await-in-loop */
 
-  if (buf.trim()) {
-    handleLine(buf);
+    if (buf.trim()) {
+      handleLine(buf);
+    }
+  } finally {
+    window.clearTimeout(timer);
   }
 }
 
