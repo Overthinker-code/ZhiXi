@@ -21,7 +21,6 @@ from app.ai.chat_tools import (
 from app.core.config import settings
 from app.services.chat_model_factory import ChatModelFactory
 from app.services.rag_service import RAGService
-from app.services.rag_tools import set_rag_request_context, reset_rag_request_context
 from app.services.pending_actions import pending_action_store
 from app.services.chat_semantic_cache import chat_semantic_cache
 
@@ -29,6 +28,8 @@ rag_service = RAGService()
 
 _WORKERS = frozenset({"code_tutor", "knowledge_mentor", "planner", "analyst"})
 _MAX_SUPERVISOR_ENTRIES = 12
+# 连续「解析失败兜底」达到此次数则强制 FINISH，避免 supervisor ↔ worker 死循环
+_MAX_SUPERVISOR_FALLBACK_STREAK = 2
 
 # 工具节点进入时推送（stream_mode=updates 下每个 ToolNode 执行前可见）
 _TOOL_NODE_PIPELINE_MSG: dict[str, str] = {
@@ -53,27 +54,26 @@ def _supervisor_fallback_decision() -> SupervisorDecision:
 
 
 def _strip_llm_json_fences(text: str) -> str:
+    """去掉 ``` / ```json 围栏及常见 Markdown 包裹，降低主管 JSON 解析失败率。"""
     s = (text or "").strip()
-    if not s.startswith("```"):
-        return s
-    s = re.sub(r"^```[a-zA-Z0-9]*\s*", "", s, count=1)
-    s = re.sub(r"\s*```\s*$", "", s)
+    s = re.sub(r"```(?:json|JSON)?\s*", "", s)
+    s = re.sub(r"\s*```", "", s)
     return s.strip()
 
 
-def _parse_supervisor_decision_safe(text: str) -> SupervisorDecision:
-    """主管路由 JSON 容错解析，永不抛异常。"""
+def _parse_supervisor_decision_safe(text: str) -> tuple[SupervisorDecision, bool]:
+    """主管路由 JSON 容错解析，永不抛异常。返回 (决策, 是否使用了兜底)。"""
     fb = _supervisor_fallback_decision()
     raw_in = _strip_llm_json_fences(str(text or "").strip())
     if not raw_in:
-        return fb
+        return fb, True
     candidates = [raw_in]
     m = _JSON_OBJ.search(raw_in)
     if m and m.group() not in candidates:
         candidates.append(m.group())
     for cand in candidates:
         try:
-            return SupervisorDecision.model_validate_json(cand)
+            return SupervisorDecision.model_validate_json(cand), False
         except Exception:
             pass
         try:
@@ -83,10 +83,10 @@ def _parse_supervisor_decision_safe(text: str) -> SupervisorDecision:
             blob = cand[i : j + 1]
             obj = json.loads(blob)
             if isinstance(obj, dict):
-                return SupervisorDecision.model_validate(obj)
+                return SupervisorDecision.model_validate(obj), False
         except Exception:
             continue
-    return fb
+    return fb, True
 
 
 def _truncate_message_contents(messages: list, max_chars: int) -> list:
@@ -161,7 +161,8 @@ SUPERVISOR_SYSTEM_PROMPT = """你是「知曦学习系统」的主管 Supervisor
 1. 结合完整对话历史判断「下一步谁最合适」；复合型需求可拆成多轮，一轮只派一名专员。
 2. 若专员已在消息中充分覆盖且无需他人补位，输出 FINISH 进入汇总阶段。
 3. 信息严重不足时可先派 knowledge_mentor 或 code_tutor 做澄清式回答，再视情况 FINISH 或继续派其他人。
-4. 输出必须严格符合约定的结构化字段（next_agent / routing_reason / task_breakdown），不要输出其它闲聊。"""
+4. 输出必须严格符合约定的结构化字段（next_agent / routing_reason / task_breakdown），不要输出其它闲聊；禁止用 Markdown 代码块包裹 JSON。
+5. 【必须遵守】当你认为下属专员已经给出足够信息、或问题已可收束、或不宜再换人时，你 MUST 将 next_agent 设为字符串 FINISH（仅此一种写法），进入汇总；不要继续派发专员。"""
 
 
 def _rag_system_message(request: ChatRequest) -> SystemMessage:
@@ -194,7 +195,8 @@ def _rag_system_message(request: ChatRequest) -> SystemMessage:
     return SystemMessage(content=body)
 
 
-def _invoke_supervisor_llm(state: State) -> SupervisorDecision:
+def _invoke_supervisor_llm(state: State) -> tuple[SupervisorDecision, bool]:
+    """返回 (决策, 是否走了解析/调用失败兜底)。"""
     try:
         trim = _clip_messages_for_llm(state["messages"])
         human_sys = SystemMessage(
@@ -217,10 +219,10 @@ def _invoke_supervisor_llm(state: State) -> SupervisorDecision:
             structured = llm.with_structured_output(SupervisorDecision)
             decision = structured.invoke(messages)
             if isinstance(decision, SupervisorDecision):
-                return decision
+                return decision, False
             if isinstance(decision, dict):
                 try:
-                    return SupervisorDecision.model_validate(decision)
+                    return SupervisorDecision.model_validate(decision), False
                 except Exception:
                     pass
         except Exception:
@@ -228,7 +230,7 @@ def _invoke_supervisor_llm(state: State) -> SupervisorDecision:
         resp = llm.invoke(messages)
         return _parse_supervisor_decision_safe(str(resp.content or ""))
     except Exception:
-        return _supervisor_fallback_decision()
+        return _supervisor_fallback_decision(), True
 
 
 def supervisor_node(state: State) -> dict[str, Any]:
@@ -244,6 +246,7 @@ def supervisor_node(state: State) -> dict[str, Any]:
                 "【主管拆解】协作轮次已达上限，转入【汇总生成】阶段。",
             ],
             "supervisor_entries": entries,
+            "supervisor_fallback_streak": 0,
         }
 
     fa = state.get("force_agent")
@@ -262,10 +265,26 @@ def supervisor_node(state: State) -> dict[str, Any]:
             ],
             "supervisor_entries": entries,
             "force_agent_consumed": True,
+            "supervisor_fallback_streak": 0,
         }
 
-    decision = _invoke_supervisor_llm(state)
+    decision, used_fallback = _invoke_supervisor_llm(state)
+    prev_fb = int(state.get("supervisor_fallback_streak") or 0)
+    streak = prev_fb + 1 if used_fallback else 0
+
     na = decision.next_agent
+    routing_reason = (decision.routing_reason or "").strip()
+    task_bd = decision.task_breakdown.strip()
+
+    forced_finish_parse = False
+    if used_fallback and streak >= _MAX_SUPERVISOR_FALLBACK_STREAK:
+        na = "FINISH"
+        routing_reason = (
+            "主管路由结构化输出连续解析失败，已强制结束协作并进入汇总；"
+            "将基于当前对话中已有专员发言生成答复。"
+        )
+        forced_finish_parse = True
+
     if na not in _WORKERS and na != "FINISH":
         na = "FINISH"
     label = (
@@ -274,19 +293,22 @@ def supervisor_node(state: State) -> dict[str, Any]:
         else "结束协作"
     )
     step = (
-        f"【主管拆解】路由说明：{decision.routing_reason.strip() or '主管决策'}\n"
+        f"【主管拆解】路由说明：{routing_reason or '主管决策'}\n"
         f"→ 下一步：{'【汇总生成】' if na == 'FINISH' else f'{label}（{na}）'}"
     )
-    if decision.task_breakdown.strip():
-        step += f"\n子任务清单：{decision.task_breakdown.strip()}"
+    if forced_finish_parse:
+        step += "\n（已连续触发解析兜底，防止循环，强制汇总。）"
+    elif task_bd:
+        step += f"\n子任务清单：{task_bd}"
 
     return {
         "next_agent": na,
-        "task_breakdown": decision.task_breakdown.strip() or state.get("task_breakdown", ""),
-        "routing_reason": decision.routing_reason.strip(),
+        "task_breakdown": task_bd or state.get("task_breakdown", ""),
+        "routing_reason": routing_reason,
         "intent": "supervisor_route",
         "intermediate_steps": [thought_super, step],
         "supervisor_entries": entries,
+        "supervisor_fallback_streak": streak,
     }
 
 
@@ -307,6 +329,16 @@ def finalize_node(state: State) -> dict[str, Any]:
     resolved = (state.get("resolved_system_prompt") or "").strip()
     if resolved:
         prelude.insert(0, SystemMessage(content=f"全局辅导偏好：\n{resolved}"))
+    rr = (state.get("routing_reason") or "").strip()
+    if rr and ("强制" in rr or "解析失败" in rr or "连续" in rr):
+        prelude.append(
+            SystemMessage(
+                content=(
+                    "【内部提示】本次因主管路由解析异常已强制进入汇总。"
+                    "请优先整合对话中专员已给出的有效内容作答；勿再编排新专员；不足处诚实说明。"
+                )
+            )
+        )
     clipped = _clip_messages_for_llm(state["messages"])
     try:
         msg = llm.invoke([*prelude, *clipped])
@@ -356,6 +388,9 @@ def _invoke_worker(state: State, agent: str) -> dict[str, Any]:
         agent,
         enable_tools=True,
         active_tools=state.get("active_tools"),
+        rag_user_id=state.get("rag_user_id"),
+        rag_is_admin=bool(state.get("rag_is_admin")),
+        rag_k=int(state.get("rag_top_k") or 4),
         temperature=state.get("temperature"),
         max_tokens=state.get("max_tokens"),
         top_p=state.get("top_p"),
@@ -408,7 +443,13 @@ def _make_worker_node(agent_name: str):
     return _run
 
 
-def _build_supervisor_graph(active_tools: list[str] | None = None):
+def _build_supervisor_graph(
+    active_tools: list[str] | None = None,
+    *,
+    rag_user_id: str | None = None,
+    rag_is_admin: bool = False,
+    rag_k: int = 4,
+):
     builder = StateGraph(State)
     builder.add_node("supervisor", supervisor_node)
     builder.add_node("finalize", finalize_node)
@@ -421,7 +462,13 @@ def _build_supervisor_graph(active_tools: list[str] | None = None):
     ]
     for name, tools_node in worker_specs:
         builder.add_node(name, _make_worker_node(name))
-        tlist = get_tools_for_agent(name, active_tools)
+        tlist = get_tools_for_agent(
+            name,
+            active_tools,
+            rag_user_id=rag_user_id,
+            rag_is_admin=rag_is_admin,
+            rag_k=rag_k,
+        )
         builder.add_node(tools_node, ToolNode(tools=tlist))
         builder.add_conditional_edges(
             name,
@@ -514,8 +561,12 @@ def _initial_state(request: ChatRequest, user_text: str) -> State:
             "top_p": request.top_p,
             "top_k": request.top_k,
             "supervisor_entries": 0,
+            "supervisor_fallback_streak": 0,
             "strict_mode": bool(request.strict_mode),
             "collaboration_last_worker": "",
+            "rag_user_id": request.user_id,
+            "rag_is_admin": bool(request.is_admin),
+            "rag_top_k": int(request.rag_k),
         },
     )
 
@@ -536,47 +587,46 @@ def chat_service(request: ChatRequest) -> ChatResponse:
             thoughts=["⚡ 语义缓存命中，直接返回历史高相似答案。"],
         )
 
-    graph = _build_supervisor_graph(request.active_tools)
+    graph = _build_supervisor_graph(
+        request.active_tools,
+        rag_user_id=request.user_id,
+        rag_is_admin=request.is_admin,
+        rag_k=int(request.rag_k),
+    )
     thread_config = {"configurable": {"thread_id": request.thread_id}}
     initial = _initial_state(request, request.user_input)
 
-    token_user_id, token_is_admin, token_top_k = set_rag_request_context(
-        request.user_id, request.is_admin, request.rag_k
+    result = graph.invoke(initial, config=thread_config)
+    final_text = message_text(result["messages"][-1])
+    thoughts = list(result.get("intermediate_steps") or [])
+    response = ChatResponse(
+        response=final_text,
+        tool_calls=collect_tool_calls(result.get("messages", [])),
+        agent=result.get("selected_agent", "supervisor"),
+        intent=result.get("intent", "collaborative_supervisor"),
+        routing_reason=result.get("routing_reason", "") or "协作完成",
+        thoughts=thoughts,
     )
-    try:
-        result = graph.invoke(initial, config=thread_config)
-        final_text = message_text(result["messages"][-1])
-        thoughts = list(result.get("intermediate_steps") or [])
-        response = ChatResponse(
-            response=final_text,
-            tool_calls=collect_tool_calls(result.get("messages", [])),
-            agent=result.get("selected_agent", "supervisor"),
-            intent=result.get("intent", "collaborative_supervisor"),
-            routing_reason=result.get("routing_reason", "") or "协作完成",
-            thoughts=thoughts,
+    if _requires_hitl(
+        response.intent,
+        request.user_input,
+        result.get("task_breakdown") or "",
+        result.get("collaboration_last_worker") or "",
+    ):
+        action = pending_action_store.create(
+            user_id=request.user_id or "anonymous",
+            thread_id=request.thread_id,
+            plan_text=response.response,
         )
-        if _requires_hitl(
-            response.intent,
-            request.user_input,
-            result.get("task_breakdown") or "",
-            result.get("collaboration_last_worker") or "",
-        ):
-            action = pending_action_store.create(
-                user_id=request.user_id or "anonymous",
-                thread_id=request.thread_id,
-                plan_text=response.response,
-            )
-            response.requires_confirmation = True
-            response.pending_action_id = action.action_id
-            response.thoughts = [
-                *response.thoughts,
-                "⏸ 已触发 HITL，请用户确认后写入日历。",
-            ]
+        response.requires_confirmation = True
+        response.pending_action_id = action.action_id
+        response.thoughts = [
+            *response.thoughts,
+            "⏸ 已触发 HITL，请用户确认后写入日历。",
+        ]
 
-        chat_semantic_cache.put(request.user_input, response.response)
-        return response
-    finally:
-        reset_rag_request_context(token_user_id, token_is_admin, token_top_k)
+    chat_semantic_cache.put(request.user_input, response.response)
+    return response
 
 
 def stream_chat_events(request: ChatRequest):
@@ -632,13 +682,15 @@ def stream_chat_events(request: ChatRequest):
         }
         return
 
-    graph = _build_supervisor_graph(req.active_tools)
+    graph = _build_supervisor_graph(
+        req.active_tools,
+        rag_user_id=req.user_id,
+        rag_is_admin=req.is_admin,
+        rag_k=int(req.rag_k),
+    )
     thread_config = {"configurable": {"thread_id": str(req.thread_id)}}
     initial = _initial_state(req, req.user_input)
 
-    token_user_id, token_is_admin, token_top_k = set_rag_request_context(
-        req.user_id, req.is_admin, req.rag_k
-    )
     final_state: dict | None = None
     emitted_tool_nodes: set[str] = set()
     try:
@@ -673,8 +725,6 @@ def stream_chat_events(request: ChatRequest):
     except Exception as exc:
         yield {"type": "error", "content": f"处理失败：{exc}"}
         return
-    finally:
-        reset_rag_request_context(token_user_id, token_is_admin, token_top_k)
 
     if not final_state:
         yield {"type": "error", "content": "协作图未返回状态"}

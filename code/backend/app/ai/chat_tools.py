@@ -1,4 +1,4 @@
-from typing import Any, List
+from typing import Any, List, Optional
 import base64
 import subprocess
 import tempfile
@@ -9,7 +9,7 @@ from langchain_community.tools import DuckDuckGoSearchRun
 
 from app.core.config import settings
 from app.services.chat_model_factory import ChatModelFactory
-from app.services.rag_tools import query_knowledge_base
+from app.services.rag_tools import run_query_knowledge_base
 from app.services.behavior_analysis import behavior_service
 
 search = DuckDuckGoSearchRun()
@@ -110,8 +110,27 @@ def _generate_suggestions(behaviors: List[dict], overall_score: float) -> str:
     return "\n".join(f"- {s}" for s in suggestions)
 
 
+def make_query_knowledge_base_tool(
+    user_id: Optional[str],
+    is_admin: bool,
+    rag_top_k: int,
+):
+    """按请求闭包 RAG 上下文，避免 ContextVar 在 LangGraph/异步边界 reset 崩溃。"""
+
+    @tool
+    def query_knowledge_base(question: str) -> str:
+        """RAG retrieval tool. Returns retrieved chunks with citation labels."""
+        return run_query_knowledge_base(
+            question,
+            user_id=user_id,
+            is_admin=is_admin,
+            top_k=rag_top_k,
+        )
+
+    return query_knowledge_base
+
+
 TOOL_REGISTRY: dict[str, Any] = {
-    "knowledge_base": query_knowledge_base,
     "web_search": search_web,
     "behavior_analysis": analyze_student_behavior,
     "code_sandbox": execute_code_sandbox,
@@ -124,20 +143,50 @@ TOOL_KEYS_BY_AGENT: dict[str, list[str]] = {
     "analyst": ["knowledge_base", "behavior_analysis"],
 }
 
-TOOLS_BY_AGENT: dict[str, list] = {
-    agent: [TOOL_REGISTRY[key] for key in keys]
-    for agent, keys in TOOL_KEYS_BY_AGENT.items()
-}
+
+def _resolve_tool_impl(
+    key: str,
+    *,
+    rag_user_id: Optional[str],
+    rag_is_admin: bool,
+    rag_k: int,
+) -> Any:
+    if key == "knowledge_base":
+        return make_query_knowledge_base_tool(rag_user_id, rag_is_admin, rag_k)
+    return TOOL_REGISTRY[key]
 
 
-def get_tools_for_agent(agent: str, active_tools: list[str] | None = None) -> list:
+def get_tools_for_agent(
+    agent: str,
+    active_tools: list[str] | None = None,
+    *,
+    rag_user_id: Optional[str] = None,
+    rag_is_admin: bool = False,
+    rag_k: int = 4,
+) -> list:
     tool_keys = TOOL_KEYS_BY_AGENT.get(agent) or ["knowledge_base"]
     if not active_tools:
-        return [TOOL_REGISTRY[key] for key in tool_keys]
+        return [
+            _resolve_tool_impl(
+                key,
+                rag_user_id=rag_user_id,
+                rag_is_admin=rag_is_admin,
+                rag_k=rag_k,
+            )
+            for key in tool_keys
+        ]
     active = set(active_tools)
-    filtered = [TOOL_REGISTRY[key] for key in tool_keys if key in active]
-    # Ensure the agent always has at least one safe baseline tool.
-    return filtered or [query_knowledge_base]
+    filtered_keys = [key for key in tool_keys if key in active]
+    keys = filtered_keys or ["knowledge_base"]
+    return [
+        _resolve_tool_impl(
+            key,
+            rag_user_id=rag_user_id,
+            rag_is_admin=rag_is_admin,
+            rag_k=rag_k,
+        )
+        for key in keys
+    ]
 
 
 def get_llm(
@@ -145,6 +194,9 @@ def get_llm(
     enable_tools: bool,
     *,
     active_tools: list[str] | None = None,
+    rag_user_id: Optional[str] = None,
+    rag_is_admin: bool = False,
+    rag_k: int = 4,
     temperature: float | None = None,
     max_tokens: int | None = None,
     top_p: float | None = None,
@@ -164,7 +216,15 @@ def get_llm(
         return llm
     if settings.CHAT_PROVIDER.lower() == "ollama":
         return llm
-    return llm.bind_tools(get_tools_for_agent(agent, active_tools))
+    return llm.bind_tools(
+        get_tools_for_agent(
+            agent,
+            active_tools,
+            rag_user_id=rag_user_id,
+            rag_is_admin=rag_is_admin,
+            rag_k=rag_k,
+        )
+    )
 
 
 def message_text(message: Any) -> str:

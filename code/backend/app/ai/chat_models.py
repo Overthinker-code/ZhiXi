@@ -27,8 +27,12 @@ class State(TypedDict):
     top_p: float | None
     top_k: int | None
     supervisor_entries: int
+    supervisor_fallback_streak: int
     strict_mode: bool
     collaboration_last_worker: str
+    rag_user_id: str | None
+    rag_is_admin: bool
+    rag_top_k: int
 
 
 class SupervisorDecision(BaseModel):
