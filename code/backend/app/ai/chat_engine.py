@@ -17,6 +17,7 @@ from app.ai.chat_tools import (
     message_text,
     collect_tool_calls,
 )
+from app.core.config import settings
 from app.services.chat_model_factory import ChatModelFactory
 from app.services.rag_service import RAGService
 from app.services.rag_tools import set_rag_request_context, reset_rag_request_context
@@ -37,6 +38,21 @@ _TOOL_NODE_PIPELINE_MSG: dict[str, str] = {
 }
 
 _JSON_OBJ = re.compile(r"\{[\s\S]*\}")
+
+# 防止异常超大请求；实际需要更长可在 .env 提高 CHAT_DEFAULT_MAX_TOKENS
+_MAX_OUTPUT_CAP = 131072
+
+
+def _resolve_max_tokens(request: ChatRequest) -> int:
+    """请求未传或非法时使用配置默认值，保证专员/汇总始终带显式上限（避免部分模型默认过短）。"""
+    mt = request.max_tokens
+    if mt is not None and mt > 0:
+        return min(int(mt), _MAX_OUTPUT_CAP)
+    return min(int(settings.CHAT_DEFAULT_MAX_TOKENS), _MAX_OUTPUT_CAP)
+
+
+def _with_resolved_max_tokens(request: ChatRequest) -> ChatRequest:
+    return request.model_copy(update={"max_tokens": _resolve_max_tokens(request)})
 
 
 SUPERVISOR_SYSTEM_PROMPT = """你是「知曦学习系统」的主管 Supervisor（包工头），负责编排多位专员协同完成学生问题。
@@ -104,9 +120,14 @@ def _invoke_supervisor_llm(state: State) -> SupervisorDecision:
     )
     messages = [human_sys, *trim]
 
+    worker_cap = int(state.get("max_tokens") or settings.CHAT_DEFAULT_MAX_TOKENS)
+    sup_cap = max(
+        1024,
+        min(worker_cap, int(settings.CHAT_SUPERVISOR_MAX_TOKENS)),
+    )
     llm = ChatModelFactory.create(
         temperature=state.get("temperature") if state.get("temperature") is not None else 0.25,
-        max_tokens=min(state.get("max_tokens") or 768, 1024),
+        max_tokens=sup_cap,
     )
     try:
         structured = llm.with_structured_output(SupervisorDecision)
@@ -393,6 +414,7 @@ def _initial_state(request: ChatRequest, user_text: str) -> State:
 
 
 def chat_service(request: ChatRequest) -> ChatResponse:
+    request = _with_resolved_max_tokens(request)
     if request.selected_text:
         request.user_input = _build_selection_prompt(request)
 
@@ -451,6 +473,7 @@ def chat_service(request: ChatRequest) -> ChatResponse:
 
 
 def stream_chat_events(request: ChatRequest):
+    request = _with_resolved_max_tokens(request)
     user_input = request.user_input
     if request.selected_text:
         user_input = _build_selection_prompt(request)

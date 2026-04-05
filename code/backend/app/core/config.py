@@ -129,6 +129,10 @@ class Settings(BaseSettings):
     CHAT_PROVIDER: str = "ollama"
     CHAT_MODEL: str = "DeepSeek-R1"
     CHAT_TEMPERATURE: float = 0.0
+    # 前端未传 max_tokens 时，协作图各专员/汇总使用的默认输出上限（可按机器与模型调大）
+    CHAT_DEFAULT_MAX_TOKENS: int = 16384
+    # 主管结构化路由 JSON 不需要过长，单独设上限即可
+    CHAT_SUPERVISOR_MAX_TOKENS: int = 4096
 
     EMBEDDINGS_PROVIDER: str = "ollama"
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
