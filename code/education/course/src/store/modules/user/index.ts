@@ -37,6 +37,7 @@ const useUserStore = defineStore('user', {
     certification: undefined,
     role: '',
     token: undefined,
+    profileHydrated: false,
   }),
 
   getters: {
@@ -67,13 +68,13 @@ const useUserStore = defineStore('user', {
       const storedToken = localStorage.getItem(TOKEN_KEY);
       if (storedToken) {
         this.token = storedToken;
-        localStorage.removeItem(TOKEN_KEY);
       }
       return this.token;
     },
 
     setToken(token: string) {
       this.token = token;
+      localStorage.setItem(TOKEN_KEY, token);
     },
 
     clearToken() {
@@ -105,6 +106,7 @@ const useUserStore = defineStore('user', {
         certification: data.certification ?? 1,
         phone: data.phone || '-',
         role: data?.is_superuser ? 'admin' : 'user',
+        profileHydrated: true,
       });
     },
 
@@ -112,6 +114,7 @@ const useUserStore = defineStore('user', {
       try {
         const res = await userLogin(loginForm);
         this.setToken(res.data.token);
+        this.profileHydrated = false;
       } catch (err) {
         this.clearToken();
         throw err;

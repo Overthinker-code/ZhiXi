@@ -1,6 +1,7 @@
+import operator
 from typing import Annotated, Literal, List, Dict, Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 from langgraph.graph.message import add_messages
 
@@ -8,17 +9,38 @@ from app.ai.chat_runtime import AgentName, DEFAULT_PROMPT_KEY
 
 
 class State(TypedDict):
+    """LangGraph 协作态：主管派发 next_agent，专员回写 messages，全程累积 intermediate_steps。"""
+
     messages: Annotated[list, add_messages]
+    next_agent: str
+    task_breakdown: str
+    intermediate_steps: Annotated[list[str], operator.add]
     selected_agent: AgentName
     intent: str
     routing_reason: str
     resolved_system_prompt: str
     force_agent: AgentName | None
+    force_agent_consumed: bool
     active_tools: list[str] | None
     max_tokens: int | None
     temperature: float | None
     top_p: float | None
     top_k: int | None
+    supervisor_entries: int
+    strict_mode: bool
+    collaboration_last_worker: str
+
+
+class SupervisorDecision(BaseModel):
+    """主管 LLM 结构化输出：下一步路由。"""
+
+    next_agent: Literal[
+        "code_tutor", "knowledge_mentor", "planner", "analyst", "FINISH"
+    ] = Field(description="下一步执行的专员，或 FINISH 表示进入汇总")
+    routing_reason: str = Field(default="", description="中文简要说明为何如此路由")
+    task_breakdown: str = Field(
+        default="", description="当前对用户请求的拆解要点，可多条换行"
+    )
 
 
 class ChatRequest(BaseModel):
@@ -46,9 +68,9 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     response: str
     tool_calls: List[Dict[str, Any]] = []
-    agent: AgentName = "code_tutor"
-    intent: str = "general_tutoring"
-    routing_reason: str = "默认路由"
+    agent: AgentName = "supervisor"
+    intent: str = "collaborative_supervisor"
+    routing_reason: str = "主管协作编排"
     thoughts: List[str] = []
     requires_confirmation: bool = False
     pending_action_id: str | None = None

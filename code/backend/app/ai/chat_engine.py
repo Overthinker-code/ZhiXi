@@ -1,21 +1,15 @@
-from typing import Any, List
+from __future__ import annotations
+
 import re
+from typing import Any, cast
 
-from langgraph.graph import StateGraph, END, START
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langgraph.graph import END, START, StateGraph
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.prebuilt import ToolNode, tools_condition
-from langchain_core.messages import SystemMessage
+from langgraph.prebuilt import ToolNode
 
-from app.core.config import settings
-from app.ai.chat_models import State, ChatRequest, ChatResponse
-from app.ai.chat_runtime import (
-    AgentName,
-    AGENT_CONFIG,
-    CODE_KEYWORDS,
-    PLANNER_KEYWORDS,
-    ANALYST_KEYWORDS,
-    resolve_system_prompt,
-)
+from app.ai.chat_models import ChatRequest, ChatResponse, State, SupervisorDecision
+from app.ai.chat_runtime import AGENT_CONFIG, resolve_system_prompt
 from app.ai.chat_tools import (
     TOOL_KEYS_BY_AGENT,
     get_tools_for_agent,
@@ -23,68 +17,222 @@ from app.ai.chat_tools import (
     message_text,
     collect_tool_calls,
 )
-from app.services.rag_tools import set_rag_request_context, reset_rag_request_context
+from app.services.chat_model_factory import ChatModelFactory
 from app.services.rag_service import RAGService
+from app.services.rag_tools import set_rag_request_context, reset_rag_request_context
 from app.services.pending_actions import pending_action_store
 from app.services.chat_semantic_cache import chat_semantic_cache
 
 rag_service = RAGService()
 
+_WORKERS = frozenset({"code_tutor", "knowledge_mentor", "planner", "analyst"})
+_MAX_SUPERVISOR_ENTRIES = 12
 
-_CITATION_RE = re.compile(r"\[citation:(\d+)\]")
+# 工具节点进入时推送（stream_mode=updates 下每个 ToolNode 执行前可见）
+_TOOL_NODE_PIPELINE_MSG: dict[str, str] = {
+    "code_tutor_tools": "【知识检索】代码导师正在调用知识库 / 联网 / 代码沙盒等工具。",
+    "knowledge_mentor_tools": "【知识检索】学科讲师正在调用知识库或联网检索。",
+    "planner_tools": "【知识检索】规划师正在检索知识库以支撑计划建议。",
+    "analyst_tools": "【学情分析】分析师正在调用知识库或行为分析类工具。",
+}
+
+_JSON_OBJ = re.compile(r"\{[\s\S]*\}")
 
 
-def _extract_citation_ids(text: str) -> set[int]:
-    return {int(m.group(1)) for m in _CITATION_RE.finditer(text or "")}
+SUPERVISOR_SYSTEM_PROMPT = """你是「知曦学习系统」的主管 Supervisor（包工头），负责编排多位专员协同完成学生问题。
+
+下属专员（每次只派其中一人发言，或判定可以结束）：
+- code_tutor：编程语言报错、调试、运行失败、SQL/Python/Java/TS 等工程问题。
+- knowledge_mentor：跨学科知识点讲解、概念辨析、教材型问答（经管、数理、文史、自然科学等），非代码排错优先找 TA。
+- planner：学习计划、进度、复习节奏、里程碑与任务拆解。
+- analyst：学习行为、状态评估、风险与数据化解读。
+
+规则：
+1. 结合完整对话历史判断「下一步谁最合适」；复合型需求可拆成多轮，一轮只派一名专员。
+2. 若专员已在消息中充分覆盖且无需他人补位，输出 FINISH 进入汇总阶段。
+3. 信息严重不足时可先派 knowledge_mentor 或 code_tutor 做澄清式回答，再视情况 FINISH 或继续派其他人。
+4. 输出必须严格符合约定的结构化字段（next_agent / routing_reason / task_breakdown），不要输出其它闲聊。"""
 
 
-def _is_strict_answer_valid(text: str, max_citation: int) -> bool:
-    ids = _extract_citation_ids(text)
-    if not ids:
-        return False
-    return all(1 <= citation_id <= max_citation for citation_id in ids)
+def _rag_system_message(request: ChatRequest) -> SystemMessage:
+    results = rag_service.query_knowledge_base(
+        query=request.user_input,
+        k=request.rag_k,
+        user_id=request.user_id,
+        is_admin=request.is_admin,
+    )
+    strict_effective = bool(request.strict_mode) and bool(results)
+    if results:
+        context_chunks = "\n\n".join(
+            f"[citation:{item['citation_id']}] {item['content']}" for item in results
+        )
+        preamble = (
+            "【知识库上下文】下列为与问题相关的知识库片段（有帮助时请引用并标注 [citation:x]）。\n"
+            "若片段不足以完整回答，可结合通用知识补充，并区分资料与推断。\n"
+        )
+    else:
+        context_chunks = "（本次未检索到相关知识库片段。）"
+        preamble = (
+            "【知识库上下文】未命中片段时，请基于通用知识与教学规范作答；勿编造未上传的专属材料。\n"
+        )
+    body = f"{preamble}\n{context_chunks}"
+    if strict_effective:
+        body += (
+            "\n\n【严格模式】仅依据上述片段作答；关键结论须带 [citation:x]；"
+            "证据不足则说明知识库证据不足。"
+        )
+    return SystemMessage(content=body)
 
 
-def _strict_reject_message() -> str:
+def _parse_supervisor_decision(text: str) -> SupervisorDecision:
+    raw = (text or "").strip()
+    try:
+        return SupervisorDecision.model_validate_json(raw)
+    except Exception:
+        m = _JSON_OBJ.search(raw)
+        if m:
+            return SupervisorDecision.model_validate_json(m.group())
+        raise
+
+
+def _invoke_supervisor_llm(state: State) -> SupervisorDecision:
+    trim = state["messages"][-24:] if len(state["messages"]) > 24 else state["messages"]
+    human_sys = SystemMessage(
+        content=SUPERVISOR_SYSTEM_PROMPT
+        + "\n\n当前 task_breakdown 草稿（可覆盖）：\n"
+        + (state.get("task_breakdown") or "（空）")
+    )
+    messages = [human_sys, *trim]
+
+    llm = ChatModelFactory.create(
+        temperature=state.get("temperature") if state.get("temperature") is not None else 0.25,
+        max_tokens=min(state.get("max_tokens") or 768, 1024),
+    )
+    try:
+        structured = llm.with_structured_output(SupervisorDecision)
+        decision = structured.invoke(messages)
+        if isinstance(decision, SupervisorDecision):
+            return decision
+        if isinstance(decision, dict):
+            return SupervisorDecision.model_validate(decision)
+    except Exception:
+        pass
+    resp = llm.invoke(messages)
+    return _parse_supervisor_decision(str(resp.content or ""))
+
+
+def supervisor_node(state: State) -> dict[str, Any]:
+    entries = state.get("supervisor_entries", 0) + 1
+    thought_super = "【主管拆解】主管正在分析对话历史并决定下一步由哪位专员处理。"
+
+    if entries > _MAX_SUPERVISOR_ENTRIES:
+        return {
+            "next_agent": "FINISH",
+            "routing_reason": "已达到协作深度上限，结束派发并进入汇总。",
+            "intermediate_steps": [
+                thought_super,
+                "【主管拆解】协作轮次已达上限，转入【汇总生成】阶段。",
+            ],
+            "supervisor_entries": entries,
+        }
+
+    fa = state.get("force_agent")
+    if (
+        fa
+        and fa in _WORKERS
+        and not state.get("force_agent_consumed")
+    ):
+        label = AGENT_CONFIG[fa]["label"]
+        return {
+            "next_agent": fa,
+            "routing_reason": "用户指定由该专员优先处理。",
+            "intermediate_steps": [
+                thought_super,
+                f"【主管拆解】按用户指定移交 → {label}（{fa}）。",
+            ],
+            "supervisor_entries": entries,
+            "force_agent_consumed": True,
+        }
+
+    decision = _invoke_supervisor_llm(state)
+    na = decision.next_agent
+    if na not in _WORKERS and na != "FINISH":
+        na = "FINISH"
+    label = (
+        AGENT_CONFIG[na]["label"]
+        if na in _WORKERS
+        else "结束协作"
+    )
+    step = (
+        f"【主管拆解】路由说明：{decision.routing_reason.strip() or '主管决策'}\n"
+        f"→ 下一步：{'【汇总生成】' if na == 'FINISH' else f'{label}（{na}）'}"
+    )
+    if decision.task_breakdown.strip():
+        step += f"\n子任务清单：{decision.task_breakdown.strip()}"
+
+    return {
+        "next_agent": na,
+        "task_breakdown": decision.task_breakdown.strip() or state.get("task_breakdown", ""),
+        "routing_reason": decision.routing_reason.strip(),
+        "intent": "supervisor_route",
+        "intermediate_steps": [thought_super, step],
+        "supervisor_entries": entries,
+    }
+
+
+def finalize_node(state: State) -> dict[str, Any]:
+    llm = ChatModelFactory.create(
+        temperature=state.get("temperature"),
+        max_tokens=state.get("max_tokens"),
+    )
+    sys = SystemMessage(
+        content=(
+            "你是知曦学习系统的主管，负责向学生输出最终答复。\n"
+            "请综合对话中各位专员已给出的结论与建议，整理成结构清晰、语气友好、可直接展示的回复；"
+            "避免暴露内部角色名与流程术语。\n"
+            "若仍有未覆盖的问题，诚实说明并给出可行建议。"
+        )
+    )
+    prelude: list = [sys]
+    resolved = (state.get("resolved_system_prompt") or "").strip()
+    if resolved:
+        prelude.insert(0, SystemMessage(content=f"全局辅导偏好：\n{resolved}"))
+    msg = llm.invoke([*prelude, *state["messages"]])
+    return {
+        "messages": [msg],
+        "selected_agent": "supervisor",
+        "intent": "final_summary",
+        "routing_reason": state.get("routing_reason", "") or "协作汇总",
+        "intermediate_steps": [
+            "【汇总生成】主管正在综合各专员发言，生成面向学生的最终答复。"
+        ],
+    }
+
+
+_WORKER_DONE_TAG: dict[str, str] = {
+    "code_tutor": "【代码验证】代码导师本轮处理完成，结果已同步至主管。",
+    "knowledge_mentor": "【学科讲解】学科知识讲师本轮处理完成，已同步至主管。",
+    "planner": "【学习规划】学习规划师本轮处理完成，已同步至主管。",
+    "analyst": "【学情分析】学习分析师本轮处理完成，已同步至主管。",
+}
+
+
+def _team_member_prefix(agent: str) -> str:
+    label = AGENT_CONFIG[agent]["label"]
     return (
-        "抱歉，当前检索结果不足以支撑可引用回答。"
-        "请改写问题并补充关键词，或先上传更相关资料。"
+        f"你是团队成员「{label}」（{agent}）。主管已将你加入协作线程。\n"
+        "请基于对话与知识库上下文完成本轮任务，将结论写入助手消息；"
+        "保持专业、简洁，勿编造未给出的数据。"
     )
 
 
-def _latest_user_text(messages: list) -> str:
-    for message in reversed(messages):
-        msg_type = getattr(message, "type", "")
-        role = getattr(message, "role", "")
-        if msg_type == "human" or role == "user":
-            return message_text(message)
-    return message_text(messages[-1]) if messages else ""
-
-
-def route_intent(
-    user_input: str, force_agent: AgentName | None = None
-) -> tuple[AgentName, str, str]:
-    if force_agent in AGENT_CONFIG:
-        return force_agent, "manual_override", "根据 force_agent 参数强制路由"
-
-    normalized = (user_input or "").strip().lower()
-    if any(keyword in normalized for keyword in CODE_KEYWORDS):
-        return "code_tutor", "code_error_support", "检测到代码/报错相关关键词"
-    if any(keyword in normalized for keyword in PLANNER_KEYWORDS):
-        return "planner", "study_plan_adjustment", "检测到学习计划/进度相关关键词"
-    if any(keyword in normalized for keyword in ANALYST_KEYWORDS):
-        return "analyst", "learning_status_analysis", "检测到学习行为/分析相关关键词"
-    return "code_tutor", "general_tutoring", "默认分配至代码导师处理泛化学习问答"
-
-
-def _build_agent_messages(state: State, agent: AgentName) -> list:
+def _invoke_worker(state: State, agent: str) -> dict[str, Any]:
     role_prompt = AGENT_CONFIG[agent]["prompt"]
+    merged = f"{_team_member_prefix(agent)}\n\n{role_prompt}"
     resolved = (state.get("resolved_system_prompt") or "").strip()
-    merged_system_prompt = role_prompt if not resolved else f"{resolved}\n\n{role_prompt}"
-    return [SystemMessage(content=merged_system_prompt), *state["messages"]]
-
-
-def _invoke_agent(state: State, agent: AgentName):
+    if resolved:
+        merged = f"{resolved}\n\n{merged}"
+    sys = SystemMessage(content=merged)
     llm = get_llm(
         agent,
         enable_tools=True,
@@ -94,124 +242,80 @@ def _invoke_agent(state: State, agent: AgentName):
         top_p=state.get("top_p"),
         top_k=state.get("top_k"),
     )
-    ai_msg = llm.invoke(_build_agent_messages(state, agent))
-    return {"messages": [ai_msg]}
-
-
-def router_node(state: State):
-    agent, intent, reason = route_intent(
-        _latest_user_text(state.get("messages", [])), state.get("force_agent")
-    )
+    ai_msg = llm.invoke([sys, *state["messages"]])
     return {
+        "messages": [ai_msg],
         "selected_agent": agent,
-        "intent": intent,
-        "routing_reason": reason,
+        "intent": f"worker_{agent}",
+        "collaboration_last_worker": agent,
+        "intermediate_steps": [
+            _WORKER_DONE_TAG.get(
+                agent,
+                f"【专员】{AGENT_CONFIG[agent]['label']} 本轮处理完成，已同步至主管。",
+            )
+        ],
     }
 
 
-def code_tutor_node(state: State):
-    return _invoke_agent(state, "code_tutor")
+def _worker_tools_or_supervisor(state: State) -> str:
+    last = state["messages"][-1]
+    if isinstance(last, AIMessage) and getattr(last, "tool_calls", None):
+        return "tools"
+    return "supervisor"
 
 
-def planner_node(state: State):
-    return _invoke_agent(state, "planner")
+def _supervisor_branch(state: State) -> str:
+    n = (state.get("next_agent") or "FINISH").strip()
+    if n == "FINISH":
+        return "finalize"
+    if n in _WORKERS:
+        return n
+    return "finalize"
 
 
-def analyst_node(state: State):
-    return _invoke_agent(state, "analyst")
+def _make_worker_node(agent_name: str):
+    def _run(state: State) -> dict[str, Any]:
+        return _invoke_worker(state, agent_name)
+
+    return _run
 
 
-def summarize_tool_result(state: State):
-    tool_outputs = message_text(state.get("messages", [])[-1])
-    summary_prompt = {
-        "role": "user",
-        "content": (
-            "你从工具获得了如下信息：\n\n"
-            f"{tool_outputs}\n\n"
-            "请将其总结为一段简洁回复，帮助用户理解，并给出下一步建议。"
-        ),
-    }
-    selected_agent: AgentName = state.get("selected_agent", "code_tutor")
-    llm = get_llm(
-        selected_agent,
-        enable_tools=False,
-        temperature=state.get("temperature"),
-        max_tokens=state.get("max_tokens"),
-        top_p=state.get("top_p"),
-        top_k=state.get("top_k"),
-    )
-    summary_msg = llm.invoke([summary_prompt])
-    return {"messages": [summary_msg]}
-
-
-def _route_from_router(state: State):
-    return state.get("selected_agent", "code_tutor")
-
-
-def _route_after_summarize(state: State):
-    return state.get("selected_agent", "code_tutor")
-
-
-def _build_multi_agent_graph(active_tools: list[str] | None = None):
-    code_tools = get_tools_for_agent("code_tutor", active_tools)
-    planner_tools = get_tools_for_agent("planner", active_tools)
-    analyst_tools = get_tools_for_agent("analyst", active_tools)
-
+def _build_supervisor_graph(active_tools: list[str] | None = None):
     builder = StateGraph(State)
-    builder.add_node("router", router_node)
-    builder.add_node("code_tutor", code_tutor_node)
-    builder.add_node("planner", planner_node)
-    builder.add_node("analyst", analyst_node)
-    builder.add_node("code_tutor_tools", ToolNode(tools=code_tools))
-    builder.add_node("planner_tools", ToolNode(tools=planner_tools))
-    builder.add_node("analyst_tools", ToolNode(tools=analyst_tools))
-    builder.add_node("summarize", summarize_tool_result)
+    builder.add_node("supervisor", supervisor_node)
+    builder.add_node("finalize", finalize_node)
 
-    builder.add_edge(START, "router")
+    worker_specs = [
+        ("code_tutor", "code_tutor_tools"),
+        ("knowledge_mentor", "knowledge_mentor_tools"),
+        ("planner", "planner_tools"),
+        ("analyst", "analyst_tools"),
+    ]
+    for name, tools_node in worker_specs:
+        builder.add_node(name, _make_worker_node(name))
+        tlist = get_tools_for_agent(name, active_tools)
+        builder.add_node(tools_node, ToolNode(tools=tlist))
+        builder.add_conditional_edges(
+            name,
+            _worker_tools_or_supervisor,
+            {"tools": tools_node, "supervisor": "supervisor"},
+        )
+        builder.add_edge(tools_node, name)
+
+    builder.add_edge(START, "supervisor")
     builder.add_conditional_edges(
-        "router",
-        _route_from_router,
+        "supervisor",
+        _supervisor_branch,
         {
             "code_tutor": "code_tutor",
+            "knowledge_mentor": "knowledge_mentor",
             "planner": "planner",
             "analyst": "analyst",
+            "finalize": "finalize",
         },
     )
-
-    builder.add_conditional_edges(
-        "code_tutor",
-        tools_condition,
-        {"tools": "code_tutor_tools", "__end__": END},
-    )
-    builder.add_conditional_edges(
-        "planner",
-        tools_condition,
-        {"tools": "planner_tools", "__end__": END},
-    )
-    builder.add_conditional_edges(
-        "analyst",
-        tools_condition,
-        {"tools": "analyst_tools", "__end__": END},
-    )
-
-    builder.add_edge("code_tutor_tools", "summarize")
-    builder.add_edge("planner_tools", "summarize")
-    builder.add_edge("analyst_tools", "summarize")
-
-    builder.add_conditional_edges(
-        "summarize",
-        _route_after_summarize,
-        {
-            "code_tutor": "code_tutor",
-            "planner": "planner",
-            "analyst": "analyst",
-        },
-    )
-
+    builder.add_edge("finalize", END)
     return builder.compile(checkpointer=MemorySaver())
-
-
-multi_agent_graph = _build_multi_agent_graph()
 
 
 def _build_selection_prompt(request: ChatRequest) -> str:
@@ -235,122 +339,56 @@ def _build_selection_prompt(request: ChatRequest) -> str:
     return prompt
 
 
-def _requires_hitl(intent: str, user_input: str) -> bool:
-    if intent != "study_plan_adjustment":
+def _requires_hitl(
+    intent: str,
+    user_input: str,
+    task_breakdown: str = "",
+    last_worker: str = "",
+) -> bool:
+    if (last_worker or "") != "planner":
         return False
-    text = (user_input or "").lower()
-    return any(k in text for k in ["进度", "复习", "计划", "落后", "冲刺"])
+    blob = f"{user_input or ''}\n{task_breakdown or ''}".lower()
+    return any(k in blob for k in ["进度", "复习", "计划", "落后", "冲刺"])
 
 
-def _tool_status_text(agent: AgentName, active_tools: list[str] | None) -> tuple[list[str], list[str]]:
-    allowed = TOOL_KEYS_BY_AGENT[agent]
+def _tool_status_text(
+    active_tools: list[str] | None,
+) -> tuple[list[str], list[str]]:
+    allowed = sorted({k for keys in TOOL_KEYS_BY_AGENT.values() for k in keys})
     if not active_tools:
         return allowed, []
-    enabled = [key for key in allowed if key in set(active_tools)]
-    disabled = [key for key in allowed if key not in set(active_tools)]
+    active = set(active_tools)
+    enabled = [k for k in allowed if k in active]
+    disabled = [k for k in allowed if k not in active]
     return enabled, disabled
 
 
-def _chat_with_ollama_rag(
-    request: ChatRequest, selected_agent: AgentName, intent: str, routing_reason: str
-) -> ChatResponse:
-    results = rag_service.query_knowledge_base(
-        query=request.user_input,
-        k=request.rag_k,
-        user_id=request.user_id,
-        is_admin=request.is_admin,
-    )
-
-    # 无检索结果时仍允许模型用自身知识作答；严格「仅引用库」仅在确有片段时生效
-    strict_effective = bool(request.strict_mode) and bool(results)
-
-    if results:
-        context_chunks = "\n\n".join(
-            f"[citation:{item['citation_id']}] {item['content']}" for item in results
-        )
-        kb_preamble = (
-            "下列为与问题相关的知识库片段（有帮助时请引用并标注 [citation:x]）。\n"
-            "若片段不足以完整回答，可结合你的通用知识补充，并区分资料内容与常识推断。"
-        )
-    else:
-        context_chunks = "（本次未检索到相关知识库片段。）"
-        kb_preamble = (
-            "请基于你的通用知识与教学能力直接回答；不要编造不存在的课程文件内容。\n"
-            "若用户问题强依赖某份未上传的专属材料，可简要说明并尽量给出通用层面的帮助。"
-        )
-
-    agent_prompt = AGENT_CONFIG[selected_agent]["prompt"]
-    prompt = (
-        f"角色要求：{agent_prompt}\n"
-        f"{kb_preamble}\n"
-        "要求：\n"
-        "1. 回答应准确、有帮助；有片段时优先使用片段内容。\n"
-        "2. 使用片段时请在关键结论后标注 [citation:x]。\n"
-        "3. 无片段或信息不足时诚实说明，并尽量给出可用的解释或思路。\n\n"
-        f"参考内容：\n{context_chunks}\n\n"
-        f"用户问题：{request.user_input}"
-    )
-    if strict_effective:
-        prompt += (
-            "\n\n严格约束："
-            "\n1) 只能依据上述知识片段作答。"
-            "\n2) 每个关键结论后必须标注 [citation:x]。"
-            "\n3) 至少使用 1 个 citation。"
-            "\n4) 若证据不足，直接说明‘知识库证据不足’。"
-        )
-
-    messages: List[Any] = []
-    resolved_system_prompt = resolve_system_prompt(
-        request.prompt_key, request.system_prompt
-    )
-    if resolved_system_prompt:
-        messages.append(SystemMessage(content=resolved_system_prompt))
-    messages.append({"role": "user", "content": prompt})
-
-    llm = get_llm(
-        selected_agent,
-        enable_tools=False,
-        temperature=request.temperature,
-        max_tokens=request.max_tokens,
-        top_p=request.top_p,
-        top_k=request.top_k,
-    )
-    ai_msg = llm.invoke(messages)
-    if strict_effective:
-        max_citation = len(results)
-        first_pass = str(ai_msg.content or "")
-        if not _is_strict_answer_valid(first_pass, max_citation):
-            repair_prompt = (
-                "请重写答案并严格遵守："
-                "只依据知识片段，不得编造；"
-                "每个关键结论都要带 [citation:x]；"
-                "citation 编号必须在可用范围内。"
-                f"\n可用 citation 范围: 1..{max_citation}"
-                f"\n用户问题: {request.user_input}"
-                f"\n上一次答案: {first_pass}"
-            )
-            repair_messages: List[Any] = []
-            if resolved_system_prompt:
-                repair_messages.append(SystemMessage(content=resolved_system_prompt))
-            repair_messages.append({"role": "user", "content": repair_prompt})
-            ai_msg = llm.invoke(repair_messages)
-
-            repaired = str(ai_msg.content or "")
-            if not _is_strict_answer_valid(repaired, max_citation):
-                return ChatResponse(
-                    response=_strict_reject_message(),
-                    tool_calls=[],
-                    agent=selected_agent,
-                    intent=intent,
-                    routing_reason=routing_reason,
-                )
-
-    return ChatResponse(
-        response=str(ai_msg.content or ""),
-        tool_calls=[],
-        agent=selected_agent,
-        intent=intent,
-        routing_reason=routing_reason,
+def _initial_state(request: ChatRequest, user_text: str) -> State:
+    rag_msg = _rag_system_message(request)
+    preset = resolve_system_prompt(request.prompt_key, request.system_prompt)
+    messages: list = [rag_msg, HumanMessage(content=user_text)]
+    return cast(
+        State,
+        {
+            "messages": messages,
+            "next_agent": "",
+            "task_breakdown": "",
+            "intermediate_steps": [],
+            "selected_agent": "code_tutor",
+            "intent": "",
+            "routing_reason": "",
+            "resolved_system_prompt": preset or "",
+            "force_agent": request.force_agent,
+            "force_agent_consumed": False,
+            "active_tools": request.active_tools,
+            "max_tokens": request.max_tokens,
+            "temperature": request.temperature,
+            "top_p": request.top_p,
+            "top_k": request.top_k,
+            "supervisor_entries": 0,
+            "strict_mode": bool(request.strict_mode),
+            "collaboration_last_worker": "",
+        },
     )
 
 
@@ -358,75 +396,42 @@ def chat_service(request: ChatRequest) -> ChatResponse:
     if request.selected_text:
         request.user_input = _build_selection_prompt(request)
 
-    selected_agent, intent, routing_reason = route_intent(
-        request.user_input, request.force_agent
-    )
-
     cache_hit = chat_semantic_cache.get(request.user_input)
     if cache_hit:
         return ChatResponse(
             response=cache_hit.answer,
             tool_calls=[],
-            agent=selected_agent,
-            intent=intent,
+            agent="supervisor",
+            intent="semantic_cache",
             routing_reason=f"语义缓存命中（hit_count={cache_hit.hit_count}）",
             thoughts=["⚡ 语义缓存命中，直接返回历史高相似答案。"],
         )
 
-    if settings.CHAT_PROVIDER.lower() == "ollama":
-        response = _chat_with_ollama_rag(
-            request,
-            selected_agent=selected_agent,
-            intent=intent,
-            routing_reason=routing_reason,
-        )
-        chat_semantic_cache.put(request.user_input, response.response)
-        return response
-
-    state: State = {
-        "messages": [{"role": "user", "content": request.user_input}],
-        "selected_agent": selected_agent,
-        "intent": intent,
-        "routing_reason": routing_reason,
-        "resolved_system_prompt": resolve_system_prompt(
-            request.prompt_key, request.system_prompt
-        ),
-        "force_agent": request.force_agent,
-        "active_tools": request.active_tools,
-        "max_tokens": request.max_tokens,
-        "temperature": request.temperature,
-        "top_p": request.top_p,
-        "top_k": request.top_k,
-    }
+    graph = _build_supervisor_graph(request.active_tools)
     thread_config = {"configurable": {"thread_id": request.thread_id}}
+    initial = _initial_state(request, request.user_input)
 
     token_user_id, token_is_admin, token_top_k = set_rag_request_context(
         request.user_id, request.is_admin, request.rag_k
     )
     try:
-        graph = (
-            multi_agent_graph
-            if not request.active_tools
-            else _build_multi_agent_graph(request.active_tools)
-        )
-        result = graph.invoke(state, config=thread_config)
-        final_agent = result.get("selected_agent", selected_agent)
-        final_intent = result.get("intent", intent)
-        final_reason = result.get("routing_reason", routing_reason)
-
-        last_message = result["messages"][-1]
+        result = graph.invoke(initial, config=thread_config)
+        final_text = message_text(result["messages"][-1])
+        thoughts = list(result.get("intermediate_steps") or [])
         response = ChatResponse(
-            response=message_text(last_message),
+            response=final_text,
             tool_calls=collect_tool_calls(result.get("messages", [])),
-            agent=final_agent,
-            intent=final_intent,
-            routing_reason=final_reason,
-            thoughts=[
-                f"🤔 Router 判定意图：{final_intent}",
-                f"📤 分配 Agent：{final_agent}",
-            ],
+            agent=result.get("selected_agent", "supervisor"),
+            intent=result.get("intent", "collaborative_supervisor"),
+            routing_reason=result.get("routing_reason", "") or "协作完成",
+            thoughts=thoughts,
         )
-        if _requires_hitl(final_intent, request.user_input):
+        if _requires_hitl(
+            response.intent,
+            request.user_input,
+            result.get("task_breakdown") or "",
+            result.get("collaboration_last_worker") or "",
+        ):
             action = pending_action_store.create(
                 user_id=request.user_id or "anonymous",
                 thread_id=request.thread_id,
@@ -434,7 +439,10 @@ def chat_service(request: ChatRequest) -> ChatResponse:
             )
             response.requires_confirmation = True
             response.pending_action_id = action.action_id
-            response.thoughts.append("⏸ 已触发 HITL，请用户确认后写入日历。")
+            response.thoughts = [
+                *response.thoughts,
+                "⏸ 已触发 HITL，请用户确认后写入日历。",
+            ]
 
         chat_semantic_cache.put(request.user_input, response.response)
         return response
@@ -446,53 +454,138 @@ def stream_chat_events(request: ChatRequest):
     user_input = request.user_input
     if request.selected_text:
         user_input = _build_selection_prompt(request)
-    selected_agent, intent, routing_reason = route_intent(user_input, request.force_agent)
-    enabled_tools, disabled_tools = _tool_status_text(selected_agent, request.active_tools)
+    req = request.model_copy(update={"user_input": user_input})
 
+    enabled_tools, disabled_tools = _tool_status_text(req.active_tools)
     yield {
         "type": "thought",
-        "content": f"🤔 正在分析意图：识别为 {intent}，分配给 {selected_agent}",
+        "content": "【流水线】多智能体协作已启动（Supervisor + 专员 + 汇总）。",
+        "stage": "pipeline_start",
     }
-    if request.active_tools is not None:
+    yield {
+        "type": "thought",
+        "content": "【知识检索】已根据当前问题检索知识库并将上下文注入协作线程（首条系统消息）。",
+        "stage": "kb_inject",
+    }
+    if req.active_tools is not None:
         yield {
             "type": "thought",
-            "content": f"🧰 工具开关状态：启用 {enabled_tools or ['none']}，禁用 {disabled_tools or ['none']}",
+            "content": f"【工具策略】启用工具：{enabled_tools or ['none']}；已关闭：{disabled_tools or ['none']}",
+            "stage": "tool_policy",
         }
         if not enabled_tools:
             yield {
                 "type": "thought",
-                "content": "⚠️ 当前可用工具为空，系统将降级为纯模型回答。",
+                "content": "【工具策略】当前过滤后无可用工具，专员将仅依赖模型能力。",
+                "stage": "tool_policy",
             }
 
+    cache_hit = chat_semantic_cache.get(req.user_input)
+    if cache_hit:
+        yield {
+            "type": "thought",
+            "content": "【流水线】语义缓存命中，跳过协作图执行。",
+            "stage": "cache",
+        }
+        text = cache_hit.answer
+        for i in range(0, len(text), 24):
+            yield {"type": "token", "content": text[i : i + 24]}
+        yield {
+            "type": "final",
+            "content": text,
+            "agent": "supervisor",
+            "intent": "semantic_cache",
+            "routing_reason": "语义缓存",
+            "tool_calls": [],
+            "requires_confirmation": False,
+            "pending_action_id": None,
+        }
+        return
+
+    graph = _build_supervisor_graph(req.active_tools)
+    thread_config = {"configurable": {"thread_id": str(req.thread_id)}}
+    initial = _initial_state(req, req.user_input)
+
+    token_user_id, token_is_admin, token_top_k = set_rag_request_context(
+        req.user_id, req.is_admin, req.rag_k
+    )
+    final_state: dict | None = None
+    emitted_tool_nodes: set[str] = set()
     try:
-        response = chat_service(
-            ChatRequest(
-                **{
-                    **request.model_dump(),
-                    "user_input": user_input,
-                    "force_agent": selected_agent,
-                }
-            )
-        )
+        # updates：每跑完一个节点即推送，前端可「流水线」逐条显示
+        for chunk in graph.stream(
+            initial, config=thread_config, stream_mode="updates"
+        ):
+            if not isinstance(chunk, dict):
+                continue
+            for node_name, data in chunk.items():
+                if not isinstance(node_name, str):
+                    continue
+                if node_name.endswith("_tools") and node_name not in emitted_tool_nodes:
+                    emitted_tool_nodes.add(node_name)
+                    yield {
+                        "type": "thought",
+                        "content": _TOOL_NODE_PIPELINE_MSG.get(
+                            node_name,
+                            "【工具执行】正在运行后端工具节点。",
+                        ),
+                        "stage": "tool_run",
+                    }
+                if isinstance(data, dict):
+                    for s in data.get("intermediate_steps") or []:
+                        yield {"type": "thought", "content": s}
+        try:
+            snap = graph.get_state(thread_config)
+            if snap is not None and getattr(snap, "values", None) is not None:
+                final_state = dict(snap.values)
+        except Exception:
+            final_state = None
     except Exception as exc:
         yield {"type": "error", "content": f"处理失败：{exc}"}
         return
+    finally:
+        reset_rag_request_context(token_user_id, token_is_admin, token_top_k)
 
-    for thought in response.thoughts:
-        yield {"type": "thought", "content": thought}
+    if not final_state:
+        yield {"type": "error", "content": "协作图未返回状态"}
+        return
 
-    text = response.response or ""
+    text = message_text(final_state["messages"][-1])
+    chat_semantic_cache.put(req.user_input, text)
+
     chunk_size = 24
     for i in range(0, len(text), chunk_size):
         yield {"type": "token", "content": text[i : i + chunk_size]}
 
+    resp = ChatResponse(
+        response=text,
+        tool_calls=collect_tool_calls(final_state.get("messages", [])),
+        agent=final_state.get("selected_agent", "supervisor"),
+        intent=final_state.get("intent", "collaborative_supervisor"),
+        routing_reason=final_state.get("routing_reason", "") or "协作完成",
+        thoughts=list(final_state.get("intermediate_steps") or []),
+    )
+    if _requires_hitl(
+        resp.intent,
+        req.user_input,
+        final_state.get("task_breakdown") or "",
+        final_state.get("collaboration_last_worker") or "",
+    ):
+        action = pending_action_store.create(
+            user_id=req.user_id or "anonymous",
+            thread_id=req.thread_id,
+            plan_text=resp.response,
+        )
+        resp.requires_confirmation = True
+        resp.pending_action_id = action.action_id
+
     yield {
         "type": "final",
         "content": text,
-        "agent": response.agent,
-        "intent": response.intent,
-        "routing_reason": response.routing_reason,
-        "tool_calls": response.tool_calls,
-        "requires_confirmation": response.requires_confirmation,
-        "pending_action_id": response.pending_action_id,
+        "agent": resp.agent,
+        "intent": resp.intent,
+        "routing_reason": resp.routing_reason,
+        "tool_calls": resp.tool_calls,
+        "requires_confirmation": resp.requires_confirmation,
+        "pending_action_id": resp.pending_action_id,
     }

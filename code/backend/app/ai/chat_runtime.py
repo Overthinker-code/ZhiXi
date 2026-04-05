@@ -41,7 +41,9 @@ PROMPT_PRESETS: dict[str, dict[str, str]] = {
     },
 }
 
-AgentName = Literal["code_tutor", "planner", "analyst"]
+AgentName = Literal[
+    "code_tutor", "knowledge_mentor", "planner", "analyst", "supervisor"
+]
 
 AGENT_CONFIG: dict[AgentName, dict[str, str]] = {
     "code_tutor": {
@@ -49,6 +51,13 @@ AGENT_CONFIG: dict[AgentName, dict[str, str]] = {
         "prompt": (
             "你是 Code_Tutor_Agent，专注代码报错、调试、原理讲解与最小修复建议。"
             "优先给出可执行步骤与验证方式。"
+        ),
+    },
+    "knowledge_mentor": {
+        "label": "学科知识讲师",
+        "prompt": (
+            "你是 Knowledge_Mentor_Agent，面向多学科（经管、数理、文史、自然科学等）做知识点讲解、概念辨析与例题思路。"
+            "用分步说明帮助理解，避免与纯代码排错混淆；需要代码时再建议用户也可咨询代码导师。"
         ),
     },
     "planner": {
@@ -65,47 +74,11 @@ AGENT_CONFIG: dict[AgentName, dict[str, str]] = {
             "结论应清晰并附带可执行改进建议。"
         ),
     },
+    "supervisor": {
+        "label": "协作主管",
+        "prompt": "主管节点仅负责编排与最终汇总，不直接承担单科答疑。",
+    },
 }
-
-CODE_KEYWORDS = {
-    "报错",
-    "错误",
-    "异常",
-    "bug",
-    "debug",
-    "traceback",
-    "代码",
-    "sql",
-    "python",
-    "java",
-    "ts",
-    "typescript",
-    "编译",
-    "运行失败",
-}
-PLANNER_KEYWORDS = {
-    "计划",
-    "进度",
-    "滞后",
-    "复习",
-    "安排",
-    "里程碑",
-    "截止",
-    "学习路径",
-    "任务拆解",
-}
-ANALYST_KEYWORDS = {
-    "分析",
-    "状态",
-    "专注",
-    "行为",
-    "预警",
-    "表现",
-    "评估",
-    "趋势",
-    "风险",
-}
-
 
 def get_active_model_name() -> str:
     if settings.CHAT_PROVIDER.lower() == "ollama":
@@ -140,6 +113,7 @@ def get_chat_runtime_settings() -> dict:
                 "description": value["prompt"],
             }
             for key, value in AGENT_CONFIG.items()
+            if key != "supervisor"
         ],
         "tool_options": [
             {

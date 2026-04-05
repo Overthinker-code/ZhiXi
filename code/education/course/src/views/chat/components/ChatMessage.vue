@@ -14,6 +14,7 @@
   import dislikeActiveIcon from '@/assets/photo/踩2.png';
   import regenerateIcon from '@/assets/photo/重新生成.png';
   import humanizeAgentReasoning from '@/utils/humanizeAgentReasoning';
+  import AgentThoughtCard from '@/views/chat/components/AgentThoughtCard.vue';
 
   // 定义props
   const props = defineProps({
@@ -199,14 +200,19 @@
     return renderMarkdown(props.message.content);
   });
 
-  /** 流式用 reasoning_content；仅 thoughts 的系统提示（如 HITL）也并入深度思考，避免再单独一块卡片 */
+  /** 仅模型侧链式推理；多智能体流水线单独用 AgentThoughtCard（message.thoughts） */
   const effectiveReasoning = computed(() => {
     const r = props.message.reasoning_content;
     if (r && String(r).trim()) return String(r);
-    const th = props.message.thoughts || [];
-    if (th.length) return th.join('\n\n');
     return '';
   });
+
+  const showAgentPipeline = computed(
+    () =>
+      props.message.role === 'assistant' &&
+      ((props.message.thoughts && props.message.thoughts.length > 0) ||
+        props.message.loading)
+  );
 
   const effectiveReasoningTrimmed = computed(() =>
     effectiveReasoning.value.trim()
@@ -250,6 +256,13 @@
           </div>
         </div>
       </div>
+
+      <!-- 多智能体流水线（与「深度思考」分离，随 SSE thought 实时追加） -->
+      <AgentThoughtCard
+        v-if="showAgentPipeline"
+        :thoughts="message.thoughts || []"
+        :streaming="!!message.loading"
+      />
 
       <!-- 消息内容 -->
       <div

@@ -38,6 +38,7 @@ class UserPublic(BaseModel):
     id: UUID
     username: str
     email: EmailStr
+    is_superuser: bool = False
 
 
 class NewPassword(BaseModel):

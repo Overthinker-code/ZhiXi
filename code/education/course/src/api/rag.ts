@@ -237,6 +237,8 @@ export function createAssistantChat(
 export interface ChatStreamEvent {
   type: 'thought' | 'token' | 'final' | 'error';
   content?: string;
+  /** 后端可选：pipeline_start | kb_inject | tool_run | … */
+  stage?: string;
   agent?: string;
   intent?: string;
   routing_reason?: string;

@@ -121,7 +121,9 @@
           <div class="setting-label">流式响应</div>
           <el-switch v-model="draft.stream" />
         </div>
-        <p class="setting-tip">开启后可展示思考链与增量生成内容。</p>
+        <p class="setting-tip">
+          建议开启：可实时显示多智能体流水线（主管拆解→知识检索→专员/工具→汇总）与正文流式输出。
+        </p>
       </div>
 
       <div class="setting-item">

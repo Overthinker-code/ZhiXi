@@ -3,6 +3,7 @@ import type { AxiosRequestConfig, AxiosResponse } from 'axios';
 import { Message, Modal } from '@arco-design/web-vue';
 import { useUserStore } from '@/store';
 import { getToken } from '@/utils/auth';
+import isSessionInvalidError from '@/utils/authError';
 
 export interface HttpResponse<T = unknown> {
   status: number;
@@ -107,7 +108,6 @@ axios.interceptors.response.use(
   },
   (error) => {
     const url: string = error?.config?.url || '';
-    const status = error?.response?.status;
     const isTimeout = error?.code === 'ECONNABORTED';
     const isChat = url.includes('/chat/');
     const isFeedback = url.includes('/chat/feedback');
@@ -116,6 +116,8 @@ axios.interceptors.response.use(
     const isDashboard = url.includes('/dashboard/');
     const isEducationRead =
       url.includes('/education/courses') || url.includes('/education/tc');
+    /** 课程中心接口失败由页面兜底，勿整站登出（避免隧道/权限抖动误踢） */
+    const isEducationApi = url.includes('/education/');
     /** 登录/注册等：错误由页面内文案展示，避免与全局 Message 叠在一起 */
     const isAuthFormRequest =
       url.includes('/login/') ||
@@ -123,7 +125,7 @@ axios.interceptors.response.use(
       url.includes('/password-recovery') ||
       url.includes('/reset-password');
 
-    if (status === 401 && !isLogin) {
+    if (!isLogin && !isEducationApi && isSessionInvalidError(error)) {
       const userStore = useUserStore();
       userStore.logoutCallBack();
       window.location.href = '/login';
@@ -139,8 +141,7 @@ axios.interceptors.response.use(
     } else if (typeof resData === 'string') {
       detailStr = resData;
     }
-    const rawMessage =
-      detailStr || error?.message || 'Request Error';
+    const rawMessage = detailStr || error?.message || 'Request Error';
     const friendlyChatMessage =
       '无法连接后端 API。请确认：① SSH 隧道已建立且未断开；② 本机可 curl 通隧道端口；③ VITE_DEV_API_PROXY_TARGET 与隧道本地端口一致；④ 修改 .env.development 后已重启 npm run dev。';
     const friendlyNetworkHint =

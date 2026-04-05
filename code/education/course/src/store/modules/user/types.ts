@@ -17,4 +17,6 @@ export interface UserState {
   certification?: number;
   role: RoleType;
   token?: string;
+  /** 已成功拉取过 /users/me，避免用 role 是否为空推断（易误判） */
+  profileHydrated: boolean;
 }

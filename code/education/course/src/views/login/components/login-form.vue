@@ -210,6 +210,12 @@
       setLoading(true);
       try {
         await userStore.login(values as LoginData);
+        try {
+          await userStore.info();
+        } catch (infoErr) {
+          errorMessage.value = (infoErr as Error).message;
+          return;
+        }
         const { redirect, ...othersQuery } = router.currentRoute.value.query;
         router.push({
           name: (redirect as string) || 'Workplace',

@@ -30,12 +30,12 @@ const persistTokenForRefresh = () => {
   }
 };
 
+/** 刷新/多标签页：从 LS 回补内存，不再 removeItem（旧逻辑会清空 LS 导致误判未登录） */
 const restoreTokenFromStorage = () => {
+  const userStore = useUserStore();
   const storedToken = localStorage.getItem(TOKEN_KEY);
-  if (storedToken) {
-    const userStore = useUserStore();
+  if (storedToken && !userStore.token) {
     userStore.setToken(storedToken);
-    localStorage.removeItem(TOKEN_KEY);
   }
 };
 

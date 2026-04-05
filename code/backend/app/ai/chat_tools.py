@@ -8,7 +8,6 @@ from langchain.tools import tool
 from langchain_community.tools import DuckDuckGoSearchRun
 
 from app.core.config import settings
-from app.ai.chat_runtime import AgentName
 from app.services.chat_model_factory import ChatModelFactory
 from app.services.rag_tools import query_knowledge_base
 from app.services.behavior_analysis import behavior_service
@@ -118,20 +117,21 @@ TOOL_REGISTRY: dict[str, Any] = {
     "code_sandbox": execute_code_sandbox,
 }
 
-TOOL_KEYS_BY_AGENT: dict[AgentName, list[str]] = {
+TOOL_KEYS_BY_AGENT: dict[str, list[str]] = {
     "code_tutor": ["knowledge_base", "web_search", "code_sandbox"],
+    "knowledge_mentor": ["knowledge_base", "web_search"],
     "planner": ["knowledge_base"],
     "analyst": ["knowledge_base", "behavior_analysis"],
 }
 
-TOOLS_BY_AGENT: dict[AgentName, list] = {
+TOOLS_BY_AGENT: dict[str, list] = {
     agent: [TOOL_REGISTRY[key] for key in keys]
     for agent, keys in TOOL_KEYS_BY_AGENT.items()
 }
 
 
-def get_tools_for_agent(agent: AgentName, active_tools: list[str] | None = None) -> list:
-    tool_keys = TOOL_KEYS_BY_AGENT[agent]
+def get_tools_for_agent(agent: str, active_tools: list[str] | None = None) -> list:
+    tool_keys = TOOL_KEYS_BY_AGENT.get(agent) or ["knowledge_base"]
     if not active_tools:
         return [TOOL_REGISTRY[key] for key in tool_keys]
     active = set(active_tools)
@@ -141,7 +141,7 @@ def get_tools_for_agent(agent: AgentName, active_tools: list[str] | None = None)
 
 
 def get_llm(
-    agent: AgentName,
+    agent: str,
     enable_tools: bool,
     *,
     active_tools: list[str] | None = None,
