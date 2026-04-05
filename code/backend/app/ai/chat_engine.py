@@ -156,36 +156,122 @@ def _normalize_graph_stream_event(event: Any) -> tuple[str | None, Any]:
     return None, event
 
 
-def _visible_ai_message_text(message: Any) -> str:
-    """AIMessage 可展示正文（兼容部分模型把片段放在 additional_kwargs）。"""
-    raw = message_text(message)
-    if isinstance(raw, str) and raw.strip():
-        return raw.strip()
-    ak = getattr(message, "additional_kwargs", None) or {}
-    if isinstance(ak, dict):
-        for key in ("reasoning_content", "thinking", "reasoning"):
-            v = ak.get(key)
-            if isinstance(v, str) and v.strip():
-                return v.strip()
-    return (raw or "").strip() if isinstance(raw, str) else ""
+# 用变量拼接标签名，避免工具/脱敏把字面量 `think` 改坏
+_TK = "think"
+_MODEL_THINK_STRIP = (
+    re.compile(rf"`</{_TK}>[\s\S]*?`</{_TK}>`", re.IGNORECASE | re.DOTALL),
+    re.compile(r"<analysis>[\s\S]*?</analysis>", re.IGNORECASE),
+)
+
+
+def _strip_think_blocks_from_text(text: str) -> str:
+    """从 content 字符串中去掉思考/分析块，减少主气泡里的「内心戏」残留。"""
+    if not text:
+        return text
+    t = text
+    for pat in _MODEL_THINK_STRIP:
+        t = pat.sub("", t)
+    return t.strip()
+
+
+def _strict_ai_content_for_user(message: Any) -> str:
+    """
+    仅使用 AIMessage.content 作为用户可见正文。
+    绝不读取 additional_kwargs 的 reasoning_content/thinking（否则会泄漏到主聊天气泡）。
+    """
+    if not isinstance(message, AIMessage):
+        return (message_text(message) or "").strip()
+    c = message.content
+    if isinstance(c, str):
+        s = c.strip()
+    elif isinstance(c, list):
+        parts: list[str] = []
+        for block in c:
+            if isinstance(block, dict):
+                if block.get("type") == "text":
+                    parts.append(str(block.get("text", "")))
+                elif "text" in block:
+                    parts.append(str(block["text"]))
+            elif isinstance(block, str):
+                parts.append(block)
+        s = "\n".join(parts).strip()
+    else:
+        s = (str(c) if c else "").strip()
+    return _strip_think_blocks_from_text(s)
 
 
 def _last_meaningful_assistant_text(messages: list) -> str:
-    """自尾向前取第一条含正文的 AIMessage；避免 tool-only 占位或空 content 导致 SSE 无输出。"""
+    """自尾向前取第一条含正文的 AIMessage（仅 content，不含 reasoning 通道）。"""
     for m in reversed(messages or []):
         if not isinstance(m, AIMessage):
             continue
-        body = _visible_ai_message_text(m)
+        body = _strict_ai_content_for_user(m)
         if body:
             return body
         tool_calls = getattr(m, "tool_calls", None) or []
         if tool_calls:
             continue
     if messages:
-        tail = message_text(messages[-1])
+        last = messages[-1]
+        if isinstance(last, AIMessage):
+            t = _strict_ai_content_for_user(last)
+            if t:
+                return t
+        tail = message_text(last)
         if isinstance(tail, str) and tail.strip():
-            return tail.strip()
+            return _strip_think_blocks_from_text(tail.strip())
     return ""
+
+
+def _looks_like_route_json_blob(text: str) -> bool:
+    s = (text or "").strip()
+    if not s.startswith("{"):
+        return False
+    low = s.lower()
+    return "next_agent" in low and ("routing" in low or "task_breakdown" in low)
+
+
+def _first_human_question(messages: list) -> str:
+    for m in messages or []:
+        if isinstance(m, HumanMessage):
+            t = (message_text(m) or "").strip()
+            if t:
+                return t
+    return ""
+
+
+def _rag_system_excerpt(messages: list, max_chars: int) -> str:
+    if not messages:
+        return ""
+    m0 = messages[0]
+    if not isinstance(m0, SystemMessage):
+        return ""
+    body = (message_text(m0) or "").strip()
+    if not body:
+        return ""
+    if len(body) > max_chars:
+        return body[:max_chars] + "\n…[知识库上下文已截断]"
+    return body
+
+
+def _collect_worker_outputs_for_finalize(messages: list, max_total: int = 14000) -> str:
+    """按时间顺序收集专员 AIMessage 的 content（非 reasoning），供汇总节点使用。"""
+    blocks: list[str] = []
+    for m in messages or []:
+        if not isinstance(m, AIMessage):
+            continue
+        chunk = _strict_ai_content_for_user(m)
+        if not chunk:
+            continue
+        if _looks_like_route_json_blob(chunk):
+            continue
+        blocks.append(chunk)
+    if not blocks:
+        return ""
+    merged = "\n\n---\n\n".join(blocks)
+    if len(merged) <= max_total:
+        return merged
+    return merged[-max_total:] + "\n…[较早专员输出已截断，保留较近内容]"
 
 
 def _clip_messages_for_llm(messages: list) -> list:
@@ -227,7 +313,16 @@ SUPERVISOR_SYSTEM_PROMPT = """你是「知曦学习系统」的主管 Supervisor
 2. 若专员已在消息中充分覆盖且无需他人补位，输出 FINISH 进入汇总阶段。
 3. 信息严重不足时可先派 knowledge_mentor 或 code_tutor 做澄清式回答，再视情况 FINISH 或继续派其他人。
 4. 输出必须严格符合约定的结构化字段（next_agent / routing_reason / task_breakdown），不要输出其它闲聊；禁止用 Markdown 代码块包裹 JSON。
-5. 【必须遵守】当你认为下属专员已经给出足够信息、或问题已可收束、或不宜再换人时，你 MUST 将 next_agent 设为字符串 FINISH（仅此一种写法），进入汇总；不要继续派发专员。"""
+5. 【必须遵守】当你认为下属专员已经给出足够信息、或问题已可收束、或不宜再换人时，你 MUST 将 next_agent 设为字符串 FINISH（仅此一种写法），进入汇总；不要继续派发专员。
+6. task_breakdown 仅写简短要点（每条一行内），禁止写入完整解题过程或长篇推导，避免污染协作上下文。"""
+
+FINALIZE_SYSTEM_PROMPT = """你是知曦学习系统的最终发言人。你将收到「学生问题」「知识库摘要」「专员协作产出」。请面向学生生成可直接发送的最终答复。
+
+必须遵守：
+1. 直接给出完整、专业的解答，使用 Markdown 标题与列表排版；语气像耐心的导师。
+2. 禁止「我先想想」「接下来我要」「不对，应该是」等内心独白、草稿式自言自语；禁止复述专员的思考过程，只输出结论与推导要点。
+3. 禁止提及主管、路由、JSON、工具名、Agent、LangGraph 等内部实现与协作流程词。
+4. 专员材料不足时诚实说明，可结合知识库与通用知识合理补充，勿编造上传资料中不存在的事实。"""
 
 
 def _rag_system_message(request: ChatRequest) -> SystemMessage:
@@ -382,31 +477,45 @@ def finalize_node(state: State) -> dict[str, Any]:
         temperature=state.get("temperature"),
         max_tokens=state.get("max_tokens"),
     )
-    sys = SystemMessage(
-        content=(
-            "你是知曦学习系统的主管，负责向学生输出最终答复。\n"
-            "请综合对话中各位专员已给出的结论与建议，整理成结构清晰、语气友好、可直接展示的回复；"
-            "避免暴露内部角色名与流程术语。\n"
-            "若仍有未覆盖的问题，诚实说明并给出可行建议。"
-        )
-    )
-    prelude: list = [sys]
+    msgs = state["messages"]
+    user_q = _first_human_question(msgs).strip()
+    if not user_q:
+        user_q = "（未解析到明确的学生问题，请根据下方材料尽量作答。）"
+    rag_ex = _rag_system_excerpt(msgs, max_chars=4000)
+    worker_mat = _collect_worker_outputs_for_finalize(msgs, max_total=14000)
+
+    sys_chunks: list[str] = [FINALIZE_SYSTEM_PROMPT]
     resolved = (state.get("resolved_system_prompt") or "").strip()
     if resolved:
-        prelude.insert(0, SystemMessage(content=f"全局辅导偏好：\n{resolved}"))
+        sys_chunks.append(f"【全局辅导偏好】\n{resolved}")
     rr = (state.get("routing_reason") or "").strip()
     if rr and ("强制" in rr or "解析失败" in rr or "连续" in rr):
-        prelude.append(
-            SystemMessage(
-                content=(
-                    "【内部提示】本次因主管路由解析异常已强制进入汇总。"
-                    "请优先整合对话中专员已给出的有效内容作答；勿再编排新专员；不足处诚实说明。"
-                )
-            )
+        sys_chunks.append(
+            "【补充】本次为异常收束。请在不暴露系统内部错误的前提下，提炼专员材料中的有效信息完成回答。"
         )
-    clipped = _clip_messages_for_llm(state["messages"])
+    sys = SystemMessage(content="\n\n".join(sys_chunks))
+
+    human_parts = [f"【学生问题】\n{user_q}"]
+    if rag_ex:
+        human_parts.append(f"【知识库参考摘要】\n{rag_ex}")
+    human_parts.append(
+        "【专员协作产出】（仅供提炼为最终答案，勿复读推理草稿或中间尝试）\n"
+        + (
+            worker_mat
+            or "（当前无专员正文片段，请依据学生问题与知识库摘要直接作答。）"
+        )
+    )
+    human = HumanMessage(content="\n\n".join(human_parts))
+
     try:
-        msg = llm.invoke([*prelude, *clipped])
+        raw_msg = llm.invoke([sys, human])
+        clean = _strip_think_blocks_from_text(_strict_ai_content_for_user(raw_msg))
+        if clean:
+            msg = AIMessage(content=clean)
+        else:
+            msg = AIMessage(
+                content="（汇总阶段未得到可见正文，请重试或检查模型是否将答案写在 reasoning 通道。）"
+            )
     except Exception as e:
         msg = AIMessage(
             content=(
