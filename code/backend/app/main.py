@@ -8,9 +8,9 @@ from app.api.main import api_router
 from app.core.config import settings
 from app.core.db import engine, init_db
 from app.db.base_class import Base
+from app.models.chat_thread import ChatThread  # noqa: F401
 from app.models.chat import Chat  # noqa: F401
 from app.models.chat_feedback import ChatFeedback  # noqa: F401
-from app.models.chat_thread import ChatThread  # noqa: F401
 from app.models.item import Item  # noqa: F401
 from app.models.message import Message  # noqa: F401
 from app.models.user import User  # noqa: F401

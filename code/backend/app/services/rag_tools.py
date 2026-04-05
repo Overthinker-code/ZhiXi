@@ -34,7 +34,11 @@ def query_knowledge_base(question: str) -> str:
     )
 
     if not results:
-        return "知识库中未找到相关内容。"
+        return (
+            "当前知识库未检索到与该问题直接相关的条目。"
+            "请基于你的通用知识与上下文继续协助用户；"
+            "若需要课程专属事实，可提示用户上传相关参考文件。"
+        )
 
     chunk_lines = []
     refs = []

@@ -261,34 +261,36 @@ def _chat_with_ollama_rag(
         is_admin=request.is_admin,
     )
 
-    if request.strict_mode and not results:
-        return ChatResponse(
-            response=_strict_reject_message(),
-            tool_calls=[],
-            agent=selected_agent,
-            intent=intent,
-            routing_reason=routing_reason,
-        )
+    # 无检索结果时仍允许模型用自身知识作答；严格「仅引用库」仅在确有片段时生效
+    strict_effective = bool(request.strict_mode) and bool(results)
 
     if results:
         context_chunks = "\n\n".join(
             f"[citation:{item['citation_id']}] {item['content']}" for item in results
         )
+        kb_preamble = (
+            "下列为与问题相关的知识库片段（有帮助时请引用并标注 [citation:x]）。\n"
+            "若片段不足以完整回答，可结合你的通用知识补充，并区分资料内容与常识推断。"
+        )
     else:
-        context_chunks = "未检索到相关知识片段。"
+        context_chunks = "（本次未检索到相关知识库片段。）"
+        kb_preamble = (
+            "请基于你的通用知识与教学能力直接回答；不要编造不存在的课程文件内容。\n"
+            "若用户问题强依赖某份未上传的专属材料，可简要说明并尽量给出通用层面的帮助。"
+        )
 
     agent_prompt = AGENT_CONFIG[selected_agent]["prompt"]
     prompt = (
         f"角色要求：{agent_prompt}\n"
-        "请基于以下知识库片段回答用户问题。\n"
+        f"{kb_preamble}\n"
         "要求：\n"
-        "1. 仅依据片段内容作答，不要编造。\n"
-        "2. 在关键结论后标注 [citation:x]。\n"
-        "3. 信息不足时明确说明。\n\n"
-        f"知识片段：\n{context_chunks}\n\n"
+        "1. 回答应准确、有帮助；有片段时优先使用片段内容。\n"
+        "2. 使用片段时请在关键结论后标注 [citation:x]。\n"
+        "3. 无片段或信息不足时诚实说明，并尽量给出可用的解释或思路。\n\n"
+        f"参考内容：\n{context_chunks}\n\n"
         f"用户问题：{request.user_input}"
     )
-    if request.strict_mode:
+    if strict_effective:
         prompt += (
             "\n\n严格约束："
             "\n1) 只能依据上述知识片段作答。"
@@ -314,7 +316,7 @@ def _chat_with_ollama_rag(
         top_k=request.top_k,
     )
     ai_msg = llm.invoke(messages)
-    if request.strict_mode:
+    if strict_effective:
         max_citation = len(results)
         first_pass = str(ai_msg.content or "")
         if not _is_strict_answer_valid(first_pass, max_citation):

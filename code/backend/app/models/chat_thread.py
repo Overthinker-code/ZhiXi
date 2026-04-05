@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 
@@ -17,4 +17,9 @@ class ChatThread(Base):
         onupdate=func.now(),
     )
 
-    chats = relationship("Chat", back_populates="thread", lazy="dynamic")
+    chats = relationship(
+        "Chat",
+        back_populates="thread",
+        lazy="dynamic",
+        primaryjoin="ChatThread.thread_id == foreign(Chat.thread_id)",
+    )

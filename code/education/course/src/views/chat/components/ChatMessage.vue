@@ -13,7 +13,7 @@
   import dislikeIcon from '@/assets/photo/踩.png';
   import dislikeActiveIcon from '@/assets/photo/踩2.png';
   import regenerateIcon from '@/assets/photo/重新生成.png';
-  import AgentThoughtCard from './AgentThoughtCard.vue';
+  import humanizeAgentReasoning from '@/utils/humanizeAgentReasoning';
 
   // 定义props
   const props = defineProps({
@@ -199,11 +199,34 @@
     return renderMarkdown(props.message.content);
   });
 
-  // 添加 reasoning_content 的渲染
-  const renderedReasoning = computed(() => {
-    if (!props.message.reasoning_content) return '';
-    return renderMarkdown(props.message.reasoning_content);
+  /** 流式用 reasoning_content；仅 thoughts 的系统提示（如 HITL）也并入深度思考，避免再单独一块卡片 */
+  const effectiveReasoning = computed(() => {
+    const r = props.message.reasoning_content;
+    if (r && String(r).trim()) return String(r);
+    const th = props.message.thoughts || [];
+    if (th.length) return th.join('\n\n');
+    return '';
   });
+
+  const effectiveReasoningTrimmed = computed(() =>
+    effectiveReasoning.value.trim()
+  );
+
+  const displayReasoningPlain = computed(() =>
+    humanizeAgentReasoning(effectiveReasoning.value)
+  );
+
+  const renderedReasoning = computed(() => {
+    const s = displayReasoningPlain.value;
+    if (!s || !String(s).trim()) return '';
+    return renderMarkdown(s);
+  });
+
+  const showReasoningToggle = computed(
+    () =>
+      props.message.role === 'assistant' &&
+      (effectiveReasoningTrimmed.value.length > 0 || props.message.loading)
+  );
 </script>
 
 <template>
@@ -240,15 +263,23 @@
         />
         <span>内容生成中...</span>
       </div>
-      <AgentThoughtCard :thoughts="message.thoughts || []" />
-      <!-- reasoning toggle button -->
+      <!-- 仅保留「深度思考」：与技术向思维链卡片合并，避免重复 -->
       <div
-        v-if="message.reasoning_content"
+        v-if="showReasoningToggle"
         class="reasoning-toggle"
         @click="toggleReasoning"
       >
-        <img :src="thinkingIcon" alt="thinking" />
-        <span>深度思考</span>
+        <span
+          v-if="message.loading"
+          class="reasoning-spinner"
+          aria-hidden="true"
+        />
+        <img v-else :src="thinkingIcon" alt="" />
+        <span>{{
+          message.loading && !effectiveReasoningTrimmed
+            ? '正在思考中…'
+            : '深度思考'
+        }}</span>
         <el-icon
           class="toggle-icon"
           :class="{ 'is-expanded': isReasoningExpanded }"
@@ -256,12 +287,21 @@
           <ArrowDown />
         </el-icon>
       </div>
-      <!-- reasoning_content -->
       <div
-        v-if="message.reasoning_content && isReasoningExpanded"
+        v-if="showReasoningToggle && isReasoningExpanded"
         class="reasoning markdown-body"
-        v-html="renderedReasoning"
-      ></div>
+      >
+        <div
+          v-if="message.loading && !effectiveReasoningTrimmed"
+          class="reasoning-wait"
+        >
+          <span class="wait-dot" />
+          <span class="wait-dot" />
+          <span class="wait-dot" />
+          <span class="wait-text">正在整理思路</span>
+        </div>
+        <div v-else-if="renderedReasoning" v-html="renderedReasoning"></div>
+      </div>
       <!-- content -->
       <div class="bubble markdown-body" v-html="renderedContent"></div>
       <div v-if="message.requires_confirmation" class="hitl-card">
@@ -334,6 +374,16 @@
       max-width: min(92%, 860px);
       min-width: 0;
 
+      .reasoning-spinner {
+        flex-shrink: 0;
+        width: 0.88rem;
+        height: 0.88rem;
+        border: 2px solid rgba(25, 103, 210, 0.2);
+        border-top-color: #1a57af;
+        border-radius: 50%;
+        animation: reasoning-spin 0.65s linear infinite;
+      }
+
       .reasoning-toggle {
         display: inline-flex;
         align-items: center;
@@ -387,12 +437,61 @@
         font-size: 0.85rem;
         line-height: 1.65;
 
+        .reasoning-wait {
+          display: flex;
+          align-items: center;
+          gap: 0.35rem;
+          min-height: 1.5rem;
+          color: #64748b;
+          font-size: 0.82rem;
+
+          .wait-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #3b82f6;
+            opacity: 0.35;
+            animation: reasoning-dot 1.1s ease-in-out infinite;
+
+            &:nth-child(2) {
+              animation-delay: 0.18s;
+            }
+
+            &:nth-child(3) {
+              animation-delay: 0.36s;
+            }
+          }
+
+          .wait-text {
+            margin-left: 0.25rem;
+          }
+        }
+
         :deep(p) {
           margin: 0;
 
           &:not(:last-child) {
             margin-bottom: 0.5rem;
           }
+        }
+      }
+
+      @keyframes reasoning-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      @keyframes reasoning-dot {
+        0%,
+        100% {
+          opacity: 0.3;
+          transform: scale(0.85);
+        }
+
+        50% {
+          opacity: 1;
+          transform: scale(1.15);
         }
       }
 
