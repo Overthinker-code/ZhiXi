@@ -228,10 +228,13 @@ export function useChat() {
               );
             } else if (event.type === 'final') {
               answer = event.content || answer;
+              const { content: parsedMain } = parseAssistantResponse(answer);
+              const displayContent =
+                (parsedMain && parsedMain.trim()) || answer.trim() || answer;
               requiresConfirmation = Boolean(event.requires_confirmation);
               pendingActionId = event.pending_action_id || '';
               chatStore.updateLastMessage(
-                answer,
+                displayContent,
                 thoughts.join('\n\n'),
                 0,
                 0,

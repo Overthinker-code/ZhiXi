@@ -123,6 +123,71 @@ def _truncate_message_contents(messages: list, max_chars: int) -> list:
     return out
 
 
+def _normalize_graph_stream_event(event: Any) -> tuple[str | None, Any]:
+    """将 graph.stream 的单步事件统一为 (mode, payload)，兼容多模式流与仅 updates 的旧行为。"""
+    if isinstance(event, dict):
+        t = event.get("type")
+        if t in ("updates", "values", "messages", "debug", "tasks", "custom", "checkpoints"):
+            if "data" in event:
+                return str(t), event["data"]
+        # 少数版本/模式下可能直接抛出完整 State 字典而非 ("values", dict)
+        if "messages" in event and (
+            "next_agent" in event or "supervisor_entries" in event
+        ):
+            return "values", event
+        return "updates", event
+    if isinstance(event, tuple):
+        if len(event) == 2:
+            a, b = event
+            if isinstance(a, str) and a in (
+                "updates",
+                "values",
+                "messages",
+                "debug",
+                "tasks",
+                "custom",
+                "checkpoints",
+            ):
+                return a, b
+        if len(event) == 3:
+            _ns, mode, chunk = event
+            if isinstance(mode, str):
+                return mode, chunk
+    return None, event
+
+
+def _visible_ai_message_text(message: Any) -> str:
+    """AIMessage 可展示正文（兼容部分模型把片段放在 additional_kwargs）。"""
+    raw = message_text(message)
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    ak = getattr(message, "additional_kwargs", None) or {}
+    if isinstance(ak, dict):
+        for key in ("reasoning_content", "thinking", "reasoning"):
+            v = ak.get(key)
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+    return (raw or "").strip() if isinstance(raw, str) else ""
+
+
+def _last_meaningful_assistant_text(messages: list) -> str:
+    """自尾向前取第一条含正文的 AIMessage；避免 tool-only 占位或空 content 导致 SSE 无输出。"""
+    for m in reversed(messages or []):
+        if not isinstance(m, AIMessage):
+            continue
+        body = _visible_ai_message_text(m)
+        if body:
+            return body
+        tool_calls = getattr(m, "tool_calls", None) or []
+        if tool_calls:
+            continue
+    if messages:
+        tail = message_text(messages[-1])
+        if isinstance(tail, str) and tail.strip():
+            return tail.strip()
+    return ""
+
+
 def _clip_messages_for_llm(messages: list) -> list:
     """保留首段（通常为 RAG 系统消息）+ 最近若干条，再按单条长度截断。"""
     if not messages:
@@ -597,7 +662,7 @@ def chat_service(request: ChatRequest) -> ChatResponse:
     initial = _initial_state(request, request.user_input)
 
     result = graph.invoke(initial, config=thread_config)
-    final_text = message_text(result["messages"][-1])
+    final_text = _last_meaningful_assistant_text(result.get("messages") or [])
     thoughts = list(result.get("intermediate_steps") or [])
     response = ChatResponse(
         response=final_text,
@@ -692,13 +757,27 @@ def stream_chat_events(request: ChatRequest):
     initial = _initial_state(req, req.user_input)
 
     final_state: dict | None = None
+    last_values_state: dict | None = None
     emitted_tool_nodes: set[str] = set()
     try:
-        # updates：每跑完一个节点即推送，前端可「流水线」逐条显示
-        for chunk in graph.stream(
-            initial, config=thread_config, stream_mode="updates"
-        ):
-            if not isinstance(chunk, dict):
+        # 同时订阅 updates（流水线 thought）与 values（每步完整 State，最后一步含 finalize 的 messages）
+        try:
+            stream_iter = graph.stream(
+                initial,
+                config=thread_config,
+                stream_mode=["updates", "values"],
+            )
+        except TypeError:
+            stream_iter = graph.stream(
+                initial, config=thread_config, stream_mode="updates"
+            )
+
+        for event in stream_iter:
+            mode, chunk = _normalize_graph_stream_event(event)
+            if mode == "values" and isinstance(chunk, dict):
+                last_values_state = chunk
+                continue
+            if mode != "updates" or not isinstance(chunk, dict):
                 continue
             for node_name, data in chunk.items():
                 if not isinstance(node_name, str):
@@ -716,12 +795,15 @@ def stream_chat_events(request: ChatRequest):
                 if isinstance(data, dict):
                     for s in data.get("intermediate_steps") or []:
                         yield {"type": "thought", "content": s}
-        try:
-            snap = graph.get_state(thread_config)
-            if snap is not None and getattr(snap, "values", None) is not None:
-                final_state = dict(snap.values)
-        except Exception:
-            final_state = None
+
+        final_state = last_values_state
+        if final_state is None:
+            try:
+                snap = graph.get_state(thread_config)
+                if snap is not None and getattr(snap, "values", None) is not None:
+                    final_state = dict(snap.values)
+            except Exception:
+                final_state = None
     except Exception as exc:
         yield {"type": "error", "content": f"处理失败：{exc}"}
         return
@@ -730,7 +812,15 @@ def stream_chat_events(request: ChatRequest):
         yield {"type": "error", "content": "协作图未返回状态"}
         return
 
-    text = message_text(final_state["messages"][-1])
+    msgs = final_state.get("messages") or []
+    text = _last_meaningful_assistant_text(msgs)
+    if not (text or "").strip():
+        yield {
+            "type": "error",
+            "content": "协作图已结束但未生成可展示的助手正文，请重试或检查模型输出。",
+        }
+        return
+
     chat_semantic_cache.put(req.user_input, text)
 
     chunk_size = 24
