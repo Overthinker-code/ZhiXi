@@ -1,4 +1,4 @@
-from typing import Generic, TypeVar, Type, Optional, List
+from typing import Generic, TypeVar, Type, Optional, List, Any, cast
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
@@ -7,6 +7,13 @@ from app.db.base_class import Base
 ModelType = TypeVar("ModelType", bound=Base)
 CreateSchemaType = TypeVar("CreateSchemaType", bound=BaseModel)
 UpdateSchemaType = TypeVar("UpdateSchemaType", bound=BaseModel)
+
+
+def _pydantic_to_dict(obj: BaseModel, *, exclude_unset: bool = False) -> dict[str, Any]:
+    if hasattr(obj, "model_dump"):
+        return obj.model_dump(exclude_unset=exclude_unset)
+    return cast(dict[str, Any], obj.dict(exclude_unset=exclude_unset))
+
 
 class BaseProvider(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
     def __init__(self, model: Type[ModelType]):
@@ -19,7 +26,7 @@ class BaseProvider(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         return db.query(self.model).offset(skip).limit(limit).all()
 
     def create(self, db: Session, *, obj_in: CreateSchemaType) -> ModelType:
-        obj_in_data = obj_in.dict()
+        obj_in_data = _pydantic_to_dict(obj_in)
         db_obj = self.model(**obj_in_data)
         db.add(db_obj)
         db.commit()
@@ -27,7 +34,7 @@ class BaseProvider(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         return db_obj
 
     def update(self, db: Session, *, db_obj: ModelType, obj_in: UpdateSchemaType) -> ModelType:
-        obj_data = obj_in.dict(exclude_unset=True)
+        obj_data = _pydantic_to_dict(obj_in, exclude_unset=True)
         for field in obj_data:
             if hasattr(db_obj, field):
                 setattr(db_obj, field, obj_data[field])

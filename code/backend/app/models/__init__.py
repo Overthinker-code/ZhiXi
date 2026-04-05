@@ -20,6 +20,27 @@ from app.schemas.tc import TCCreate, TCUpdate, TCPublic, TCsPublic
 from app.schemas.videos import VideoBase, VideoCreate, VideoPublic, VideosPublic,VideoUpdate
 from app.schemas.course_plans import CoursePlanBase,CoursePlanCreate,CoursePlanPublic,CoursePlansPublic,CoursePlanUpdate
 from app.schemas.students import StudentBase,StudentCreate,StudentInDBBase,StudentPublic,StudentsPublic,StudentUpdate
+
+# 根目录 app/models.py 中的业务表（教育/视频等），经 business_tables 只加载一次
+from app.models.business_tables import (
+    Alert,
+    Assignment,
+    ChatLog,
+    Course,
+    CoursePlan,
+    HelpDocument,
+    LearningActivity,
+    Log,
+    Resource,
+    Student,
+    StudentTC,
+    Submission,
+    TC,
+    Teacher,
+    UD,
+    Video,
+)
+
 __all__ = [
     "Base",
     "Chat",

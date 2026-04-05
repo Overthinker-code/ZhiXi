@@ -1,6 +1,7 @@
 from typing import Optional, List, Dict, Any
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+
 
 class ChatBase(BaseModel):
     thread_id: str = "default"
@@ -31,9 +32,9 @@ class ChatInDBBase(ChatBase):
     id: int
     response: Optional[str] = None
     created_at: datetime
-    
-    class Config:
-        from_attributes = True
+
+    model_config = ConfigDict(from_attributes=True)
+
 
 class Chat(ChatInDBBase):
     tool_calls: List[Dict[str, Any]] = []

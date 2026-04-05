@@ -3,23 +3,37 @@ import json
 import asyncio
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
+from sqlmodel import Session
 from pydantic import BaseModel
 
 from app.api import deps
 from app.api.deps import CurrentUser
 from app.providers.chat_provider import chat_provider
 from app.providers.chat_thread_provider import chat_thread_provider
+from app.models.chat import Chat as ChatORM
+from app.models.chat_feedback import ChatFeedback as ChatFeedbackModel
 from app.schemas.chat import Chat, ChatCreate, ChatUpdate
 from app.schemas.chat_feedback import ChatFeedback, ChatFeedbackCreate
 from app.ai.chat_service import get_chat_runtime_settings, ChatRequest
 from app.ai.chat_engine import stream_chat_events, chat_service
-from app.models.chat_feedback import ChatFeedback as ChatFeedbackModel
 from app.services.pending_actions import pending_action_store
 from app.services.realtime_event_bus import realtime_event_bus
 from app.services.chat_semantic_cache import chat_semantic_cache
 
 router = APIRouter()
+
+
+def _chat_to_api(row: ChatORM) -> Chat:
+    """ORM → Pydantic，避免 Pydantic v2 下 response_model 解析失败导致 500。"""
+    if hasattr(Chat, "model_validate"):
+        return Chat.model_validate(row, from_attributes=True)
+    return Chat.from_orm(row)
+
+
+def _feedback_to_api(row: ChatFeedbackModel) -> ChatFeedback:
+    if hasattr(ChatFeedback, "model_validate"):
+        return ChatFeedback.model_validate(row, from_attributes=True)
+    return ChatFeedback.from_orm(row)
 
 
 class ChatStreamRequest(BaseModel):
@@ -84,7 +98,7 @@ def submit_feedback(
     db.add(feedback)
     db.commit()
     db.refresh(feedback)
-    return feedback
+    return _feedback_to_api(feedback)
 
 
 @router.post("/", response_model=Chat)
@@ -101,7 +115,7 @@ def create_chat(
         chat = chat_provider.create_with_ai_response(
             db, obj_in=chat_in, current_user=current_user
         )
-        return chat
+        return _chat_to_api(chat)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -271,7 +285,7 @@ def read_chat_history(
     chats = chat_provider.get_chat_history(
         db, thread_id=thread_id, skip=skip, limit=limit
     )
-    return chats
+    return [_chat_to_api(c) for c in chats]
 
 
 @router.get("/by-id/{chat_id}", response_model=Chat)
@@ -300,7 +314,7 @@ def read_chat(
                 status_code=404,
                 detail="Chat not found or access denied"
             )
-    return chat
+    return _chat_to_api(chat)
 
 
 @router.delete("/by-id/{chat_id}", response_model=Chat)
@@ -331,4 +345,4 @@ def delete_chat(
                 detail="Chat not found or access denied"
             )
     chat = chat_provider.remove(db, id=chat_id)
-    return chat 
+    return _chat_to_api(chat)

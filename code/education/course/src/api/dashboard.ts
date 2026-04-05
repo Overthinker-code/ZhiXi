@@ -1,6 +1,8 @@
 import axios from 'axios';
 import type { TableData } from '@arco-design/web-vue/es/table/interface';
 
+const READ_TIMEOUT_MS = 8000;
+
 export interface ContentDataRecord {
   x: string;
   y: number;
@@ -13,11 +15,15 @@ export interface DashboardOverview {
 }
 
 export function queryDashboardOverview() {
-  return axios.get<DashboardOverview>('/dashboard/overview');
+  return axios.get<DashboardOverview>('/dashboard/overview', {
+    timeout: READ_TIMEOUT_MS,
+  });
 }
 
 export function queryContentData() {
-  return axios.get<ContentDataRecord[]>('/dashboard/visits-trend');
+  return axios.get<ContentDataRecord[]>('/dashboard/visits-trend', {
+    timeout: READ_TIMEOUT_MS,
+  });
 }
 
 export interface PopularRecord {
@@ -28,7 +34,10 @@ export interface PopularRecord {
 }
 
 export function queryPopularList(params: { type: string }) {
-  return axios.get<TableData[]>('/dashboard/popular', { params });
+  return axios.get<TableData[]>('/dashboard/popular', {
+    params,
+    timeout: READ_TIMEOUT_MS,
+  });
 }
 
 export interface ContentDistribution {
@@ -40,30 +49,7 @@ export interface ContentDistribution {
 }
 
 export function queryContentDistribution() {
-  return axios.get<ContentDistribution>('/dashboard/content-distribution');
-}
-
-export interface DashboardOverview {
-  onlineContent: number;
-  putIn: number;
-  newDay: number;
-  growthRate: number;
-}
-
-export function queryDashboardOverview() {
-  return axios.get<DashboardOverview>('/api/dashboard/overview');
-}
-
-export interface CategoryItem {
-  name: string;
-  value: number;
-}
-
-export interface DashboardCategories {
-  total: number;
-  categories: CategoryItem[];
-}
-
-export function queryDashboardCategories() {
-  return axios.get<DashboardCategories>('/api/dashboard/categories');
+  return axios.get<ContentDistribution>('/dashboard/content-distribution', {
+    timeout: READ_TIMEOUT_MS,
+  });
 }

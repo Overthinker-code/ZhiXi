@@ -1,5 +1,8 @@
 import axios from 'axios';
 
+/** 列表/详情等读接口：后端不可达时尽快失败并走前端兜底，避免卡满默认 30s */
+const READ_TIMEOUT_MS = 8000;
+
 export interface Course {
   id: string;
   name: string;
@@ -37,11 +40,15 @@ export function fetchCourses(params: CourseQueryParams = {}) {
   const queryString = queryParams.toString();
   const url = `/education/courses${queryString ? `?${queryString}` : ''}`;
 
-  return axios.get(url).then((res) => res.data as CoursesResponse);
+  return axios
+    .get(url, { timeout: READ_TIMEOUT_MS })
+    .then((res) => res.data as CoursesResponse);
 }
 
 export function fetchCourseById(courseId: string) {
-  return axios.get(`/education/courses/${courseId}`).then((res) => res.data as Course);
+  return axios
+    .get(`/education/courses/${courseId}`, { timeout: READ_TIMEOUT_MS })
+    .then((res) => res.data as Course);
 }
 
 export interface TeachingClass {
@@ -55,7 +62,7 @@ export interface TeachingClass {
 
 export function fetchTeachingClasses(courseId: string) {
   return axios
-    .get(`/education/tc?course_id=${courseId}`)
+    .get(`/education/tc?course_id=${courseId}`, { timeout: READ_TIMEOUT_MS })
     .then((res) => res.data as { data: TeachingClass[]; count: number });
 }
 
@@ -71,7 +78,9 @@ export interface CourseResourceAnalysis {
 
 export function fetchCourseResourceAnalysis(courseId: string) {
   return axios
-    .get(`/education/courses/${courseId}/resources/analysis`)
+    .get(`/education/courses/${courseId}/resources/analysis`, {
+      timeout: READ_TIMEOUT_MS,
+    })
     .then((res) => res.data as CourseResourceAnalysis)
     .catch(() => ({
       document_size: 8.5,

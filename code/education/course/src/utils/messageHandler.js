@@ -20,15 +20,15 @@ export const messageHandler = {
     let accumulatedReasoning = '';
     const startTime = Date.now();
 
-    while (true) {
+    const processChunk = async () => {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) return;
 
       const chunk = decoder.decode(value);
       const lines = chunk.split('\n').filter((line) => line.trim() !== '');
 
-      for (const line of lines) {
-        if (line === 'data: [DONE]') continue;
+      lines.forEach((line) => {
+        if (line === 'data: [DONE]') return;
         if (line.startsWith('data: ')) {
           const data = JSON.parse(line.slice(5));
           const content = data.choices[0].delta.content || '';
@@ -48,8 +48,12 @@ export const messageHandler = {
             ).toFixed(2)
           );
         }
-      }
-    }
+      });
+
+      await processChunk();
+    };
+
+    await processChunk();
   },
 
   // 处理非流式响应
@@ -71,3 +75,5 @@ export const messageHandler = {
     }
   },
 };
+
+export default messageHandler;

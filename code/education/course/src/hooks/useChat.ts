@@ -1,4 +1,6 @@
 import { computed } from 'vue';
+import { Message } from '@arco-design/web-vue';
+import { getToken } from '@/utils/auth';
 import { useChatStore } from '@/store/chat';
 import { useSettingStore } from '@/store/setting';
 import { messageHandler } from '@/utils/messageHandler';
@@ -143,6 +145,26 @@ export function useChat() {
    * Send a user message and get an AI response.
    */
   async function sendMessage(messageContent: { text: string; files?: any[] }) {
+    if (!currentThreadId.value) {
+      if (!getToken()) {
+        Message.error('请先登录后再使用 AI 对话');
+        return;
+      }
+      try {
+        await chatStore.createConversation();
+      } catch (err: unknown) {
+        const fromApi =
+          err instanceof Error && err.message
+            ? err.message
+            : '无法创建对话，请检查网络与登录状态后刷新页面';
+        Message.error(fromApi);
+        return;
+      }
+    }
+    if (!currentThreadId.value) {
+      Message.error('当前没有会话 ID，请刷新页面或点击「新对话」');
+      return;
+    }
     try {
       chatStore.addMessage(
         messageHandler.formatMessage(

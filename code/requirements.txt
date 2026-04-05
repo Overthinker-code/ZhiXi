@@ -29,6 +29,7 @@ psycopg2-binary
 langchain
 langchain-community
 langchain-openai
+langchain-ollama
 chromadb
 duckduckgo-search
 
@@ -56,3 +57,8 @@ python-jose[cryptography]
 python-dateutil
 pytz
 duckduckgo-search
+ddgs
+
+# 与 peft / sentence-transformers 对齐，避免 EncoderDecoderCache 等导入错误
+transformers>=4.45.0
+sentence-transformers>=3.0.0

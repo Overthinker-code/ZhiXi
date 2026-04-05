@@ -23,3 +23,5 @@ class User(Base, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     items: List["Item"] = Relationship(back_populates="owner")
+    # Video 定义在根目录 app/models.py，此处用前向引用参与 back_populates
+    videos: List["Video"] = Relationship(back_populates="uploader")

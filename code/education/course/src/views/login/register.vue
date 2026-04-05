@@ -44,6 +44,10 @@
     confirmPassword: '',
   });
 
+  const goLogin = () => {
+    router.push({ name: 'login' });
+  };
+
   const onSubmit = async () => {
     if (!form.fullName || !form.email || !form.password) {
       Message.warning('请完整填写注册信息');
@@ -57,6 +61,7 @@
     try {
       await registerUser({
         email: form.email,
+        username: form.email.split('@')[0] || form.fullName,
         password: form.password,
         full_name: form.fullName,
       });
@@ -67,10 +72,6 @@
     } finally {
       loading.value = false;
     }
-  };
-
-  const goLogin = () => {
-    router.push({ name: 'login' });
   };
 </script>
 

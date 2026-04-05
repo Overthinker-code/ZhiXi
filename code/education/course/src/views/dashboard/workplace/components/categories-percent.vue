@@ -27,10 +27,18 @@
   const { t } = useI18n();
   const total = ref(demoResourceDistribution.total);
   const distribution = ref({
-    resources: demoResourceDistribution.items.find((x) => x.name === 'resources')?.value || 5179,
-    courses: demoResourceDistribution.items.find((x) => x.name === 'courses')?.value || 2301,
-    homework: demoResourceDistribution.items.find((x) => x.name === 'homework')?.value || 1116,
-    discussions: demoResourceDistribution.items.find((x) => x.name === 'discussions')?.value || 689,
+    resources:
+      demoResourceDistribution.items.find((x) => x.name === 'resources')?.value ||
+      5179,
+    courses:
+      demoResourceDistribution.items.find((x) => x.name === 'courses')?.value ||
+      2301,
+    homework:
+      demoResourceDistribution.items.find((x) => x.name === 'homework')?.value ||
+      1116,
+    discussions:
+      demoResourceDistribution.items.find((x) => x.name === 'discussions')
+        ?.value || 689,
   });
 
   const chartItems = computed(() => [
@@ -148,7 +156,6 @@
             borderColor: isDark ? '#232324' : '#fff',
             borderWidth: 1,
           },
-          data: chartItems.value,
           data: chartItems.value,
         },
       ],

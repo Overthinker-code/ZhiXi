@@ -93,9 +93,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { fetchCourses, type Course } from '@/api/course';
+import { demoCourses } from '@/mock/demoData';
 import LoadingState from '@/components/state/LoadingState.vue';
 import EmptyState from '@/components/state/EmptyState.vue';
 import ErrorState from '@/components/state/ErrorState.vue';
@@ -124,11 +125,35 @@ const pagination = ref({
 
 const courseImages = [AIImg, EcoImg, ShenImg, DatabaseImg, DatastructureImg, YuanImg];
 
+/** 按课程名/课号匹配封面，避免哈希随机错配 */
 function getCourseImage(course: Course) {
+  const n = course.name || '';
+  const ident = (course.identifier || '').toUpperCase();
+  if (n.includes('数据库') || ident.includes('DB')) return DatabaseImg;
+  if (n.includes('数据结构') || ident.includes('DS')) return DatastructureImg;
+  if (n.includes('人工智能') || n.includes('智能') || ident.includes('AI')) return AIImg;
+  if (n.includes('宏观') || ident.includes('MAC')) return EcoImg;
+  if (n.includes('审计') || ident.includes('AUD')) return ShenImg;
+  if (n.includes('金融') || ident.includes('FIN')) return YuanImg;
   const index = Math.abs(
-    course.name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
+    n.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
   ) % courseImages.length;
   return courseImages[index];
+}
+
+function applyDemoCoursesPage() {
+  const q = (searchQuery.value || '').trim().toLowerCase();
+  const filtered = q
+    ? demoCourses.filter(
+        (c) =>
+          c.name.toLowerCase().includes(q) ||
+          (c.description && c.description.toLowerCase().includes(q)) ||
+          c.identifier.toLowerCase().includes(q)
+      )
+    : [...demoCourses];
+  const start = (pagination.value.current - 1) * pagination.value.pageSize;
+  courses.value = filtered.slice(start, start + pagination.value.pageSize) as Course[];
+  pagination.value.total = filtered.length;
 }
 
 async function loadCourses() {
@@ -142,8 +167,8 @@ async function loadCourses() {
     });
     courses.value = response.data;
     pagination.value.total = response.count;
-  } catch (e: any) {
-    error.value = e.message || '加载失败';
+  } catch {
+    applyDemoCoursesPage();
   } finally {
     loading.value = false;
   }

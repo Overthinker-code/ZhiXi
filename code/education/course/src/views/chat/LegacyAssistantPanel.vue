@@ -98,7 +98,12 @@
   const handleMouseUp = () => {
     const selection = window.getSelection();
     const selectedText = selection?.toString()?.trim() || '';
-    if (!selection || !selectedText || selectedText.length < 2 || selectedText.length > 200) {
+    if (
+      !selection ||
+      !selectedText ||
+      selectedText.length < 2 ||
+      selectedText.length > 200
+    ) {
       hideSelectionMenu();
       return;
     }
@@ -112,7 +117,10 @@
       const full = selection.anchorNode?.textContent || '';
       const anchorOffset = selection.anchorOffset || 0;
       const start = Math.max(0, anchorOffset - 120);
-      const end = Math.min(full.length, anchorOffset + selectedText.length + 120);
+      const end = Math.min(
+        full.length,
+        anchorOffset + selectedText.length + 120
+      );
       selectionMenu.value = {
         visible: true,
         text: selectedText,
@@ -144,7 +152,7 @@
   };
 
   const handleDocumentClick = (e) => {
-    const target = e.target;
+    const { target } = e;
     if (!(target instanceof HTMLElement)) return;
     if (!target.closest('.selection-menu')) hideSelectionMenu();
   };
@@ -214,7 +222,7 @@
             index === currentMessages.length - 1 && message.role === 'assistant'
           "
           @regenerate="handleRegenerate"
-          @resume-action="handleResumeAction"
+          @resumeAction="handleResumeAction"
         />
       </template>
       <div v-else class="empty-state">
@@ -231,8 +239,12 @@
       class="selection-menu"
       :style="{ left: `${selectionMenu.x}px`, top: `${selectionMenu.y}px` }"
     >
-      <button class="menu-btn" @click="askWithSelection('explain')">解释</button>
-      <button class="menu-btn" @click="askWithSelection('example')">举例</button>
+      <button class="menu-btn" @click="askWithSelection('explain')">
+        解释
+      </button>
+      <button class="menu-btn" @click="askWithSelection('example')">
+        举例
+      </button>
       <button class="menu-btn" @click="askWithSelection('bug')">找Bug</button>
     </div>
 

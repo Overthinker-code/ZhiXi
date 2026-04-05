@@ -7,7 +7,7 @@ import {
   updateChatThreadTitle,
 } from '@/api/rag';
 
-export const useChatStore = defineStore(
+const useChatStore = defineStore(
   'llm-chat',
   () => {
     // 所有对话列表（元信息：id, title, createdAt）
@@ -44,6 +44,19 @@ export const useChatStore = defineStore(
       () => _messagesMap.value[currentConversationId.value] || []
     );
 
+    // 创建新对话
+    const createConversation = async () => {
+      const thread = await createChatThread();
+      const newConversation = {
+        id: thread.thread_id,
+        title: thread.title,
+        createdAt: Date.parse(thread.created_at) || Date.now(),
+      };
+      conversations.value.unshift(newConversation);
+      _messagesMap.value[newConversation.id] = [];
+      currentConversationId.value = newConversation.id;
+    };
+
     const loadConversations = async () => {
       const localConversations = conversations.value.slice();
       const localCurrentId = currentConversationId.value;
@@ -57,13 +70,11 @@ export const useChatStore = defineStore(
 
         if (!conversations.value.length) {
           if (localConversations.length) {
-            for (const conv of localConversations) {
-              try {
-                await createChatThread(conv.title, conv.id);
-              } catch (error) {
-                // ignore single thread sync errors
-              }
-            }
+            await Promise.all(
+              localConversations.map((conv) =>
+                createChatThread(conv.title, conv.id).catch(() => null)
+              )
+            );
             const refreshed = await fetchChatThreads();
             conversations.value = refreshed.map((thread) => ({
               id: thread.thread_id,
@@ -84,22 +95,13 @@ export const useChatStore = defineStore(
         }
       } catch (error) {
         if (!conversations.value.length) {
-          await createConversation();
+          try {
+            await createConversation();
+          } catch {
+            // 首次加载失败时留给发送消息等流程再提示
+          }
         }
       }
-    };
-
-    // 创建新对话
-    const createConversation = async () => {
-      const thread = await createChatThread();
-      const newConversation = {
-        id: thread.thread_id,
-        title: thread.title,
-        createdAt: Date.parse(thread.created_at) || Date.now(),
-      };
-      conversations.value.unshift(newConversation);
-      _messagesMap.value[newConversation.id] = [];
-      currentConversationId.value = newConversation.id;
     };
 
     // 切换对话
@@ -234,3 +236,6 @@ export const useChatStore = defineStore(
     },
   }
 );
+
+export { useChatStore };
+export default useChatStore;

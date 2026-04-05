@@ -1,5 +1,4 @@
 <script setup>
-  import AgentThoughtCard from './AgentThoughtCard.vue';
   import { renderMarkdown } from '@/utils/markdown';
   import { submitChatFeedback } from '@/api/rag';
   import { useSettingStore } from '@/store/setting';
@@ -14,6 +13,7 @@
   import dislikeIcon from '@/assets/photo/踩.png';
   import dislikeActiveIcon from '@/assets/photo/踩2.png';
   import regenerateIcon from '@/assets/photo/重新生成.png';
+  import AgentThoughtCard from './AgentThoughtCard.vue';
 
   // 定义props
   const props = defineProps({
@@ -35,7 +35,7 @@
   const isCopied = ref(false);
 
   // 添加重新生成的事件
-  const emit = defineEmits(['regenerate', 'resume-action']);
+  const emit = defineEmits(['regenerate', 'resumeAction']);
 
   // 添加展开/折叠状态控制
   const isReasoningExpanded = ref(true);
@@ -102,7 +102,7 @@
   };
 
   const handleResumeAction = (approve) => {
-    emit('resume-action', {
+    emit('resumeAction', {
       pendingActionId: props.message.pending_action_id,
       approve,
     });

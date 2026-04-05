@@ -27,6 +27,10 @@
   const loading = ref(false);
   const form = reactive({ email: '' });
 
+  const goLogin = () => {
+    router.push({ name: 'login' });
+  };
+
   const onSubmit = async () => {
     if (!form.email) {
       Message.warning('请先输入邮箱');
@@ -42,10 +46,6 @@
     } finally {
       loading.value = false;
     }
-  };
-
-  const goLogin = () => {
-    router.push({ name: 'login' });
   };
 </script>
 

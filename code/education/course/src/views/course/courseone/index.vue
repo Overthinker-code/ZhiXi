@@ -192,16 +192,22 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   fetchCourseById,
+  fetchCourses,
   fetchTeachingClasses,
   fetchCourseResourceAnalysis,
   type Course,
   type TeachingClass,
   type CourseResourceAnalysis,
 } from '@/api/course';
+import {
+  DEMO_COURSE_IDS,
+  getDemoCourseById,
+  getDemoTeachingClasses,
+} from '@/mock/demoData';
 import LoadingState from '@/components/state/LoadingState.vue';
 import EmptyState from '@/components/state/EmptyState.vue';
 import ErrorState from '@/components/state/ErrorState.vue';
@@ -232,33 +238,15 @@ function formatDate(dateStr: string) {
   return new Date(dateStr).toLocaleDateString('zh-CN');
 }
 
-async function loadCourseDetail() {
-  const courseId = route.params.id as string;
-  if (!courseId) {
-    error.value = '课程ID不存在';
-    return;
-  }
-
-  loading.value = true;
-  error.value = '';
-  try {
-    course.value = await fetchCourseById(courseId);
-    loadTeachingClasses(courseId);
-    loadResourceAnalysis(courseId);
-  } catch (e: any) {
-    error.value = e.message || '加载失败';
-  } finally {
-    loading.value = false;
-  }
-}
-
-async function loadTeachingClasses(courseId: string) {
+async function loadTeachingClasses(courseId: string, useDemoFallback: boolean) {
   loadingClasses.value = true;
   try {
     const response = await fetchTeachingClasses(courseId);
     teachingClasses.value = response.data;
   } catch {
-    teachingClasses.value = [];
+    teachingClasses.value = useDemoFallback
+      ? (getDemoTeachingClasses(courseId) as TeachingClass[])
+      : [];
   } finally {
     loadingClasses.value = false;
   }
@@ -272,6 +260,55 @@ async function loadResourceAnalysis(courseId: string) {
   }
 }
 
+async function resolveCourseId(): Promise<string> {
+  const fromParam = (route.params.id as string) || '';
+  if (fromParam) return fromParam;
+  const q = route.query.id;
+  if (typeof q === 'string' && q) return q;
+
+  if (route.name === 'CourseOne') {
+    try {
+      const r = await fetchCourses({ skip: 0, limit: 1 });
+      const first = r.data[0];
+      if (first?.id) return first.id;
+    } catch {
+      /* 使用演示 id */
+    }
+    return DEMO_COURSE_IDS[0];
+  }
+  return '';
+}
+
+async function loadCourseDetail() {
+  loading.value = true;
+  error.value = '';
+
+  const courseId = await resolveCourseId();
+  if (!courseId) {
+    error.value = '课程ID不存在';
+    loading.value = false;
+    return;
+  }
+
+  try {
+    course.value = await fetchCourseById(courseId);
+    await loadTeachingClasses(courseId, false);
+    await loadResourceAnalysis(courseId);
+  } catch {
+    const demo = getDemoCourseById(courseId);
+    if (demo) {
+      course.value = { ...demo } as Course;
+      error.value = '';
+      await loadTeachingClasses(courseId, true);
+      await loadResourceAnalysis(courseId);
+    } else {
+      error.value = '无法加载课程，请从课程总览选择课程或检查后端是否已启动';
+    }
+  } finally {
+    loading.value = false;
+  }
+}
+
 function goBack() {
   router.push('/course/list');
 }
@@ -279,6 +316,13 @@ function goBack() {
 onMounted(() => {
   loadCourseDetail();
 });
+
+watch(
+  () => [route.name, route.params.id, route.query.id] as const,
+  () => {
+    loadCourseDetail();
+  }
+);
 </script>
 
 <style scoped>

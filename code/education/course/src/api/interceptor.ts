@@ -11,10 +11,31 @@ export interface HttpResponse<T = unknown> {
   data: T;
 }
 
+/** FastAPI：detail 可能是字符串或校验错误对象数组 */
+function formatFastApiDetail(detailRaw: unknown): string {
+  if (typeof detailRaw === 'string') {
+    return detailRaw;
+  }
+  if (!Array.isArray(detailRaw)) {
+    return '';
+  }
+  return detailRaw
+    .map((d: unknown) => {
+      if (typeof d === 'object' && d !== null && 'msg' in d) {
+        return String((d as { msg: string }).msg);
+      }
+      return JSON.stringify(d);
+    })
+    .join('; ');
+}
+
 if (import.meta.env.VITE_API_BASE_URL) {
   axios.defaults.baseURL = import.meta.env.VITE_API_BASE_URL;
 }
-axios.defaults.timeout = 30000;
+const parsedTimeout = Number(import.meta.env.VITE_AXIOS_TIMEOUT_MS);
+/** 通用默认 60s；勿过短，否则远程/冷启动后端易误报超时 */
+axios.defaults.timeout =
+  Number.isFinite(parsedTimeout) && parsedTimeout > 0 ? parsedTimeout : 60000;
 
 axios.interceptors.request.use(
   (config: AxiosRequestConfig) => {
@@ -92,6 +113,15 @@ axios.interceptors.response.use(
     const isFeedback = url.includes('/chat/feedback');
     const isNetworkError = !error?.response;
     const isLogin = url.includes('/login/');
+    const isDashboard = url.includes('/dashboard/');
+    const isEducationRead =
+      url.includes('/education/courses') || url.includes('/education/tc');
+    /** 登录/注册等：错误由页面内文案展示，避免与全局 Message 叠在一起 */
+    const isAuthFormRequest =
+      url.includes('/login/') ||
+      url.includes('/users/signup') ||
+      url.includes('/password-recovery') ||
+      url.includes('/reset-password');
 
     if (status === 401 && !isLogin) {
       const userStore = useUserStore();
@@ -100,14 +130,39 @@ axios.interceptors.response.use(
       return Promise.reject(new Error('登录已过期，请重新登录'));
     }
 
+    const resData = error?.response?.data;
+    let detailStr = '';
+    if (typeof resData === 'object' && resData !== null) {
+      detailStr = formatFastApiDetail(
+        (resData as Record<string, unknown>).detail
+      );
+    } else if (typeof resData === 'string') {
+      detailStr = resData;
+    }
     const rawMessage =
-      error?.response?.data?.detail || error?.message || 'Request Error';
-    const friendlyChatMessage = '当前连接时空有点波动，请稍后再试哦~';
-    const message = isChat && isNetworkError ? friendlyChatMessage : rawMessage;
+      detailStr || error?.message || 'Request Error';
+    const friendlyChatMessage =
+      '无法连接后端 API。请确认：① SSH 隧道已建立且未断开；② 本机可 curl 通隧道端口；③ VITE_DEV_API_PROXY_TARGET 与隧道本地端口一致；④ 修改 .env.development 后已重启 npm run dev。';
+    const friendlyNetworkHint =
+      '无法连接后端 API，请确认后端已启动，且 .env 中 VITE_API_BASE_URL 指向可访问地址（如 http://127.0.0.1:8000/api/v1）';
+    let message = rawMessage;
+    if (isChat && isNetworkError) {
+      message = friendlyChatMessage;
+    } else if (isNetworkError && (isAuthFormRequest || isLogin)) {
+      message = friendlyNetworkHint;
+    }
 
     const shouldSilenceGlobalToast =
-      (isChat && isTimeout) || isFeedback || (isChat && isNetworkError);
-    if (!shouldSilenceGlobalToast) {
+      (isChat && isTimeout) ||
+      isFeedback ||
+      (isChat && isNetworkError) ||
+      (isDashboard && isNetworkError) ||
+      (isEducationRead && isNetworkError) ||
+      isAuthFormRequest ||
+      (url.includes('/users/me') && isNetworkError);
+    /** /chat/threads 由业务层（如 useChat）统一提示，避免与 axios reject 后的 Message 重复 */
+    const isChatThreads = url.includes('/chat/threads');
+    if (!shouldSilenceGlobalToast && !isChatThreads) {
       Message.error({
         content: message,
         duration: 5 * 1000,

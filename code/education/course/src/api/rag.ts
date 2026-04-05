@@ -1,6 +1,9 @@
 import axios from 'axios';
 import { getToken } from '@/utils/auth';
 
+/** 会话列表/设置/知识库列表等：尽快失败，避免 AI 页长时间白屏等待 */
+const READ_TIMEOUT_MS = 8000;
+
 export type ReferenceScope = 'system' | 'personal';
 export type ReferenceScopeFilter = 'all' | ReferenceScope;
 
@@ -60,6 +63,7 @@ export function uploadReferenceFile(file: File) {
   return axios
     .post('/rag/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 0,
     })
     .then((res: any) => res.data);
 }
@@ -68,6 +72,7 @@ export function fetchReferenceFiles(scope: ReferenceScopeFilter = 'all') {
   return axios
     .get('/rag/files', {
       params: { scope },
+      timeout: READ_TIMEOUT_MS,
     })
     .then((res: any) => (res.data?.files || []) as ReferenceFile[]);
 }
@@ -256,6 +261,70 @@ export interface ChatAdvancedOptions {
   courseModule?: string;
 }
 
+async function consumeAssistantChatStream(
+  url: string,
+  payload: Record<string, unknown>,
+  onEvent: (event: ChatStreamEvent) => void
+): Promise<void> {
+  const token = getToken();
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'text/event-stream',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(errText || `HTTP ${res.status}`);
+  }
+  if (!res.body) {
+    throw new Error('响应无正文（流不可用）');
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+
+  const handleLine = (line: string) => {
+    const trimmed = line.replace(/\r$/, '').trim();
+    if (!trimmed.startsWith('data: ')) return;
+    try {
+      const event = JSON.parse(trimmed.slice(6)) as ChatStreamEvent;
+      onEvent(event);
+      if (event.type === 'error') {
+        throw new Error(event.content || 'Stream error');
+      }
+    } catch (e) {
+      if (e instanceof SyntaxError) return;
+      throw e;
+    }
+  };
+
+  /* SSE 只能顺序 read；此处 await 不可避免 */
+  /* eslint-disable no-await-in-loop */
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (value?.length) {
+      buf += decoder.decode(value, { stream: true });
+    }
+    for (;;) {
+      const nl = buf.indexOf('\n');
+      if (nl < 0) break;
+      const line = buf.slice(0, nl);
+      buf = buf.slice(nl + 1);
+      handleLine(line);
+    }
+    if (done) break;
+  }
+  /* eslint-enable no-await-in-loop */
+
+  if (buf.trim()) {
+    handleLine(buf);
+  }
+}
+
 export function createAssistantChatStream(
   userInput: string,
   threadId: string,
@@ -263,68 +332,29 @@ export function createAssistantChatStream(
   onEvent: (event: ChatStreamEvent) => void
 ) {
   const normalized = options || {};
-  return new Promise<void>((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    const base = axios.defaults.baseURL || import.meta.env.VITE_API_BASE_URL || '';
-    const url = base ? `${base.replace(/\/+$/, '')}/chat/stream` : '/chat/stream';
+  const base =
+    axios.defaults.baseURL || import.meta.env.VITE_API_BASE_URL || '';
+  const url = base ? `${base.replace(/\/+$/, '')}/chat/stream` : '/chat/stream';
+  const payload = {
+    user_input: userInput,
+    thread_id: threadId,
+    system_prompt: normalized.systemPrompt || '',
+    rag_k: normalized.ragK,
+    prompt_key: normalized.promptKey,
+    strict_mode: normalized.strictMode,
+    active_tools: normalized.activeTools,
+    max_tokens: normalized.maxTokens,
+    temperature: normalized.temperature,
+    top_p: normalized.topP,
+    top_k: normalized.topK,
+    selected_text: normalized.selectedText,
+    surrounding_context: normalized.surroundingContext,
+    video_time: normalized.videoTime,
+    course_module: normalized.courseModule,
+  };
 
-    xhr.open('POST', url, true);
-    const token = getToken();
-    if (token) {
-      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-    }
-    xhr.setRequestHeader('Content-Type', 'application/json');
-    xhr.setRequestHeader('Accept', 'text/event-stream');
-
-    const payload = {
-      user_input: userInput,
-      thread_id: threadId,
-      system_prompt: normalized.systemPrompt || '',
-      rag_k: normalized.ragK,
-      prompt_key: normalized.promptKey,
-      strict_mode: normalized.strictMode,
-      active_tools: normalized.activeTools,
-      max_tokens: normalized.maxTokens,
-      temperature: normalized.temperature,
-      top_p: normalized.topP,
-      top_k: normalized.topK,
-      selected_text: normalized.selectedText,
-      surrounding_context: normalized.surroundingContext,
-      video_time: normalized.videoTime,
-      course_module: normalized.courseModule,
-    };
-
-    let lastProcessedLength = 0;
-    xhr.onprogress = () => {
-      const text = xhr.responseText || '';
-      const newText = text.substring(lastProcessedLength);
-      lastProcessedLength = text.length;
-      const lines = newText.split('\n');
-      lines.forEach((line) => {
-        if (!line.startsWith('data: ')) return;
-        try {
-          const event = JSON.parse(line.substring(6)) as ChatStreamEvent;
-          onEvent(event);
-          if (event.type === 'error') {
-            reject(new Error(event.content || 'Stream error'));
-          }
-        } catch {
-          // ignore incomplete line
-        }
-      });
-    };
-
-    xhr.onload = () => {
-      if (xhr.status === 200) {
-        resolve();
-      } else {
-        reject(new Error(`HTTP ${xhr.status}: ${xhr.statusText}`));
-      }
-    };
-
-    xhr.onerror = () => reject(new Error('Network error'));
-    xhr.send(JSON.stringify(payload));
-  });
+  /** fetch + ReadableStream：避免 XHR 在隧道/跨端口下长时间缓冲无输出 */
+  return consumeAssistantChatStream(url, payload, onEvent);
 }
 
 export function askSelectionQuery(
@@ -335,32 +365,40 @@ export function askSelectionQuery(
 ) {
   const normalized = options || {};
   return axios
-    .post('/chat/selection-query', {
-      user_input: selectedText,
-      selected_text: selectedText,
-      surrounding_context: surroundingContext,
-      video_time: normalized.videoTime,
-      course_module: normalized.courseModule,
-      thread_id: threadId,
-      system_prompt: normalized.systemPrompt || '',
-      rag_k: normalized.ragK,
-      prompt_key: normalized.promptKey,
-      strict_mode: normalized.strictMode,
-      active_tools: normalized.activeTools,
-      max_tokens: normalized.maxTokens,
-      temperature: normalized.temperature,
-      top_p: normalized.topP,
-      top_k: normalized.topK,
-    })
+    .post(
+      '/chat/selection-query',
+      {
+        user_input: selectedText,
+        selected_text: selectedText,
+        surrounding_context: surroundingContext,
+        video_time: normalized.videoTime,
+        course_module: normalized.courseModule,
+        thread_id: threadId,
+        system_prompt: normalized.systemPrompt || '',
+        rag_k: normalized.ragK,
+        prompt_key: normalized.promptKey,
+        strict_mode: normalized.strictMode,
+        active_tools: normalized.activeTools,
+        max_tokens: normalized.maxTokens,
+        temperature: normalized.temperature,
+        top_p: normalized.topP,
+        top_k: normalized.topK,
+      },
+      { timeout: 0 }
+    )
     .then((res: any) => res.data as ChatRecord);
 }
 
 export function resumeChatAction(pendingActionId: string, approve = true) {
   return axios
-    .post('/chat/resume', {
-      pending_action_id: pendingActionId,
-      approve,
-    })
+    .post(
+      '/chat/resume',
+      {
+        pending_action_id: pendingActionId,
+        approve,
+      },
+      { timeout: 0 }
+    )
     .then((res: any) => res.data);
 }
 
@@ -377,7 +415,8 @@ export function streamInterventionEvents(
 ) {
   return new Promise<void>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    const base = axios.defaults.baseURL || import.meta.env.VITE_API_BASE_URL || '';
+    const base =
+      axios.defaults.baseURL || import.meta.env.VITE_API_BASE_URL || '';
     const url = base
       ? `${base.replace(/\/+$/, '')}/chat/events/stream`
       : '/chat/events/stream';
@@ -412,25 +451,29 @@ export function streamInterventionEvents(
 
 export function fetchAssistantSettings() {
   return axios
-    .get('/chat/settings')
+    .get('/chat/settings', { timeout: READ_TIMEOUT_MS })
     .then((res: any) => res.data as AssistantSettings);
 }
 
 export function fetchChatHistory(threadId = 'default') {
   return axios
-    .get(`/chat/history/${threadId}`)
+    .get(`/chat/history/${threadId}`, { timeout: READ_TIMEOUT_MS })
     .then((res: any) => res.data as ChatRecord[]);
 }
 
 export function createChatThread(title = '', threadId = '') {
   return axios
-    .post('/chat/threads', { title, thread_id: threadId || undefined })
+    .post(
+      '/chat/threads',
+      { title, thread_id: threadId || undefined },
+      { timeout: READ_TIMEOUT_MS }
+    )
     .then((res: any) => res.data as ChatThread);
 }
 
 export function fetchChatThreads() {
   return axios
-    .get('/chat/threads')
+    .get('/chat/threads', { timeout: READ_TIMEOUT_MS })
     .then((res: any) => res.data as ChatThread[]);
 }
 

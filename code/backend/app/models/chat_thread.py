@@ -17,4 +17,4 @@ class ChatThread(Base):
         onupdate=func.now(),
     )
 
-    chats = relationship("Chat", backref="thread", lazy="dynamic")
+    chats = relationship("Chat", back_populates="thread", lazy="dynamic")

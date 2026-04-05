@@ -1,7 +1,6 @@
 import uuid
 from uuid import UUID, uuid4
 
-from pydantic import EmailStr
 from sqlmodel import Field, Relationship, SQLModel
 
 from datetime import datetime
@@ -15,123 +14,15 @@ from uuid import UUID, uuid4
 from datetime import datetime
 
 
-# Shared properties
-class UserBase(SQLModel):
-    email: EmailStr = Field(unique=True, index=True, max_length=255)
-    is_active: bool = True
-    is_superuser: bool = False
-    full_name: str | None = Field(default=None, max_length=255)
-
-
-# Properties to receive via API on creation
-class UserCreate(UserBase):
-    password: str = Field(min_length=8, max_length=40)
-    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=True)
-
-
-class UserRegister(SQLModel):
-    email: EmailStr = Field(max_length=255)
-    password: str = Field(min_length=8, max_length=40)
-    full_name: str | None = Field(default=None, max_length=255)
-    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=True)
-
-
-# Properties to receive via API on update, all are optional
-class UserUpdate(UserBase):
-    email: EmailStr | None = Field(default=None, max_length=255)  # type: ignore
-    password: str | None = Field(default=None, min_length=8, max_length=40)
-
-
-class UserUpdateMe(SQLModel):
-    full_name: str | None = Field(default=None, max_length=255)
-    email: EmailStr | None = Field(default=None, max_length=255)
-
-
-class UpdatePassword(SQLModel):
-    current_password: str = Field(min_length=8, max_length=40)
-    new_password: str = Field(min_length=8, max_length=40)
-
-
-# Database model, database table inferred from class name
-class User(UserBase, table=True):
-    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    hashed_password: str
-    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=True)
-
-    sent_messages: List["Message"] = Relationship(
-        back_populates="sender",
-        sa_relationship_kwargs={"foreign_keys": "[Message.sender_id]"},
-    )
-    received_messages: List["Message"] = Relationship(
-        back_populates="receiver",
-        sa_relationship_kwargs={"foreign_keys": "[Message.receiver_id]"},
-    )
-    logs: List["Log"] = Relationship(back_populates="user")
-    videos: List["Video"] = Relationship(back_populates="uploader")
-
-
-# Properties to return via API, id is always required
-class UserPublic(UserBase):
-    id: uuid.UUID
-    created_at: Optional[datetime]
-
-
-class UsersPublic(SQLModel):
-    data: list[UserPublic]
-    count: int
-
-
-# Shared properties
-class ItemBase(SQLModel):
-    title: str = Field(min_length=1, max_length=255)
-    description: str | None = Field(default=None, max_length=255)
-
-
-# Properties to receive on item creation
-class ItemCreate(ItemBase):
-    pass
-
-
-# Properties to receive on item update
-class ItemUpdate(ItemBase):
-    title: str | None = Field(default=None, min_length=1, max_length=255)  # type: ignore
-
-
-# Database model, database table inferred from class name
-class Item(ItemBase, table=True):
-    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    owner_id: uuid.UUID = Field(
-        foreign_key="user.id", nullable=False, ondelete="CASCADE"
-    )
-    owner: User | None = Relationship(back_populates="items")
-
-
-# Properties to return via API, id is always required
-class ItemPublic(ItemBase):
-    id: uuid.UUID
-    owner_id: uuid.UUID
-
-
-class ItemsPublic(SQLModel):
-    data: list[ItemPublic]
-    count: int
+# User / Item / Message：使用 app.models 包内定义，避免本文件被 importlib 加载时重复注册表
+from app.models.user import User  # noqa: E402
+from app.models.item import Item  # noqa: E402
+from app.models.message import Message  # noqa: E402
 
 
 # Generic message
 class SimpleMessage(SQLModel):
     message: str
-
-
-# Enums for message system
-class MessageType(str, Enum):
-    system = "system"
-    reminder = "reminder"
-    feedback = "feedback"
-
-
-class MessageStatus(str, Enum):
-    unread = "unread"
-    read = "read"
 
 
 # JSON payload containing access token
@@ -150,29 +41,6 @@ class NewPassword(SQLModel):
     new_password: str = Field(min_length=8, max_length=40)
 
 
-class Message(SQLModel, table=True):
-    id: UUID = Field(default_factory=uuid4, primary_key=True)
-    sender_id: Optional[UUID] = Field(foreign_key="user.id")
-    receiver_id: Optional[UUID] = Field(foreign_key="user.id")
-    content: str = Field(nullable=False)
-    type: MessageType = Field(nullable=False)
-    status: MessageStatus = Field(default=MessageStatus.unread)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-
-    sender: Optional[User] = Relationship(
-        back_populates="sent_messages",
-        sa_relationship_kwargs={"foreign_keys": "[Message.sender_id]"},
-    )
-    receiver: Optional[User] = Relationship(
-        back_populates="received_messages",
-        sa_relationship_kwargs={"foreign_keys": "[Message.receiver_id]"},
-    )
-
-    # 非数据库字段，仅用于API响应
-    sender_email: Optional[str] = None
-    receiver_email: Optional[str] = None
-
-
 class Log(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     user_id: Optional[UUID] = Field(foreign_key="user.id")
@@ -182,7 +50,7 @@ class Log(SQLModel, table=True):
     object_id: Optional[UUID] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-    user: Optional[User] = Relationship(back_populates="logs")
+    user: Optional[User] = Relationship()
 
 
 # ---- 帮助文档相关模型 ----
@@ -597,7 +465,6 @@ class Resource(SQLModel, table=True):
     course: "Course" = Relationship()
     
 
-User.videos = Relationship(back_populates="uploader")
 UD.teachers = Relationship(back_populates="ud")
 UD.courses = Relationship(back_populates="ud")
 UD.students = Relationship(back_populates="ud")

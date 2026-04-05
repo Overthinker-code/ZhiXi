@@ -1,6 +1,6 @@
 from typing import Optional
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class ChatThreadBase(BaseModel):
@@ -21,10 +21,10 @@ class ChatThreadInDBBase(ChatThreadBase):
     thread_id: str
     title: str
     created_at: datetime
-    updated_at: datetime
+    # 旧数据或未触发 onupdate 时可能为空，避免校验失败导致 500
+    updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ChatThread(ChatThreadInDBBase):

@@ -44,7 +44,7 @@ const COURSE: AppRouteRecordRaw = {
       },
     },
     {
-      path: 'course-one',
+      path: 'course-one/:id?',
       name: 'CourseOne',
       component: () => import('@/views/course/courseone/index.vue'),
       meta: {

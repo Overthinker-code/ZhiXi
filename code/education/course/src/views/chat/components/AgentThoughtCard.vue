@@ -6,15 +6,15 @@
   }>();
 
   const expanded = ref(true);
+  const pickIcon = (text: string) => {
+    if (text.includes('工具') || text.includes('🛠️')) return '🛠️';
+    if (text.includes('路由') || text.includes('Router')) return '🤖';
+    if (text.includes('策略') || text.includes('降级')) return '🔄';
+    return '💡';
+  };
   const parsed = computed(() =>
     (props.thoughts || []).map((text, idx) => {
-      const icon = text.includes('工具') || text.includes('🛠️')
-        ? '🛠️'
-        : text.includes('路由') || text.includes('Router')
-          ? '🤖'
-          : text.includes('策略') || text.includes('降级')
-            ? '🔄'
-            : '💡';
+      const icon = pickIcon(text);
       return { id: idx, icon, text };
     })
   );

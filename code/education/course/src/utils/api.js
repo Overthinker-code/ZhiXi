@@ -43,3 +43,5 @@ export const createChatCompletion = async (messages) => {
     throw error;
   }
 };
+
+export default createChatCompletion;
