@@ -52,9 +52,11 @@ _TOOL_NODE_PIPELINE_MSG: dict[str, str] = {
 
 _JSON_OBJ = re.compile(r"\{[\s\S]*\}")
 _DOC_QUERY_HINT = re.compile(
-    r"(这篇|该|这个)?(论文|文档|报告|课件|pdf|PDF|word|Word|doc|DOC|章节|第[一二三四五六七八九十0-9]+章|摘要|方法|实验|结论|创新点)"
+    r"(这篇|该|这个)?(论文|文档|报告|课件|pdf|PDF|word|Word|doc|DOC|章节|第[一二三四五六七八九十0-9]+章|摘要|方法|实验|结论|创新点|原文)"
 )
-_QUIZ_HINT = re.compile(r"(考考我|出题|做题|测验|测试我|我来答题|我来回答)")
+_QUIZ_HINT = re.compile(
+    r"(考考我|出题|做题|测验|测试我|我来答题|我来回答|练习题|来道题|随堂测|小测)"
+)
 
 # 防止异常超大请求；实际需要更长可在 .env 提高 CHAT_DEFAULT_MAX_TOKENS
 _MAX_OUTPUT_CAP = 131072

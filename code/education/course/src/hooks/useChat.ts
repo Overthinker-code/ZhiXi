@@ -225,7 +225,9 @@ export function useChat() {
             chatStore.setMountedFile(threadIdForTitle, mountedFile);
           }
         } catch {
-          // 文件上传失败时降级为纯文本问答，不阻塞主链路
+          Message.warning(
+            '文档挂载失败：本轮将按普通问答处理。请检查文件格式或后端日志。'
+          );
         }
       }
 

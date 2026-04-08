@@ -132,6 +132,14 @@ class RAGService:
 
         try:
             documents = self.doc_processor.process_document(file_path)
+            non_empty = [
+                d for d in documents if (d.page_content or "").strip()
+            ]
+            if not non_empty:
+                raise ValueError(
+                    "文档未提取到可读文本（可能是扫描版 PDF/图片型文档）。请上传可复制文本版，或先做 OCR。"
+                )
+            documents = non_empty
 
             for idx, doc in enumerate(documents):
                 metadata = dict(doc.metadata or {})
