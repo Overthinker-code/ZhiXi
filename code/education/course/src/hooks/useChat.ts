@@ -224,9 +224,15 @@ export function useChat() {
             };
             chatStore.setMountedFile(threadIdForTitle, mountedFile);
           }
-        } catch {
+        } catch (uploadError: unknown) {
+          const detail =
+            uploadError instanceof Error && uploadError.message
+              ? uploadError.message
+              : '';
           Message.warning(
-            '文档挂载失败：本轮将按普通问答处理。请检查文件格式或后端日志。'
+            detail.includes('404')
+              ? '文档挂载失败：后端缺少 /api/v1/file/upload 接口（当前服务未更新到最新代码）。'
+              : '文档挂载失败：本轮将按普通问答处理。请检查文件格式或后端日志。'
           );
         }
       }

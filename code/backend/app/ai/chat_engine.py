@@ -422,6 +422,17 @@ def _rule_based_route(state: State) -> tuple[str, str] | None:
     return None
 
 
+def _default_suggestions(user_q: str) -> list[str]:
+    q = (user_q or "").strip()
+    if not q:
+        return ["这一步哪里最容易出错？", "能给我一个最小练习题吗？", "下一步我该怎么学？"]
+    return [
+        "基于这个问题，最核心的知识点是什么？",
+        "给我一道由浅入深的练习题。",
+        "如果答错了，我该如何快速纠正？",
+    ]
+
+
 def _rag_system_message(request: ChatRequest) -> SystemMessage:
     results = rag_service.query_knowledge_base(
         query=request.user_input,
@@ -1027,6 +1038,7 @@ def stream_chat_events(request: ChatRequest):
         text = cache_hit.answer
         for i in range(0, len(text), 24):
             yield {"type": "token", "content": text[i : i + 24]}
+        yield {"type": "suggestions", "data": _default_suggestions(req.user_input)}
         yield {
             "type": "final",
             "content": text,
@@ -1121,8 +1133,7 @@ def stream_chat_events(request: ChatRequest):
     chunk_size = 24
     for i in range(0, len(text), chunk_size):
         yield {"type": "token", "content": text[i : i + chunk_size]}
-    if suggestions:
-        yield {"type": "suggestions", "data": suggestions}
+    yield {"type": "suggestions", "data": suggestions or _default_suggestions(req.user_input)}
 
     resp = ChatResponse(
         response=text,
