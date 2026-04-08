@@ -11,6 +11,7 @@ import {
   fetchChatHistory,
   askSelectionQuery,
   resumeChatAction,
+  generateChatTitle,
 } from '@/api/rag';
 
 /**
@@ -23,9 +24,7 @@ export function parseAssistantResponse(rawResponse: string) {
   }
 
   const thinkMatch = rawResponse.match(/<think>([\s\S]*?)<\/think>/i);
-  const analysisMatch = rawResponse.match(
-    /<analysis>([\s\S]*?)<\/analysis>/i
-  );
+  const analysisMatch = rawResponse.match(/<analysis>([\s\S]*?)<\/analysis>/i);
   const finalMatch = rawResponse.match(/<final>([\s\S]*?)<\/final>/i);
 
   if (finalMatch) {
@@ -166,6 +165,14 @@ export function useChat() {
       return;
     }
     try {
+      const userCountBeforeSend = (chatStore.currentMessages || []).filter(
+        (m: any) => m.role === 'user'
+      ).length;
+      const existingTitle = (chatStore.currentConversation?.title || '').trim();
+      const shouldAutoGenerateTitle =
+        userCountBeforeSend === 0 &&
+        (!existingTitle || existingTitle === '新对话');
+
       chatStore.addMessage(
         messageHandler.formatMessage(
           'user',
@@ -175,6 +182,21 @@ export function useChat() {
         )
       );
       chatStore.addMessage(messageHandler.formatMessage('assistant', '', ''));
+
+      if (shouldAutoGenerateTitle && currentThreadId.value) {
+        generateChatTitle(messageContent.text)
+          .then((res) => {
+            const title = (res?.title || '').trim();
+            if (!title) return undefined;
+            return chatStore.updateConversationTitle(
+              currentThreadId.value,
+              title
+            );
+          })
+          .catch(() => {
+            // ignore title generation failures to avoid blocking main chat path
+          });
+      }
 
       chatStore.setIsLoading(true);
       const lastMessage = chatStore.getLastMessage();
@@ -267,9 +289,7 @@ export function useChat() {
           ? error.message.slice(0, 500)
           : '';
       chatStore.updateLastMessage(
-        detail
-          ? `生成未成功：${detail}`
-          : '当前连接时空有点波动，请稍后再试哦~'
+        detail ? `生成未成功：${detail}` : '当前连接时空有点波动，请稍后再试哦~'
       );
     } finally {
       chatStore.setIsLoading(false);
@@ -312,7 +332,9 @@ export function useChat() {
   }) {
     const text = params.selectedText?.trim();
     if (!text) return;
-    chatStore.addMessage(messageHandler.formatMessage('user', `划词提问：${text}`));
+    chatStore.addMessage(
+      messageHandler.formatMessage('user', `划词提问：${text}`)
+    );
     chatStore.addMessage(messageHandler.formatMessage('assistant', '', ''));
     chatStore.setIsLoading(true);
     const lastMessage = chatStore.getLastMessage();
@@ -339,7 +361,9 @@ export function useChat() {
           courseModule: params.courseModule,
         }
       );
-      const { content, reasoning } = parseAssistantResponse(response.response || '');
+      const { content, reasoning } = parseAssistantResponse(
+        response.response || ''
+      );
       chatStore.updateLastMessage(content, reasoning, 0, 0);
     } catch (error) {
       chatStore.updateLastMessage(

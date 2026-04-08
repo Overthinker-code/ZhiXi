@@ -1,10 +1,11 @@
 from typing import Any, List
 import json
 import asyncio
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session
 from pydantic import BaseModel
+from langchain_core.messages import HumanMessage
 
 from app.api import deps
 from app.api.deps import CurrentUser
@@ -19,6 +20,7 @@ from app.ai.chat_engine import stream_chat_events, chat_service
 from app.services.pending_actions import pending_action_store
 from app.services.realtime_event_bus import realtime_event_bus
 from app.services.chat_semantic_cache import chat_semantic_cache
+from app.services.chat_model_factory import ChatModelFactory
 
 router = APIRouter()
 
@@ -70,6 +72,40 @@ class EventTriggerRequest(BaseModel):
 def read_chat_settings(current_user: CurrentUser) -> Any:
     """Return runtime chat settings for frontend display and controls."""
     return get_chat_runtime_settings()
+
+
+class TitleGenerateRequest(BaseModel):
+    query: str
+
+
+def _clean_generated_title(raw: str) -> str:
+    text = (raw or '').strip()
+    text = text.replace('\n', ' ').replace('\r', ' ').strip()
+    text = text.strip().strip("\"'`.,!?;:-_()[]{}")
+    if len(text) > 12:
+        text = text[:12]
+    return text or '新对话'
+
+
+@router.post('/generate-title')
+def generate_chat_title(
+    *,
+    request: TitleGenerateRequest = Body(...),
+    current_user: CurrentUser,
+) -> Any:
+    """旁路轻量接口：根据首问快速生成短标题，不走 LangGraph 主链路。"""
+    try:
+        llm = ChatModelFactory.create(temperature=0.2, max_tokens=48)
+        prompt = (
+            '请根据用户提问生成一个不超过10个字的中文对话标题。'
+            '不要标点，不要引号，不要换行。\n用户提问：'
+            + request.query
+        )
+        resp = llm.invoke([HumanMessage(content=prompt)])
+        return {'title': _clean_generated_title(str(getattr(resp, 'content', '') or ''))}
+    except Exception:
+        fallback = _clean_generated_title((request.query or '').strip())
+        return {'title': fallback}
 
 
 @router.post("/feedback", response_model=ChatFeedback)

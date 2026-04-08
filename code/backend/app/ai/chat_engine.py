@@ -231,13 +231,36 @@ def _looks_like_route_json_blob(text: str) -> bool:
     return "next_agent" in low and ("routing" in low or "task_breakdown" in low)
 
 
-def _first_human_question(messages: list) -> str:
+def _latest_human_index(messages: list) -> int:
+    for i in range(len(messages or []) - 1, -1, -1):
+        if isinstance(messages[i], HumanMessage):
+            return i
+    return -1
+
+
+def _latest_human_question(messages: list) -> str:
+    idx = _latest_human_index(messages)
+    if idx < 0:
+        return ""
+    return (message_text(messages[idx]) or "").strip()
+
+
+def _recent_public_history(messages: list, max_turns: int = 4) -> list[str]:
+    """仅保留学生与最终导师可见对话，排除专员中间日志。"""
+    lines: list[str] = []
     for m in messages or []:
         if isinstance(m, HumanMessage):
-            t = (message_text(m) or "").strip()
-            if t:
-                return t
-    return ""
+            txt = (message_text(m) or "").strip()
+            if txt:
+                lines.append(f"学生：{txt}")
+            continue
+        if isinstance(m, AIMessage) and getattr(m, "name", "") == "final_answer":
+            txt = _strict_ai_content_for_user(m)
+            if txt:
+                lines.append(f"导师：{txt}")
+    if max_turns <= 0:
+        return lines
+    return lines[-(max_turns * 2) :]
 
 
 def _rag_system_excerpt(messages: list, max_chars: int) -> str:
@@ -255,10 +278,14 @@ def _rag_system_excerpt(messages: list, max_chars: int) -> str:
 
 
 def _collect_worker_outputs_for_finalize(messages: list, max_total: int = 14000) -> str:
-    """按时间顺序收集专员 AIMessage 的 content（非 reasoning），供汇总节点使用。"""
+    """仅收集当前问题之后的专员产出，避免把旧轮次材料重复喂给汇总。"""
     blocks: list[str] = []
-    for m in messages or []:
+    latest_human = _latest_human_index(messages)
+    start = latest_human + 1 if latest_human >= 0 else 0
+    for m in (messages or [])[start:]:
         if not isinstance(m, AIMessage):
+            continue
+        if getattr(m, "name", "") == "final_answer":
             continue
         chunk = _strict_ai_content_for_user(m)
         if not chunk:
@@ -478,11 +505,14 @@ def finalize_node(state: State) -> dict[str, Any]:
         max_tokens=state.get("max_tokens"),
     )
     msgs = state["messages"]
-    user_q = _first_human_question(msgs).strip()
-    if not user_q:
-        user_q = "（未解析到明确的学生问题，请根据下方材料尽量作答。）"
-    rag_ex = _rag_system_excerpt(msgs, max_chars=4000)
-    worker_mat = _collect_worker_outputs_for_finalize(msgs, max_total=14000)
+    current_q = _latest_human_question(msgs).strip()
+    if not current_q:
+        current_q = "（未解析到当前学生问题，请根据历史与材料尽量作答。）"
+
+    history_lines = _recent_public_history(msgs, max_turns=4)
+    recent_history = "\n".join(history_lines) if history_lines else "（暂无历史对话）"
+    rag_ex = _rag_system_excerpt(msgs, max_chars=3500)
+    worker_mat = _collect_worker_outputs_for_finalize(msgs, max_total=12000)
 
     sys_chunks: list[str] = [FINALIZE_SYSTEM_PROMPT]
     resolved = (state.get("resolved_system_prompt") or "").strip()
@@ -491,19 +521,19 @@ def finalize_node(state: State) -> dict[str, Any]:
     rr = (state.get("routing_reason") or "").strip()
     if rr and ("强制" in rr or "解析失败" in rr or "连续" in rr):
         sys_chunks.append(
-            "【补充】本次为异常收束。请在不暴露系统内部错误的前提下，提炼专员材料中的有效信息完成回答。"
+            "【补充】本次为异常收束，请在不暴露系统内部错误的前提下完成最终回答。"
         )
     sys = SystemMessage(content="\n\n".join(sys_chunks))
 
-    human_parts = [f"【学生问题】\n{user_q}"]
+    human_parts = [
+        f"【前情提要（最近公开对话）】\n{recent_history}",
+        f"【当前学生问题】\n{current_q}",
+    ]
     if rag_ex:
         human_parts.append(f"【知识库参考摘要】\n{rag_ex}")
     human_parts.append(
-        "【专员协作产出】（仅供提炼为最终答案，勿复读推理草稿或中间尝试）\n"
-        + (
-            worker_mat
-            or "（当前无专员正文片段，请依据学生问题与知识库摘要直接作答。）"
-        )
+        "【当前专员研究资料】（用于提炼，不要原样复读内部思考）\n"
+        + (worker_mat or "（本轮暂无专员正文，请直接基于问题与上下文作答。）")
     )
     human = HumanMessage(content="\n\n".join(human_parts))
 
@@ -511,17 +541,19 @@ def finalize_node(state: State) -> dict[str, Any]:
         raw_msg = llm.invoke([sys, human])
         clean = _strip_think_blocks_from_text(_strict_ai_content_for_user(raw_msg))
         if clean:
-            msg = AIMessage(content=clean)
+            msg = AIMessage(content=clean, name="final_answer")
         else:
             msg = AIMessage(
-                content="（汇总阶段未得到可见正文，请重试或检查模型是否将答案写在 reasoning 通道。）"
+                content="（汇总阶段未得到可见正文，请重试或检查模型是否将答案写在 reasoning 通道。）",
+                name="final_answer",
             )
     except Exception as e:
         msg = AIMessage(
             content=(
                 "汇总阶段暂时无法完成（常见于上下文过长或服务限制）。请尝试缩短问题或开启新对话。"
                 f"\n（详情：{str(e)[:400]}）"
-            )
+            ),
+            name="final_answer",
         )
     return {
         "messages": [msg],

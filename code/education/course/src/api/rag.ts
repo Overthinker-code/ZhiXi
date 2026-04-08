@@ -520,3 +520,10 @@ export function submitChatFeedback(data: {
 }) {
   return axios.post('/chat/feedback', data).then((res: any) => res.data);
 }
+
+
+export function generateChatTitle(query: string) {
+  return axios
+    .post('/chat/generate-title', { query }, { timeout: READ_TIMEOUT_MS })
+    .then((res: any) => ({ title: String(res.data?.title || '').trim() }));
+}
