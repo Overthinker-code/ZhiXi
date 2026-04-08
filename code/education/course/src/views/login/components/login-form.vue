@@ -1,7 +1,7 @@
 <template>
   <div class="login-form-wrapper">
     <div class="login-form-title">{{ $t('login.form.title') }}</div>
-    <div class="login-form-sub-title">{{ $t('login.form.title') }}</div>
+    <div class="login-form-sub-title">{{ $t('login.form.subTitle') }}</div>
     <div class="login-form-error-msg">{{ errorMessage }}</div>
     
     <a-tabs v-model:active-key="activeTab" class="login-tabs">
@@ -318,6 +318,14 @@
 
   const setRememberPassword = (value: boolean) => {
     loginConfig.value.rememberPassword = value;
+  };
+
+  const goForgotPassword = () => {
+    router.push({ name: 'ForgotPassword' });
+  };
+
+  const goRegister = () => {
+    router.push({ name: 'Register' });
   };
 </script>
 

@@ -63,6 +63,16 @@ const COURSE: AppRouteRecordRaw = {
         roles: ['*'],
       },
     },
+    {
+      path: 'assignment',
+      name: 'AssignmentSubmit',
+      component: () => import('@/views/course/assignment/index.vue'),
+      meta: {
+        locale: '作业提交',
+        requiresAuth: true,
+        roles: ['*'],
+      },
+    },
   ],
 };
 

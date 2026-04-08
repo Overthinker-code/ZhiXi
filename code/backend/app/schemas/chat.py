@@ -32,6 +32,9 @@ class ChatInDBBase(ChatBase):
 
 class Chat(ChatInDBBase):
     tool_calls: List[Dict[str, Any]] = []
+    agent: Optional[str] = None
+    intent: Optional[str] = None
+    routing_reason: Optional[str] = None
 
 class ChatInDB(ChatInDBBase):
     pass

@@ -42,6 +42,21 @@ export function login(data: LoginData) {
     }));
 }
 
+export function registerUser(data: RegisterData) {
+  return axios.post('/users/signup', data);
+}
+
+// Alias for backward compatibility with login-form.vue
+export const register = registerUser;
+
+export function recoverPassword(email: string) {
+  return axios.post(`/password-recovery/${encodeURIComponent(email)}`);
+}
+
+export function resetPassword(data: ResetPasswordData) {
+  return axios.post('/reset-password/', data);
+}
+
 export function logout() {
   return Promise.resolve({ data: {} as LoginRes });
 }
@@ -52,16 +67,4 @@ export function getUserInfo() {
 
 export function getMenuList() {
   return Promise.resolve({ data: [] as RouteRecordNormalized[] });
-}
-
-export function register(data: RegisterData) {
-  return axios.post('/users/signup', data);
-}
-
-export function recoverPassword(email: string) {
-  return axios.post(`/password-recovery/${encodeURIComponent(email)}`);
-}
-
-export function resetPassword(data: ResetPasswordData) {
-  return axios.post('/reset-password/', data);
 }

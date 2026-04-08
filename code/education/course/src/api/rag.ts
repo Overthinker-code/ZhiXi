@@ -180,6 +180,12 @@ export function uploadReferenceFileWithPreview(
   });
 }
 
+export interface ToolCallEvent {
+  tool: string;
+  step: string;
+  progress: number;
+}
+
 export function createAssistantChat(
   userInput: string,
   threadId = 'default',
@@ -190,10 +196,16 @@ export function createAssistantChat(
         ragK?: 3 | 4 | 5;
         promptKey?: string;
         strictMode?: boolean;
+        stream?: boolean;
+        activeTools?: string[];
+        onToolCall?: (event: ToolCallEvent) => void;
       } = ''
 ) {
   const normalized =
     typeof options === 'string' ? { systemPrompt: options } : options || {};
+
+  // onToolCall is a frontend-only callback — strip before serializing
+  const { onToolCall: _onToolCall, ...restOptions } = normalized as any;
 
   return axios
     .post(
@@ -201,10 +213,12 @@ export function createAssistantChat(
       {
         thread_id: threadId,
         user_input: userInput,
-        system_prompt: normalized.systemPrompt || '',
-        rag_k: normalized.ragK,
-        prompt_key: normalized.promptKey,
-        strict_mode: normalized.strictMode,
+        system_prompt: restOptions.systemPrompt || '',
+        rag_k: restOptions.ragK,
+        prompt_key: restOptions.promptKey,
+        strict_mode: restOptions.strictMode,
+        stream: restOptions.stream !== false,
+        active_tools: restOptions.activeTools || [],
       },
       {
         timeout: 0,

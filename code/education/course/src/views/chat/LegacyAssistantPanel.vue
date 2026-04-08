@@ -1,4 +1,4 @@
-<script setup>
+<script setup lang="ts">
   import '@/assets/styles/main.scss';
   import { useChatStore } from '@/store/chat';
   import { useChat } from '@/hooks/useChat';
@@ -23,15 +23,18 @@
     loadHistory,
     loadAssistantSettings,
     createNewChat,
+    toolCallingProgress,
   } = useChat();
 
-  const messagesContainer = ref(null);
+  const messagesContainer = ref<HTMLElement | null>(null);
   watch(
     currentMessages,
     () => {
       nextTick(() => {
-        messagesContainer.value.scrollTop =
-          messagesContainer.value.scrollHeight;
+        if (messagesContainer.value) {
+          messagesContainer.value.scrollTop =
+            messagesContainer.value.scrollHeight;
+        }
       });
     },
     { deep: true }
@@ -39,7 +42,9 @@
 
   onMounted(async () => {
     nextTick(() => {
-      messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
+      if (messagesContainer.value) {
+        messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
+      }
     });
     await Promise.all([chatStore.loadConversations(), loadAssistantSettings()]);
   });
@@ -53,7 +58,7 @@
     { immediate: true }
   );
 
-  const handleSend = async (messageContent) => {
+  const handleSend = async (messageContent: { text: string; files?: any[] }) => {
     await sendMessage(messageContent);
   };
 
@@ -61,14 +66,25 @@
     await regenerateLastMessage();
   };
 
-  const settingDrawer = ref(null);
-  const popupMenu = ref(null);
+  const settingDrawer = ref<{ openDrawer: () => void; toolCallingProgress: any } | null>(null);
+  const popupMenu = ref<any>(null);
+
+  // 将 useChat 的 toolCallingProgress 同步推送到 SettingsPanel
+  watch(
+    toolCallingProgress,
+    (val) => {
+      if (settingDrawer.value) {
+        (settingDrawer.value as any).toolCallingProgress = val;
+      }
+    },
+    { deep: true }
+  );
 
   const handleNewChat = async () => {
     await createNewChat();
   };
 
-  const dialogEdit = ref(null);
+  const dialogEdit = ref<{ openDialog: (id: any, mode: string) => void } | null>(null);
 </script>
 
 <template>
@@ -85,7 +101,7 @@
           <button
             class="edit-btn"
             @click="
-              dialogEdit.openDialog(chatStore.currentConversationId, 'edit')
+              dialogEdit?.openDialog(chatStore.currentConversationId, 'edit')
             "
           >
             <img src="@/assets/photo/编辑.png" alt="edit" />
@@ -95,7 +111,7 @@
 
       <div class="header-right">
         <el-tooltip content="设置" placement="top">
-          <button class="action-btn" @click="settingDrawer.openDrawer()">
+          <button class="action-btn" @click="settingDrawer?.openDrawer()">
             <img src="@/assets/photo/设置.png" alt="settings" />
           </button>
         </el-tooltip>

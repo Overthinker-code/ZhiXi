@@ -100,30 +100,87 @@ const videoList = [
     increases: 2,
   },
 ];
+const homeworkList = [
+  {
+    key: 1,
+    clickNumber: '411',
+    title: '数据库原理第一章课后作业',
+    increases: 16,
+  },
+  {
+    key: 2,
+    clickNumber: '388',
+    title: '事务并发控制练习',
+    increases: 12,
+  },
+  {
+    key: 3,
+    clickNumber: '364',
+    title: '索引优化实验报告',
+    increases: 9,
+  },
+  {
+    key: 4,
+    clickNumber: '350',
+    title: 'SQL 查询性能分析',
+    increases: 6,
+  },
+  {
+    key: 5,
+    clickNumber: '329',
+    title: 'MySQL 锁机制作业',
+    increases: 4,
+  },
+];
 setupMock({
   setup() {
-    Mock.mock(new RegExp('/api/content-data'), () => {
-      const presetData = [58, 81, 53, 90, 64, 88, 49, 79];
-      const getLineData = () => {
-        const count = 8;
-        return new Array(count).fill(0).map((el, idx) => ({
-          x: dayjs()
-            .day(idx - 2)
-            .format('YYYY-MM-DD'),
-          y: presetData[idx],
-        }));
-      };
-      return successResponseWrap([...getLineData()]);
-    });
-    Mock.mock(new RegExp('/api/popular/list'), (params: GetParams) => {
+    const visitsResponse = () => {
+      const presetData = [1234, 1380, 1498, 1572, 1641, 1703, 1766, 1820];
+      const start = dayjs('2025-05-23');
+      const lineData = presetData.map((value, idx) => ({
+        x: start.add(idx, 'day').format('YYYY-MM-DD'),
+        y: value,
+      }));
+      return successResponseWrap(lineData);
+    };
+
+    const popularResponse = (params: GetParams) => {
       const { type = 'text' } = qs.parseUrl(params.url).query;
-      if (type === 'image') {
-        return successResponseWrap([...videoList]);
-      }
-      if (type === 'video') {
+      if (type === 'resource' || type === 'image') {
         return successResponseWrap([...imageList]);
       }
+      if (type === 'discussion' || type === 'video') {
+        return successResponseWrap([...videoList]);
+      }
+      if (type === 'homework') {
+        return successResponseWrap([...homeworkList]);
+      }
       return successResponseWrap([...textList]);
-    });
+    };
+
+    Mock.mock(new RegExp('/api/content-data'), visitsResponse);
+    Mock.mock(new RegExp('/dashboard/visits-trend'), visitsResponse);
+    Mock.mock(new RegExp('/api/popular/list'), popularResponse);
+    Mock.mock(new RegExp('/dashboard/popular'), popularResponse);
+
+    Mock.mock(new RegExp('/dashboard/overview'), () =>
+      successResponseWrap({
+        total_classes: 3735,
+        total_teachers: 768,
+        total_resources: 8874,
+      })
+    );
+
+    Mock.mock(new RegExp('/dashboard/content-distribution'), () =>
+      successResponseWrap({
+        total: 9285,
+        items: [
+          { name: 'resources', value: 5179 },
+          { name: 'courses', value: 2301 },
+          { name: 'homework', value: 1116 },
+          { name: 'discussions', value: 689 },
+        ],
+      })
+    );
   },
 });

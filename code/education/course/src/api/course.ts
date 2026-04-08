@@ -83,3 +83,34 @@ export function fetchCourseResourceAnalysis(courseId: string) {
       homework_count: 1535,
     }));
 }
+
+export interface AssignmentSubmitData {
+  courseId: string;
+  taskId: string;
+  content?: string;
+  files?: File[];
+}
+
+export function submitAssignment(data: FormData) {
+  return axios.post('/education/assignments/submit', data, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then(res => res.data);
+}
+
+export interface LeaderboardRow {
+  rank: number;
+  name: string;
+  studentId: string;
+  score: number;
+  completionRate: number;
+  submitTime: string;
+  status: 'submitted' | 'late' | 'missing';
+  comment?: string;
+  aiAnalysis?: Array<{ key: string; good: boolean; detail: string }>;
+}
+
+export function queryLeaderboard(courseId: string, taskId: string, params: { sortBy: string; scope: string }) {
+  return axios.get<LeaderboardRow[]>(`/education/courses/${courseId}/tasks/${taskId}/leaderboard`, { params });
+}
+
+

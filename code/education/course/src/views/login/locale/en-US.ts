@@ -1,5 +1,6 @@
 export default {
   'login.form.title': 'Login to Arco Design Pro',
+  'login.form.subTitle': 'Personalized learning and feedback generation',
   'login.form.userName.errMsg': 'Username cannot be empty',
   'login.form.password.errMsg': 'Password cannot be empty',
   'login.form.login.errMsg': 'Login error, refresh and try again',

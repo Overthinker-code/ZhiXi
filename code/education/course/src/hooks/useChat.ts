@@ -1,4 +1,4 @@
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useChatStore } from '@/store/chat';
 import { useSettingStore } from '@/store/setting';
 import { messageHandler } from '@/utils/messageHandler';
@@ -59,6 +59,14 @@ export function useChat() {
   const currentTitle = computed(
     () => chatStore.currentConversation?.title || 'LLM Chat'
   );
+
+  // Tool Calling 进度状态（暴露给 SettingsPanel）
+  const toolCallingProgress = ref<{
+    active: boolean;
+    tool: string;
+    step: string;
+    progress: number;
+  } | null>(null);
 
   /**
    * Load chat history for a specific thread from the backend.
@@ -154,6 +162,16 @@ export function useChat() {
           ragK: settingStore.settings.ragK as 3 | 4 | 5,
           promptKey: settingStore.settings.promptKey,
           strictMode: settingStore.settings.strictMode,
+          stream: (settingStore.settings as any).stream !== false,
+          activeTools: (settingStore.settings as any).activeTools || [],
+          onToolCall: (event: { tool: string; step: string; progress: number }) => {
+            toolCallingProgress.value = {
+              active: true,
+              tool: event.tool,
+              step: event.step,
+              progress: event.progress,
+            };
+          },
         }
       );
       const { content, reasoning } = parseAssistantResponse(
@@ -168,6 +186,8 @@ export function useChat() {
       chatStore.setIsLoading(false);
       const lastMessage = chatStore.getLastMessage();
       if (lastMessage) lastMessage.loading = false;
+      // 清除 tool calling 进度
+      toolCallingProgress.value = null;
     }
   }
 
@@ -203,6 +223,7 @@ export function useChat() {
     currentMessages,
     isLoading,
     currentTitle,
+    toolCallingProgress,
     // Actions
     sendMessage,
     regenerateLastMessage,

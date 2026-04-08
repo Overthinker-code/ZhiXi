@@ -46,6 +46,8 @@
     "markdown-it": "^14.1.0",
     "markdown-it-emoji": "^3.0.0",
     "markdown-it-link-attributes": "^4.0.1",
+    "markmap-lib": "^0.18.12",
+    "markmap-view": "^0.18.12",
     "mitt": "^3.0.0",
     "nprogress": "^0.2.0",
     "pinia": "^2.0.23",

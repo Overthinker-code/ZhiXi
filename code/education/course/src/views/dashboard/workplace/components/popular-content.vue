@@ -17,14 +17,17 @@
           type="button"
           @change="typeChange as any"
         >
-          <a-radio value="text">
+          <a-radio value="course">
             {{ $t('workplace.popularContent.text') }}
           </a-radio>
-          <a-radio value="image">
+          <a-radio value="resource">
             {{ $t('workplace.popularContent.image') }}
           </a-radio>
-          <a-radio value="video">
+          <a-radio value="discussion">
             {{ $t('workplace.popularContent.video') }}
+          </a-radio>
+          <a-radio value="homework">
+            {{ $t('workplace.popularContent.homework') }}
           </a-radio>
         </a-radio-group>
         <a-table
@@ -86,7 +89,7 @@
   import { queryPopularList } from '@/api/dashboard';
   import type { TableData } from '@arco-design/web-vue/es/table/interface';
 
-  const type = ref('text');
+  const type = ref('course');
   const { loading, setLoading } = useLoading();
   const renderList = ref<TableData[]>();
   const fetchData = async (contentType: string) => {
@@ -103,7 +106,7 @@
   const typeChange = (contentType: string) => {
     fetchData(contentType);
   };
-  fetchData('text');
+  fetchData('course');
 </script>
 
 <style scoped lang="less">

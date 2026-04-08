@@ -11,7 +11,7 @@
           </a-avatar>
           <a-statistic
             :title="$t('workplace.onlineContent')"
-            :value="overview.onlineContent"
+            :value="overview.total_classes"
             :precision="0"
             :value-from="0"
             animation
@@ -33,7 +33,7 @@
           </a-avatar>
           <a-statistic
             :title="$t('workplace.putIn')"
-            :value="overview.putIn"
+            :value="overview.total_teachers"
             :value-from="0"
             animation
             show-group-separator
@@ -54,7 +54,7 @@
           </a-avatar>
           <a-statistic
             :title="$t('workplace.newDay')"
-            :value="overview.newDay"
+            :value="overview.total_resources"
             :value-from="0"
             animation
             show-group-separator
@@ -76,21 +76,22 @@
 <script lang="ts" setup>
   import { reactive, onMounted } from 'vue';
   import useLoading from '@/hooks/loading';
-  import { queryDashboardOverview, DashboardOverview } from '@/api/dashboard';
+  import { queryDashboardOverview } from '@/api/dashboard';
 
   const { loading, setLoading } = useLoading(true);
-  const overview = reactive<DashboardOverview>({
-    onlineContent: 0,
-    putIn: 0,
-    newDay: 0,
-    growthRate: 0,
+  const overview = reactive({
+    total_classes: 3735,
+    total_teachers: 768,
+    total_resources: 8874,
   });
 
   const fetchData = async () => {
     setLoading(true);
     try {
       const { data } = await queryDashboardOverview();
-      Object.assign(overview, data);
+      overview.total_classes = data.total_classes;
+      overview.total_teachers = data.total_teachers;
+      overview.total_resources = data.total_resources;
     } catch (err) {
       console.error('Failed to fetch dashboard overview:', err);
     } finally {

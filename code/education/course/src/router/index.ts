@@ -23,6 +23,22 @@ const router = createRouter({
         requiresAuth: false,
       },
     },
+    {
+      path: '/forgot-password',
+      name: 'ForgotPassword',
+      component: () => import('@/views/login/forgot-password.vue'),
+      meta: {
+        requiresAuth: false,
+      },
+    },
+    {
+      path: '/register',
+      name: 'Register',
+      component: () => import('@/views/login/register.vue'),
+      meta: {
+        requiresAuth: false,
+      },
+    },
     ...appRoutes,
     REDIRECT_MAIN,
     NOT_FOUND_ROUTE,

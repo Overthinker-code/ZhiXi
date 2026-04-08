@@ -14,7 +14,10 @@
           />
 
           <template v-else-if="course">
-            <div class="left">
+            <a-tabs default-active-key="1" type="line" :animation="true" class="course-detail-tabs">
+              <a-tab-pane key="1" title="数据看板">
+                <div class="split-layout">
+                  <div class="left">
               <div class="Course-info">
                 <p class="title-div">课程信息</p>
                 <div class="bar"></div>
@@ -183,7 +186,21 @@
                 <p class="title-div">课程资源访问量（近七日）</p>
                 <PlatUseVue />
               </div>
+              </div>
             </div>
+            </a-tab-pane>
+
+            <a-tab-pane key="2" title="内容大纲">
+              <div class="outline-container">
+                <MindMapViewer
+                  :markdown="mockOutline"
+                  :title="`${course.name} - 知识图谱`"
+                  :editable="true"
+                  style="height: 100%; border: none;"
+                />
+              </div>
+            </a-tab-pane>
+          </a-tabs>
           </template>
         </div>
       </el-main>
@@ -208,6 +225,7 @@ import ErrorState from '@/components/state/ErrorState.vue';
 import ClassMode from './components/ClassMode.vue';
 import PlatUseVue from './components/PlatUse.vue';
 import ResorceRationVue from './components/ResorceRation.vue';
+import MindMapViewer from '@/components/mindmap/MindMapViewer.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -227,6 +245,37 @@ const resourceAnalysis = ref<CourseResourceAnalysis>({
   image_count: 96,
   homework_count: 1535,
 });
+
+const mockOutline = ref(`
+# 计算机组成原理
+
+## 1. 计算机系统概论
+- 存储程序概念 (冯·诺依曼架构)
+- 计算机系统的层级结构
+- 性能指标 (MIPS, CPI, FLOPS)
+
+## 2. 运算方法与运算器
+- 数据在计算机中的表示
+- 定点数的加减乘除运算
+- 浮点数算术运算 (IEEE 754)
+- ALU 与快速进位链
+
+## 3. 存储系统
+- 层次化存储结构
+- Cache 工作原理与映射
+- 主存储器 (SRAM 🆚 DRAM)
+
+## 4. 指令系统
+- 指令格式 (操作码+地址码)
+- 寻址方式 (立即数, 直接, 基址等)
+- RISC 与 CISC 的对比
+
+## 5. 中央处理器 (CPU)
+- 数据通路与控制信号
+- 指令执行周期与微操作
+- 并行与流水线技术
+- 冒险的处理 (数据/控制/结构)
+`);
 
 function formatDate(dateStr: string) {
   return new Date(dateStr).toLocaleDateString('zh-CN');
@@ -284,12 +333,38 @@ onMounted(() => {
 <style scoped>
 .main {
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   width: 100%;
   height: 1100px;
   padding: 10px;
-  overflow-y: hidden;
   background: #e8e8e8;
+}
+
+.course-detail-tabs {
+  height: 100%;
+  background: var(--color-bg-1);
+  border-radius: 8px;
+  padding: 0 16px;
+
+  :deep(.arco-tabs-content) {
+    padding-top: 10px;
+    height: calc(100% - 44px);
+  }
+}
+
+.split-layout {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  height: 100%;
+  background: #e8e8e8;
+}
+
+.outline-container {
+  height: 100%;
+  border-radius: 12px;
+  border: 1px solid var(--color-border-1);
+  overflow: hidden;
 }
 
 .left {

@@ -86,3 +86,56 @@ export function userUploadApi(
   // const controller = new AbortController();
   return axios.post('/api/user/upload', data, config);
 }
+
+// ========== 学情分析 API ==========
+
+export interface StudyOverview {
+  cloudTime: number;
+  discussions: number;
+  interactions: number;
+  avgScore: number;
+  attendance: number;
+  alerts: number;
+}
+
+export interface StudyAlert {
+  id: string;
+  course: string;
+  reason: string;
+  date: string;
+  level: 'warning' | 'error';
+}
+
+export interface TimeDistributionItem {
+  name: string;
+  value: number;
+}
+
+export interface StudyCalendarEvent {
+  id: string;
+  title: string;
+  dueDate: string;
+  type: 'assignment' | 'exam' | 'experiment';
+  dueDayjs?: string; // ISO string
+}
+
+export function queryStudyOverview() {
+  return axios.get<StudyOverview>('/api/v1/user-center/study/summary');
+}
+
+export function queryStudyAlerts() {
+  return axios.get<StudyAlert[]>('/api/v1/user-center/study/alerts');
+}
+
+export function queryTimeDistribution() {
+  return axios.get<TimeDistributionItem[]>(
+    '/api/v1/user-center/study/time-distribution'
+  );
+}
+
+export function queryStudyCalendar() {
+  return axios.get<StudyCalendarEvent[]>(
+    '/api/v1/user-center/study/calendar'
+  );
+}
+

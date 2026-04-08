@@ -8,7 +8,7 @@
       <div class="layout-content">
         <a-space :size="16" direction="vertical" fill>
           <Studio />
-          <DataStatistic />
+          <AttendanceGrid />
         </a-space>
       </div>
       <div class="layout-right-side">
@@ -25,7 +25,7 @@
 <script lang="ts" setup>
   import ChatPanel from './components/chat-panel.vue';
   import Studio from './components/studio.vue';
-  import DataStatistic from './components/data-statistic.vue';
+  import AttendanceGrid from './components/attendance-grid.vue';
   import StudioStatus from './components/studio-status.vue';
   import QuickOperation from './components/quick-operation.vue';
   import StudioInformation from './components/studio-information.vue';
