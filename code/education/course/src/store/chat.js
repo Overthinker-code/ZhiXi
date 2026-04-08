@@ -137,6 +137,11 @@ const useChatStore = defineStore(
       }
     };
 
+    const getConversationMessages = (conversationId) => {
+      if (!conversationId) return [];
+      return _messagesMap.value[conversationId] || [];
+    };
+
     const setIsLoading = (value) => {
       isLoading.value = value;
     };
@@ -173,16 +178,16 @@ const useChatStore = defineStore(
 
     // 更新对话标题
     const updateConversationTitle = async (conversationId, newTitle) => {
-      try {
-        await updateChatThreadTitle(conversationId, newTitle);
-      } catch (error) {
-        return;
-      }
       const conversation = conversations.value.find(
         (c) => c.id === conversationId
       );
       if (conversation) {
         conversation.title = newTitle;
+      }
+      try {
+        await updateChatThreadTitle(conversationId, newTitle);
+      } catch (error) {
+        return;
       }
     };
 
@@ -220,6 +225,7 @@ const useChatStore = defineStore(
       addMessage,
       setConversationMessages,
       setCurrentConversationMessages,
+      getConversationMessages,
       setIsLoading,
       updateLastMessage,
       getLastMessage,

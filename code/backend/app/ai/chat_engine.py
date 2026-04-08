@@ -720,6 +720,13 @@ def _build_selection_prompt(request: ChatRequest) -> str:
     return prompt
 
 
+def resolve_stream_user_text_for_storage(request: ChatRequest) -> str:
+    """与 stream/协作图一致的用户侧文本，用于落库 thread 历史。"""
+    if request.selected_text:
+        return _build_selection_prompt(request)
+    return (request.user_input or "").strip()
+
+
 def _requires_hitl(
     intent: str,
     user_input: str,
@@ -747,7 +754,15 @@ def _tool_status_text(
 def _initial_state(request: ChatRequest, user_text: str) -> State:
     rag_msg = _rag_system_message(request)
     preset = resolve_system_prompt(request.prompt_key, request.system_prompt)
-    messages: list = [rag_msg, HumanMessage(content=user_text)]
+    messages: list = [rag_msg]
+    for turn in request.prior_turns or []:
+        u = (turn.get("user") or "").strip()
+        a = (turn.get("assistant") or "").strip()
+        if u:
+            messages.append(HumanMessage(content=u))
+        if a:
+            messages.append(AIMessage(content=a))
+    messages.append(HumanMessage(content=user_text))
     return cast(
         State,
         {
@@ -782,7 +797,11 @@ def chat_service(request: ChatRequest) -> ChatResponse:
     if request.selected_text:
         request.user_input = _build_selection_prompt(request)
 
-    cache_hit = chat_semantic_cache.get(request.user_input)
+    cache_hit = (
+        None
+        if (request.prior_turns or [])
+        else chat_semantic_cache.get(request.user_input)
+    )
     if cache_hit:
         return ChatResponse(
             response=cache_hit.answer,
@@ -866,7 +885,11 @@ def stream_chat_events(request: ChatRequest):
                 "stage": "tool_policy",
             }
 
-    cache_hit = chat_semantic_cache.get(req.user_input)
+    cache_hit = (
+        None
+        if (req.prior_turns or [])
+        else chat_semantic_cache.get(req.user_input)
+    )
     if cache_hit:
         yield {
             "type": "thought",

@@ -15,14 +15,42 @@ from app.models.chat import Chat as ChatORM
 from app.models.chat_feedback import ChatFeedback as ChatFeedbackModel
 from app.schemas.chat import Chat, ChatCreate, ChatUpdate
 from app.schemas.chat_feedback import ChatFeedback, ChatFeedbackCreate
-from app.ai.chat_service import get_chat_runtime_settings, ChatRequest
-from app.ai.chat_engine import stream_chat_events, chat_service
+from app.ai.chat_service import get_chat_runtime_settings, ChatRequest, resolve_system_prompt
+from app.ai.chat_engine import stream_chat_events, chat_service, resolve_stream_user_text_for_storage
 from app.services.pending_actions import pending_action_store
 from app.services.realtime_event_bus import realtime_event_bus
 from app.services.chat_semantic_cache import chat_semantic_cache
 from app.services.chat_model_factory import ChatModelFactory
 
 router = APIRouter()
+
+_MAX_PRIOR_TURNS = 48
+
+
+def _prior_turns_for_request(
+    db: Session,
+    *,
+    thread_id: str,
+    user_id: str | None,
+) -> list[dict[str, str]]:
+    """从 DB 拉取已完成轮次，供 LangGraph 注入 messages（按时间正序）。"""
+    if user_id:
+        thread = chat_thread_provider.get_by_thread_id_and_user(
+            db, thread_id=thread_id, user_id=user_id
+        )
+        if not thread:
+            return []
+    rows = chat_provider.get_chat_history(
+        db, thread_id=thread_id, skip=0, limit=_MAX_PRIOR_TURNS
+    )
+    chronological = list(reversed(rows))
+    out: list[dict[str, str]] = []
+    for r in chronological:
+        u = (r.user_input or "").strip()
+        a = (r.response or "").strip()
+        if u or a:
+            out.append({"user": u, "assistant": a})
+    return out
 
 
 def _chat_to_api(row: ChatORM) -> Chat:
@@ -159,10 +187,17 @@ def create_chat(
 @router.post("/stream")
 def stream_chat(
     *,
+    db: Session = Depends(deps.get_db),
     request: ChatStreamRequest,
     current_user: CurrentUser,
 ):
+    user_id = str(current_user.id) if current_user else None
+    prior_turns = _prior_turns_for_request(
+        db, thread_id=request.thread_id, user_id=user_id
+    )
+
     def event_stream():
+        final_text: str | None = None
         try:
             chat_request = ChatRequest(
                 user_input=request.user_input,
@@ -180,13 +215,36 @@ def stream_chat(
                 surrounding_context=request.surrounding_context,
                 video_time=request.video_time,
                 course_module=request.course_module,
-                user_id=str(current_user.id) if current_user else None,
+                user_id=user_id,
                 is_admin=bool(getattr(current_user, "is_superuser", False))
                 if current_user
                 else False,
+                prior_turns=prior_turns or None,
             )
+            log_user = resolve_stream_user_text_for_storage(chat_request)
             for payload in stream_chat_events(chat_request):
+                if isinstance(payload, dict) and payload.get("type") == "final":
+                    c = payload.get("content")
+                    if isinstance(c, str) and c.strip():
+                        final_text = c
                 yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            if final_text and request.thread_id and user_id:
+                try:
+                    thread = chat_thread_provider.get_by_thread_id_and_user(
+                        db, thread_id=request.thread_id, user_id=user_id
+                    )
+                    if thread:
+                        chat_provider.save_stream_turn(
+                            db,
+                            thread_id=request.thread_id,
+                            user_input=log_user,
+                            response=final_text,
+                            system_prompt=resolve_system_prompt(
+                                request.prompt_key, request.system_prompt or ""
+                            ),
+                        )
+                except Exception:
+                    pass
         except Exception as exc:
             error_payload = {"type": "error", "content": str(exc)}
             yield f"data: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
@@ -197,10 +255,15 @@ def stream_chat(
 @router.post("/selection-query")
 def selection_query(
     *,
+    db: Session = Depends(deps.get_db),
     request: ChatStreamRequest,
     current_user: CurrentUser,
 ) -> Any:
     try:
+        user_id = str(current_user.id) if current_user else None
+        prior_turns = _prior_turns_for_request(
+            db, thread_id=request.thread_id, user_id=user_id
+        )
         chat_request = ChatRequest(
             user_input=request.user_input,
             thread_id=request.thread_id,
@@ -217,12 +280,32 @@ def selection_query(
             surrounding_context=request.surrounding_context,
             video_time=request.video_time,
             course_module=request.course_module,
-            user_id=str(current_user.id) if current_user else None,
+            user_id=user_id,
             is_admin=bool(getattr(current_user, "is_superuser", False))
             if current_user
             else False,
+            prior_turns=prior_turns or None,
         )
-        return chat_service(chat_request).model_dump()
+        out = chat_service(chat_request).model_dump()
+        if user_id and request.thread_id and (out.get("response") or "").strip():
+            try:
+                thread = chat_thread_provider.get_by_thread_id_and_user(
+                    db, thread_id=request.thread_id, user_id=user_id
+                )
+                if thread:
+                    log_user = resolve_stream_user_text_for_storage(chat_request)
+                    chat_provider.save_stream_turn(
+                        db,
+                        thread_id=request.thread_id,
+                        user_input=log_user,
+                        response=str(out.get("response") or ""),
+                        system_prompt=resolve_system_prompt(
+                            request.prompt_key, request.system_prompt or ""
+                        ),
+                    )
+            except Exception:
+                pass
+        return out
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

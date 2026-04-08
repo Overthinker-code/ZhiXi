@@ -86,4 +86,26 @@ class ChatProvider(BaseProvider[Chat, ChatCreate, ChatUpdate]):
             .all()
         )
 
+    def save_stream_turn(
+        self,
+        db: Session,
+        *,
+        thread_id: str,
+        user_input: str,
+        response: str,
+        system_prompt: str | None = None,
+    ) -> Chat:
+        """持久化一轮流式/非流式对话，供历史接口与 prior_turns 注入使用。"""
+        chat_data = {
+            "thread_id": thread_id,
+            "user_input": user_input,
+            "system_prompt": system_prompt or "",
+            "response": response,
+        }
+        db_obj = Chat(**chat_data)
+        db.add(db_obj)
+        db.commit()
+        db.refresh(db_obj)
+        return db_obj
+
 chat_provider = ChatProvider(Chat)

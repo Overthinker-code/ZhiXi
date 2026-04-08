@@ -71,6 +71,12 @@ export function useChat() {
     if (!targetThreadId) return;
     try {
       const history = await fetchChatHistory(targetThreadId);
+      if (!history?.length) {
+        const local = chatStore.getConversationMessages(targetThreadId);
+        if (local.length > 0) {
+          return;
+        }
+      }
       const ordered = [...history].reverse();
       const historyMessages: any[] = [];
       ordered.forEach((item: any) => {

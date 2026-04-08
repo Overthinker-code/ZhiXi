@@ -67,6 +67,8 @@ class ChatRequest(BaseModel):
     surrounding_context: str | None = None
     video_time: str | None = None
     course_module: str | None = None
+    # 来自 DB 的已完成轮次，用于跨 HTTP 请求延续多轮语境（与 thread_id 对应）
+    prior_turns: list[dict[str, str]] | None = None
 
 
 class ChatResponse(BaseModel):
