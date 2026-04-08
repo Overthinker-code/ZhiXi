@@ -1,6 +1,8 @@
 from typing import Any, List
 import json
 import asyncio
+import re
+from difflib import SequenceMatcher
 from fastapi import APIRouter, Depends, HTTPException, Body
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session
@@ -115,6 +117,33 @@ def _clean_generated_title(raw: str) -> str:
     return text or '新对话'
 
 
+def _heuristic_title_from_query(query: str) -> str:
+    """当 LLM 标题不可用时，尽量生成主题短语而不是整句复读。"""
+    q = re.sub(r"\s+", " ", (query or "").strip())
+    if not q:
+        return "新对话"
+    q = re.sub(r"^(请|麻烦|帮我|请帮我|我想|想要|能否|可以)?", "", q)
+    q = re.sub(r"(现在|目前|最近|一下|一下子)$", "", q).strip()
+    parts = re.split(r"[，。！？；,.!?]", q)
+    core = parts[0].strip() if parts else q
+    core = re.sub(r"(帮我|教我|请你|给我|解决|总结|生成|写一份)", "", core).strip()
+    return _clean_generated_title(core or q)
+
+
+def _is_too_similar_title(title: str, query: str) -> bool:
+    t = (title or "").strip()
+    q = (query or "").strip()
+    if not t:
+        return True
+    if t == "新对话":
+        return True
+    compact_t = re.sub(r"\s+", "", t)
+    compact_q = re.sub(r"\s+", "", q)
+    if compact_t and compact_t in compact_q and len(compact_t) >= 8:
+        return True
+    return SequenceMatcher(None, compact_t.lower(), compact_q.lower()).ratio() >= 0.9
+
+
 def _generate_title_from_query(query: str) -> str:
     """轻量级标题生成：优先 LLM，失败退化为首句截断。"""
     clean_query = (query or "").strip()
@@ -123,14 +152,17 @@ def _generate_title_from_query(query: str) -> str:
     try:
         llm = ChatModelFactory.create(temperature=0.2, max_tokens=48)
         prompt = (
-            "请根据用户提问生成一个不超过10个字的中文对话标题。"
-            "不要标点，不要引号，不要换行。\n用户提问："
+            "你是标题助手。请将用户问题概括成一个4-10字中文主题短语。"
+            "必须是主题词，不要复读整句，不要标点，不要引号，不要换行。\n用户提问："
             + clean_query
         )
         resp = llm.invoke([HumanMessage(content=prompt)])
-        return _clean_generated_title(str(getattr(resp, "content", "") or ""))
+        title = _clean_generated_title(str(getattr(resp, "content", "") or ""))
+        if _is_too_similar_title(title, clean_query):
+            return _heuristic_title_from_query(clean_query)
+        return title
     except Exception:
-        return _clean_generated_title(clean_query)
+        return _heuristic_title_from_query(clean_query)
 
 
 def _maybe_autorename_thread(

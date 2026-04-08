@@ -537,16 +537,34 @@ def finalize_node(state: State) -> dict[str, Any]:
     )
     human = HumanMessage(content="\n\n".join(human_parts))
 
+    def _fallback_from_recent_worker_messages(all_msgs: list[Any]) -> str:
+        """汇总模型空输出时，回退到最近一条可见专员正文。"""
+        for m in reversed(all_msgs):
+            if not isinstance(m, AIMessage):
+                continue
+            text = _strip_think_blocks_from_text(_strict_ai_content_for_user(m))
+            t = (text or "").strip()
+            if not t:
+                continue
+            if "汇总阶段未得到可见正文" in t:
+                continue
+            return t
+        return ""
+
     try:
         raw_msg = llm.invoke([sys, human])
         clean = _strip_think_blocks_from_text(_strict_ai_content_for_user(raw_msg))
         if clean:
             msg = AIMessage(content=clean, name="final_answer")
         else:
-            msg = AIMessage(
-                content="（汇总阶段未得到可见正文，请重试或检查模型是否将答案写在 reasoning 通道。）",
-                name="final_answer",
-            )
+            fallback_text = _fallback_from_recent_worker_messages(msgs)
+            if fallback_text:
+                msg = AIMessage(content=fallback_text, name="final_answer")
+            else:
+                msg = AIMessage(
+                    content="当前轮次生成异常，请重试一次或换个问法，我会继续给出可见答复。",
+                    name="final_answer",
+                )
     except Exception as e:
         msg = AIMessage(
             content=(
