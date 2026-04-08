@@ -52,6 +52,7 @@
       url: URL.createObjectURL(file),
       type: file.type.startsWith('image/') ? 'image' : 'file',
       size: file.size,
+      raw: file,
     });
     return false; // 阻止自动上传
   };

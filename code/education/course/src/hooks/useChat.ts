@@ -12,6 +12,7 @@ import {
   askSelectionQuery,
   resumeChatAction,
   generateChatTitle,
+  uploadThreadFile,
 } from '@/api/rag';
 
 /**
@@ -192,10 +193,42 @@ export function useChat() {
     const needTitleSync =
       userCountBeforeSend === 0 &&
       (!existingTitle || existingTitle === '新对话');
+    let mountedFile = chatStore.getMountedFile(threadIdForTitle);
+    const firstDoc = (messageContent.files || []).find((f: any) => {
+      const raw = f?.raw;
+      const name = String(f?.name || '').toLowerCase();
+      if (!raw || !name) return false;
+      if (String(f?.type || '').startsWith('image')) return false;
+      return (
+        name.endsWith('.pdf') ||
+        name.endsWith('.doc') ||
+        name.endsWith('.docx') ||
+        name.endsWith('.md') ||
+        name.endsWith('.markdown')
+      );
+    });
 
     let roundSucceeded = false;
 
     try {
+      if (firstDoc?.raw && threadIdForTitle) {
+        try {
+          const uploadRes = await uploadThreadFile(
+            firstDoc.raw,
+            threadIdForTitle
+          );
+          if (uploadRes?.file_id) {
+            mountedFile = {
+              file_id: String(uploadRes.file_id),
+              file_name: String(uploadRes.file_name || firstDoc.name || ''),
+            };
+            chatStore.setMountedFile(threadIdForTitle, mountedFile);
+          }
+        } catch {
+          // 文件上传失败时降级为纯文本问答，不阻塞主链路
+        }
+      }
+
       chatStore.addMessage(
         messageHandler.formatMessage(
           'user',
@@ -232,6 +265,7 @@ export function useChat() {
       const shouldStream = Boolean(settingStore.settings.stream);
       if (shouldStream) {
         const thoughts: string[] = [];
+        let suggestions: string[] = [];
         let answer = '';
         let streamError = '';
         let requiresConfirmation = false;
@@ -239,7 +273,11 @@ export function useChat() {
         await createAssistantChatStream(
           messageContent.text,
           currentThreadId.value,
-          commonOptions,
+          {
+            ...commonOptions,
+            currentFileId: mountedFile?.file_id || undefined,
+            fileName: mountedFile?.file_name || undefined,
+          },
           (event) => {
             if (event.type === 'thought') {
               if (event.content) thoughts.push(event.content);
@@ -250,7 +288,8 @@ export function useChat() {
                 0,
                 [...thoughts],
                 requiresConfirmation,
-                pendingActionId
+                pendingActionId,
+                suggestions
               );
             } else if (event.type === 'token') {
               answer += event.content || '';
@@ -261,8 +300,13 @@ export function useChat() {
                 0,
                 [...thoughts],
                 requiresConfirmation,
-                pendingActionId
+                pendingActionId,
+                suggestions
               );
+            } else if (event.type === 'suggestions') {
+              suggestions = Array.isArray(event.data)
+                ? event.data.filter(Boolean).slice(0, 3)
+                : [];
             } else if (event.type === 'final') {
               answer = event.content || answer;
               const { content: parsedMain } = parseAssistantResponse(answer);
@@ -277,7 +321,8 @@ export function useChat() {
                 0,
                 [...thoughts],
                 requiresConfirmation,
-                pendingActionId
+                pendingActionId,
+                suggestions
               );
             } else if (event.type === 'error') {
               streamError = event.content || 'Stream failed';
@@ -292,7 +337,11 @@ export function useChat() {
         const response = await createAssistantChat(
           messageContent.text,
           currentThreadId.value,
-          commonOptions
+          {
+            ...commonOptions,
+            currentFileId: mountedFile?.file_id || undefined,
+            fileName: mountedFile?.file_name || undefined,
+          }
         );
         const { content, reasoning } = parseAssistantResponse(
           response.response || ''
@@ -387,6 +436,7 @@ export function useChat() {
     if (lastMessage) lastMessage.loading = true;
 
     try {
+      const mountedFile = chatStore.getMountedFile(currentThreadId.value);
       const response = await askSelectionQuery(
         text,
         params.surroundingContext,
@@ -405,6 +455,8 @@ export function useChat() {
           surroundingContext: params.surroundingContext,
           videoTime: params.videoTime,
           courseModule: params.courseModule,
+          currentFileId: mountedFile?.file_id,
+          fileName: mountedFile?.file_name,
         }
       );
       const { content, reasoning } = parseAssistantResponse(

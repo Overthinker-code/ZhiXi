@@ -60,6 +60,11 @@
     await sendMessage(messageContent);
   };
 
+  const handleSuggestion = async (text) => {
+    if (!text) return;
+    await sendMessage({ text, files: [] });
+  };
+
   const handleRegenerate = async () => {
     await regenerateLastMessage();
   };
@@ -222,7 +227,8 @@
             index === currentMessages.length - 1 && message.role === 'assistant'
           "
           @regenerate="handleRegenerate"
-          @resumeAction="handleResumeAction"
+          @resume-action="handleResumeAction"
+          @suggestion="handleSuggestion"
         />
       </template>
       <div v-else class="empty-state">

@@ -209,6 +209,8 @@ export function createAssistantChat(
         temperature?: number;
         topP?: number;
         topK?: number;
+        currentFileId?: string;
+        fileName?: string;
       } = ''
 ) {
   const normalized =
@@ -229,6 +231,8 @@ export function createAssistantChat(
         temperature: normalized.temperature,
         top_p: normalized.topP,
         top_k: normalized.topK,
+        current_file_id: normalized.currentFileId,
+        file_name: normalized.fileName,
       },
       {
         timeout: 0,
@@ -238,8 +242,9 @@ export function createAssistantChat(
 }
 
 export interface ChatStreamEvent {
-  type: 'thought' | 'token' | 'final' | 'error';
+  type: 'thought' | 'token' | 'final' | 'error' | 'suggestions';
   content?: string;
+  data?: string[];
   /** 后端可选：pipeline_start | kb_inject | tool_run | … */
   stage?: string;
   agent?: string;
@@ -264,6 +269,8 @@ export interface ChatAdvancedOptions {
   surroundingContext?: string;
   videoTime?: string;
   courseModule?: string;
+  currentFileId?: string;
+  fileName?: string;
 }
 
 async function consumeAssistantChatStream(
@@ -292,7 +299,9 @@ async function consumeAssistantChatStream(
     } catch (e: unknown) {
       if (e instanceof Error && e.name === 'AbortError') {
         throw new Error(
-          `对话生成超时（>${Math.round(CHAT_STREAM_TIMEOUT_MS / 1000)}s），请稍后重试或缩短问题`
+          `对话生成超时（>${Math.round(
+            CHAT_STREAM_TIMEOUT_MS / 1000
+          )}s），请稍后重试或缩短问题`
         );
       }
       throw e;
@@ -375,6 +384,8 @@ export function createAssistantChatStream(
     surrounding_context: normalized.surroundingContext,
     video_time: normalized.videoTime,
     course_module: normalized.courseModule,
+    current_file_id: normalized.currentFileId,
+    file_name: normalized.fileName,
   };
 
   /** fetch + ReadableStream：避免 XHR 在隧道/跨端口下长时间缓冲无输出 */
@@ -397,6 +408,8 @@ export function askSelectionQuery(
         surrounding_context: surroundingContext,
         video_time: normalized.videoTime,
         course_module: normalized.courseModule,
+        current_file_id: normalized.currentFileId,
+        file_name: normalized.fileName,
         thread_id: threadId,
         system_prompt: normalized.systemPrompt || '',
         rag_k: normalized.ragK,
@@ -521,7 +534,6 @@ export function submitChatFeedback(data: {
   return axios.post('/chat/feedback', data).then((res: any) => res.data);
 }
 
-
 export function generateChatTitle(query: string, answer?: string) {
   return axios
     .post(
@@ -530,4 +542,16 @@ export function generateChatTitle(query: string, answer?: string) {
       { timeout: READ_TIMEOUT_MS }
     )
     .then((res: any) => ({ title: String(res.data?.title || '').trim() }));
+}
+
+export function uploadThreadFile(file: File, threadId: string) {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('thread_id', threadId);
+  return axios
+    .post('/file/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 0,
+    })
+    .then((res: any) => res.data);
 }

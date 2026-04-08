@@ -84,6 +84,8 @@ class ChatStreamRequest(BaseModel):
     surrounding_context: str | None = None
     video_time: str | None = None
     course_module: str | None = None
+    current_file_id: str | None = None
+    file_name: str | None = None
 
 
 class ChatResumeRequest(BaseModel):
@@ -328,6 +330,8 @@ def stream_chat(
                 if current_user
                 else False,
                 prior_turns=prior_turns or None,
+                current_file_id=request.current_file_id,
+                file_name=request.file_name,
             )
             log_user = resolve_stream_user_text_for_storage(chat_request)
             for payload in stream_chat_events(chat_request):
@@ -400,6 +404,8 @@ def selection_query(
             if current_user
             else False,
             prior_turns=prior_turns or None,
+            current_file_id=request.current_file_id,
+            file_name=request.file_name,
         )
         out = chat_service(chat_request).model_dump()
         if user_id and request.thread_id and (out.get("response") or "").strip():

@@ -42,7 +42,13 @@ PROMPT_PRESETS: dict[str, dict[str, str]] = {
 }
 
 AgentName = Literal[
-    "code_tutor", "knowledge_mentor", "planner", "analyst", "supervisor"
+    "code_tutor",
+    "knowledge_mentor",
+    "planner",
+    "analyst",
+    "doc_researcher",
+    "quiz_master",
+    "supervisor",
 ]
 
 AGENT_CONFIG: dict[AgentName, dict[str, str]] = {
@@ -72,6 +78,22 @@ AGENT_CONFIG: dict[AgentName, dict[str, str]] = {
         "prompt": (
             "你是 Analyst_Agent，专注行为分析、风险识别和数据解释。"
             "结论应清晰并附带可执行改进建议。"
+        ),
+    },
+    "doc_researcher": {
+        "label": "文档研究员",
+        "prompt": (
+            "你是 Doc_Researcher_Agent，专注解答学生关于其上传文档（论文/课件/报告）的问题。"
+            "优先调用文档检索工具，引用原文要点后再给结论。"
+            "禁止编造文档中不存在的信息。"
+        ),
+    },
+    "quiz_master": {
+        "label": "主动测验官",
+        "prompt": (
+            "你是 Quiz_Master_Agent，采用苏格拉底式教学法。"
+            "当用户要求测验时，先出 1 道题并等待作答；"
+            "当用户给出答案时，先点评思路并引导改进，必要时再给标准答案。"
         ),
     },
     "supervisor": {

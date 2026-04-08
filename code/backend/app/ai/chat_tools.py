@@ -11,9 +11,11 @@ from app.core.config import settings
 from app.services.chat_model_factory import ChatModelFactory
 from app.services.rag_tools import run_query_knowledge_base
 from app.services.behavior_analysis import behavior_service
+from app.services.rag_service import RAGService
 
 search = DuckDuckGoSearchRun()
 _base_llm = ChatModelFactory.create()
+rag_service = RAGService()
 
 
 @tool
@@ -130,6 +132,48 @@ def make_query_knowledge_base_tool(
     return query_knowledge_base
 
 
+def make_search_uploaded_document_tool(
+    *,
+    user_id: Optional[str],
+    is_admin: bool,
+    thread_id: str,
+    current_file_id: Optional[str],
+):
+    @tool
+    def search_uploaded_document(
+        query: str,
+        file_id: str = "",
+        top_k: int = 3,
+    ) -> str:
+        """
+        当用户提问关于其上传文档时，检索 thread 级临时知识库。
+        参数：query（问题）、file_id（可选，默认当前挂载文件）、top_k（返回片段数）。
+        """
+        effective_file_id = (file_id or current_file_id or "").strip()
+        if not effective_file_id:
+            return "未提供 file_id，无法检索上传文档。"
+        hits = rag_service.search_uploaded_document(
+            query=query,
+            file_id=effective_file_id,
+            thread_id=thread_id,
+            user_id=user_id,
+            is_admin=is_admin,
+            top_k=max(1, min(int(top_k or 3), 8)),
+        )
+        if not hits:
+            return "未在该文档中检索到相关内容。"
+        lines = []
+        for item in hits:
+            lines.append(
+                f"[doc:{item.get('citation_id')}] "
+                f"{item.get('content', '')}\n"
+                f"(source={item.get('source')}, chunk={item.get('chunk_id')})"
+            )
+        return "\n\n".join(lines)
+
+    return search_uploaded_document
+
+
 TOOL_REGISTRY: dict[str, Any] = {
     "web_search": search_web,
     "behavior_analysis": analyze_student_behavior,
@@ -141,6 +185,8 @@ TOOL_KEYS_BY_AGENT: dict[str, list[str]] = {
     "knowledge_mentor": ["knowledge_base", "web_search"],
     "planner": ["knowledge_base"],
     "analyst": ["knowledge_base", "behavior_analysis"],
+    "doc_researcher": ["search_uploaded_document"],
+    "quiz_master": ["knowledge_base"],
 }
 
 
@@ -150,9 +196,18 @@ def _resolve_tool_impl(
     rag_user_id: Optional[str],
     rag_is_admin: bool,
     rag_k: int,
+    thread_id: str,
+    current_file_id: Optional[str],
 ) -> Any:
     if key == "knowledge_base":
         return make_query_knowledge_base_tool(rag_user_id, rag_is_admin, rag_k)
+    if key == "search_uploaded_document":
+        return make_search_uploaded_document_tool(
+            user_id=rag_user_id,
+            is_admin=rag_is_admin,
+            thread_id=thread_id,
+            current_file_id=current_file_id,
+        )
     return TOOL_REGISTRY[key]
 
 
@@ -163,6 +218,8 @@ def get_tools_for_agent(
     rag_user_id: Optional[str] = None,
     rag_is_admin: bool = False,
     rag_k: int = 4,
+    thread_id: str = "default",
+    current_file_id: Optional[str] = None,
 ) -> list:
     tool_keys = TOOL_KEYS_BY_AGENT.get(agent) or ["knowledge_base"]
     if not active_tools:
@@ -172,6 +229,8 @@ def get_tools_for_agent(
                 rag_user_id=rag_user_id,
                 rag_is_admin=rag_is_admin,
                 rag_k=rag_k,
+                thread_id=thread_id,
+                current_file_id=current_file_id,
             )
             for key in tool_keys
         ]
@@ -184,6 +243,8 @@ def get_tools_for_agent(
             rag_user_id=rag_user_id,
             rag_is_admin=rag_is_admin,
             rag_k=rag_k,
+            thread_id=thread_id,
+            current_file_id=current_file_id,
         )
         for key in keys
     ]
@@ -197,6 +258,8 @@ def get_llm(
     rag_user_id: Optional[str] = None,
     rag_is_admin: bool = False,
     rag_k: int = 4,
+    thread_id: str = "default",
+    current_file_id: Optional[str] = None,
     temperature: float | None = None,
     max_tokens: int | None = None,
     top_p: float | None = None,
@@ -223,6 +286,8 @@ def get_llm(
             rag_user_id=rag_user_id,
             rag_is_admin=rag_is_admin,
             rag_k=rag_k,
+            thread_id=thread_id,
+            current_file_id=current_file_id,
         )
     )
 

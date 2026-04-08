@@ -36,7 +36,12 @@
   const isCopied = ref(false);
 
   // 添加重新生成的事件
-  const emit = defineEmits(['regenerate', 'resumeAction']);
+  const emit = defineEmits(['regenerate', 'resumeAction', 'suggestion']);
+
+  const handleSuggestionClick = (text) => {
+    if (!text) return;
+    emit('suggestion', text);
+  };
 
   // 添加展开/折叠状态控制
   const isReasoningExpanded = ref(true);
@@ -317,10 +322,29 @@
       </div>
       <!-- content -->
       <div class="bubble markdown-body" v-html="renderedContent"></div>
+      <div
+        v-if="
+          message.role === 'assistant' &&
+          message.suggestions &&
+          message.suggestions.length > 0
+        "
+        class="suggestions-row"
+      >
+        <button
+          v-for="s in message.suggestions"
+          :key="s"
+          class="suggestion-pill"
+          @click="handleSuggestionClick(s)"
+        >
+          {{ s }}
+        </button>
+      </div>
       <div v-if="message.requires_confirmation" class="hitl-card">
         <p>系统生成了学习计划，是否确认写入你的学习日历？</p>
         <div class="hitl-actions">
-          <button class="action-btn" @click="handleResumeAction(true)">确认</button>
+          <button class="action-btn" @click="handleResumeAction(true)"
+            >确认</button
+          >
           <button class="action-btn reject" @click="handleResumeAction(false)">
             取消
           </button>
@@ -797,6 +821,23 @@
         animation: spin 1s linear infinite;
       }
     }
+  }
+
+  .suggestions-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  .suggestion-pill {
+    border: 1px solid rgba(25, 103, 210, 0.22);
+    background: rgba(25, 103, 210, 0.08);
+    color: #11458e;
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 12px;
+    cursor: pointer;
   }
 
   .files-container {

@@ -28,14 +28,14 @@ class RAGService:
     @staticmethod
     def _normalize_scope(scope: Optional[str]) -> str:
         normalized = (scope or "system").strip().lower()
-        if normalized not in {"system", "personal"}:
+        if normalized not in {"system", "personal", "thread"}:
             raise ValueError(f"Unsupported scope: {scope}")
         return normalized
 
     @staticmethod
     def _normalize_scope_filter(scope_filter: Optional[str]) -> str:
         normalized = (scope_filter or "all").strip().lower()
-        if normalized not in {"all", "system", "personal"}:
+        if normalized not in {"all", "system", "personal", "thread"}:
             raise ValueError(f"Unsupported scope filter: {scope_filter}")
         return normalized
 
@@ -49,6 +49,9 @@ class RAGService:
         scope = self._normalize_scope(metadata.get("scope"))
         if scope == "system":
             return True
+        if scope == "thread":
+            owner_id = self._normalize_owner_id(metadata.get("owner_id"))
+            return bool(user_id) and owner_id == self._normalize_owner_id(user_id)
         owner_id = self._normalize_owner_id(metadata.get("owner_id"))
         return bool(user_id) and owner_id == self._normalize_owner_id(user_id)
 
@@ -60,6 +63,9 @@ class RAGService:
         scope = self._normalize_scope(metadata.get("scope"))
         if scope == "system":
             return False
+        if scope == "thread":
+            owner_id = self._normalize_owner_id(metadata.get("owner_id"))
+            return bool(user_id) and owner_id == self._normalize_owner_id(user_id)
         owner_id = self._normalize_owner_id(metadata.get("owner_id"))
         return bool(user_id) and owner_id == self._normalize_owner_id(user_id)
 
@@ -105,6 +111,7 @@ class RAGService:
         *,
         scope: str = "personal",
         owner_id: Optional[str] = None,
+        thread_id: Optional[str] = None,
     ) -> dict:
         if not file.filename:
             raise ValueError("Missing file name")
@@ -135,6 +142,8 @@ class RAGService:
                 metadata["created_at"] = created_at
                 metadata["scope"] = normalized_scope
                 metadata["owner_id"] = normalized_owner_id
+                if thread_id:
+                    metadata["thread_id"] = str(thread_id)
                 doc.metadata = metadata
 
             self.vector_store.add_documents(documents)
@@ -147,6 +156,7 @@ class RAGService:
                 "created_at": created_at,
                 "chunks": len(documents),
                 "scope": normalized_scope,
+                "thread_id": str(thread_id or ""),
             }
         finally:
             if os.path.exists(file_path):
@@ -223,6 +233,43 @@ class RAGService:
                 }
             )
         return results
+
+    def search_uploaded_document(
+        self,
+        *,
+        query: str,
+        file_id: str,
+        thread_id: Optional[str],
+        user_id: Optional[str],
+        is_admin: bool,
+        top_k: int = 3,
+    ) -> List[dict]:
+        if not query.strip() or not file_id.strip():
+            return []
+        where: dict = {"$and": [{"file_id": file_id}]}
+        if thread_id:
+            where["$and"].append({"thread_id": str(thread_id)})
+        matches = self.vector_store.similarity_search_with_scores(
+            query=query,
+            k=top_k,
+            filter=where,
+        )
+        out: List[dict] = []
+        for i, (doc, score) in enumerate(matches, start=1):
+            md = dict(doc.metadata or {})
+            if not self._is_visible_to_user(md, user_id, is_admin):
+                continue
+            out.append(
+                {
+                    "citation_id": i,
+                    "content": doc.page_content,
+                    "metadata": md,
+                    "source": md.get("source", "unknown"),
+                    "chunk_id": md.get("chunk_id"),
+                    "score": score,
+                }
+            )
+        return out
 
     def reset_knowledge_base(self) -> dict:
         self.vector_store.delete_collection()

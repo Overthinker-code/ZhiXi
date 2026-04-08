@@ -21,6 +21,7 @@ const useChatStore = defineStore(
 
     // 当前对话的消息（仅内存，不持久化）
     const _messagesMap = ref({});
+    const _mountedFileMap = ref({});
 
     // 获取当前对话
     const currentConversation = computed(() => {
@@ -91,7 +92,8 @@ const useChatStore = defineStore(
           (conv) => conv.id === currentConversationId.value
         );
         if (!exists) {
-          currentConversationId.value = localCurrentId || conversations.value[0].id;
+          currentConversationId.value =
+            localCurrentId || conversations.value[0].id;
         }
       } catch (error) {
         if (!conversations.value.length) {
@@ -153,7 +155,8 @@ const useChatStore = defineStore(
       speed,
       thoughts = [],
       requiresConfirmation = false,
-      pendingActionId = ''
+      pendingActionId = '',
+      suggestions = []
     ) => {
       const msgs = _messagesMap.value[currentConversationId.value];
       if (msgs && msgs.length > 0) {
@@ -165,7 +168,18 @@ const useChatStore = defineStore(
         lastMessage.thoughts = thoughts;
         lastMessage.requires_confirmation = requiresConfirmation;
         lastMessage.pending_action_id = pendingActionId;
+        lastMessage.suggestions = suggestions;
       }
+    };
+
+    const setMountedFile = (conversationId, fileMeta) => {
+      if (!conversationId) return;
+      _mountedFileMap.value[conversationId] = fileMeta;
+    };
+
+    const getMountedFile = (conversationId) => {
+      if (!conversationId) return null;
+      return _mountedFileMap.value[conversationId] || null;
     };
 
     const getLastMessage = () => {
@@ -197,7 +211,7 @@ const useChatStore = defineStore(
       try {
         await updateChatThreadTitle(conversationId, newTitle);
       } catch (error) {
-        return;
+        // ignore title sync errors
       }
     };
 
@@ -239,6 +253,8 @@ const useChatStore = defineStore(
       setIsLoading,
       updateLastMessage,
       getLastMessage,
+      setMountedFile,
+      getMountedFile,
       loadConversations,
       createConversation,
       switchConversation,

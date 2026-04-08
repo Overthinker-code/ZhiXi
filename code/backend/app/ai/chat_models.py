@@ -33,13 +33,22 @@ class State(TypedDict):
     rag_user_id: str | None
     rag_is_admin: bool
     rag_top_k: int
+    current_thread_id: str
+    current_file_id: str | None
+    current_file_name: str
 
 
 class SupervisorDecision(BaseModel):
     """主管 LLM 结构化输出：下一步路由。"""
 
     next_agent: Literal[
-        "code_tutor", "knowledge_mentor", "planner", "analyst", "FINISH"
+        "code_tutor",
+        "knowledge_mentor",
+        "planner",
+        "analyst",
+        "doc_researcher",
+        "quiz_master",
+        "FINISH",
     ] = Field(description="下一步执行的专员，或 FINISH 表示进入汇总")
     routing_reason: str = Field(default="", description="中文简要说明为何如此路由")
     task_breakdown: str = Field(
@@ -69,6 +78,8 @@ class ChatRequest(BaseModel):
     course_module: str | None = None
     # 来自 DB 的已完成轮次，用于跨 HTTP 请求延续多轮语境（与 thread_id 对应）
     prior_turns: list[dict[str, str]] | None = None
+    current_file_id: str | None = None
+    file_name: str | None = None
 
 
 class ChatResponse(BaseModel):
