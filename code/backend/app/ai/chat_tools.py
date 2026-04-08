@@ -222,6 +222,18 @@ def get_tools_for_agent(
     current_file_id: Optional[str] = None,
 ) -> list:
     tool_keys = TOOL_KEYS_BY_AGENT.get(agent) or ["knowledge_base"]
+    # 文档研究员的核心能力不可被前端通用 active_tools 误关掉
+    if agent == "doc_researcher":
+        return [
+            _resolve_tool_impl(
+                "search_uploaded_document",
+                rag_user_id=rag_user_id,
+                rag_is_admin=rag_is_admin,
+                rag_k=rag_k,
+                thread_id=thread_id,
+                current_file_id=current_file_id,
+            )
+        ]
     if not active_tools:
         return [
             _resolve_tool_impl(

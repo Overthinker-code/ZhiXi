@@ -51,6 +51,10 @@ _TOOL_NODE_PIPELINE_MSG: dict[str, str] = {
 }
 
 _JSON_OBJ = re.compile(r"\{[\s\S]*\}")
+_DOC_QUERY_HINT = re.compile(
+    r"(这篇|该|这个)?(论文|文档|报告|课件|pdf|PDF|word|Word|doc|DOC|章节|第[一二三四五六七八九十0-9]+章|摘要|方法|实验|结论|创新点)"
+)
+_QUIZ_HINT = re.compile(r"(考考我|出题|做题|测验|测试我|我来答题|我来回答)")
 
 # 防止异常超大请求；实际需要更长可在 .env 提高 CHAT_DEFAULT_MAX_TOKENS
 _MAX_OUTPUT_CAP = 131072
@@ -386,12 +390,34 @@ def _split_suggestions(text: str) -> tuple[str, list[str]]:
     lines = [ln.strip(" -\t\r\n") for ln in tail.splitlines() if ln.strip()]
     suggestions: list[str] = []
     for s in lines:
-        if len(s) < 2:
+        s2 = re.sub(r"^(问题\s*\d+[:：.\-、]?\s*)", "", s, flags=re.IGNORECASE)
+        s2 = re.sub(r"^(\d+[:：.\-、]\s*)", "", s2)
+        s2 = s2.strip()
+        if len(s2) < 2:
             continue
-        suggestions.append(s[:80])
+        suggestions.append(s2[:80])
         if len(suggestions) >= 3:
             break
     return body, suggestions
+
+
+def _rule_based_route(state: State) -> tuple[str, str] | None:
+    try:
+        user_q = _latest_human_question(state.get("messages") or []).strip()
+    except Exception:
+        user_q = ""
+    if not user_q:
+        return None
+    if _QUIZ_HINT.search(user_q):
+        return ("quiz_master", "命中测验意图，进入主动测验流程。")
+    current_file_id = (state.get("current_file_id") or "").strip()
+    if current_file_id and _DOC_QUERY_HINT.search(user_q):
+        file_name = (state.get("current_file_name") or "").strip()
+        return (
+            "doc_researcher",
+            f"文档问题，优先检索《{file_name or current_file_id}》。",
+        )
+    return None
 
 
 def _rag_system_message(request: ChatRequest) -> SystemMessage:
@@ -507,6 +533,23 @@ def supervisor_node(state: State) -> dict[str, Any]:
             "supervisor_fallback_streak": 0,
         }
 
+    ruled = _rule_based_route(state)
+    if ruled:
+        agent_name, reason = ruled
+        label = AGENT_CONFIG[agent_name]["label"]
+        return {
+            "next_agent": agent_name,
+            "routing_reason": reason,
+            "task_breakdown": state.get("task_breakdown", ""),
+            "intent": "supervisor_route",
+            "intermediate_steps": [
+                thought_super,
+                f"【主管拆解】下一步：{label}（{agent_name}）。",
+            ],
+            "supervisor_entries": entries,
+            "supervisor_fallback_streak": 0,
+        }
+
     decision, used_fallback = _invoke_supervisor_llm(state)
     prev_fb = int(state.get("supervisor_fallback_streak") or 0)
     streak = prev_fb + 1 if used_fallback else 0
@@ -531,13 +574,8 @@ def supervisor_node(state: State) -> dict[str, Any]:
         if na in _WORKERS
         else "结束协作"
     )
-    step = (
-        f"【主管拆解】路由说明：{routing_reason or '主管决策'}\n"
-        f"→ 下一步：{'【汇总生成】' if na == 'FINISH' else f'{label}（{na}）'}"
-    )
-    if forced_finish_parse:
-        step += "\n（已连续触发解析兜底，防止循环，强制汇总。）"
-    elif task_bd:
+    step = f"【主管拆解】下一步：{'【汇总生成】' if na == 'FINISH' else f'{label}（{na}）'}"
+    if task_bd:
         step += f"\n子任务清单：{task_bd}"
 
     return {
