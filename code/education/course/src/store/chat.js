@@ -177,6 +177,16 @@ const useChatStore = defineStore(
     };
 
     // 更新对话标题
+    /** 仅更新内存中的标题（不落库），用于首条发送后的临时展示，避免抢在服务端「问+答」标题之前写入 DB */
+    const patchConversationTitleLocal = (conversationId, newTitle) => {
+      const conversation = conversations.value.find(
+        (c) => c.id === conversationId
+      );
+      if (conversation) {
+        conversation.title = newTitle;
+      }
+    };
+
     const updateConversationTitle = async (conversationId, newTitle) => {
       const conversation = conversations.value.find(
         (c) => c.id === conversationId
@@ -232,6 +242,7 @@ const useChatStore = defineStore(
       loadConversations,
       createConversation,
       switchConversation,
+      patchConversationTitleLocal,
       updateConversationTitle,
       deleteConversation,
     };

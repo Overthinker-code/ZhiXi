@@ -522,8 +522,12 @@ export function submitChatFeedback(data: {
 }
 
 
-export function generateChatTitle(query: string) {
+export function generateChatTitle(query: string, answer?: string) {
   return axios
-    .post('/chat/generate-title', { query }, { timeout: READ_TIMEOUT_MS })
+    .post(
+      '/chat/generate-title',
+      { query, ...(answer ? { answer } : {}) },
+      { timeout: READ_TIMEOUT_MS }
+    )
     .then((res: any) => ({ title: String(res.data?.title || '').trim() }));
 }

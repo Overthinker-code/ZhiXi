@@ -183,15 +183,19 @@ export function useChat() {
       Message.error('当前没有会话 ID，请刷新页面或点击「新对话」');
       return;
     }
-    try {
-      const userCountBeforeSend = (chatStore.currentMessages || []).filter(
-        (m: any) => m.role === 'user'
-      ).length;
-      const existingTitle = (chatStore.currentConversation?.title || '').trim();
-      const shouldAutoGenerateTitle =
-        userCountBeforeSend === 0 &&
-        (!existingTitle || existingTitle === '新对话');
 
+    const threadIdForTitle = currentThreadId.value;
+    const userCountBeforeSend = (chatStore.currentMessages || []).filter(
+      (m: any) => m.role === 'user'
+    ).length;
+    const existingTitle = (chatStore.currentConversation?.title || '').trim();
+    const needTitleSync =
+      userCountBeforeSend === 0 &&
+      (!existingTitle || existingTitle === '新对话');
+
+    let roundSucceeded = false;
+
+    try {
       chatStore.addMessage(
         messageHandler.formatMessage(
           'user',
@@ -202,29 +206,11 @@ export function useChat() {
       );
       chatStore.addMessage(messageHandler.formatMessage('assistant', '', ''));
 
-      if (shouldAutoGenerateTitle && currentThreadId.value) {
-        const threadIdForTitle = currentThreadId.value;
+      if (needTitleSync && threadIdForTitle) {
         const fallbackTitle = buildFallbackTitleFromFirstQuery(
           messageContent.text
         );
-        // 先本地更新，避免侧边栏长时间停留在“新对话”
-        chatStore
-          .updateConversationTitle(threadIdForTitle, fallbackTitle)
-          .catch(() => null);
-        generateChatTitle(messageContent.text)
-          .then((res) => {
-            const title = (res?.title || '').trim();
-            const finalTitle =
-              title && title !== '新对话' ? title : fallbackTitle;
-            if (!finalTitle) return undefined;
-            return chatStore.updateConversationTitle(
-              threadIdForTitle,
-              finalTitle
-            );
-          })
-          .catch(() => {
-            // ignore title generation failures to avoid blocking main chat path
-          });
+        chatStore.patchConversationTitleLocal(threadIdForTitle, fallbackTitle);
       }
 
       chatStore.setIsLoading(true);
@@ -301,6 +287,7 @@ export function useChat() {
         if (streamError) {
           throw new Error(streamError);
         }
+        roundSucceeded = true;
       } else {
         const response = await createAssistantChat(
           messageContent.text,
@@ -311,6 +298,7 @@ export function useChat() {
           response.response || ''
         );
         chatStore.updateLastMessage(content, reasoning, 0, 0);
+        roundSucceeded = true;
       }
     } catch (error: unknown) {
       const detail =
@@ -324,6 +312,35 @@ export function useChat() {
       chatStore.setIsLoading(false);
       const lastMessage = chatStore.getLastMessage();
       if (lastMessage) lastMessage.loading = false;
+
+      if (needTitleSync && roundSucceeded && threadIdForTitle) {
+        try {
+          await chatStore.loadConversations();
+          const conv = chatStore.conversations.find(
+            (c: any) => c.id === threadIdForTitle
+          );
+          const t = (conv?.title || '').trim();
+          if (!t || t === '新对话') {
+            const raw = chatStore.getLastMessage()?.content || '';
+            const plain = parseAssistantResponse(raw).content || raw;
+            const snippet = plain.slice(0, 2000);
+            if (snippet && !snippet.startsWith('生成未成功')) {
+              generateChatTitle(messageContent.text, snippet)
+                .then((res) => {
+                  const title = (res?.title || '').trim();
+                  if (!title || title === '新对话') return undefined;
+                  return chatStore.updateConversationTitle(
+                    threadIdForTitle,
+                    title
+                  );
+                })
+                .catch(() => null);
+            }
+          }
+        } catch {
+          // ignore title sync failures
+        }
+      }
     }
   }
 

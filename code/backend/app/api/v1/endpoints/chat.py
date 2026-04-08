@@ -106,6 +106,8 @@ def read_chat_settings(current_user: CurrentUser) -> Any:
 
 class TitleGenerateRequest(BaseModel):
     query: str
+    # 首轮助手可见答复（可选）；提供时优先生成「问+答」主题标题
+    answer: str | None = None
 
 
 def _clean_generated_title(raw: str) -> str:
@@ -165,14 +167,56 @@ def _generate_title_from_query(query: str) -> str:
         return _heuristic_title_from_query(clean_query)
 
 
+_MAX_TITLE_ANSWER_CHARS = 1600
+
+
+def _clip_for_title_answer(text: str) -> str:
+    t = re.sub(r"\s+", " ", (text or "").strip())
+    if len(t) > _MAX_TITLE_ANSWER_CHARS:
+        return t[:_MAX_TITLE_ANSWER_CHARS] + "…"
+    return t
+
+
+def _generate_title_from_first_turn(query: str, answer: str | None) -> str:
+    """首轮问答完成后生成主题标题；有 answer 时质量优于只看 query。"""
+    clean_q = (query or "").strip()
+    if not clean_q:
+        return "新对话"
+    ans = _clip_for_title_answer(answer or "")
+    if len(ans) < 12:
+        return _generate_title_from_query(clean_q)
+    try:
+        llm = ChatModelFactory.create(temperature=0.2, max_tokens=56)
+        prompt = (
+            "你是标题助手。请根据「用户首问」和「助手首答」概括本场对话主题，"
+            "输出一个4-10字中文短语作为会话标题。\n"
+            "要求：只写主题名（如学科/任务类型），不要标点、引号、换行，"
+            "不要复述长句，不要包含“用户/助手/对话”等元信息。\n\n"
+            f"【首问】\n{clean_q}\n\n"
+            f"【首答摘录】\n{ans}"
+        )
+        resp = llm.invoke([HumanMessage(content=prompt)])
+        title = _clean_generated_title(str(getattr(resp, "content", "") or ""))
+        blob = re.sub(r"\s+", "", clean_q + ans)
+        compact_t = re.sub(r"\s+", "", title)
+        if title and title != "新对话" and len(compact_t) >= 2:
+            if len(compact_t) >= 8 and compact_t in blob:
+                return _heuristic_title_from_query(clean_q)
+            return title
+        return _generate_title_from_query(clean_q)
+    except Exception:
+        return _generate_title_from_query(clean_q)
+
+
 def _maybe_autorename_thread(
     db: Session,
     *,
     thread_id: str,
     user_id: str | None,
     first_query: str,
+    first_answer: str | None = None,
 ) -> None:
-    """线程仍为默认标题时，按首问自动改名并持久化。"""
+    """线程仍为默认标题时，按首轮问答自动改名并持久化。"""
     if not thread_id or not user_id:
         return
     thread = chat_thread_provider.get_by_thread_id_and_user(
@@ -183,7 +227,7 @@ def _maybe_autorename_thread(
     current_title = (thread.title or "").strip()
     if current_title and current_title != "新对话":
         return
-    title = _generate_title_from_query(first_query)
+    title = _generate_title_from_first_turn(first_query, first_answer)
     if not title:
         return
     chat_thread_provider.update(db, db_obj=thread, obj_in={"title": title})
@@ -195,8 +239,9 @@ def generate_chat_title(
     request: TitleGenerateRequest = Body(...),
     current_user: CurrentUser,
 ) -> Any:
-    """旁路轻量接口：根据首问快速生成短标题，不走 LangGraph 主链路。"""
-    return {"title": _generate_title_from_query(request.query)}
+    """旁路轻量接口：可仅首问，或首问+首答二次优化标题，不走 LangGraph 主链路。"""
+    ans = (request.answer or "").strip() or None
+    return {"title": _generate_title_from_first_turn(request.query, ans)}
 
 
 @router.post("/feedback", response_model=ChatFeedback)
@@ -311,6 +356,7 @@ def stream_chat(
                             thread_id=request.thread_id,
                             user_id=user_id,
                             first_query=log_user,
+                            first_answer=final_text,
                         )
                 except Exception:
                     pass
@@ -377,6 +423,7 @@ def selection_query(
                         thread_id=request.thread_id,
                         user_id=user_id,
                         first_query=log_user,
+                        first_answer=str(out.get("response") or ""),
                     )
             except Exception:
                 pass
