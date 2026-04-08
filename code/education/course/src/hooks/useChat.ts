@@ -49,6 +49,19 @@ export function parseAssistantResponse(rawResponse: string) {
   return { content: rawResponse.trim(), reasoning: '' };
 }
 
+function buildFallbackTitleFromFirstQuery(text: string) {
+  const normalized = (text || '')
+    .replace(/\s+/g, ' ')
+    .replace(/[\r\n]+/g, ' ')
+    .trim();
+  if (!normalized) return '新对话';
+  const cleaned = normalized
+    .replace(/["'`.,!?;:(){}<>，。！？；：、“”‘’]/g, '')
+    .replace(/\[/g, '')
+    .replace(/\]/g, '');
+  return (cleaned || normalized).slice(0, 10) || '新对话';
+}
+
 /**
  * Composable for managing AI chat interactions.
  * Extracts conversation logic from LegacyAssistantPanel into a reusable hook.
@@ -190,13 +203,23 @@ export function useChat() {
       chatStore.addMessage(messageHandler.formatMessage('assistant', '', ''));
 
       if (shouldAutoGenerateTitle && currentThreadId.value) {
+        const threadIdForTitle = currentThreadId.value;
+        const fallbackTitle = buildFallbackTitleFromFirstQuery(
+          messageContent.text
+        );
+        // 先本地更新，避免侧边栏长时间停留在“新对话”
+        chatStore
+          .updateConversationTitle(threadIdForTitle, fallbackTitle)
+          .catch(() => null);
         generateChatTitle(messageContent.text)
           .then((res) => {
             const title = (res?.title || '').trim();
-            if (!title) return undefined;
+            const finalTitle =
+              title && title !== '新对话' ? title : fallbackTitle;
+            if (!finalTitle) return undefined;
             return chatStore.updateConversationTitle(
-              currentThreadId.value,
-              title
+              threadIdForTitle,
+              finalTitle
             );
           })
           .catch(() => {

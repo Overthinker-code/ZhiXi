@@ -115,6 +115,48 @@ def _clean_generated_title(raw: str) -> str:
     return text or '新对话'
 
 
+def _generate_title_from_query(query: str) -> str:
+    """轻量级标题生成：优先 LLM，失败退化为首句截断。"""
+    clean_query = (query or "").strip()
+    if not clean_query:
+        return "新对话"
+    try:
+        llm = ChatModelFactory.create(temperature=0.2, max_tokens=48)
+        prompt = (
+            "请根据用户提问生成一个不超过10个字的中文对话标题。"
+            "不要标点，不要引号，不要换行。\n用户提问："
+            + clean_query
+        )
+        resp = llm.invoke([HumanMessage(content=prompt)])
+        return _clean_generated_title(str(getattr(resp, "content", "") or ""))
+    except Exception:
+        return _clean_generated_title(clean_query)
+
+
+def _maybe_autorename_thread(
+    db: Session,
+    *,
+    thread_id: str,
+    user_id: str | None,
+    first_query: str,
+) -> None:
+    """线程仍为默认标题时，按首问自动改名并持久化。"""
+    if not thread_id or not user_id:
+        return
+    thread = chat_thread_provider.get_by_thread_id_and_user(
+        db, thread_id=thread_id, user_id=user_id
+    )
+    if not thread:
+        return
+    current_title = (thread.title or "").strip()
+    if current_title and current_title != "新对话":
+        return
+    title = _generate_title_from_query(first_query)
+    if not title:
+        return
+    chat_thread_provider.update(db, db_obj=thread, obj_in={"title": title})
+
+
 @router.post('/generate-title')
 def generate_chat_title(
     *,
@@ -122,18 +164,7 @@ def generate_chat_title(
     current_user: CurrentUser,
 ) -> Any:
     """旁路轻量接口：根据首问快速生成短标题，不走 LangGraph 主链路。"""
-    try:
-        llm = ChatModelFactory.create(temperature=0.2, max_tokens=48)
-        prompt = (
-            '请根据用户提问生成一个不超过10个字的中文对话标题。'
-            '不要标点，不要引号，不要换行。\n用户提问：'
-            + request.query
-        )
-        resp = llm.invoke([HumanMessage(content=prompt)])
-        return {'title': _clean_generated_title(str(getattr(resp, 'content', '') or ''))}
-    except Exception:
-        fallback = _clean_generated_title((request.query or '').strip())
-        return {'title': fallback}
+    return {"title": _generate_title_from_query(request.query)}
 
 
 @router.post("/feedback", response_model=ChatFeedback)
@@ -243,6 +274,12 @@ def stream_chat(
                                 request.prompt_key, request.system_prompt or ""
                             ),
                         )
+                        _maybe_autorename_thread(
+                            db,
+                            thread_id=request.thread_id,
+                            user_id=user_id,
+                            first_query=log_user,
+                        )
                 except Exception:
                     pass
         except Exception as exc:
@@ -302,6 +339,12 @@ def selection_query(
                         system_prompt=resolve_system_prompt(
                             request.prompt_key, request.system_prompt or ""
                         ),
+                    )
+                    _maybe_autorename_thread(
+                        db,
+                        thread_id=request.thread_id,
+                        user_id=user_id,
+                        first_query=log_user,
                     )
             except Exception:
                 pass
