@@ -477,28 +477,47 @@ def _pick_topic_from_question(user_q: str) -> str:
     q = (user_q or "").strip()
     if not q:
         return "这个知识点"
-    cleaned = re.sub(r"[^\u4e00-\u9fa5A-Za-z0-9]+", " ", q)
-    parts = [p.strip() for p in cleaned.split() if p.strip()]
-    stop = {
-        "请",
-        "帮我",
-        "一下",
-        "这个",
-        "那个",
-        "怎么",
-        "如何",
-        "为什么",
-        "是什么",
-        "讲解",
-        "说明",
-        "分析",
-        "问题",
-    }
-    candidates = [p for p in parts if 2 <= len(p) <= 14 and p not in stop]
-    if not candidates:
-        return "这个知识点"
-    # 取第一个相对有信息量的短语作为主题
-    return sorted(candidates, key=len, reverse=True)[0]
+    # 优先提取「X的/关于X/围绕X」这类显式主题片段
+    patterns = [
+        r"(?:关于|围绕|针对|聚焦)\s*([^\s，。；！？,.!?]{2,24})",
+        r"([^\s，。；！？,.!?]{2,24})\s*的(?:核心|典型|重点|难点|易错点|题型|知识点)",
+        r"解决\s*([^\s，。；！？,.!?]{2,24})\s*(?:问题|难题|题目)",
+    ]
+    for pat in patterns:
+        m = re.search(pat, q)
+        if m:
+            topic = re.sub(r"[的地得]+$", "", m.group(1).strip())
+            if topic:
+                return topic[:20]
+
+    # 次优：按学科关键词兜底，避免提取成“指导我完成高分训练”这类动作词
+    subject_keywords = [
+        "小学数学",
+        "初中数学",
+        "高中数学",
+        "微积分",
+        "线性代数",
+        "概率论",
+        "数据库",
+        "SQL",
+        "事务处理",
+        "并发控制",
+    ]
+    for kw in subject_keywords:
+        if kw in q:
+            return kw
+    return "这个知识点"
+
+
+def _infer_followup_intent(user_q: str, answer: str) -> str:
+    text = f"{user_q}\n{answer}".lower()
+    if re.search(r"(错题|做错|纠正|订正|debug|排错)", text):
+        return "fix"
+    if re.search(r"(练习|刷题|题目|训练|测验|出题)", text):
+        return "practice"
+    if re.search(r"(总结|梳理|归纳|框架)", text):
+        return "summary"
+    return "explain"
 
 
 def _contextual_suggestions_from_llm(
@@ -507,8 +526,26 @@ def _contextual_suggestions_from_llm(
     # 为保证主回复稳定，不再在流式尾部二次调用 LLM；
     # 改为基于当前问题主题生成上下文相关追问。
     topic = _pick_topic_from_question(user_q)
-    _ = answer  # keep signature stable
+    intent = _infer_followup_intent(user_q, answer)
     _ = max_tokens
+    if intent == "practice":
+        return [
+            f"先从 {topic} 的哪三类题型开始练最提分？",
+            f"基于 {topic} 给我一道阶梯练习题，并先只给第 1 步提示？",
+            f"做 {topic} 题时最常见的失分点有哪些？",
+        ]
+    if intent == "fix":
+        return [
+            f"我在 {topic} 上最可能犯的 3 个错误分别是什么？",
+            f"能给我一个 {topic} 的错题订正模板吗？",
+            f"下次遇到 {topic} 同类题，我该如何快速自检？",
+        ]
+    if intent == "summary":
+        return [
+            f"把 {topic} 再压缩成 5 条考前速记卡片可以吗？",
+            f"{topic} 中最容易混淆的概念对照表能给我吗？",
+            f"按考试频率，{topic} 的复习优先级该怎么排？",
+        ]
     return [
         f"{topic} 最容易混淆的概念有哪些？",
         f"能围绕 {topic} 给我一题由浅入深的练习吗？",
