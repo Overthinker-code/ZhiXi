@@ -30,8 +30,8 @@
             @cancel="handleCancel"
             width="300px"
           >
-            <template #title> AI助手</template>
-            <FloatAI />
+            <template #title>课堂 AI 助理</template>
+            <ClassroomQuickChat />
           </a-drawer>
         </div>
       </div>
@@ -78,7 +78,7 @@
 </template>
 
 <script lang="ts" setup>
-  import FloatAI from '@/components/float-ai/index.vue';
+  import ClassroomQuickChat from '@/components/float-ai/ClassroomQuickChat.vue';
   import Footer from '@/components/footer/index.vue';
   import Menu from '@/components/menu/index.vue';
   import NavBar from '@/components/navbar/index.vue';
@@ -140,6 +140,10 @@
   const visible = ref(false);
 
   const handleClick = () => {
+    if (route.name === 'Monitor') {
+      visible.value = true;
+      return;
+    }
     router.push({ name: 'Chat' });
   };
   const handleOk = () => {
