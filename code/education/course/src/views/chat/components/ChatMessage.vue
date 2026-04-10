@@ -45,10 +45,14 @@
 
   // 添加展开/折叠状态控制
   const isReasoningExpanded = ref(true);
+  const isPipelineExpanded = ref(true);
 
   // 切换展开/折叠状态
   const toggleReasoning = () => {
     isReasoningExpanded.value = !isReasoningExpanded.value;
+  };
+  const togglePipeline = () => {
+    isPipelineExpanded.value = !isPipelineExpanded.value;
   };
 
   // 处理复制函数
@@ -263,8 +267,24 @@
       </div>
 
       <!-- 多智能体流水线（与「深度思考」分离，随 SSE thought 实时追加） -->
-      <AgentThoughtCard
+      <div
         v-if="showAgentPipeline"
+        class="pipeline-toggle"
+        @click="togglePipeline"
+      >
+        <span class="pipeline-dot" />
+        <span>{{
+          message.loading ? '多智能体协作进行中' : '多智能体协作过程'
+        }}</span>
+        <el-icon
+          class="toggle-icon"
+          :class="{ 'is-expanded': isPipelineExpanded }"
+        >
+          <ArrowDown />
+        </el-icon>
+      </div>
+      <AgentThoughtCard
+        v-if="showAgentPipeline && isPipelineExpanded"
         :thoughts="message.thoughts || []"
         :streaming="!!message.loading"
       />
@@ -295,8 +315,8 @@
         <img v-else :src="thinkingIcon" alt="" />
         <span>{{
           message.loading && !effectiveReasoningTrimmed
-            ? '正在思考中…'
-            : '深度思考'
+            ? '正在梳理答案思路…'
+            : '我的思考过程'
         }}</span>
         <el-icon
           class="toggle-icon"
@@ -461,6 +481,41 @@
         &:hover {
           transform: translateY(-1px);
           border-color: rgba(25, 103, 210, 0.35);
+        }
+      }
+
+      .pipeline-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.28rem 0.56rem;
+        margin: 0 0 0.45rem 0.5rem;
+        border-radius: 999px;
+        border: 1px solid rgba(51, 65, 85, 0.2);
+        background: rgba(241, 245, 249, 0.9);
+        cursor: pointer;
+
+        .pipeline-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: #64748b;
+        }
+
+        span {
+          color: #334155;
+          font-size: 0.78rem;
+          font-weight: 600;
+        }
+
+        .toggle-icon {
+          color: #334155;
+          font-size: 0.75rem;
+          transition: transform 0.2s ease;
+
+          &.is-expanded {
+            transform: rotate(180deg);
+          }
         }
       }
 

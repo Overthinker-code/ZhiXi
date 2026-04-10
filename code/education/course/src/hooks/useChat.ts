@@ -70,6 +70,7 @@ function buildFallbackTitleFromFirstQuery(text: string) {
 export function useChat() {
   const chatStore = useChatStore();
   const settingStore = useSettingStore();
+  let streamAbortController: AbortController | null = null;
 
   const currentThreadId = computed(() => chatStore.currentConversationId);
   const currentMessages = computed(() => chatStore.currentMessages);
@@ -164,6 +165,7 @@ export function useChat() {
    * Send a user message and get an AI response.
    */
   async function sendMessage(messageContent: { text: string; files?: any[] }) {
+    if (chatStore.isLoading) return;
     if (!currentThreadId.value) {
       if (!getToken()) {
         Message.error('请先登录后再使用 AI 对话');
@@ -272,6 +274,7 @@ export function useChat() {
 
       const shouldStream = Boolean(settingStore.settings.stream);
       if (shouldStream) {
+        streamAbortController = new AbortController();
         const thoughts: string[] = [];
         let suggestions: string[] = [];
         let answer = '';
@@ -335,7 +338,8 @@ export function useChat() {
             } else if (event.type === 'error') {
               streamError = event.content || 'Stream failed';
             }
-          }
+          },
+          streamAbortController.signal
         );
         if (streamError) {
           throw new Error(streamError);
@@ -362,10 +366,18 @@ export function useChat() {
         error instanceof Error && error.message
           ? error.message.slice(0, 500)
           : '';
+      const abortedByUser =
+        error instanceof Error &&
+        (error.name === 'AbortError' || /aborted/i.test(error.message));
       chatStore.updateLastMessage(
-        detail ? `生成未成功：${detail}` : '当前连接时空有点波动，请稍后再试哦~'
+        abortedByUser
+          ? '已中断本次回复。你可以继续提问，或点击重新生成。'
+          : detail
+          ? `生成未成功：${detail}`
+          : '当前连接时空有点波动，请稍后再试哦~'
       );
     } finally {
+      streamAbortController = null;
       chatStore.setIsLoading(false);
       const lastMessage = chatStore.getLastMessage();
       if (lastMessage) lastMessage.loading = false;
@@ -491,6 +503,11 @@ export function useChat() {
     }
   }
 
+  function stopGenerating() {
+    if (!chatStore.isLoading || !streamAbortController) return;
+    streamAbortController.abort();
+  }
+
   return {
     // State
     currentThreadId,
@@ -503,6 +520,7 @@ export function useChat() {
     loadHistory,
     loadAssistantSettings,
     createNewChat,
+    stopGenerating,
     sendSelectionQuery,
     confirmPendingAction,
   };

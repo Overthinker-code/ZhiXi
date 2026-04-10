@@ -15,7 +15,7 @@
   });
 
   // 定义组件的事件，这里声明了一个 send 事件
-  const emit = defineEmits(['send']);
+  const emit = defineEmits(['send', 'stop']);
 
   // 处理发送消息的方法
   const handleSend = () => {
@@ -130,6 +130,13 @@
         @click="handleSend"
       >
         <img src="@/assets/photo/发送.png" alt="send" />
+      </button>
+      <button
+        v-if="props.loading"
+        class="action-btn stop-btn"
+        @click="emit('stop')"
+      >
+        停止
       </button>
     </div>
   </div>
@@ -318,6 +325,17 @@
             cursor: not-allowed;
             box-shadow: none;
           }
+        }
+
+        &.stop-btn {
+          width: auto;
+          min-width: 2.5rem;
+          padding: 0 0.65rem;
+          background: #fff4f2;
+          color: #c73e1d;
+          border: 1px solid rgba(199, 62, 29, 0.25);
+          font-size: 0.74rem;
+          font-weight: 600;
         }
       }
     }
