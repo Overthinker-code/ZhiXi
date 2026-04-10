@@ -426,6 +426,14 @@ JOIN：连接多个表进行复杂查询
         margin: 0.5em 0;
       }
 
+      :deep(img) {
+        max-width: 100%;
+        height: auto;
+        border-radius: 4px;
+        display: block;
+        margin: 0.5em 0;
+      }
+
       :deep(code:not(pre code)) {
         padding: 0.16em 0.38em;
         border-radius: 0.3rem;
