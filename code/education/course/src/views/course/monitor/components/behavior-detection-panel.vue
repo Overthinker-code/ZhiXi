@@ -175,8 +175,8 @@
   const sessionId = ref<string>('');
 
   // 定时器
-  let detectionInterval: NodeJS.Timeout | null = null;
-  let refreshInterval: NodeJS.Timeout | null = null;
+  let detectionInterval: ReturnType<typeof setInterval> | null = null;
+  let refreshInterval: ReturnType<typeof setInterval> | null = null;
 
   // 获取行为定义
   const loadBehaviorDefinitions = async () => {
@@ -184,7 +184,7 @@
       const res = await getBehaviorDefinitions();
       behaviorDefinitions.value = res.data;
     } catch (error) {
-      console.error('加载行为定义失败:', error);
+      Message.warning('加载行为定义失败');
     }
   };
 
@@ -195,49 +195,12 @@
       const res = await getAnalysisRecords(props.courseId, 0, 10);
       recentRecords.value = res.data.data;
     } catch (error) {
-      console.error('加载历史记录失败:', error);
+      Message.warning('加载历史记录失败');
     }
-  };
-
-  // 开始检测
-  const startDetection = async () => {
-    if (!props.courseId) {
-      Message.warning('请先选择课程');
-      return;
-    }
-
-    isStarting.value = true;
-    try {
-      const res = await startRealtimeAnalysis(props.courseId);
-      sessionId.value = res.data.session_id;
-      detectionStatus.value = 'running';
-      Message.success('课堂行为检测已启动');
-
-      // 模拟实时检测（实际项目中这里应该连接WebSocket或轮询视频流）
-      startSimulation();
-    } catch (error) {
-      Message.error('启动检测失败');
-      console.error(error);
-    } finally {
-      isStarting.value = false;
-    }
-  };
-
-  // 停止检测
-  const stopDetection = () => {
-    detectionStatus.value = 'idle';
-    if (detectionInterval) {
-      clearInterval(detectionInterval);
-      detectionInterval = null;
-    }
-    currentFrame.value = '';
-    currentResult.value = null;
-    Message.success('检测已停止');
-    loadRecentRecords();
   };
 
   // 模拟实时检测数据（实际项目中替换为真实的视频流处理）
-  const startSimulation = () => {
+  function startSimulation() {
     detectionInterval = setInterval(() => {
       // 模拟检测结果
       const mockBehaviors = [
@@ -265,6 +228,42 @@
 
       currentResult.value = mockResult;
     }, 3000);
+  }
+
+  // 开始检测
+  const startDetection = async () => {
+    if (!props.courseId) {
+      Message.warning('请先选择课程');
+      return;
+    }
+
+    isStarting.value = true;
+    try {
+      const res = await startRealtimeAnalysis(props.courseId);
+      sessionId.value = res.data.session_id;
+      detectionStatus.value = 'running';
+      Message.success('课堂行为检测已启动');
+
+      // 模拟实时检测（实际项目中这里应该连接WebSocket或轮询视频流）
+      startSimulation();
+    } catch {
+      Message.error('启动检测失败');
+    } finally {
+      isStarting.value = false;
+    }
+  };
+
+  // 停止检测
+  const stopDetection = () => {
+    detectionStatus.value = 'idle';
+    if (detectionInterval) {
+      clearInterval(detectionInterval);
+      detectionInterval = null;
+    }
+    currentFrame.value = '';
+    currentResult.value = null;
+    Message.success('检测已停止');
+    loadRecentRecords();
   };
 
   // 获取分数颜色

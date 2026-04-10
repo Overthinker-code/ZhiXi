@@ -369,13 +369,13 @@ export function useChat() {
       const abortedByUser =
         error instanceof Error &&
         (error.name === 'AbortError' || /aborted/i.test(error.message));
-      chatStore.updateLastMessage(
-        abortedByUser
-          ? '已中断本次回复。你可以继续提问，或点击重新生成。'
-          : detail
-          ? `生成未成功：${detail}`
-          : '当前连接时空有点波动，请稍后再试哦~'
-      );
+      let errorText = '当前连接时空有点波动，请稍后再试哦~';
+      if (abortedByUser) {
+        errorText = '已中断本次回复。你可以继续提问，或点击重新生成。';
+      } else if (detail) {
+        errorText = `生成未成功：${detail}`;
+      }
+      chatStore.updateLastMessage(errorText);
     } finally {
       streamAbortController = null;
       chatStore.setIsLoading(false);
