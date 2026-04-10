@@ -45,4 +45,10 @@ export default {
   'monitor.studioStatus.pictureQuality': '画质',
   'monitor.studioPreview.studio': '课堂',
   'monitor.studioPreview.watching': '在看',
+  'monitor.behaviorDetection.title': '课堂行为检测',
+  'monitor.behaviorDetection.start': '开启课堂行为检测',
+  'monitor.behaviorDetection.stop': '停止检测',
+  'monitor.behaviorDetection.realtimeStats': '实时统计',
+  'monitor.behaviorDetection.recentRecords': '近期分析记录',
+  'monitor.behaviorDetection.viewAll': '查看全部',
 };

@@ -44,6 +44,11 @@ typing-extensions
 # Video and image processing
 opencv-python
 numpy
+
+# YOLO and deep learning for behavior detection
+ultralytics>=8.0.0
+torch>=2.0.0
+torchvision>=0.15.0
 Pillow
 python-magic
 ffmpeg-python

@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 
 # from app.api.routes import items, login, private, users, utils
-from app.api.routes import login, private, users, education
+from app.api.routes import login, private, users, education, behavior_analysis
 from app.api.v1.endpoints import (
     chat,
     rag,
@@ -22,6 +22,7 @@ api_router.include_router(rag.router, prefix="/rag", tags=["rag"])
 api_router.include_router(dashboard_mock.router, tags=["dashboard"])
 api_router.include_router(user_center_mock.router, tags=["user-center"])
 api_router.include_router(health.router, tags=["ops"])
+api_router.include_router(behavior_analysis.router, prefix="/behavior", tags=["behavior-analysis"])
 # api_router.include_router(utils.router)
 # api_router.include_router(items.router)
 

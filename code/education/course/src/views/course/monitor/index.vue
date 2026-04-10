@@ -15,6 +15,7 @@
         <a-space :size="16" direction="vertical" fill>
           <StudioStatus />
           <AttendanceGrid />
+          <BehaviorDetectionPanel course-id="current-course-id" />
           <QuickOperation />
           <StudioInformation />
         </a-space>
@@ -31,6 +32,7 @@
   import AttendanceGrid from './components/attendance-grid.vue';
   import QuickOperation from './components/quick-operation.vue';
   import StudioInformation from './components/studio-information.vue';
+  import BehaviorDetectionPanel from './components/behavior-detection-panel.vue';
 </script>
 
 <script lang="ts">
