@@ -153,11 +153,15 @@ export interface RealtimeSession {
 export function analyzeImage(file: File) {
   const formData = new FormData();
   formData.append('file', file);
-  return axios.post<ImageAnalysisResult>('/api/behavior/analyze/image', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    },
-  });
+  return axios.post<ImageAnalysisResult>(
+    '/api/behavior/analyze/image',
+    formData,
+    {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    }
+  );
 }
 
 /**
@@ -169,7 +173,7 @@ export function analyzeImage(file: File) {
 export function analyzeVideo(
   file: File,
   courseId?: string,
-  sampleInterval: number = 30
+  sampleInterval = 30
 ) {
   const formData = new FormData();
   formData.append('file', file);
@@ -177,11 +181,15 @@ export function analyzeVideo(
     formData.append('course_id', courseId);
   }
   formData.append('sample_interval', sampleInterval.toString());
-  return axios.post<VideoAnalysisResult>('/api/behavior/analyze/video', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    },
-  });
+  return axios.post<VideoAnalysisResult>(
+    '/api/behavior/analyze/video',
+    formData,
+    {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    }
+  );
 }
 
 /**
@@ -190,18 +198,17 @@ export function analyzeVideo(
  * @param skip 分页偏移
  * @param limit 分页限制
  */
-export function getAnalysisRecords(
-  courseId?: string,
-  skip: number = 0,
-  limit: number = 100
-) {
+export function getAnalysisRecords(courseId?: string, skip = 0, limit = 100) {
   const params: Record<string, string | number> = { skip, limit };
   if (courseId) {
     params.course_id = courseId;
   }
-  return axios.get<{ data: AnalysisRecord[]; total: number }>('/api/behavior/records', {
-    params,
-  });
+  return axios.get<{ data: AnalysisRecord[]; total: number }>(
+    '/api/behavior/records',
+    {
+      params,
+    }
+  );
 }
 
 /**
@@ -242,5 +249,7 @@ export function startRealtimeAnalysis(courseId: string, cameraId?: string) {
  * 获取行为定义列表
  */
 export function getBehaviorDefinitions() {
-  return axios.get<BehaviorDefinitionsResponse>('/api/behavior/behaviors/definitions');
+  return axios.get<BehaviorDefinitionsResponse>(
+    '/api/behavior/behaviors/definitions'
+  );
 }

@@ -433,6 +433,77 @@ def _default_suggestions(user_q: str) -> list[str]:
     ]
 
 
+def _parse_suggestion_candidates(raw: str) -> list[str]:
+    s = (raw or "").strip()
+    if not s:
+        return []
+    candidates: list[str] = []
+    try:
+        obj = json.loads(s)
+        if isinstance(obj, list):
+            candidates = [str(x).strip() for x in obj if str(x).strip()]
+        elif isinstance(obj, dict):
+            arr = obj.get("suggestions") or []
+            if isinstance(arr, list):
+                candidates = [str(x).strip() for x in arr if str(x).strip()]
+    except Exception:
+        block = re.search(r"\[[\s\S]*\]", s)
+        if block:
+            try:
+                arr = json.loads(block.group(0))
+                if isinstance(arr, list):
+                    candidates = [str(x).strip() for x in arr if str(x).strip()]
+            except Exception:
+                candidates = []
+        if not candidates:
+            candidates = [
+                re.sub(r"^\d+[\.\-、:：]?\s*", "", ln).strip(" -\t")
+                for ln in s.splitlines()
+                if ln.strip()
+            ]
+    out: list[str] = []
+    for c in candidates:
+        cc = re.sub(r"\s+", " ", c).strip()
+        if len(cc) < 4:
+            continue
+        if cc in out:
+            continue
+        out.append(cc[:80])
+        if len(out) >= 3:
+            break
+    return out
+
+
+def _contextual_suggestions_from_llm(
+    user_q: str, answer: str, max_tokens: int | None = None
+) -> list[str]:
+    q = (user_q or "").strip()
+    a = (answer or "").strip()
+    if not (q and a):
+        return []
+    try:
+        llm = ChatModelFactory.create(
+            temperature=0.2,
+            max_tokens=min(int(max_tokens or 256), 256),
+        )
+        sys = SystemMessage(
+            content=(
+                "你是教学问答系统的追问建议器。"
+                "请根据「学生问题+本轮回答」给出 3 条最贴合上下文的后续提问。"
+                "要求：中文、简短、可直接点击发送、不要空泛、不要重复。"
+                "仅输出 JSON 数组字符串，如：[\"...\",\"...\",\"...\"]。"
+            )
+        )
+        human = HumanMessage(
+            content=f"学生问题：{q}\n\n本轮回答摘要：{a[:1800]}"
+        )
+        resp = llm.invoke([sys, human])
+        text = _strict_ai_content_for_user(resp)
+        return _parse_suggestion_candidates(text)
+    except Exception:
+        return []
+
+
 def _rag_system_message(request: ChatRequest) -> SystemMessage:
     results = rag_service.query_knowledge_base(
         query=request.user_input,
@@ -1038,7 +1109,10 @@ def stream_chat_events(request: ChatRequest):
         text = cache_hit.answer
         for i in range(0, len(text), 24):
             yield {"type": "token", "content": text[i : i + 24]}
-        yield {"type": "suggestions", "data": _default_suggestions(req.user_input)}
+        sug = _contextual_suggestions_from_llm(
+            req.user_input, text, max_tokens=req.max_tokens
+        ) or _default_suggestions(req.user_input)
+        yield {"type": "suggestions", "data": sug}
         yield {
             "type": "final",
             "content": text,
@@ -1133,7 +1207,14 @@ def stream_chat_events(request: ChatRequest):
     chunk_size = 24
     for i in range(0, len(text), chunk_size):
         yield {"type": "token", "content": text[i : i + chunk_size]}
-    yield {"type": "suggestions", "data": suggestions or _default_suggestions(req.user_input)}
+    dynamic_suggestions = (
+        suggestions
+        or _contextual_suggestions_from_llm(
+            req.user_input, text, max_tokens=req.max_tokens
+        )
+        or _default_suggestions(req.user_input)
+    )
+    yield {"type": "suggestions", "data": dynamic_suggestions}
 
     resp = ChatResponse(
         response=text,
