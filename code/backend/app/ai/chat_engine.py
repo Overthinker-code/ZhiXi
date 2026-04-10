@@ -455,17 +455,16 @@ def _parse_suggestion_candidates(raw: str) -> list[str]:
                     candidates = [str(x).strip() for x in arr if str(x).strip()]
             except Exception:
                 candidates = []
-        if not candidates:
-            candidates = [
-                re.sub(r"^\d+[\.\-、:：]?\s*", "", ln).strip(" -\t")
-                for ln in s.splitlines()
-                if ln.strip()
-            ]
     out: list[str] = []
+    q_hint = re.compile(r"(吗|么|如何|为什么|怎么|是否|能否|要不要|哪个|哪些|几种|\?)")
     for c in candidates:
         cc = re.sub(r"\s+", " ", c).strip()
         if len(cc) < 4:
             continue
+        if not q_hint.search(cc):
+            continue
+        if not cc.endswith(("?", "？")):
+            cc = f"{cc}？"
         if cc in out:
             continue
         out.append(cc[:80])
