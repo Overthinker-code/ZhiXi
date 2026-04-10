@@ -473,34 +473,47 @@ def _parse_suggestion_candidates(raw: str) -> list[str]:
     return out
 
 
+def _pick_topic_from_question(user_q: str) -> str:
+    q = (user_q or "").strip()
+    if not q:
+        return "这个知识点"
+    cleaned = re.sub(r"[^\u4e00-\u9fa5A-Za-z0-9]+", " ", q)
+    parts = [p.strip() for p in cleaned.split() if p.strip()]
+    stop = {
+        "请",
+        "帮我",
+        "一下",
+        "这个",
+        "那个",
+        "怎么",
+        "如何",
+        "为什么",
+        "是什么",
+        "讲解",
+        "说明",
+        "分析",
+        "问题",
+    }
+    candidates = [p for p in parts if 2 <= len(p) <= 14 and p not in stop]
+    if not candidates:
+        return "这个知识点"
+    # 取第一个相对有信息量的短语作为主题
+    return sorted(candidates, key=len, reverse=True)[0]
+
+
 def _contextual_suggestions_from_llm(
     user_q: str, answer: str, max_tokens: int | None = None
 ) -> list[str]:
-    q = (user_q or "").strip()
-    a = (answer or "").strip()
-    if not (q and a):
-        return []
-    try:
-        llm = ChatModelFactory.create(
-            temperature=0.2,
-            max_tokens=min(int(max_tokens or 256), 256),
-        )
-        sys = SystemMessage(
-            content=(
-                "你是教学问答系统的追问建议器。"
-                "请根据「学生问题+本轮回答」给出 3 条最贴合上下文的后续提问。"
-                "要求：中文、简短、可直接点击发送、不要空泛、不要重复。"
-                "仅输出 JSON 数组字符串，如：[\"...\",\"...\",\"...\"]。"
-            )
-        )
-        human = HumanMessage(
-            content=f"学生问题：{q}\n\n本轮回答摘要：{a[:1800]}"
-        )
-        resp = llm.invoke([sys, human])
-        text = _strict_ai_content_for_user(resp)
-        return _parse_suggestion_candidates(text)
-    except Exception:
-        return []
+    # 为保证主回复稳定，不再在流式尾部二次调用 LLM；
+    # 改为基于当前问题主题生成上下文相关追问。
+    topic = _pick_topic_from_question(user_q)
+    _ = answer  # keep signature stable
+    _ = max_tokens
+    return [
+        f"{topic} 最容易混淆的概念有哪些？",
+        f"能围绕 {topic} 给我一题由浅入深的练习吗？",
+        f"如果我在 {topic} 上做错题，应该怎么快速纠正？",
+    ]
 
 
 def _rag_system_message(request: ChatRequest) -> SystemMessage:
