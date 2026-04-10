@@ -1,6 +1,7 @@
 export default {
   'menu.dashboard.monitor': '实时课堂',
   'monitor.title.chatPanel': '聊天窗口',
+  'monitor.title.classroomNotes': '课堂笔记',
   'monitor.title.quickOperation': '快捷操作',
   'monitor.title.studioInfo': '直播信息',
   'monitor.title.studioPreview': '课堂预览',
