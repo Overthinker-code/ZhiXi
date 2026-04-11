@@ -6,7 +6,7 @@
         <span class="course">当前课程：数据库原理</span>
       </div>
     </div>
-    <div ref="messagePanel" class="message-panel">
+    <div ref="messagePanel" class="message-panel" @scroll="handlePanelScroll">
       <div class="assistant-card">
         <div class="intro">
           Hi，我是小知，在数据库原理课程学习中，我可以为你提供以下帮助：
@@ -32,14 +32,17 @@
               v-if="item.showReasoning && (item.reasoning || item.loading)"
               class="reasoning-content markdown-body"
               v-html="
-                renderMarkdown(
+                renderSafeMarkdown(
                   item.reasoning ||
                     '我先拆分你的问题，再整理成更容易吸收的讲解。'
                 )
               "
             />
             <!-- eslint-disable-next-line vue/no-v-html -->
-            <div class="markdown-body" v-html="renderMarkdown(item.content)" />
+            <div
+              class="markdown-body"
+              v-html="renderSafeMarkdown(item.content)"
+            />
           </template>
           <template v-else>
             {{ item.content }}
@@ -102,13 +105,25 @@
   const messages = ref<ChatItem[]>([]);
   const suggestions = ref<string[]>([]);
   const messagePanel = ref<HTMLElement | null>(null);
+  const autoStickToBottom = ref(true);
   const localThreadId = ref(`monitor-db-${Date.now()}`);
   let abortController: AbortController | null = null;
+  const renderSafeMarkdown = (content: string) => {
+    const html = renderMarkdown(content || '');
+    return html.replace(/<div class="code-actions">[\s\S]*?<\/div>/g, '');
+  };
 
-  const scrollToBottom = async () => {
+  const scrollToBottom = async (force = false) => {
+    if (!force && !autoStickToBottom.value) return;
     await nextTick();
     if (!messagePanel.value) return;
     messagePanel.value.scrollTop = messagePanel.value.scrollHeight;
+  };
+  const handlePanelScroll = () => {
+    const el = messagePanel.value;
+    if (!el) return;
+    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    autoStickToBottom.value = distanceToBottom < 80;
   };
 
   const addAssistantPlaceholder = () => {
@@ -138,7 +153,8 @@
       reasoning: '',
     });
     addAssistantPlaceholder();
-    await scrollToBottom();
+    autoStickToBottom.value = true;
+    await scrollToBottom(true);
 
     loading.value = true;
     abortController = new AbortController();
@@ -215,6 +231,7 @@
     messages.value = [];
     suggestions.value = [];
     loading.value = false;
+    autoStickToBottom.value = true;
     localThreadId.value = `monitor-db-${Date.now()}`;
   };
 </script>
@@ -249,31 +266,32 @@
   }
   .message-panel {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
-    padding: 16px;
+    padding: 12px;
   }
   .assistant-card {
     background: #fff;
     border-radius: 14px;
     padding: 12px 14px;
-    margin-bottom: 12px;
+    margin-bottom: 8px;
     box-shadow: 0 4px 14px rgba(17, 47, 40, 0.08);
     .intro {
       font-size: 14px;
-      line-height: 1.8;
+      line-height: 1.45;
       color: #1f2d2a;
     }
   }
   .bubble-row {
     display: flex;
-    margin-bottom: 10px;
+    margin-bottom: 6px;
   }
   .bubble {
     max-width: 92%;
     border-radius: 14px;
-    padding: 10px 12px;
+    padding: 8px 10px;
     white-space: pre-wrap;
-    line-height: 1.65;
+    line-height: 1.42;
     font-size: 14px;
     box-shadow: 0 4px 10px rgba(15, 23, 42, 0.06);
     &.user {
@@ -302,19 +320,20 @@
     }
   }
   .reasoning-content {
-    margin-bottom: 8px;
-    padding: 8px 10px;
+    margin-bottom: 6px;
+    padding: 6px 9px;
     border-left: 3px solid #bcd3f8;
     background: #f7fbff;
     border-radius: 0 8px 8px 0;
     color: #556987;
     font-size: 13px;
+    line-height: 1.4;
   }
   .suggestions {
     display: flex;
     flex-wrap: wrap;
     gap: 7px;
-    padding: 0 16px 10px;
+    padding: 0 12px 8px;
     .suggestion-pill {
       border: 1px solid #c9d4f0;
       border-radius: 999px;
@@ -326,14 +345,92 @@
     }
   }
   .input-wrap {
-    padding: 12px 14px 14px;
+    padding: 9px 10px 10px;
     background: rgba(255, 255, 255, 0.5);
     border-top: 1px solid rgba(255, 255, 255, 0.8);
+    flex-shrink: 0;
     .actions {
       margin-top: 9px;
       display: flex;
       justify-content: flex-end;
       gap: 8px;
     }
+  }
+
+  :deep(.markdown-body .code-block) {
+    margin: 4px 0;
+    border: 1px solid #d6e2f1;
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  :deep(.markdown-body .code-header) {
+    display: flex;
+    align-items: center;
+    min-height: 32px;
+    padding: 0 10px;
+    background: #eff5ff;
+    border-bottom: 1px solid #d6e2f1;
+  }
+
+  :deep(.markdown-body .code-header img) {
+    width: 14px;
+    height: 14px;
+  }
+
+  :deep(.markdown-body pre.hljs) {
+    margin: 0;
+    padding: 8px 10px;
+    overflow-x: auto;
+  }
+
+  :deep(.markdown-body) {
+    line-height: 1.32;
+  }
+
+  :deep(.markdown-body h1),
+  :deep(.markdown-body h2),
+  :deep(.markdown-body h3),
+  :deep(.markdown-body h4),
+  :deep(.markdown-body h5),
+  :deep(.markdown-body h6) {
+    margin: 0.26em 0 0.12em;
+    line-height: 1.2;
+  }
+
+  :deep(.markdown-body p) {
+    margin: 0 0 0.16em;
+    line-height: 1.32;
+  }
+
+  :deep(.markdown-body p:last-child) {
+    margin-bottom: 0;
+  }
+
+  :deep(.markdown-body h1 + p),
+  :deep(.markdown-body h2 + p),
+  :deep(.markdown-body h3 + p),
+  :deep(.markdown-body h4 + p),
+  :deep(.markdown-body h5 + p),
+  :deep(.markdown-body h6 + p) {
+    margin-top: 0;
+  }
+
+  :deep(.markdown-body ul),
+  :deep(.markdown-body ol) {
+    margin: 0.12em 0;
+    padding-left: 1em;
+  }
+
+  :deep(.markdown-body ul ul),
+  :deep(.markdown-body ul ol),
+  :deep(.markdown-body ol ul),
+  :deep(.markdown-body ol ol) {
+    margin: 0.06em 0;
+  }
+
+  :deep(.markdown-body li) {
+    margin: 0.04em 0;
+    line-height: 1.28;
   }
 </style>
