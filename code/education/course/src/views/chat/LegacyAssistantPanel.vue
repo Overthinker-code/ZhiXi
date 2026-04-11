@@ -5,7 +5,7 @@
   import { useChat } from '@/hooks/useChat';
   import { Plus } from '@element-plus/icons-vue';
   import 'animate.css';
-  import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+  import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 
   import ChatInput from './components/ChatInput.vue';
   import ChatMessage from './components/ChatMessage.vue';
@@ -24,27 +24,46 @@
     loadHistory,
     loadAssistantSettings,
     createNewChat,
+    stopGenerating,
     sendSelectionQuery,
     confirmPendingAction,
   } = useChat();
 
   const messagesContainer = ref(null);
-  watch(
-    currentMessages,
-    () => {
-      nextTick(() => {
-        messagesContainer.value.scrollTop =
-          messagesContainer.value.scrollHeight;
-      });
-    },
-    { deep: true }
-  );
+  const autoStickToBottom = ref(true);
+  const messageStreamSignature = computed(() => {
+    const last = currentMessages.value[currentMessages.value.length - 1];
+    return [
+      currentMessages.value.length,
+      last?.id || '',
+      (last?.content || '').length,
+      (last?.thoughts || []).length,
+      Boolean(last?.loading),
+    ].join(':');
+  });
+  const syncAutoStickStatus = () => {
+    const el = messagesContainer.value;
+    if (!el) return;
+    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    autoStickToBottom.value = distanceToBottom < 80;
+  };
+  const scrollToBottom = () => {
+    nextTick(() => {
+      const el = messagesContainer.value;
+      if (!el) return;
+      el.scrollTop = el.scrollHeight;
+    });
+  };
+  watch(messageStreamSignature, () => {
+    if (autoStickToBottom.value) {
+      scrollToBottom();
+    }
+  });
 
   onMounted(async () => {
-    nextTick(() => {
-      messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
-    });
     await Promise.all([chatStore.loadConversations(), loadAssistantSettings()]);
+    await createNewChat();
+    scrollToBottom();
   });
 
   watch(
@@ -58,6 +77,9 @@
 
   const handleSend = async (messageContent) => {
     await sendMessage(messageContent);
+  };
+  const handleStop = () => {
+    stopGenerating();
   };
 
   const handleSuggestion = async (text) => {
@@ -217,7 +239,11 @@
       </div>
     </div>
 
-    <div class="messages-container" ref="messagesContainer">
+    <div
+      class="messages-container"
+      ref="messagesContainer"
+      @scroll="syncAutoStickStatus"
+    >
       <template v-if="currentMessages.length > 0">
         <chat-message
           v-for="(message, index) in currentMessages"
@@ -255,7 +281,7 @@
     </div>
 
     <div class="chat-input-container">
-      <chat-input :loading="isLoading" @send="handleSend" />
+      <chat-input :loading="isLoading" @send="handleSend" @stop="handleStop" />
     </div>
 
     <SettingsPanel ref="settingDrawer" />

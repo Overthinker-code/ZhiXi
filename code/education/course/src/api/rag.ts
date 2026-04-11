@@ -276,10 +276,20 @@ export interface ChatAdvancedOptions {
 async function consumeAssistantChatStream(
   url: string,
   payload: Record<string, unknown>,
-  onEvent: (event: ChatStreamEvent) => void
+  onEvent: (event: ChatStreamEvent) => void,
+  externalSignal?: AbortSignal
 ): Promise<void> {
   const token = getToken();
   const controller = new AbortController();
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      controller.abort();
+    } else {
+      externalSignal.addEventListener('abort', () => controller.abort(), {
+        once: true,
+      });
+    }
+  }
   const timer = window.setTimeout(() => {
     controller.abort();
   }, CHAT_STREAM_TIMEOUT_MS);
@@ -362,7 +372,8 @@ export function createAssistantChatStream(
   userInput: string,
   threadId: string,
   options: ChatAdvancedOptions,
-  onEvent: (event: ChatStreamEvent) => void
+  onEvent: (event: ChatStreamEvent) => void,
+  signal?: AbortSignal
 ) {
   const normalized = options || {};
   const base =
@@ -389,7 +400,7 @@ export function createAssistantChatStream(
   };
 
   /** fetch + ReadableStream：避免 XHR 在隧道/跨端口下长时间缓冲无输出 */
-  return consumeAssistantChatStream(url, payload, onEvent);
+  return consumeAssistantChatStream(url, payload, onEvent, signal);
 }
 
 export function askSelectionQuery(

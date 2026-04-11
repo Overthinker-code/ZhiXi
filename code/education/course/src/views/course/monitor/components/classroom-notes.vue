@@ -1,5 +1,8 @@
 <template>
-  <a-card class="general-card" :title="$t('monitor.title.classroomNotes') || '课堂笔记'">
+  <a-card
+    class="general-card"
+    :title="$t('monitor.title.classroomNotes') || '课堂笔记'"
+  >
     <template #extra>
       <a-select
         v-model="currentPromptKey"
@@ -49,7 +52,11 @@
           <span class="response-title">AI 解答</span>
           <button class="close-btn" @click="aiResponse = null">✕</button>
         </div>
-        <div class="response-content markdown-body" v-html="renderedResponse"></div>
+        <!-- eslint-disable-next-line vue/no-v-html -->
+        <div
+          class="response-content markdown-body"
+          v-html="renderedResponse"
+        ></div>
       </div>
     </div>
   </a-card>
@@ -217,23 +224,6 @@ JOIN：连接多个表进行复杂查询
   }
 
   /**
-   * 处理 Prompt 模板选择
-   */
-  function handlePromptSelect(templateKey: string) {
-    currentPromptKey.value = templateKey;
-    sendAIQuery(templateKey);
-  }
-
-  /**
-   * 处理 Prompt 下拉菜单变化
-   */
-  function handlePromptChange(key: string) {
-    if (selectedText.value) {
-      sendAIQuery(key);
-    }
-  }
-
-  /**
    * 发送 AI 查询
    */
   async function sendAIQuery(promptKey: string) {
@@ -288,10 +278,28 @@ JOIN：连接多个表进行复杂查询
         Message.error('AI 响应为空');
       }
     } catch (error) {
-      console.error('查询失败:', error);
-      Message.error(`查询失败: ${error instanceof Error ? error.message : String(error)}`);
+      Message.error(
+        `查询失败: ${error instanceof Error ? error.message : String(error)}`
+      );
     } finally {
       isLoadingResponse.value = false;
+    }
+  }
+
+  /**
+   * 处理 Prompt 模板选择
+   */
+  function handlePromptSelect(templateKey: string) {
+    currentPromptKey.value = templateKey;
+    sendAIQuery(templateKey);
+  }
+
+  /**
+   * 处理 Prompt 下拉菜单变化
+   */
+  function handlePromptChange(key: string) {
+    if (selectedText.value) {
+      sendAIQuery(key);
     }
   }
 </script>
@@ -415,6 +423,14 @@ JOIN：连接多个表进行复杂查询
       color: #333;
 
       :deep(p) {
+        margin: 0.5em 0;
+      }
+
+      :deep(img) {
+        max-width: 100%;
+        height: auto;
+        border-radius: 4px;
+        display: block;
         margin: 0.5em 0;
       }
 
