@@ -639,37 +639,6 @@ onMounted(() => {
   }, 30000);
 });
 
-// 模拟实时检测数据（实际项目中替换为真实的视频流处理）
-function startSimulation() {
-    detectionInterval = setInterval(() => {
-      // 模拟检测结果
-      const mockBehaviors = [
-        {
-          behavior: '专注学习',
-          confidence: 0.85 + Math.random() * 0.1,
-          description: '学习状态良好',
-          score_contribution: 0.85,
-        },
-        {
-          behavior: '查看手机',
-          confidence: 0.1 + Math.random() * 0.05,
-          description: '注意力分散',
-          score_contribution: -0.05,
-        },
-      ];
-
-      const mockResult: ImageAnalysisResult = {
-        status: 'success',
-        behaviors: mockBehaviors.filter((b) => b.confidence > 0.3),
-        overall_score: 0.6 + Math.random() * 0.3,
-        learning_status: '学习状态良好',
-        timestamp: new Date().toISOString(),
-      };
-
-      currentResult.value = mockResult;
-    }, 3000);
-}
-
 // 组件卸载
 onUnmounted(() => {
   if (detectionInterval) {

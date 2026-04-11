@@ -184,7 +184,9 @@
   });
 
   const handleClick = () => {
-    if (route.name === 'Monitor') {
+    const onCourseMonitor =
+      route.name === 'Monitor' || route.path === '/course/monitor';
+    if (onCourseMonitor) {
       visible.value = true;
       panelPos.value = {
         x: Math.min(
