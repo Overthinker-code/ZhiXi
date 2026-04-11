@@ -43,6 +43,7 @@
     "element-plus": "^2.9.9",
     "highlight.js": "^11.11.1",
     "lodash": "^4.17.21",
+    "lucide-vue-next": "^1.0.0",
     "markdown-it": "^14.1.0",
     "markdown-it-emoji": "^3.0.0",
     "markdown-it-link-attributes": "^4.0.1",

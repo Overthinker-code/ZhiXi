@@ -175,6 +175,7 @@
 </script>
 
 <style scoped>
+  /* ===== 智屿课程视频页 — 品牌化 ===== */
   a-main {
     display: flex;
     gap: 0;
@@ -187,7 +188,9 @@
     height: 825px;
     margin-top: 20px;
     margin-right: 20px;
-    background-color: var(--color-neutral-2);
+    background-color: #F0FDF6;
+    border-radius: 12px;
+    border: 1px solid rgba(45, 181, 131, 0.15);
   }
 
   .modal {
@@ -207,13 +210,13 @@
     max-width: 400px;
     padding: 30px;
     background-color: #fff;
-    border-radius: 8px;
-    box-shadow: 0 4px 6px rgb(0 0 0 / 10%);
+    border-radius: 16px;
+    box-shadow: 0 8px 32px rgba(45, 181, 131, 0.15);
   }
 
   .close {
     float: right;
-    color: #aaa;
+    color: #5A7A68;
     font-weight: bold;
     font-size: 28px;
     cursor: pointer;
@@ -221,7 +224,7 @@
 
   .close:hover,
   .close:focus {
-    color: black;
+    color: #2DB583;
     text-decoration: none;
     cursor: pointer;
   }
@@ -232,27 +235,28 @@
     margin: 10px 0;
     padding: 10px;
     overflow: hidden;
-    border: 1px solid #ccc;
-    border-radius: 4px;
+    border: 1px solid rgba(45, 181, 131, 0.30);
+    border-radius: 8px;
   }
 
   textarea {
     resize: vertical;
   }
 
+  /* 提交按钮品牌绿 */
   .submit-button {
     margin-top: 10px;
     padding: 10px 20px;
     color: white;
-    background-color: #4caf50;
+    background-color: #2DB583;
     border: none;
-    border-radius: 4px;
+    border-radius: 8px;
     cursor: pointer;
-    transition: background-color 0.3s ease;
+    transition: background-color 0.25s ease;
   }
 
   .submit-button:hover {
-    background-color: #45a049;
+    background-color: #1A9E6E;
   }
 
   .upload-container {

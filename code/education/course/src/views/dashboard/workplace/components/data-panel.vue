@@ -104,6 +104,7 @@
 </script>
 
 <style lang="less" scoped>
+  /* 智屿 Dashboard 数据卡片 — 品牌绿图标 */
   .arco-grid.panel {
     margin-bottom: 0;
     padding: 16px 20px 0 20px;
@@ -111,14 +112,15 @@
 
   .panel-col {
     padding-left: 43px;
-    border-right: 1px solid rgb(var(--gray-2));
+    border-right: 1px solid rgba(45, 181, 131, 0.12);
     margin-bottom: 20px;
   }
 
   .col-avatar {
     margin-right: 12px;
-    color: #0b5ca8;
-    background: linear-gradient(160deg, #d4ecff, #e6faf8);
+    /* 品牌绿图标（designup.md §5.1） */
+    color: #1A9E6E;
+    background: linear-gradient(160deg, #d4f5e9, #e6f9f1);
   }
 
   .up-icon {
@@ -135,3 +137,4 @@
     margin: 4px 0 0 0;
   }
 </style>
+

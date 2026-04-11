@@ -402,7 +402,14 @@
     height: 70px;
     width: 70px;
     border-radius: 50%;
-    background-color: #21ccff;
+    background-color: var(--zy-color-brand, #2DB583) !important;
+    border-color: var(--zy-color-brand, #2DB583) !important;
+    box-shadow: 0 4px 20px rgba(45, 181, 131, 0.40);
+    transition: all 0.2s ease;
+  }
+  .float-btn .arco-btn-primary:hover {
+    background-color: var(--zy-color-brand-hover, #1A9E6E) !important;
+    transform: scale(1.05);
   }
   .arco-drawer-body {
     padding: 5px;

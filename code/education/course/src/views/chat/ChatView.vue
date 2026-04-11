@@ -166,33 +166,45 @@
 </template>
 
 <style scoped lang="scss">
+  /**
+   * 智屿 AI 助手页 - 品牌化样式
+   * 文档：designup.md §4
+   */
   .assistant-page {
     display: flex;
     flex-direction: column;
     height: 100%;
     padding: 14px;
-    background-color: #eef1f5;
-    border: 1px solid #dce6f4;
-    box-shadow: 0 14px 30px rgba(15, 23, 42, 0.08);
+    background-color: var(--zy-bg-page, #F0FDF6);
+    border-radius: var(--zy-radius-card, 16px);
+    border: 1px solid rgba(45, 181, 131, 0.12);
+    box-shadow: var(--zy-shadow-card);
   }
 
+  /* Tabs 顶部分隔线去除 */
   :deep(.arco-tabs-nav::before) {
     background-color: transparent;
   }
 
+  /* Tabs 胶囊风格 */
   :deep(.arco-tabs-nav-type-rounded .arco-tabs-tab) {
-    border-radius: 999px;
+    border-radius: 9999px;
     border: 1px solid transparent;
     transition: all 0.2s ease;
+    color: var(--zy-color-text-secondary, #5A7A68);
   }
 
   :deep(.arco-tabs-nav-type-rounded .arco-tabs-tab:hover) {
-    background-color: rgba(25, 103, 210, 0.1);
+    background-color: rgba(45, 181, 131, 0.08);
+    color: var(--zy-color-brand, #2DB583);
   }
 
+  /* 激活 Tab：绿色背景白字 */
   :deep(.arco-tabs-nav-type-rounded .arco-tabs-tab-active) {
-    border-color: rgba(25, 103, 210, 0.24);
-    box-shadow: 0 6px 14px rgba(25, 103, 210, 0.18);
+    background-color: var(--zy-color-brand, #2DB583) !important;
+    border-color: var(--zy-color-brand, #2DB583) !important;
+    color: #fff !important;
+    box-shadow: 0 4px 12px rgba(45, 181, 131, 0.30);
   }
 
   :deep(.arco-tabs-content) {
@@ -203,17 +215,40 @@
     height: 100%;
   }
 
+  /* 工具栏 */
   .files-toolbar {
     display: flex;
     flex-wrap: wrap;
-    gap: 12px;
-    margin-bottom: 12px;
+    gap: 10px;
+    margin-bottom: 14px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid rgba(45, 181, 131, 0.10);
+  }
+
+  /* 主要按钮品牌绿 */
+  :deep(.arco-btn-primary) {
+    background-color: var(--zy-color-brand, #2DB583) !important;
+    border-color: var(--zy-color-brand, #2DB583) !important;
+    border-radius: var(--zy-radius-sm, 8px);
+    transition: all 0.2s ease;
+  }
+
+  :deep(.arco-btn-primary:hover) {
+    background-color: var(--zy-color-brand-hover, #1A9E6E) !important;
+    border-color: var(--zy-color-brand-hover, #1A9E6E) !important;
+    box-shadow: 0 4px 12px rgba(45, 181, 131, 0.30);
+  }
+
+  /* 表格行悬停品牌色 */
+  :deep(.arco-table-tr:hover .arco-table-td) {
+    background-color: rgba(45, 181, 131, 0.04) !important;
   }
 
   @media (max-width: 760px) {
     .assistant-page {
       padding: 10px;
-      border-radius: 14px;
+      border-radius: 12px;
     }
   }
 </style>
+

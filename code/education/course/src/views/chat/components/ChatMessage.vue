@@ -418,10 +418,24 @@
 
       .content {
         .bubble.markdown-body {
-          border: 1px solid rgba(25, 103, 210, 0.24);
-          background: linear-gradient(135deg, #e8f1ff 0%, #d8e9ff 100%);
-          box-shadow: 0 10px 18px rgba(25, 103, 210, 0.14);
-          color: #0f2c52;
+          /* 用户气泡：品牌绿渐变（designup.md §4.3）*/
+          border: 1px solid rgba(45, 181, 131, 0.30);
+          background: linear-gradient(135deg, #2DB583 0%, #1A9E6E 100%);
+          box-shadow: 0 8px 20px rgba(45, 181, 131, 0.25);
+          color: #fff;
+
+          /* 覆盖内部 markdown 样式为白色 */
+          :deep(p), :deep(li), :deep(td), :deep(th) { color: rgba(255,255,255,0.95); }
+          :deep(code:not(pre code)) {
+            background: rgba(255,255,255,0.18);
+            color: #fff;
+          }
+          :deep(a) { color: #d4f5e9; }
+          :deep(blockquote) {
+            border-left-color: rgba(255,255,255,0.4);
+            background: rgba(255,255,255,0.10);
+            color: rgba(255,255,255,0.85);
+          }
         }
       }
     }
@@ -435,8 +449,8 @@
         flex-shrink: 0;
         width: 0.88rem;
         height: 0.88rem;
-        border: 2px solid rgba(25, 103, 210, 0.2);
-        border-top-color: #1a57af;
+        border: 2px solid rgba(45, 181, 131, 0.2);
+        border-top-color: #2DB583;
         border-radius: 50%;
         animation: reasoning-spin 0.65s linear infinite;
       }
@@ -448,11 +462,12 @@
         padding: 0.28rem 0.56rem;
         margin: 0 0 0.5rem 0.5rem;
         border-radius: 999px;
-        border: 1px solid rgba(25, 103, 210, 0.2);
+        /* 品牌绿 toggle */
+        border: 1px solid rgba(45, 181, 131, 0.25);
         background: linear-gradient(
           135deg,
-          rgba(25, 103, 210, 0.14),
-          rgba(25, 103, 210, 0.04)
+          rgba(45, 181, 131, 0.12),
+          rgba(45, 181, 131, 0.04)
         );
         cursor: pointer;
         transition: all 0.2s ease;
@@ -463,13 +478,13 @@
         }
 
         span {
-          color: #1a57af;
+          color: #1A9E6E;
           font-size: 0.78rem;
           font-weight: 600;
         }
 
         .toggle-icon {
-          color: #1a57af;
+          color: #1A9E6E;
           font-size: 0.75rem;
           transition: transform 0.2s ease;
 
@@ -480,7 +495,7 @@
 
         &:hover {
           transform: translateY(-1px);
-          border-color: rgba(25, 103, 210, 0.35);
+          border-color: rgba(45, 181, 131, 0.45);
         }
       }
 
@@ -522,10 +537,11 @@
       .reasoning {
         margin: 0 0 0.6rem 1.4rem;
         padding: 0.65rem 0.8rem;
-        border-left: 3px solid #bcd3f8;
+        /* 品牌绿左边框 */
+        border-left: 3px solid rgba(45, 181, 131, 0.40);
         border-radius: 0 10px 10px 0;
-        background: #f7fbff;
-        color: #5c6f8d;
+        background: #F0FDF6;
+        color: #5A7A68;
         font-size: 0.85rem;
         line-height: 1.65;
 
@@ -534,14 +550,14 @@
           align-items: center;
           gap: 0.35rem;
           min-height: 1.5rem;
-          color: #64748b;
+          color: #5A7A68;
           font-size: 0.82rem;
 
           .wait-dot {
             width: 6px;
             height: 6px;
             border-radius: 50%;
-            background: #3b82f6;
+            background: #2DB583;
             opacity: 0.35;
             animation: reasoning-dot 1.1s ease-in-out infinite;
 
@@ -591,11 +607,13 @@
         display: block;
         width: 100%;
         padding: 0.82rem 1rem;
-        border-radius: 16px;
-        border: 1px solid #d8e3f2;
+        /* AI 气泡：白底 + 左侧品牌绿边框（designup.md §4.3）*/
+        border-radius: 0 16px 16px 16px;
+        border: 1px solid rgba(45, 181, 131, 0.15);
+        border-left: 3px solid #2DB583;
         background: #fff;
-        box-shadow: 0 10px 20px rgba(15, 23, 42, 0.08);
-        color: #132541;
+        box-shadow: 0 6px 20px rgba(45, 181, 131, 0.10);
+        color: #1A2E22;
         font-size: 0.95rem;
         line-height: 1.65;
         word-break: break-word;
@@ -613,8 +631,8 @@
           padding: 0.16em 0.38em;
           border-radius: 0.3rem;
           font-size: 0.86em;
-          background: #edf3ff;
-          color: #153c78;
+          background: #e6f9f1;
+          color: #0D7A52;
           font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
         }
 
@@ -627,9 +645,9 @@
         :deep(blockquote) {
           margin: 0.55rem 0;
           padding: 0.4rem 0.75rem;
-          border-left: 3px solid #b8cceb;
-          background: #f7faff;
-          color: #52667f;
+          border-left: 3px solid rgba(45, 181, 131, 0.35);
+          background: #F0FDF6;
+          color: #5A7A68;
           border-radius: 0 8px 8px 0;
         }
 
@@ -764,14 +782,14 @@
       .hitl-card {
         margin-top: 8px;
         padding: 10px;
-        border: 1px solid #dbeafe;
+        border: 1px solid rgba(45, 181, 131, 0.20);
         border-radius: 10px;
-        background: #f0f7ff;
+        background: #F0FDF6;
 
         p {
           margin: 0 0 8px;
           font-size: 13px;
-          color: #1e3a8a;
+          color: #1A2E22;
         }
 
         .hitl-actions {
@@ -782,7 +800,7 @@
             border: none;
             border-radius: 6px;
             padding: 4px 10px;
-            background: #2563eb;
+            background: #2DB583;
             color: #fff;
             cursor: pointer;
             font-size: 12px;

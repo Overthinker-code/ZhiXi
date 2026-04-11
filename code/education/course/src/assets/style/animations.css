@@ -1,0 +1,87 @@
+/**
+ * 智屿平台全局动画与工具类
+ * 文档：designup.md §6.3
+ */
+
+/* ============================================
+   关键帧动画
+============================================ */
+
+/* 浮动动画：用于 Hero 区浮动卡片、插画 */
+@keyframes zy-float {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-12px); }
+}
+
+/* 品牌绿脉冲光晕：用于重要按钮、在线状态 */
+@keyframes zy-pulse-green {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(45, 181, 131, 0.4); }
+  50%       { box-shadow: 0 0 0 8px rgba(45, 181, 131, 0); }
+}
+
+/* 骨架屏闪烁：用于加载占位 */
+@keyframes zy-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+/* AI 思考跳动圆点 */
+@keyframes zy-bounce-dot {
+  0%, 80%, 100% { transform: scale(0); opacity: 0.3; }
+  40%           { transform: scale(1); opacity: 1; }
+}
+
+/* 淡入上升：页面元素入场 */
+@keyframes zy-fade-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ============================================
+   工具类
+============================================ */
+
+.zy-float {
+  animation: zy-float 3s ease-in-out infinite;
+}
+
+.zy-pulse {
+  animation: zy-pulse-green 2s ease-in-out infinite;
+}
+
+.zy-skeleton {
+  background: linear-gradient(90deg, #e6f9f1 25%, #b3efd6 50%, #e6f9f1 75%);
+  background-size: 200% 100%;
+  animation: zy-shimmer 1.5s infinite;
+}
+
+.zy-fade-up {
+  animation: zy-fade-up 0.5s ease both;
+}
+
+/* AI 思考中三点动画容器 */
+.zy-thinking-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.zy-thinking-dots span {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background-color: var(--zy-color-brand);
+  border-radius: 50%;
+  animation: zy-bounce-dot 1.4s ease-in-out infinite;
+}
+
+.zy-thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+.zy-thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+/* 渐变文字工具类 */
+.zy-gradient-text {
+  background: var(--zy-gradient-brand);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}

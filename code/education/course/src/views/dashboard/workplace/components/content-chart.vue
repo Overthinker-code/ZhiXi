@@ -89,7 +89,8 @@
         axisPointer: {
           show: true,
           lineStyle: {
-            color: '#0D88DB',
+            /* 品牌绿轴指针 */
+            color: '#2DB583',
             width: 2,
           },
         },
@@ -144,32 +145,34 @@
           },
           lineStyle: {
             width: 3,
+            /* 品牌绿 → 海洋蓝 渐变折线（designup.md §5.2） */
             color: new graphic.LinearGradient(0, 0, 1, 0, [
               {
                 offset: 0,
-                color: 'rgba(0, 170, 255, 1)',
+                color: 'rgba(45, 181, 131, 1)',
               },
               {
                 offset: 0.5,
-                color: 'rgba(0, 124, 224, 1)',
+                color: 'rgba(26, 158, 110, 1)',
               },
               {
                 offset: 1,
-                color: 'rgba(0, 177, 155, 1)',
+                color: 'rgba(59, 130, 246, 1)',
               },
             ]),
           },
           showSymbol: false,
           areaStyle: {
             opacity: 0.8,
+            /* 品牌绿面积渐变 */
             color: new graphic.LinearGradient(0, 0, 0, 1, [
               {
                 offset: 0,
-                color: 'rgba(0, 156, 224, 0.22)',
+                color: 'rgba(45, 181, 131, 0.22)',
               },
               {
                 offset: 1,
-                color: 'rgba(0, 156, 224, 0)',
+                color: 'rgba(45, 181, 131, 0)',
               },
             ]),
           },
