@@ -47,7 +47,7 @@ export function login(data: LoginData) {
   body.append('username', data.username);
   body.append('password', data.password);
   return axios
-    .post<{ access_token: string }>('/login/access-token', body, {
+    .post<{ access_token: string }>('/api/login/access-token', body, {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
@@ -59,12 +59,12 @@ export function login(data: LoginData) {
 }
 
 export function registerUser(data: RegisterData) {
-  return axios.post('/users/signup', data, { timeout: AUTH_TIMEOUT_MS });
+  return axios.post('/api/users/signup', data, { timeout: AUTH_TIMEOUT_MS });
 }
 
 export function recoverPassword(email: string) {
   return axios.post(
-    `/password-recovery/${encodeURIComponent(email)}`,
+    `/api/password-recovery/${encodeURIComponent(email)}`,
     undefined,
     { timeout: AUTH_TIMEOUT_MS }
   );
@@ -75,7 +75,7 @@ export function logout() {
 }
 
 export function getUserInfo() {
-  return axios.get<UserState>('/users/me', { timeout: AUTH_TIMEOUT_MS });
+  return axios.get<UserState>('/api/users/me', { timeout: AUTH_TIMEOUT_MS });
 }
 
 export function getMenuList() {
@@ -83,9 +83,9 @@ export function getMenuList() {
 }
 
 export function register(data: RegisterData) {
-  return axios.post('/users/signup', data, { timeout: AUTH_TIMEOUT_MS });
+  return axios.post('/api/users/signup', data, { timeout: AUTH_TIMEOUT_MS });
 }
 
 export function resetPassword(data: ResetPasswordData) {
-  return axios.post('/reset-password/', data, { timeout: AUTH_TIMEOUT_MS });
+  return axios.post('/api/reset-password/', data, { timeout: AUTH_TIMEOUT_MS });
 }

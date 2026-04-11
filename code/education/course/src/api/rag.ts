@@ -218,7 +218,7 @@ export function createAssistantChat(
 
   return axios
     .post(
-      '/chat/',
+      '/api/chat/',
       {
         thread_id: threadId,
         user_input: userInput,
@@ -378,7 +378,7 @@ export function createAssistantChatStream(
   const normalized = options || {};
   const base =
     axios.defaults.baseURL || import.meta.env.VITE_API_BASE_URL || '';
-  const url = base ? `${base.replace(/\/+$/, '')}/chat/stream` : '/chat/stream';
+  const url = base ? `${base.replace(/\/+$/, '')}/api/chat/stream` : '/api/chat/stream';
   const payload = {
     user_input: userInput,
     thread_id: threadId,
@@ -412,7 +412,7 @@ export function askSelectionQuery(
   const normalized = options || {};
   return axios
     .post(
-      '/chat/selection-query',
+      '/api/chat/selection-query',
       {
         user_input: selectedText,
         selected_text: selectedText,
@@ -440,7 +440,7 @@ export function askSelectionQuery(
 export function resumeChatAction(pendingActionId: string, approve = true) {
   return axios
     .post(
-      '/chat/resume',
+      '/api/chat/resume',
       {
         pending_action_id: pendingActionId,
         approve,
@@ -466,8 +466,8 @@ export function streamInterventionEvents(
     const base =
       axios.defaults.baseURL || import.meta.env.VITE_API_BASE_URL || '';
     const url = base
-      ? `${base.replace(/\/+$/, '')}/chat/events/stream`
-      : '/chat/events/stream';
+      ? `${base.replace(/\/+$/, '')}/api/chat/events/stream`
+      : '/api/chat/events/stream';
     xhr.open('GET', url, true);
     const token = getToken();
     if (token) {
@@ -499,7 +499,7 @@ export function streamInterventionEvents(
 
 export function fetchAssistantSettings() {
   return axios
-    .get('/chat/settings', { timeout: READ_TIMEOUT_MS })
+    .get('/api/chat/settings', { timeout: READ_TIMEOUT_MS })
     .then((res: any) => res.data as AssistantSettings);
 }
 
@@ -512,7 +512,7 @@ export function fetchChatHistory(threadId = 'default') {
 export function createChatThread(title = '', threadId = '') {
   return axios
     .post(
-      '/chat/threads',
+      '/api/chat/threads',
       { title, thread_id: threadId || undefined },
       { timeout: READ_TIMEOUT_MS }
     )
@@ -521,7 +521,7 @@ export function createChatThread(title = '', threadId = '') {
 
 export function fetchChatThreads() {
   return axios
-    .get('/chat/threads', { timeout: READ_TIMEOUT_MS })
+    .get('/api/chat/threads', { timeout: READ_TIMEOUT_MS })
     .then((res: any) => res.data as ChatThread[]);
 }
 
@@ -542,13 +542,13 @@ export function submitChatFeedback(data: {
   rating: 'up' | 'down';
   prompt_key: string;
 }) {
-  return axios.post('/chat/feedback', data).then((res: any) => res.data);
+  return axios.post('/api/chat/feedback', data).then((res: any) => res.data);
 }
 
 export function generateChatTitle(query: string, answer?: string) {
   return axios
     .post(
-      '/chat/generate-title',
+      '/api/chat/generate-title',
       { query, ...(answer ? { answer } : {}) },
       { timeout: READ_TIMEOUT_MS }
     )

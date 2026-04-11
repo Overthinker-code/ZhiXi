@@ -636,21 +636,11 @@ onMounted(() => {
     if (detectionStatus.value !== 'running') {
       loadRecentRecords();
     }
-  };
+  }, 30000);
+});
 
-  // 获取历史记录
-  const loadRecentRecords = async () => {
-    if (!props.courseId) return;
-    try {
-      const res = await getAnalysisRecords(props.courseId, 0, 10);
-      recentRecords.value = res.data.data;
-    } catch (error) {
-      Message.warning('加载历史记录失败');
-    }
-  };
-
-  // 模拟实时检测数据（实际项目中替换为真实的视频流处理）
-  function startSimulation() {
+// 模拟实时检测数据（实际项目中替换为真实的视频流处理）
+function startSimulation() {
     detectionInterval = setInterval(() => {
       // 模拟检测结果
       const mockBehaviors = [
@@ -678,109 +668,17 @@ onMounted(() => {
 
       currentResult.value = mockResult;
     }, 3000);
+}
+
+// 组件卸载
+onUnmounted(() => {
+  if (detectionInterval) {
+    clearInterval(detectionInterval);
   }
-
-  // 开始检测
-  const startDetection = async () => {
-    if (!props.courseId) {
-      Message.warning('请先选择课程');
-      return;
-    }
-
-    isStarting.value = true;
-    try {
-      const res = await startRealtimeAnalysis(props.courseId);
-      sessionId.value = res.data.session_id;
-      detectionStatus.value = 'running';
-      Message.success('课堂行为检测已启动');
-
-      // 模拟实时检测（实际项目中这里应该连接WebSocket或轮询视频流）
-      startSimulation();
-    } catch {
-      Message.error('启动检测失败');
-    } finally {
-      isStarting.value = false;
-    }
-  };
-
-  // 停止检测
-  const stopDetection = () => {
-    detectionStatus.value = 'idle';
-    if (detectionInterval) {
-      clearInterval(detectionInterval);
-      detectionInterval = null;
-    }
-    currentFrame.value = '';
-    currentResult.value = null;
-    Message.success('检测已停止');
-    loadRecentRecords();
-  };
-
-  // 获取分数颜色
-  const getScoreColor = (score: number): string => {
-    if (score >= 0.7) return '#52c41a';
-    if (score >= 0.3) return '#1890ff';
-    if (score >= -0.3) return '#faad14';
-    if (score >= -0.7) return '#fa541c';
-    return '#f5222d';
-  };
-
-  // 获取行为颜色
-  const getBehaviorColor = (behaviorName: string): string => {
-    const behavior = behaviorDefinitions.value?.behaviors.find(
-      (b) => b.name === behaviorName
-    );
-    return behavior?.color || '#1890ff';
-  };
-
-  // 获取状态颜色
-  const getStatusColor = (status: string): string => {
-    if (status.includes('优秀')) return 'green';
-    if (status.includes('良好')) return 'blue';
-    if (status.includes('一般')) return 'orange';
-    if (status.includes('较差')) return 'red';
-    return 'gray';
-  };
-
-  // 格式化时间
-  const formatTime = (timestamp: string): string => {
-    const date = new Date(timestamp);
-    return date.toLocaleString('zh-CN', {
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
-  // 查看所有记录
-  const viewAllRecords = () => {
-    // 可以跳转到分析历史页面
-    Message.info('查看所有历史记录功能待实现');
-  };
-
-  // 组件挂载
-  onMounted(() => {
-    loadBehaviorDefinitions();
-    loadRecentRecords();
-
-    // 定期刷新历史记录
-    refreshInterval = setInterval(() => {
-      if (detectionStatus.value !== 'running') {
-        loadRecentRecords();
-      }
-    }, 30000);
-  });
-
-  // 组件卸载
-  onUnmounted(() => {
-    if (detectionInterval) {
-      clearInterval(detectionInterval);
-    }
-    if (refreshInterval) {
-      clearInterval(refreshInterval);
-    }
-  });
+  if (refreshInterval) {
+    clearInterval(refreshInterval);
+  }
+});
 </script>
 
 <style scoped lang="less">
