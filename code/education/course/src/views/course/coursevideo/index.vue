@@ -1,7 +1,7 @@
 <template>
-  <div>
-    <el-container>
-      <a-main>
+  <div class="course-video-root">
+    <a-layout class="cv-outer">
+      <a-layout-content class="cv-main">
         <div
           class="main"
           style="
@@ -74,6 +74,7 @@
               <VideoInfo />
             </div>
           </div>
+          <CourseKnowledgePanels />
         </div>
         <div class="menu-demo">
           <a-menu
@@ -113,19 +114,21 @@
             </a-sub-menu>
           </a-menu>
         </div>
-      </a-main>
-    </el-container>
+      </a-layout-content>
+    </a-layout>
   </div>
 </template>
 
 <script>
   import { IconApps, IconBug, IconBulb } from '@arco-design/web-vue/es/icon';
   import VideoInfo from './components/VideoInfo.vue';
+  import CourseKnowledgePanels from './components/CourseKnowledgePanels.vue';
 
   export default {
-    name: 'HomePage',
+    name: 'CourseVideoPage',
     components: {
       VideoInfo,
+      CourseKnowledgePanels,
       IconApps,
       IconBug,
       IconBulb,
@@ -176,7 +179,12 @@
 
 <style scoped>
   /* ===== 智屿课程视频页 — 品牌化 ===== */
-  a-main {
+  .cv-outer {
+    width: 100%;
+    background: transparent;
+  }
+
+  .cv-main {
     display: flex;
     gap: 0;
     justify-content: space-around;

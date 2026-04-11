@@ -13,22 +13,45 @@ const PROFILE: AppRouteRecordRaw = {
   },
   children: [
     {
-      path: 'basic',
-      name: 'Basic',
-      component: () => import('@/views/profile/basic/index.vue'),
-      meta: {
-        locale: 'menu.profile.basic',
-        requiresAuth: true,
-        roles: ['*'],
-        hideInMenu: true,
-      },
+      path: '',
+      redirect: { name: 'Chat' },
     },
     {
       path: 'chat',
       name: 'Chat',
       component: () => import('@/views/chat/ChatView.vue'),
       meta: {
-        locale: 'AI助理',
+        locale: 'menu.profile.chat',
+        requiresAuth: true,
+        roles: ['*'],
+      },
+    },
+    {
+      path: 'user-info',
+      name: 'ProfileUserInfo',
+      component: () => import('@/views/profile/user-info/index.vue'),
+      meta: {
+        locale: 'menu.profile.userInfo',
+        requiresAuth: true,
+        roles: ['*'],
+      },
+    },
+    {
+      path: 'learning-data',
+      name: 'ProfileLearningData',
+      component: () => import('@/views/profile/learning-data/index.vue'),
+      meta: {
+        locale: 'menu.profile.learningData',
+        requiresAuth: true,
+        roles: ['*'],
+      },
+    },
+    {
+      path: 'basic',
+      name: 'Basic',
+      component: () => import('@/views/profile/basic/index.vue'),
+      meta: {
+        locale: 'menu.profile.basic',
         requiresAuth: true,
         roles: ['*'],
       },

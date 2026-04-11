@@ -153,7 +153,15 @@ axios.interceptors.response.use(
       message = friendlyNetworkHint;
     }
 
+    /** 后端未实现的 Arco 模板占位接口：避免登录后满屏 404 Toast */
+    const isSilent404Stub =
+      error?.response?.status === 404 &&
+      /\/api\/(chat\/list|message\/list|profile\/basic|operation\/log)(\?|$)/.test(
+        url
+      );
+
     const shouldSilenceGlobalToast =
+      isSilent404Stub ||
       (isChat && isTimeout) ||
       isFeedback ||
       (isChat && isNetworkError) ||

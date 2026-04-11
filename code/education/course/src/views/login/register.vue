@@ -1,7 +1,7 @@
 <template>
   <div class="auth-page">
     <a-card class="auth-card" title="注册账号">
-      <p class="desc">创建知曦账号，用于登录教学平台。</p>
+      <p class="desc">创建智屿账号，用于登录教学平台。</p>
       <a-form :model="form" layout="vertical" @submit="onSubmit">
         <a-form-item field="fullName" label="姓名" required>
           <a-input v-model="form.fullName" placeholder="请输入姓名" />

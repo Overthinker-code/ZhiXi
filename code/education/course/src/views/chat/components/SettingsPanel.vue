@@ -127,7 +127,7 @@
       </div>
 
       <div class="setting-item">
-        <div class="setting-label">MCP工具开关（演示版）</div>
+        <div class="setting-label">MCP 工具开关</div>
         <el-checkbox-group v-model="draft.activeTools" class="tool-grid">
           <el-checkbox
             v-for="tool in settingStore.toolOptions"

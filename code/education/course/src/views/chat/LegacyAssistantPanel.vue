@@ -151,8 +151,8 @@
       selectionMenu.value = {
         visible: true,
         text: selectedText,
-        x: rect.left + window.scrollX,
-        y: rect.bottom + window.scrollY + 8,
+        x: rect.left,
+        y: rect.bottom + 8,
         context: full.slice(start, end),
       };
     } catch {

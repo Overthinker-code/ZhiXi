@@ -1,5 +1,5 @@
 export default {
-  'menu.profile.basic': '基础详情页',
+  'menu.profile.basic': '用户设置',
   'basicProfile.title.form': '参数审批流程表',
   'basicProfile.steps.commit': '提交修改',
   'basicProfile.steps.approval': '审批中',

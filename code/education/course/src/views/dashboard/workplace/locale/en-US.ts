@@ -1,5 +1,5 @@
 export default {
-  'menu.dashboard.workplace': 'Database Teaching Dashboard',
+  'menu.dashboard.workplace': 'Teaching Overview',
   'workplace.welcome': 'Welcome back,',
   'workplace.subtitle':
     'Data-driven teaching board for courses, question banks, SQL submissions, and learning behavior.',

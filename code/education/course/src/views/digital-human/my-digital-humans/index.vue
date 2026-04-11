@@ -249,7 +249,7 @@ const digitalHumanList = ref([
   {
     id: '3',
     name: '商务男士',
-    description: '专业沉稳，适合商务演示',
+    description: '专业沉稳，适合商务场合',
     avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=3',
     createdAt: '2026-04-08',
     videoCount: 2,

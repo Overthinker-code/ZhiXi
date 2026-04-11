@@ -2,7 +2,7 @@
   <div class="container">
     <div class="logo">
       <!-- <img alt="logo" src="@/assets/images/logo.png" :style="{ width: '30px' }" /> -->
-      <div class="logo-text">知曦</div>
+      <div class="logo-text">智屿</div>
     </div>
     <LoginBanner />
     <div class="content">
