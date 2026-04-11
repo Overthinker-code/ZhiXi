@@ -203,9 +203,13 @@
 </template>
 
 <style lang="scss" scoped>
+  /**
+   * 智屿对话设置面板 - 品牌化样式
+   * 将 Element Plus 蓝色主色替换为智屿品牌绿
+   */
   .setting-container {
     padding: 20px;
-    color: #27272a;
+    color: #1A2E22;
   }
 
   .setting-item {
@@ -215,7 +219,8 @@
   .setting-label {
     margin-bottom: 8px;
     font-weight: 600;
-    color: #111827;
+    color: #1A2E22;
+    font-size: 14px;
   }
 
   .setting-label-row {
@@ -227,18 +232,19 @@
 
   .readonly-value {
     padding: 10px 12px;
-    border: 1px solid #e5e7eb;
+    border: 1px solid rgba(45, 181, 131, 0.25);
     border-radius: 8px;
-    background: #f8fafc;
-    color: #0f172a;
+    background: #F0FDF6;
+    color: #1A2E22;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 13px;
   }
 
   .setting-tip {
     margin: 8px 0 0;
     font-size: 12px;
     line-height: 1.5;
-    color: #6b7280;
+    color: #5A7A68;
   }
 
   .level-group {
@@ -262,23 +268,33 @@
     gap: 8px;
   }
 
+  /* Radio 按钮品牌绿 */
   .level-group :deep(.el-radio-button__inner) {
-    color: #165dff;
-    border-color: #165dff;
+    color: #2DB583;
+    border-color: rgba(45, 181, 131, 0.4);
   }
 
   .level-group
     :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
-    background: #165dff;
-    border-color: #165dff;
+    background: #2DB583;
+    border-color: #2DB583;
     color: #fff;
-    box-shadow: -1px 0 0 0 #165dff;
+    box-shadow: -1px 0 0 0 #2DB583;
   }
 
+  /* Switch 开关品牌绿 */
+  :deep(.el-switch.is-checked .el-switch__core) {
+    background-color: #2DB583 !important;
+    border-color: #2DB583 !important;
+  }
+
+  /* 主要按钮品牌绿 */
   .actions :deep(.el-button--primary) {
-    --el-button-bg-color: #165dff;
-    --el-button-border-color: #165dff;
-    --el-button-hover-bg-color: #3a7bff;
-    --el-button-hover-border-color: #3a7bff;
+    --el-button-bg-color: #2DB583;
+    --el-button-border-color: #2DB583;
+    --el-button-hover-bg-color: #1A9E6E;
+    --el-button-hover-border-color: #1A9E6E;
+    border-radius: 8px;
   }
 </style>
+

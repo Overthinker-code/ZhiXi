@@ -291,21 +291,22 @@
 
 <style lang="scss" scoped>
   .chat-container {
-    --assistant-primary: #1967d2;
-    --assistant-primary-dark: #0f4ca8;
-    --assistant-accent: #ff9f43;
-    --assistant-border: #d8e4f3;
-    --assistant-surface: rgba(255, 255, 255, 0.76);
-    --assistant-text-main: #11243d;
-    --assistant-text-sub: #5a6b84;
+    /* ===== 智屿品牌 AI 聊天面板变量 ===== */
+    --assistant-primary: #2DB583;
+    --assistant-primary-dark: #1A9E6E;
+    --assistant-accent: #F97316;
+    --assistant-border: rgba(45, 181, 131, 0.18);
+    --assistant-surface: rgba(255, 255, 255, 0.82);
+    --assistant-text-main: #1A2E22;
+    --assistant-text-sub: #5A7A68;
     position: relative;
     height: calc(100vh - 140px);
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    font-family: 'Noto Sans SC', 'IBM Plex Sans', 'SF Pro Display',
-      'PingFang SC', sans-serif;
+    font-family: 'PingFang SC', 'Noto Sans SC', 'SF Pro Display', sans-serif;
   }
+
 
   .chat-header {
     position: relative;
@@ -316,7 +317,7 @@
     padding: 0.9rem 1.1rem;
     background: var(--assistant-surface);
     backdrop-filter: blur(10px);
-    border-bottom: 1px solid rgba(216, 228, 243, 0.9);
+    border-bottom: 1px solid rgba(45, 181, 131, 0.15);
 
     .header-left {
       display: flex;
@@ -328,11 +329,11 @@
         height: 2rem;
         padding: 0 0.8rem;
         border-radius: 999px;
-        border: 1px solid rgba(25, 103, 210, 0.25);
+        border: 1px solid rgba(45, 181, 131, 0.30);
         background: linear-gradient(
           135deg,
-          rgba(25, 103, 210, 0.14),
-          rgba(25, 103, 210, 0.05)
+          rgba(45, 181, 131, 0.12),
+          rgba(45, 181, 131, 0.05)
         );
         color: var(--assistant-primary-dark);
         font-size: 0.82rem;
@@ -348,7 +349,7 @@
             var(--assistant-primary),
             var(--assistant-primary-dark)
           );
-          box-shadow: 0 8px 16px rgba(25, 103, 210, 0.25);
+          box-shadow: 0 8px 16px rgba(45, 181, 131, 0.25);
         }
 
         :deep(.el-icon) {
@@ -452,7 +453,7 @@
 
     &::-webkit-scrollbar-thumb {
       border-radius: 999px;
-      background: linear-gradient(180deg, #c9d7ea, #aebfd8);
+      background: linear-gradient(180deg, rgba(45, 181, 131, 0.4), rgba(45, 181, 131, 0.2));
       border: 2px solid transparent;
       background-clip: padding-box;
     }
@@ -472,17 +473,17 @@
     .empty-content {
       width: min(100%, 460px);
       text-align: center;
-      background: rgba(255, 255, 255, 0.78);
-      border: 1px solid rgba(216, 228, 243, 0.95);
-      border-radius: 18px;
+      background: rgba(240, 253, 246, 0.92);
+      border: 1px solid rgba(45, 181, 131, 0.15);
+      border-radius: 20px;
       padding: 2rem 1.2rem;
-      box-shadow: 0 14px 30px rgba(15, 23, 42, 0.07);
+      box-shadow: 0 14px 30px rgba(45, 181, 131, 0.08);
       animation: float-in 0.35s ease;
 
       .empty-icon {
         width: 60px;
         height: 60px;
-        opacity: 0.72;
+        opacity: 0.80;
         margin-bottom: 1rem;
       }
 
@@ -524,13 +525,14 @@
       border: none;
       border-radius: 8px;
       padding: 4px 8px;
-      background: #edf4ff;
-      color: #11458e;
+      background: rgba(45, 181, 131, 0.10);
+      color: #1A2E22;
       font-size: 12px;
       cursor: pointer;
 
       &:hover {
-        background: #d9e9ff;
+        background: rgba(45, 181, 131, 0.20);
+        color: var(--assistant-primary);
       }
     }
   }

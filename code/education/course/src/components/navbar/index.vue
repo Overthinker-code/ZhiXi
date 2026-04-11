@@ -1,28 +1,47 @@
 <template>
-  <div class="navbar">
+  <div class="navbar" :class="{ 'navbar--scrolled': isScrolled }">
+    <!-- ===== Logo 区（左） ===== -->
     <div class="left-side">
-      <a-space>
-        <img
-          alt="logo"
-          src="@/assets/images/logo.png"
-          :style="{ width: '30px' }"
-        />
-        <a-typography-title
-          :style="{ margin: 0, fontSize: '18px' }"
-          :heading="5"
-        >
-          数据库课程教学系统
-        </a-typography-title>
-        <icon-menu-fold
-          v-if="!topMenu && appStore.device === 'mobile'"
-          style="font-size: 22px; cursor: pointer"
-          @click="toggleDrawerMenu"
-        />
-      </a-space>
+      <!-- 岛屿 SVG Logo -->
+      <div class="brand-logo">
+        <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="智屿 Logo">
+          <!-- 岛屿底座（沙土椭圆） -->
+          <ellipse cx="18" cy="29" rx="12" ry="5" fill="#C8956C"/>
+          <!-- 树干 -->
+          <rect x="16.5" y="18" width="3" height="11" rx="1.5" fill="#A0714A"/>
+          <!-- 树冠（绿色圆形） -->
+          <circle cx="18" cy="14" r="8" fill="#2DB583"/>
+          <!-- 神经网络节点辐射点 -->
+          <circle cx="18" cy="7" r="1.8" fill="white" opacity="0.9"/>
+          <circle cx="24.2" cy="17.5" r="1.8" fill="white" opacity="0.9"/>
+          <circle cx="11.8" cy="17.5" r="1.8" fill="white" opacity="0.9"/>
+          <!-- 连接线 -->
+          <line x1="18" y1="8.8" x2="18" y2="10" stroke="white" stroke-width="1" opacity="0.6"/>
+          <line x1="22.5" y1="17" x2="21" y2="16" stroke="white" stroke-width="1" opacity="0.6"/>
+          <line x1="13.5" y1="17" x2="15" y2="16" stroke="white" stroke-width="1" opacity="0.6"/>
+        </svg>
+
+        <!-- 品牌文字 -->
+        <div class="brand-text">
+          <span class="brand-name">智屿</span>
+          <span class="brand-subtitle">智能教育平台</span>
+        </div>
+      </div>
+
+      <!-- 移动端汉堡菜单 -->
+      <icon-menu-fold
+        v-if="!topMenu && appStore.device === 'mobile'"
+        class="mobile-menu-icon"
+        @click="toggleDrawerMenu"
+      />
     </div>
+
+    <!-- ===== 顶部导航菜单（桌面端） ===== -->
     <div class="center-side">
       <Menu v-if="topMenu" />
     </div>
+
+    <!-- ===== 右侧工具栏 ===== -->
     <ul class="right-side">
       <li>
         <a-tooltip :content="$t('settings.search')">
@@ -84,6 +103,7 @@
         </a-tooltip>
       </li>
       <li>
+        <!-- 🔔 通知铃铛：有未读时显示红点 Badge -->
         <a-tooltip :content="$t('settings.navbar.alerts')">
           <div class="message-box-trigger">
             <a-badge :count="9" dot>
@@ -145,45 +165,37 @@
           </a-button>
         </a-tooltip>
       </li>
-      <li>
+      <!-- 用户头像 + 下拉菜单 -->
+      <li class="user-avatar-li">
         <a-dropdown trigger="click">
-          <a-avatar
-            :size="32"
-            :style="{ marginRight: '8px', cursor: 'pointer' }"
-          >
-            <img alt="avatar" :src="avatar" />
-          </a-avatar>
+          <div class="user-avatar-wrapper">
+            <a-avatar :size="34" class="user-avatar">
+              <img alt="avatar" :src="avatar" />
+            </a-avatar>
+          </div>
           <template #content>
-            <a-doption>
+            <a-doption class="dropdown-option">
               <a-space @click="switchRoles">
                 <icon-tag />
-                <span>
-                  {{ $t('messageBox.switchRoles') }}
-                </span>
+                <span>{{ $t('messageBox.switchRoles') }}</span>
               </a-space>
             </a-doption>
-            <a-doption>
+            <a-doption class="dropdown-option">
               <a-space @click="$router.push({ name: 'Info' })">
                 <icon-user />
-                <span>
-                  {{ $t('messageBox.userCenter') }}
-                </span>
+                <span>{{ $t('messageBox.userCenter') }}</span>
               </a-space>
             </a-doption>
-            <a-doption>
+            <a-doption class="dropdown-option">
               <a-space @click="$router.push({ name: 'Setting' })">
                 <icon-settings />
-                <span>
-                  {{ $t('messageBox.userSettings') }}
-                </span>
+                <span>{{ $t('messageBox.userSettings') }}</span>
               </a-space>
             </a-doption>
-            <a-doption>
+            <a-doption class="dropdown-option dropdown-option--danger">
               <a-space @click="handleLogout">
                 <icon-export />
-                <span>
-                  {{ $t('messageBox.logout') }}
-                </span>
+                <span>{{ $t('messageBox.logout') }}</span>
               </a-space>
             </a-doption>
           </template>
@@ -201,10 +213,19 @@
   import { useAppStore, useUserStore } from '@/store';
   import { Message } from '@arco-design/web-vue';
   import { useDark, useFullscreen, useToggle } from '@vueuse/core';
-  import { computed, inject, ref } from 'vue';
+  import { computed, inject, onMounted, onUnmounted, ref } from 'vue';
   import MessageBox from '../message-box/index.vue';
 
+  // 滚动检测：滚动后导航栏切换为毛玻璃区
+  const isScrolled = ref(false);
+  const handleScroll = () => {
+    isScrolled.value = window.scrollY > 10;
+  };
+  onMounted(() => { window.addEventListener('scroll', handleScroll, { passive: true }); });
+  onUnmounted(() => { window.removeEventListener('scroll', handleScroll); });
+
   const appStore = useAppStore();
+
   const userStore = useUserStore();
   const { logout } = useUser();
   const { changeLocale, currentLocale } = useLocale();
@@ -264,28 +285,83 @@
 </script>
 
 <style scoped lang="less">
+  /* 智屿平台品牌导航栏
+   * 规格：高度 64px，白底，滚动后毛玻璃效果
+   * 文档：designup.md §1
+   */
   .navbar {
     display: flex;
     justify-content: space-between;
+    align-items: center;
     height: 100%;
-    background-color: var(--color-bg-2);
-    border-bottom: 1px solid var(--color-border);
+    background-color: #FFFFFF;
+    border-bottom: 1px solid rgba(45, 181, 131, 0.15);
+    transition: background-color 0.3s ease, backdrop-filter 0.3s ease, box-shadow 0.3s ease;
   }
 
+  /* 滚动后：毛玻璃半透明状态 */
+  .navbar--scrolled {
+    background-color: rgba(255, 255, 255, 0.88);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 2px 16px rgba(45, 181, 131, 0.10);
+  }
+
+  /* ===== Logo 区 ===== */
   .left-side {
     display: flex;
     align-items: center;
-    padding-left: 20px;
+    gap: 12px;
+    padding-left: 24px;
   }
 
+  .brand-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    text-decoration: none;
+  }
+
+  .brand-text {
+    display: flex;
+    flex-direction: column;
+    line-height: 1;
+  }
+
+  .brand-name {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--zy-color-text-primary, #1A2E22);
+    letter-spacing: 0.02em;
+    font-family: var(--zy-font-display);
+  }
+
+  .brand-subtitle {
+    font-size: 11px;
+    color: var(--zy-color-text-secondary, #5A7A68);
+    margin-top: 2px;
+    letter-spacing: 0.03em;
+  }
+
+  .mobile-menu-icon {
+    font-size: 22px;
+    cursor: pointer;
+    color: var(--zy-color-text-primary, #1A2E22);
+  }
+
+  /* ===== 中部导航 ===== */
   .center-side {
     flex: 1;
   }
 
+  /* ===== 右侧工具栏 ===== */
   .right-side {
     display: flex;
-    padding-right: 20px;
+    align-items: center;
+    padding-right: 24px;
     list-style: none;
+    margin: 0;
 
     :deep(.locale-select) {
       border-radius: 20px;
@@ -294,7 +370,7 @@
     li {
       display: flex;
       align-items: center;
-      padding: 0 10px;
+      padding: 0 6px;
     }
 
     a {
@@ -302,10 +378,18 @@
       text-decoration: none;
     }
 
+    /* 导航按鈕：绝边框，悬停时变绿色 */
     .nav-btn {
-      border-color: rgb(var(--gray-2));
-      color: rgb(var(--gray-8));
+      border-color: rgba(45, 181, 131, 0.25);
+      color: var(--zy-color-text-secondary, #5A7A68);
       font-size: 16px;
+      transition: all 0.2s ease;
+
+      &:hover {
+        border-color: var(--zy-color-brand, #2DB583);
+        color: var(--zy-color-brand, #2DB583);
+        background-color: rgba(45, 181, 131, 0.06);
+      }
     }
 
     .trigger-btn,
@@ -317,6 +401,28 @@
     .trigger-btn {
       margin-left: 14px;
     }
+  }
+
+  /* ===== 用户头像 ===== */
+  .user-avatar-li {
+    padding-left: 8px !important;
+  }
+
+  .user-avatar-wrapper {
+    cursor: pointer;
+    border-radius: 50%;
+    padding: 2px;
+    border: 2px solid transparent;
+    transition: border-color 0.2s ease;
+
+    &:hover {
+      border-color: var(--zy-color-brand, #2DB583);
+    }
+  }
+
+  /* ===== 下拉菜单 ===== */
+  :deep(.dropdown-option--danger) {
+    color: var(--zy-color-coral, #F97316);
   }
 </style>
 

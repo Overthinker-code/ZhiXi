@@ -37,14 +37,19 @@
 </script>
 
 <style lang="less" scoped>
+  /**
+   * 智屿教师 Dashboard 品牌化
+   * 文档：designup.md §5
+   */
   .container {
+    /* 品牌翠绿放射渐变：呼应「知识岛屿」主题 */
     background:
       radial-gradient(
         circle at 0% 0%,
-        rgba(19, 116, 196, 0.08),
-        rgba(19, 116, 196, 0) 36%
+        rgba(45, 181, 131, 0.10),
+        rgba(45, 181, 131, 0) 42%
       ),
-      linear-gradient(180deg, #f5f9ff 0%, #eff8f7 100%);
+      linear-gradient(180deg, #F0FDF6 0%, #FFFFFF 100%);
     padding: 16px 20px;
     padding-bottom: 0;
     display: flex;
@@ -61,10 +66,12 @@
   }
 
   .panel {
-    background-color: var(--color-bg-2);
-    border-radius: 14px;
+    background-color: var(--zy-bg-card, #FFFFFF);
+    border-radius: var(--zy-radius-card, 16px);
     overflow: auto;
-    box-shadow: 0 8px 24px rgba(15, 58, 102, 0.06);
+    /* 品牌绿光晕阴影 */
+    box-shadow: var(--zy-shadow-card, 0 4px 24px rgba(45, 181, 131, 0.10));
+    border: 1px solid rgba(45, 181, 131, 0.08);
   }
 
   :deep(.panel-border) {

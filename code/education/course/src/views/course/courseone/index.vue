@@ -326,277 +326,330 @@ watch(
 </script>
 
 <style scoped>
-.main {
-  display: flex;
-  flex-direction: row;
-  width: 100%;
-  height: 1100px;
-  padding: 10px;
-  overflow-y: hidden;
-  background: #e8e8e8;
-}
+  /* ===== 智屿课程详情页 — 品牌化改造 ===== */
+  .main {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+    height: 1100px;
+    padding: 10px;
+    overflow-y: hidden;
+    /* 品牌浅绿背景（原灰色 #e8e8e8）*/
+    background: var(--zy-bg-page, #F0FDF6);
+    gap: 10px;
+  }
 
-.left {
-  display: flex;
-  flex-direction: column;
-  width: 50%;
-  height: 100%;
-}
+  .left {
+    display: flex;
+    flex-direction: column;
+    width: 50%;
+    height: 100%;
+  }
 
-.right {
-  display: flex;
-  flex-direction: column;
-  width: 60%;
-  height: 100%;
-}
+  .right {
+    display: flex;
+    flex-direction: column;
+    width: 60%;
+    height: 100%;
+  }
 
-.Course-info {
-  height: 70%;
-  margin: 10px;
-  background: #fff;
-}
+  /* 卡片加品牌绿边框 */
+  .Course-info {
+    height: 70%;
+    margin: 10px;
+    background: #fff;
+    border-radius: 16px;
+    border: 1px solid rgba(45, 181, 131, 0.12);
+    box-shadow: 0 4px 24px rgba(45, 181, 131, 0.08);
+    overflow: hidden;
+  }
 
-.course-mode {
-  height: 35%;
-  margin: 10px;
-  background: #fff;
-}
+  .course-mode {
+    height: 35%;
+    margin: 10px;
+    background: #fff;
+    border-radius: 16px;
+    border: 1px solid rgba(45, 181, 131, 0.12);
+    box-shadow: 0 4px 24px rgba(45, 181, 131, 0.08);
+    overflow: hidden;
+  }
 
-.homework-finish {
-  height: 33%;
-  margin: 10px;
-  background: #fff;
-}
+  .homework-finish {
+    height: 33%;
+    margin: 10px;
+    background: #fff;
+    border-radius: 16px;
+    border: 1px solid rgba(45, 181, 131, 0.12);
+    box-shadow: 0 4px 24px rgba(45, 181, 131, 0.08);
+    overflow: hidden;
+  }
 
-.course-resource {
-  height: 33%;
-  margin: 10px;
-  background: #fff;
-}
+  .course-resource {
+    height: 33%;
+    margin: 10px;
+    background: #fff;
+    border-radius: 16px;
+    border: 1px solid rgba(45, 181, 131, 0.12);
+    box-shadow: 0 4px 24px rgba(45, 181, 131, 0.08);
+    overflow: hidden;
+  }
 
-.platform-use {
-  height: 33%;
-  margin: 10px;
-  background: #fff;
-}
+  .platform-use {
+    height: 33%;
+    margin: 10px;
+    background: #fff;
+    border-radius: 16px;
+    border: 1px solid rgba(45, 181, 131, 0.12);
+    box-shadow: 0 4px 24px rgba(45, 181, 131, 0.08);
+    overflow: hidden;
+  }
 
-.title-div {
-  margin: 20px;
-  font-weight: 600;
-  font-size: 20px;
-}
+  /* 卡片标题（品牌绿左边条）*/
+  .title-div {
+    margin: 20px;
+    font-weight: 600;
+    font-size: 18px;
+    color: #1A2E22;
+    padding-left: 12px;
+    border-left: 3px solid #2DB583;
+  }
 
-.bar {
-  width: 90%;
-  margin-left: 5%;
-  border: 1px solid #f0f2f6;
-}
+  .bar {
+    width: 90%;
+    margin-left: 5%;
+    border: 1px solid rgba(45, 181, 131, 0.12);
+  }
 
-.course-title {
-  margin: 15px 20px;
-  color: #1f63ff;
-  font-weight: 600;
-  font-size: 25px;
-}
+  /* 课程标题：从蓝色改为品牌绿 */
+  .course-title {
+    margin: 15px 20px;
+    color: #2DB583;
+    font-weight: 600;
+    font-size: 24px;
+  }
 
-.course-description {
-  margin: 10px;
-  padding: 0 20px 10px;
-  line-height: 20px;
-}
+  .course-description {
+    margin: 10px;
+    padding: 0 20px 10px;
+    line-height: 20px;
+    color: #5A7A68;
+  }
 
-.course-meta {
-  display: flex;
-  flex-direction: row;
-  width: 100%;
-}
+  .course-meta {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+  }
 
-.meta-item {
-  width: 33.33%;
-}
+  .meta-item {
+    width: 33.33%;
+  }
 
-.meta-label {
-  color: #1f63ff;
-  font-weight: 600;
-  font-size: 15px;
-  text-align: center;
-}
+  /* 元数据标签：蓝色 → 品牌绿 */
+  .meta-label {
+    color: #2DB583;
+    font-weight: 600;
+    font-size: 14px;
+    text-align: center;
+  }
 
-.meta-value {
-  font-weight: 600;
-  font-size: 15px;
-  text-align: center;
-}
+  .meta-value {
+    font-weight: 600;
+    font-size: 14px;
+    text-align: center;
+    color: #1A2E22;
+  }
 
-.bottom1 {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  margin-top: 10px;
-}
+  .bottom1 {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    margin-top: 10px;
+  }
 
-.title1 {
-  display: flex;
-  flex-direction: row;
-  width: 90%;
-}
+  .title1 {
+    display: flex;
+    flex-direction: row;
+    width: 90%;
+  }
 
-.all-classes {
-  display: flex;
-  flex-direction: row;
-  width: 90%;
-  height: 80px;
-  margin-bottom: 15px;
-  border: 2px solid rgb(147 142 142 / 50%);
-  border-radius: 20px;
-}
+  .all-classes {
+    display: flex;
+    flex-direction: row;
+    width: 90%;
+    height: 80px;
+    margin-bottom: 15px;
+    border: 1.5px solid rgba(45, 181, 131, 0.20);
+    border-radius: 12px;
+    transition: box-shadow 0.2s ease;
+  }
 
-.class-info {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 33.33%;
-  text-align: center;
-}
+  .all-classes:hover {
+    box-shadow: 0 4px 16px rgba(45, 181, 131, 0.12);
+  }
 
-.info-label {
-  color: #1f63ff;
-  font-weight: 600;
-  font-size: 15px;
-}
+  .class-info {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 33.33%;
+    text-align: center;
+  }
 
-.mode-content {
-  display: flex;
-  flex-direction: row;
-  width: 100%;
-  height: 90%;
-}
+  /* 教学班标签：蓝色 → 品牌绿 */
+  .info-label {
+    color: #2DB583;
+    font-weight: 600;
+    font-size: 14px;
+  }
 
-.class-type {
-  width: 50%;
-  height: 100%;
-  text-align: center;
-}
+  .mode-content {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+    height: 90%;
+  }
 
-.class-type p {
-  display: flex;
-  flex-direction: row;
-  gap: 10px;
-  align-items: center;
-  justify-content: center;
-}
+  .class-type {
+    width: 50%;
+    height: 100%;
+    text-align: center;
+  }
 
-.mode-percent {
-  color: #4ed6ff;
-  font-weight: 600;
-  font-size: 35px;
-}
+  .class-type p {
+    display: flex;
+    flex-direction: row;
+    gap: 10px;
+    align-items: center;
+    justify-content: center;
+  }
 
-.mode-label {
-  color: #9a9a9a;
-  font-size: 20px;
-}
+  /* 模式百分比：原蓝色 #4ed6ff → 品牌绿 */
+  .mode-percent {
+    color: #2DB583;
+    font-weight: 700;
+    font-size: 32px;
+  }
 
-.radar-graphic {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 50%;
-  height: 105%;
-}
+  .mode-label {
+    color: #5A7A68;
+    font-size: 18px;
+  }
 
-.homework-content {
-  display: flex;
-  flex-direction: row;
-}
+  .radar-graphic {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 50%;
+    height: 105%;
+  }
 
-.homework-table {
-  width: 100%;
-  margin-left: 30px;
-  padding: 0;
-  font-size: 12px;
-  text-align: center;
-  border-collapse: collapse;
-}
+  .homework-content {
+    display: flex;
+    flex-direction: row;
+  }
 
-.homework-table th {
-  width: 25%;
-  padding-bottom: 3px;
-  font-size: 13px;
-  background: #f2f3f8;
-  border-bottom: 1px solid #e5e8ef;
-  height: 40px;
-}
+  .homework-table {
+    width: 100%;
+    margin-left: 30px;
+    padding: 0;
+    font-size: 12px;
+    text-align: center;
+    border-collapse: collapse;
+  }
 
-.homework-table td {
-  border-bottom: 1px solid #e5e8ef;
-  height: 40px;
-}
+  .homework-table th {
+    width: 25%;
+    padding-bottom: 3px;
+    font-size: 13px;
+    background: #F0FDF6;
+    border-bottom: 1px solid rgba(45, 181, 131, 0.15);
+    height: 40px;
+    color: #1A2E22;
+  }
 
-.view-more {
-  color: #3270ff;
-  cursor: pointer;
-}
+  .homework-table td {
+    border-bottom: 1px solid rgba(45, 181, 131, 0.10);
+    height: 40px;
+    color: #1A2E22;
+  }
 
-.activity-feed {
-  margin-left: 90px;
-  text-align: center;
-}
+  /* 查看更多：品牌绿 */
+  .view-more {
+    color: #2DB583;
+    cursor: pointer;
+    font-weight: 500;
+  }
 
-.name-color {
-  color: #3270ff;
-}
+  .view-more:hover {
+    text-decoration: underline;
+  }
 
-.resource-content {
-  display: flex;
-  flex-direction: row;
-  width: 100%;
-  height: 100%;
-}
+  .activity-feed {
+    margin-left: 90px;
+    text-align: center;
+    color: #5A7A68;
+  }
 
-.right-resource {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-}
+  /* 学生姓名：品牌绿 */
+  .name-color {
+    color: #2DB583;
+    font-weight: 600;
+  }
 
-.resource-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
+  .resource-content {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+    height: 100%;
+  }
 
-.resource-item {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  width: 150px;
-  margin-top: 20px;
-}
+  .right-resource {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+  }
 
-.resource-item img {
-  width: 55px;
-  height: 55px;
-  margin: 5px;
-}
+  .resource-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
 
-.resource-text {
-  width: 50%;
-  line-height: 25px;
-}
+  .resource-item {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    width: 150px;
+    margin-top: 20px;
+  }
 
-.resource-type {
-  color: #9a9a9a;
-}
+  .resource-item img {
+    width: 55px;
+    height: 55px;
+    margin: 5px;
+  }
 
-.resource-size {
-  font-weight: 500;
-}
+  .resource-text {
+    width: 50%;
+    line-height: 25px;
+  }
 
-.resource-count {
-  color: #666;
-}
+  .resource-type {
+    color: #5A7A68;
+    font-size: 13px;
+  }
+
+  .resource-size {
+    font-weight: 600;
+    color: #2DB583;
+  }
+
+  .resource-count {
+    color: #5A7A68;
+    font-size: 12px;
+  }
 </style>
