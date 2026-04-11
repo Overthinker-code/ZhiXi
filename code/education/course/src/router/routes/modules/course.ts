@@ -19,7 +19,7 @@ const COURSE: AppRouteRecordRaw = {
       meta: {
         locale: 'menu.dashboard.monitor',
         requiresAuth: true,
-        roles: ['admin'],
+        roles: ['*'],  // 允许所有角色访问
       },
     },
     {

@@ -9,17 +9,26 @@
     <div class="detection-content">
       <!-- 实时视频预览区域 -->
       <div class="video-preview-area">
-        <div v-if="detectionStatus === 'running'" class="video-container">
+        <div v-if="detectionStatus === 'running' || hasAnalyzedImage" class="video-container">
           <img 
             v-if="currentFrame" 
+            ref="previewImage"
             :src="currentFrame" 
             alt="实时检测画面" 
             class="preview-image"
+            @load="onImageLoad"
           />
           <div v-else class="placeholder">
             <IconVideoCamera class="icon" />
             <span>等待视频流...</span>
           </div>
+          
+          <!-- Canvas 绘制检测框 -->
+          <canvas 
+            v-if="currentFrame && currentResult?.persons?.length > 0"
+            ref="detectionCanvas"
+            class="detection-canvas"
+          ></canvas>
           
           <!-- 检测结果叠加层 -->
           <div v-if="currentResult" class="detection-overlay">
@@ -31,7 +40,7 @@
         
         <div v-else class="video-placeholder">
           <IconVideoCamera class="icon" />
-          <span>点击"开启课堂行为检测"开始分析</span>
+          <span>点击"开启课堂行为检测"或"上传图片分析"开始分析</span>
         </div>
       </div>
 
@@ -63,6 +72,47 @@
         </a-button>
       </div>
 
+      <!-- 上传分析 -->
+      <div style="margin-top: 12px; display: flex; gap: 8px;">
+        <input
+          ref="fileInput"
+          type="file"
+          accept="image/*"
+          style="display: none"
+          @change="handleFileUpload"
+        />
+        <input
+          ref="videoInput"
+          type="file"
+          accept="video/mp4,video/avi,video/mov,video/webm"
+          style="display: none"
+          @change="handleVideoUpload"
+        />
+        <a-button
+          style="flex: 1"
+          type="outline"
+          :loading="isUploading"
+          @click="fileInput?.click()"
+        >
+          <template #icon>
+            <IconUpload />
+          </template>
+          图片
+        </a-button>
+        <a-button
+          style="flex: 1"
+          type="outline"
+          status="success"
+          :loading="isUploadingVideo"
+          @click="videoInput?.click()"
+        >
+          <template #icon>
+            <IconVideoCamera />
+          </template>
+          视频
+        </a-button>
+      </div>
+
       <!-- 实时统计 -->
       <div v-if="detectionStatus === 'running' && currentResult" class="realtime-stats">
         <a-divider orientation="center">{{ $t('monitor.behaviorDetection.realtimeStats') }}</a-divider>
@@ -77,7 +127,7 @@
           
           <div class="stat-item">
             <div class="stat-label">检测人数</div>
-            <div class="stat-value">{{ currentResult.behaviors.length }}</div>
+            <div class="stat-value">{{ currentResult.persons?.length || 0 }}</div>
           </div>
         </div>
 
@@ -89,12 +139,17 @@
             class="behavior-item"
           >
             <div class="behavior-name">{{ behavior.behavior }}</div>
-            <div class="behavior-confidence">
+            <div class="behavior-confidence" style="display: flex; align-items: center; gap: 8px; flex: 1;">
               <a-progress 
-                :percent="Math.round(behavior.confidence * 100)" 
+                :percent="Math.min(100, Math.round(behavior.confidence <= 1 ? behavior.confidence * 100 : behavior.confidence))" 
                 :color="getBehaviorColor(behavior.behavior)"
                 size="small"
+                style="flex: 1;"
+                :show-text="false"
               />
+              <span style="font-size: 12px; color: #666; min-width: 40px; text-align: right;">
+                {{ Math.round(behavior.confidence <= 1 ? behavior.confidence * 100 : behavior.confidence) }}%
+              </span>
             </div>
           </div>
         </div>
@@ -131,14 +186,18 @@ import {
   IconVideoCamera,
   IconPlayCircle,
   IconPauseCircle,
+  IconUpload,
 } from '@arco-design/web-vue/es/icon';
 import {
   startRealtimeAnalysis,
   getAnalysisRecords,
   getBehaviorDefinitions,
+  analyzeImage,
+  analyzeVideo,
   type AnalysisRecord,
   type BehaviorDefinitionsResponse,
   type ImageAnalysisResult,
+  type Person,
 } from '@/api/behavior-analysis';
 
 const props = defineProps<{
@@ -148,15 +207,26 @@ const props = defineProps<{
 // 状态
 const detectionStatus = ref<'idle' | 'running' | 'paused'>('idle');
 const isStarting = ref(false);
+const isUploading = ref(false);
+const isUploadingVideo = ref(false);
 const currentFrame = ref<string>('');
 const currentResult = ref<ImageAnalysisResult | null>(null);
 const recentRecords = ref<AnalysisRecord[]>([]);
 const behaviorDefinitions = ref<BehaviorDefinitionsResponse | null>(null);
 const sessionId = ref<string>('');
+const fileInput = ref<HTMLInputElement | null>(null);
+const videoInput = ref<HTMLInputElement | null>(null);
+const previewImage = ref<HTMLImageElement | null>(null);
+const detectionCanvas = ref<HTMLCanvasElement | null>(null);
+
+// 是否有分析过的图片或视频
+const hasAnalyzedImage = ref(false);
+const hasAnalyzedVideo = ref(false);
+const videoFrameUrl = ref<string>('');  // 视频分析时的预览图（提取第一帧）
 
 // 定时器
-let detectionInterval: NodeJS.Timeout | null = null;
-let refreshInterval: NodeJS.Timeout | null = null;
+let detectionInterval: any = null;
+let refreshInterval: any = null;
 
 // 获取行为定义
 const loadBehaviorDefinitions = async () => {
@@ -193,7 +263,7 @@ const startDetection = async () => {
     detectionStatus.value = 'running';
     Message.success('课堂行为检测已启动');
     
-    // 模拟实时检测（实际项目中这里应该连接WebSocket或轮询视频流）
+    // 模拟实时检测
     startSimulation();
   } catch (error) {
     Message.error('启动检测失败');
@@ -210,30 +280,35 @@ const stopDetection = () => {
     clearInterval(detectionInterval);
     detectionInterval = null;
   }
-  currentFrame.value = '';
-  currentResult.value = null;
-  Message.success('检测已停止');
-  loadRecentRecords();
+  // 只清空实时检测的状态，不清空上传图片/视频的结果
+  if (!hasAnalyzedImage.value && !hasAnalyzedVideo.value) {
+    currentFrame.value = '';
+    currentResult.value = null;
+  }
+  Message.success('实时检测已停止');
 };
 
-// 模拟实时检测数据（实际项目中替换为真实的视频流处理）
+// 模拟实时检测数据
 const startSimulation = () => {
   detectionInterval = setInterval(() => {
-    // 模拟检测结果
+    // 如果用户上传了图片分析，不要覆盖结果
+    if (hasAnalyzedImage.value) {
+      return;
+    }
+    
     const mockBehaviors = [
       { behavior: '专注学习', confidence: 0.85 + Math.random() * 0.1, description: '学习状态良好', score_contribution: 0.85 },
       { behavior: '查看手机', confidence: 0.1 + Math.random() * 0.05, description: '注意力分散', score_contribution: -0.05 },
     ];
     
-    const mockResult: ImageAnalysisResult = {
+    currentResult.value = {
       status: 'success',
       behaviors: mockBehaviors.filter(b => b.confidence > 0.3),
+      persons: [], // 模拟数据没有检测框
       overall_score: 0.6 + Math.random() * 0.3,
       learning_status: '学习状态良好',
       timestamp: new Date().toISOString(),
     };
-    
-    currentResult.value = mockResult;
   }, 3000);
 };
 
@@ -274,8 +349,262 @@ const formatTime = (timestamp: string): string => {
 
 // 查看所有记录
 const viewAllRecords = () => {
-  // 可以跳转到分析历史页面
   Message.info('查看所有历史记录功能待实现');
+};
+
+// 处理文件上传
+const handleFileUpload = async (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  const file = target.files?.[0];
+  
+  if (!file) return;
+  
+  if (!file.type.startsWith('image/')) {
+    Message.error('请选择图片文件');
+    return;
+  }
+  
+  isUploading.value = true;
+  hasAnalyzedImage.value = true;
+  hasAnalyzedVideo.value = false;  // 重置视频分析状态
+  
+  // 停止实时检测，避免覆盖结果
+  if (detectionInterval) {
+    clearInterval(detectionInterval);
+    detectionInterval = null;
+  }
+  detectionStatus.value = 'idle';
+  
+  Message.loading('正在分析图片...');
+  
+  try {
+    const res = await analyzeImage(file);
+    
+    if (res.data?.status === 'error') {
+      throw new Error(res.data?.error || '分析失败');
+    }
+    
+    console.log('分析结果:', res.data);
+    currentResult.value = res.data;
+    
+    // 显示图片预览
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      currentFrame.value = e.target?.result as string;
+      // 延迟绘制检测框，确保图片已渲染
+      setTimeout(() => {
+        drawDetectionBoxes();
+      }, 100);
+    };
+    reader.readAsDataURL(file);
+    
+    Message.success('分析完成！检测到 ' + (res.data.persons?.length || 0) + ' 人');
+  } catch (error: any) {
+    console.error('图片分析失败:', error);
+    Message.error(error?.message || '分析失败，请检查网络连接');
+  } finally {
+    isUploading.value = false;
+    target.value = '';
+  }
+};
+
+// 从视频文件提取第一帧作为预览图
+const extractVideoFirstFrame = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    video.preload = 'metadata';
+    video.crossOrigin = 'anonymous';
+    
+    video.onloadeddata = () => {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx?.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg');
+      resolve(dataUrl);
+    };
+    
+    video.onerror = () => {
+      reject(new Error('无法加载视频'));
+    };
+    
+    video.src = URL.createObjectURL(file);
+    video.currentTime = 0.1; // 跳到第一帧之后
+  });
+};
+
+// 处理视频上传
+const handleVideoUpload = async (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  const file = target.files?.[0];
+  
+  if (!file) return;
+  
+  if (!file.type.startsWith('video/')) {
+    Message.error('请选择视频文件');
+    return;
+  }
+  
+  // 限制100MB
+  if (file.size > 100 * 1024 * 1024) {
+    Message.error('视频文件不能超过100MB');
+    return;
+  }
+  
+  isUploadingVideo.value = true;
+  hasAnalyzedVideo.value = true;
+  hasAnalyzedImage.value = false;  // 重置图片分析状态
+  Message.loading('正在分析视频，请稍候...');
+  
+  // 停止实时检测，避免覆盖结果
+  if (detectionInterval) {
+    clearInterval(detectionInterval);
+    detectionInterval = null;
+  }
+  detectionStatus.value = 'idle';
+  
+  try {
+    // 提取视频第一帧作为预览图
+    const firstFrameUrl = await extractVideoFirstFrame(file);
+    videoFrameUrl.value = firstFrameUrl;
+    currentFrame.value = firstFrameUrl;
+    
+    // 重新读取文件（因为extractVideoFirstFrame可能消耗了文件）
+    const res = await analyzeVideo(file, props.courseId || undefined, 30);
+    
+    if (res.data?.status === 'error') {
+      throw new Error(res.data?.error || '分析失败');
+    }
+    
+    // 视频分析返回汇总结果和第一帧的人员检测数据
+    const summary = res.data.summary;
+    const personsFromVideo = res.data.persons || [];
+    const videoInfo = res.data.video_info || {};
+    
+    currentResult.value = {
+      status: 'success',
+      behaviors: [],
+      persons: personsFromVideo,
+      overall_score: summary?.average_score || 0,
+      learning_status: summary?.overall_status || '无法评估',
+      timestamp: new Date().toISOString(),
+      image_width: videoInfo.image_width || 0,
+      image_height: videoInfo.image_height || 0,
+    };
+    
+    // 延迟绘制检测框
+    setTimeout(() => {
+      drawDetectionBoxes();
+    }, 200);
+    
+    Message.success(`视频分析完成！检测到 ${personsFromVideo.length} 人，平均评分: ${(summary?.average_score || 0).toFixed(2)}`);
+    
+    // 显示统计信息
+    if (summary?.behavior_statistics) {
+      console.log('行为统计:', summary.behavior_statistics);
+    }
+    
+    // 刷新历史记录
+    loadRecentRecords();
+  } catch (error: any) {
+    console.error('视频分析失败:', error);
+    Message.error(error?.message || '视频分析失败');
+    hasAnalyzedVideo.value = false;
+  } finally {
+    isUploadingVideo.value = false;
+    target.value = '';
+  }
+};
+
+// 图片加载完成后绘制检测框
+const onImageLoad = () => {
+  console.log('图片加载完成，准备绘制检测框');
+  setTimeout(drawDetectionBoxes, 50);
+};
+
+// 绘制检测框
+const drawDetectionBoxes = () => {
+  if (!detectionCanvas.value || !previewImage.value || !currentResult.value?.persons) {
+    console.log('无法绘制：缺少 canvas、图片或人员数据', {
+      hasCanvas: !!detectionCanvas.value,
+      hasImage: !!previewImage.value,
+      hasPersons: !!currentResult.value?.persons,
+      personsCount: currentResult.value?.persons?.length
+    });
+    return;
+  }
+  
+  const canvas = detectionCanvas.value;
+  const img = previewImage.value;
+  const ctx = canvas.getContext('2d');
+  
+  if (!ctx) {
+    console.log('无法获取 canvas context');
+    return;
+  }
+  
+  // 等待图片完全加载
+  if (!img.complete || img.naturalWidth === 0) {
+    console.log('图片尚未完全加载，稍后重试');
+    setTimeout(drawDetectionBoxes, 100);
+    return;
+  }
+  
+  // 设置 canvas 尺寸与图片显示尺寸一致
+  const rect = img.getBoundingClientRect();
+  canvas.width = rect.width;
+  canvas.height = rect.height;
+  
+  console.log('Canvas尺寸:', canvas.width, 'x', canvas.height);
+  console.log('图片原始尺寸:', img.naturalWidth, 'x', img.naturalHeight);
+  console.log('图片显示尺寸:', rect.width, 'x', rect.height);
+  console.log('后端返回尺寸:', currentResult.value.image_width, 'x', currentResult.value.image_height);
+  console.log('人员数量:', currentResult.value.persons.length);
+  
+  // 计算缩放比例
+  const imgWidth = currentResult.value.image_width || img.naturalWidth;
+  const imgHeight = currentResult.value.image_height || img.naturalHeight;
+  const scaleX = canvas.width / imgWidth;
+  const scaleY = canvas.height / imgHeight;
+  
+  // 清空画布
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+  // 绘制每个人的检测框
+  currentResult.value.persons.forEach((person: any, index: number) => {
+    console.log(`绘制人员 ${index}:`, person);
+    const [x1, y1, x2, y2] = person.bbox;
+    
+    // 缩放坐标
+    const sx1 = x1 * scaleX;
+    const sy1 = y1 * scaleY;
+    const sx2 = x2 * scaleX;
+    const sy2 = y2 * scaleY;
+    const width = sx2 - sx1;
+    const height = sy2 - sy1;
+    
+    console.log(`检测框 ${index}:`, { sx1, sy1, width, height, color: person.color });
+    
+    // 绘制矩形框
+    ctx.strokeStyle = person.color || '#52c41a';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(sx1, sy1, width, height);
+    
+    // 绘制标签背景
+    const label = `${person.behavior} (${Math.round(person.confidence * 100)}%)`;
+    ctx.font = 'bold 14px Arial';
+    const textWidth = ctx.measureText(label).width;
+    const textHeight = 20;
+    
+    ctx.fillStyle = person.color || '#52c41a';
+    ctx.fillRect(sx1, sy1 - textHeight - 4, textWidth + 10, textHeight + 4);
+    
+    // 绘制标签文字
+    ctx.fillStyle = '#fff';
+    ctx.fillText(label, sx1 + 5, sy1 - 6);
+  });
 };
 
 // 组件挂载
@@ -283,7 +612,6 @@ onMounted(() => {
   loadBehaviorDefinitions();
   loadRecentRecords();
   
-  // 定期刷新历史记录
   refreshInterval = setInterval(() => {
     if (detectionStatus.value !== 'running') {
       loadRecentRecords();
@@ -322,7 +650,16 @@ onUnmounted(() => {
       .preview-image {
         width: 100%;
         height: 100%;
-        object-fit: cover;
+        object-fit: contain;
+      }
+      
+      .detection-canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
       }
       
       .placeholder {

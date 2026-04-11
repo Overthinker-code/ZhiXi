@@ -3,6 +3,19 @@ import axios from 'axios';
 // 行为分析相关接口
 
 /**
+ * 检测到人
+ */
+export interface Person {
+  id: number;
+  bbox: [number, number, number, number]; // [x1, y1, x2, y2]
+  behavior: string;
+  confidence: number;
+  score: number;
+  color: string;
+  reason: string;
+}
+
+/**
  * 行为检测结果
  */
 export interface BehaviorDetection {
@@ -18,9 +31,12 @@ export interface BehaviorDetection {
 export interface ImageAnalysisResult {
   status: string;
   behaviors: BehaviorDetection[];
+  persons: Person[];
   overall_score: number;
   learning_status: string;
   timestamp: string;
+  image_width?: number;
+  image_height?: number;
 }
 
 /**
@@ -74,6 +90,7 @@ export interface VideoAnalysisResult {
   frame_analyses: FrameAnalysis[];
   summary: VideoSummary;
   video_info: VideoInfo;
+  persons: Person[];  // 第一帧检测到的人员数据（用于预览）
 }
 
 /**

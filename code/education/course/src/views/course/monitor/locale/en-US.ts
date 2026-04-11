@@ -46,4 +46,10 @@ export default {
   'monitor.studioStatus.pictureQuality': 'Quality',
   'monitor.studioPreview.studio': 'Studio',
   'monitor.studioPreview.watching': 'watching',
+  'monitor.behaviorDetection.title': 'Behavior Detection',
+  'monitor.behaviorDetection.start': 'Start Detection',
+  'monitor.behaviorDetection.stop': 'Stop Detection',
+  'monitor.behaviorDetection.realtimeStats': 'Real-time Statistics',
+  'monitor.behaviorDetection.recentRecords': 'Recent Records',
+  'monitor.behaviorDetection.viewAll': 'View All',
 };

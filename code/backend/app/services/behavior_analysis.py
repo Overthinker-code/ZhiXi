@@ -77,12 +77,10 @@ class BehaviorAnalysisService:
             
             return {
                 "status": "success",
-                "predictions": result.get("predictions", []),
-                "summary": summary,
+                "frame_analyses": result.get("frame_analyses", []),
+                "summary": result.get("summary", summary),
                 "video_info": result.get("video_info", {}),
-                "overall_behavior": result.get("overall_behavior"),
-                "overall_score": result.get("overall_score"),
-                "learning_status": result.get("learning_status"),
+                "persons": result.get("persons", []),  # 转发人员检测数据
             }
 
         except httpx.RequestError as e:
@@ -186,7 +184,7 @@ class BehaviorAnalysisService:
 
     def _build_video_summary(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """构建视频分析汇总"""
-        predictions = result.get("predictions", [])
+        predictions = result.get("frame_analyses", [])
         
         if not predictions:
             return {
@@ -246,17 +244,83 @@ class BehaviorAnalysisService:
         }
 
     def _evaluate_learning_status(self, score: float) -> str:
-        """根据得分评估学习状态"""
-        if score >= 0.7:
+        """根据得分评估学习状态（0-1范围）
+        
+        优化后的评分标准：
+        - 0.90-1.00: 优秀（绝大多数学生专注）
+        - 0.75-0.90: 良好（多数学生专注，少量负面行为）
+        - 0.60-0.75: 一般（专注与负面行为参半）
+        - 0.45-0.60: 较差（负面行为较多）
+        - 0.00-0.45: 极差（严重违纪，课堂秩序混乱）
+        """
+        if score >= 0.90:
             return "学习状态优秀"
-        elif score >= 0.3:
+        elif score >= 0.75:
             return "学习状态良好"
-        elif score >= -0.3:
+        elif score >= 0.60:
             return "学习状态一般"
-        elif score >= -0.7:
+        elif score >= 0.45:
             return "学习状态较差"
         else:
             return "学习状态极差"
+
+    async def analyze_image(self, image_data: bytes) -> Dict[str, Any]:
+        """
+        分析单张图片中的行为
+        
+        Args:
+            image_data: 图片二进制数据
+            
+        Returns:
+            行为分析结果，包含每个人的检测框和行为
+        """
+        try:
+            # 调用YOLO服务分析单帧
+            result = await self.extract_pose_from_image(image_data)
+            
+            if result.get("status") == "error":
+                return {
+                    "status": "error",
+                    "error": result.get("error", "姿态提取失败"),
+                    "behaviors": [],
+                    "persons": [],
+                    "overall_score": 0,
+                    "learning_status": "无法评估"
+                }
+            
+            # 新的YOLO返回格式包含多人检测框
+            persons = result.get("persons", [])
+            
+            # 构建行为列表
+            behaviors = []
+            for person in persons:
+                behaviors.append({
+                    "behavior": person.get("behavior", "未知"),
+                    "confidence": person.get("confidence", 0),
+                    "score_contribution": person.get("score", 0)
+                })
+            
+            return {
+                "status": "success",
+                "behaviors": behaviors,
+                "persons": persons,  # 包含检测框信息
+                "overall_score": result.get("overall_score", 0),
+                "learning_status": result.get("learning_status", "无法评估"),
+                "image_width": result.get("image_width", 0),
+                "image_height": result.get("image_height", 0),
+            }
+            
+        except Exception as e:
+            import traceback
+            print(f"analyze_image error: {traceback.format_exc()}")
+            return {
+                "status": "error",
+                "error": f"图片分析失败: {str(e)}",
+                "behaviors": [],
+                "persons": [],
+                "overall_score": 0,
+                "learning_status": "无法评估"
+            }
 
 
 # 创建服务实例

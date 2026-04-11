@@ -48,4 +48,11 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    rollupOptions: {
+      external: [
+        /@arco-design\/web-vue\/es\/.*\/style\/css\.js/,
+      ],
+    },
+  },
 });

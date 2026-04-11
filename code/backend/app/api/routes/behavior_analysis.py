@@ -11,21 +11,35 @@ import base64
 router = APIRouter()
 
 
+class PersonResult(BaseModel):
+    """单个人员检测结果"""
+    id: int
+    bbox: list[float]  # [x1, y1, x2, y2]
+    behavior: str
+    confidence: float
+    score: float
+    color: str
+
+
 class BehaviorAnalysisResult(BaseModel):
     """行为分析结果"""
     status: str
     behaviors: list[dict]
+    persons: list[PersonResult]
     overall_score: float
     learning_status: str
     timestamp: str
+    image_width: int = 0
+    image_height: int = 0
 
 
 class VideoAnalysisResult(BaseModel):
     """视频分析结果"""
     status: str
-    frame_analyses: list[dict]
-    summary: dict
-    video_info: dict
+    frame_analyses: list[dict] = []
+    summary: dict = {}
+    video_info: dict = {}
+    persons: list[PersonResult] = []  # 添加人员检测数据
 
 
 class CourseAnalysisRecord(BaseModel):
@@ -62,9 +76,12 @@ async def analyze_image(
         return BehaviorAnalysisResult(
             status="success",
             behaviors=result["behaviors"],
+            persons=result.get("persons", []),
             overall_score=result["overall_score"],
             learning_status=result["learning_status"],
             timestamp=datetime.now().isoformat(),
+            image_width=result.get("image_width", 0),
+            image_height=result.get("image_height", 0),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"分析失败: {str(e)}")
@@ -107,9 +124,10 @@ async def analyze_video(
         
         return VideoAnalysisResult(
             status="success",
-            frame_analyses=result["frame_analyses"],
-            summary=result["summary"],
-            video_info=result["video_info"],
+            frame_analyses=result.get("frame_analyses", []),
+            summary=result.get("summary", {}),
+            video_info=result.get("video_info", {}),
+            persons=result.get("persons", []),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"视频分析失败: {str(e)}")

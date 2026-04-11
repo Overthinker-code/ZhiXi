@@ -11,7 +11,7 @@ export default defineConfig(({ mode }) => {
   const root = resolve(__dirname, '..');
   const env = loadEnv(mode, root, '');
   const proxyTarget =
-    env.VITE_DEV_API_PROXY_TARGET || 'http://127.0.0.1:18000';
+    env.VITE_DEV_API_PROXY_TARGET || 'http://127.0.0.1:8001';
 
   return mergeConfig(
     {
@@ -25,15 +25,17 @@ export default defineConfig(({ mode }) => {
           '/api': {
             target: proxyTarget,
             changeOrigin: true,
+            rewrite: (path) => path.replace(/^\/api/, '/api/v1'),
           },
         },
       },
       plugins: [
-        eslint({
-          cache: false,
-          include: ['src/**/*.ts', 'src/**/*.tsx', 'src/**/*.vue'],
-          exclude: ['node_modules'],
-        }),
+        // 开发环境禁用 ESLint 避免格式警告
+        // eslint({
+        //   cache: false,
+        //   include: ['src/**/*.ts', 'src/**/*.tsx', 'src/**/*.vue'],
+        //   exclude: ['node_modules'],
+        // }),
         AutoImport({
           resolvers: [ElementPlusResolver()],
         }),
