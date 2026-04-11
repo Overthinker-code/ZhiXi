@@ -2,14 +2,14 @@
   <div class="classroom-ai">
     <div class="ai-head">
       <div class="title-row">
-        <span class="name">小知</span>
+        <span class="name">小智</span>
         <span class="course">当前课程：数据库原理</span>
       </div>
     </div>
     <div ref="messagePanel" class="message-panel" @scroll="handlePanelScroll">
       <div class="assistant-card">
         <div class="intro">
-          Hi，我是小知，在数据库原理课程学习中，我可以为你提供以下帮助：
+          Hi，我是小智，在数据库原理课程学习中，我可以为你提供以下帮助：
           <br />
           1. 回答数据库学习中的知识点问题
           <br />
