@@ -45,17 +45,29 @@ const useChatStore = defineStore(
       () => _messagesMap.value[currentConversationId.value] || []
     );
 
-    // 创建新对话
+    // 创建新对话（后端线程接口不可用时降级为本地线程，避免智能助手页卡死）
     const createConversation = async () => {
-      const thread = await createChatThread();
-      const newConversation = {
-        id: thread.thread_id,
-        title: thread.title,
-        createdAt: Date.parse(thread.created_at) || Date.now(),
-      };
-      conversations.value.unshift(newConversation);
-      _messagesMap.value[newConversation.id] = [];
-      currentConversationId.value = newConversation.id;
+      try {
+        const thread = await createChatThread();
+        const newConversation = {
+          id: thread.thread_id,
+          title: thread.title,
+          createdAt: Date.parse(thread.created_at) || Date.now(),
+        };
+        conversations.value.unshift(newConversation);
+        _messagesMap.value[newConversation.id] = [];
+        currentConversationId.value = newConversation.id;
+      } catch {
+        const id = `local-${Date.now()}`;
+        const newConversation = {
+          id,
+          title: '新对话',
+          createdAt: Date.now(),
+        };
+        conversations.value.unshift(newConversation);
+        _messagesMap.value[newConversation.id] = [];
+        currentConversationId.value = newConversation.id;
+      }
     };
 
     const loadConversations = async () => {

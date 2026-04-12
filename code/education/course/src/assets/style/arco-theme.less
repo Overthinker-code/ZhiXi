@@ -1,64 +1,62 @@
 /**
  * 智屿平台 Arco Design 主题 Token 覆盖
- * 品牌主色：深海翠绿 #2DB583
- * 文档：designup.md §1.2
+ * AI Native：靛蓝-紫主色 + 极客科技感
  */
 
 :root {
   /* ============================================
-     Arco Design 主色系（翠绿色阶）
+     Arco Design 主色系（靛蓝 → 紫罗兰）
   ============================================ */
-  --color-primary-1: #e6f9f1;
-  --color-primary-2: #b3efd6;
-  --color-primary-3: #80e4bb;
-  --color-primary-4: #4dd9a0;
-  --color-primary-5: #2DB583;
-  --color-primary-6: #1A9E6E;
-  --color-primary-7: #0D7A52;
-  --color-primary-8: #0a5c3d;
-  --color-primary-9: #074530;
-  --color-primary-10: #042e20;
+  --color-primary-1: #eef2ff;
+  --color-primary-2: #e0e7ff;
+  --color-primary-3: #c7d2fe;
+  --color-primary-4: #a5b4fc;
+  --color-primary-5: #818cf8;
+  --color-primary-6: #6366f1;
+  --color-primary-7: #4f46e5;
+  --color-primary-8: #4338ca;
+  --color-primary-9: #3730a3;
+  --color-primary-10: #312e81;
 
   /* ============================================
      智屿品牌专属变量（ZY 前缀）
   ============================================ */
-  --zy-color-brand: #2DB583;         /* 主品牌绿 */
-  --zy-color-brand-hover: #1A9E6E;   /* 悬停绿 */
-  --zy-color-sand: #C8956C;          /* 沙土棕（Logo 岛屿色） */
-  --zy-color-coral: #F97316;         /* 珊瑚橙（警告/成就） */
-  --zy-color-ocean: #3B82F6;         /* 海洋蓝（AI 功能 / 图表第二色） */
-  --zy-color-text-primary: #1A2E22;  /* 主文字深绿黑 */
-  --zy-color-text-secondary: #5A7A68; /* 次要文字 */
+  --zy-color-brand: #6366f1;
+  --zy-color-brand-secondary: #8b5cf6;
+  --zy-color-brand-hover: #4f46e5;
+  --zy-color-sand: #c8956c;
+  --zy-color-coral: #f97316;
+  --zy-color-ocean: #0ea5e9;
+  --zy-color-text-primary: #0f172a;
+  --zy-color-text-secondary: #64748b;
 
-  /* 背景色 */
-  --zy-bg-page: #F0FDF6;             /* 整体页面背景 - 极浅翠绿 */
-  --zy-bg-card: #FFFFFF;             /* 卡片背景 */
-  --zy-bg-dark: #0F2A1E;            /* 暗色模式背景 */
-  --zy-bg-tag: #e6f9f1;             /* 标签背景 */
+  --zy-bg-page: #f5f3ff;
+  --zy-bg-card: rgba(255, 255, 255, 0.82);
+  --zy-bg-dark: #0f172a;
+  --zy-bg-tag: #eef2ff;
 
-  /* 圆角 */
-  --zy-radius-sm: 8px;              /* 小元素（标签/按钮） */
-  --zy-radius-card: 16px;           /* 卡片 */
-  --zy-radius-modal: 20px;          /* 模态框 */
-  --zy-radius-pill: 9999px;         /* 胶囊 */
+  --zy-radius-sm: 8px;
+  --zy-radius-card: 16px;
+  --zy-radius-modal: 20px;
+  --zy-radius-pill: 9999px;
 
-  /* 阴影 */
-  --zy-shadow-card: 0 4px 24px rgba(45, 181, 131, 0.10);
-  --zy-shadow-card-hover: 0 8px 32px rgba(45, 181, 131, 0.20);
-  --zy-shadow-nav: 0 2px 16px rgba(45, 181, 131, 0.08);
+  --zy-shadow-card: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+  --zy-shadow-card-hover: 0 20px 40px -10px rgba(99, 102, 241, 0.28);
+  --zy-shadow-nav: 0 2px 20px rgba(99, 102, 241, 0.12);
 
-  /* 字体 */
-  --zy-font-display: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-  --zy-text-xs:   12px;
-  --zy-text-sm:   14px;
+  --zy-font-display:
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', ui-sans-serif, system-ui,
+    sans-serif;
+  --zy-text-xs: 12px;
+  --zy-text-sm: 14px;
   --zy-text-base: 16px;
-  --zy-text-lg:   18px;
-  --zy-text-xl:   24px;
-  --zy-text-2xl:  32px;
+  --zy-text-lg: 18px;
+  --zy-text-xl: 24px;
+  --zy-text-2xl: 32px;
   --zy-text-hero: 48px;
 
-  /* 品牌渐变 */
-  --zy-gradient-brand: linear-gradient(135deg, #2DB583, #3B82F6);
-  --zy-gradient-hero: linear-gradient(135deg, #F0FDF6 0%, #FFFFFF 100%);
-  --zy-gradient-user-bubble: linear-gradient(135deg, #2DB583, #1A9E6E);
+  --zy-gradient-brand: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  --zy-gradient-ocean: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%);
+  --zy-gradient-hero: linear-gradient(135deg, #f5f3ff 0%, #ffffff 55%, #ecfeff 100%);
+  --zy-gradient-user-bubble: linear-gradient(135deg, #6366f1 0%, #8b5cf6 55%, #2563eb 100%);
 }

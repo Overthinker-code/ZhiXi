@@ -1,5 +1,13 @@
 export default {
   'menu.dashboard.monitor': '实时课堂',
+  'monitor.title.chatStrip': '师生互动 · 课堂聊天',
+  'monitor.subtitle.chatStrip': '与课堂同步的师生消息区，支持检索与导出',
+  'monitor.tools.barLabel': '课堂工具（点击在右侧打开浮窗，可拖动与缩放）',
+  'monitor.tools.status': '课堂状态',
+  'monitor.tools.attendance': '课堂签到人员列表',
+  'monitor.tools.behavior': '课堂行为检测',
+  'monitor.tools.quick': '快捷操作',
+  'monitor.tools.liveInfo': '直播信息',
   'monitor.title.chatPanel': '聊天窗口',
   'monitor.title.classroomNotes': '课堂笔记',
   'monitor.title.quickOperation': '快捷操作',

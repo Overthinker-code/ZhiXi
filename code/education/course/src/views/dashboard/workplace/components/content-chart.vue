@@ -86,14 +86,6 @@
             color: '#E5E8EF',
           },
         },
-        axisPointer: {
-          show: true,
-          lineStyle: {
-            /* 品牌绿轴指针 */
-            color: '#2DB583',
-            width: 2,
-          },
-        },
       },
       yAxis: {
         type: 'value',
@@ -115,6 +107,16 @@
       },
       tooltip: {
         trigger: 'axis',
+        axisPointer: {
+          type: 'line',
+          lineStyle: {
+            color: 'rgba(15, 23, 42, 0.4)',
+            width: 1,
+          },
+          crossStyle: {
+            color: 'rgba(15, 23, 42, 0.25)',
+          },
+        },
         formatter(params) {
           const [firstElement] = params as ToolTipFormatterParams[];
           return `<div>
@@ -145,35 +147,19 @@
           },
           lineStyle: {
             width: 3,
-            /* 品牌绿 → 海洋蓝 渐变折线（designup.md §5.2） */
             color: new graphic.LinearGradient(0, 0, 1, 0, [
-              {
-                offset: 0,
-                color: 'rgba(45, 181, 131, 1)',
-              },
-              {
-                offset: 0.5,
-                color: 'rgba(26, 158, 110, 1)',
-              },
-              {
-                offset: 1,
-                color: 'rgba(59, 130, 246, 1)',
-              },
+              { offset: 0, color: '#6366f1' },
+              { offset: 0.45, color: '#8b5cf6' },
+              { offset: 1, color: '#0ea5e9' },
             ]),
           },
           showSymbol: false,
           areaStyle: {
-            opacity: 0.8,
-            /* 品牌绿面积渐变 */
+            opacity: 0.85,
             color: new graphic.LinearGradient(0, 0, 0, 1, [
-              {
-                offset: 0,
-                color: 'rgba(45, 181, 131, 0.22)',
-              },
-              {
-                offset: 1,
-                color: 'rgba(45, 181, 131, 0)',
-              },
+              { offset: 0, color: 'rgba(99, 102, 241, 0.28)' },
+              { offset: 0.5, color: 'rgba(139, 92, 246, 0.12)' },
+              { offset: 1, color: 'rgba(14, 165, 233, 0)' },
             ]),
           },
         },

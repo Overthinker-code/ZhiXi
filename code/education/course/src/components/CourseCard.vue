@@ -46,8 +46,8 @@
       <div v-if="course.progress !== undefined" class="progress-section">
         <a-progress
           :percent="course.progress"
-          :color="'#2DB583'"
-          :track-color="'rgba(45,181,131,0.15)'"
+          :color="'#6366f1'"
+          :track-color="'rgba(99,102,241,0.15)'"
           size="small"
         />
         <span class="progress-text">已完成 {{ course.progress }}%</span>
@@ -94,21 +94,26 @@ const toggleFavorite = () => {
    文档：designup.md §3.1
 */
 .course-card {
-  background: #FFFFFF;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.55);
   border-radius: 16px;
-  box-shadow: 0 4px 24px rgba(45, 181, 131, 0.10);
+  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.08);
   cursor: pointer;
   overflow: hidden;
-  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
-              box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
+    box-shadow 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
+    border-color 0.25s ease;
   display: flex;
   flex-direction: column;
   height: 100%;
 }
 
 .course-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 32px rgba(45, 181, 131, 0.20);
+  transform: translateY(-5px);
+  box-shadow: 0 20px 40px -10px rgba(99, 102, 241, 0.32);
+  border-color: rgba(99, 102, 241, 0.22);
 }
 
 /* ===== 封面 ===== */
@@ -118,7 +123,7 @@ const toggleFavorite = () => {
   aspect-ratio: 16 / 9;
   overflow: hidden;
   border-radius: 16px 16px 0 0;
-  background: linear-gradient(135deg, #e6f9f1, #b3efd6);
+  background: linear-gradient(135deg, #eef2ff, #e0f2fe);
 }
 
 .cover-img {
@@ -138,7 +143,7 @@ const toggleFavorite = () => {
   position: absolute;
   top: 10px;
   left: 10px;
-  background: rgba(45, 181, 131, 0.92);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.95), rgba(139, 92, 246, 0.9));
   color: #fff;
   font-size: 11px;
   font-weight: 600;
@@ -204,7 +209,7 @@ const toggleFavorite = () => {
   height: 22px;
   border-radius: 50%;
   overflow: hidden;
-  background: linear-gradient(135deg, #2DB583, #3B82F6);
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -263,10 +268,10 @@ const toggleFavorite = () => {
 .continue-btn {
   font-size: 13px;
   font-weight: 500;
-  color: #2DB583;
+  color: #6366f1;
   cursor: pointer;
   transition: color 0.15s ease;
 }
 
-.continue-btn:hover { color: #1A9E6E; }
+.continue-btn:hover { color: #4f46e5; }
 </style>

@@ -153,15 +153,35 @@ axios.interceptors.response.use(
       message = friendlyNetworkHint;
     }
 
-    /** 后端未实现的 Arco 模板占位接口：避免登录后满屏 404 Toast */
-    const isSilent404Stub =
-      error?.response?.status === 404 &&
-      /\/api\/(chat\/list|message\/list|profile\/basic|operation\/log)(\?|$)/.test(
-        url
-      );
+    /** 后端未实现或路径不一致的读接口：404 不在全局弹 Toast，由各页兜底/占位 */
+    const status = error?.response?.status;
+    /** 含 /api/v1/chat/… 等（axios baseURL 带版本前缀），勿仅用 /api/chat/ 判断 */
+    const shouldSilence404 =
+      status === 404 &&
+      (() => {
+        const u = url || '';
+        if (u.includes('/dashboard/')) return true;
+        if (u.includes('/education/')) return true;
+        if (u.includes('/chat/')) return true;
+        if (u.includes('/message/')) return true;
+        if (u.includes('/profile/basic')) return true;
+        if (u.includes('/operation/log')) return true;
+        if (u.includes('/behavior/')) return true;
+        if (u.includes('/user/my-project')) return true;
+        if (u.includes('/user/my-team')) return true;
+        if (u.includes('/user/latest-activity')) return true;
+        if (u.includes('/user/visits')) return true;
+        if (u.includes('/user/project-and-team')) return true;
+        if (u.includes('/user/save-info')) return true;
+        if (u.includes('/user/certification')) return true;
+        if (u.includes('/user/upload')) return true;
+        if (u.includes('/rag')) return true;
+        if (u.includes('/file/upload')) return true;
+        return false;
+      })();
 
     const shouldSilenceGlobalToast =
-      isSilent404Stub ||
+      shouldSilence404 ||
       (isChat && isTimeout) ||
       isFeedback ||
       (isChat && isNetworkError) ||

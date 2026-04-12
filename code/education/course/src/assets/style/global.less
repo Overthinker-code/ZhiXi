@@ -14,12 +14,16 @@ body {
   margin: 0;
   padding: 0;
   font-size: 14px;
-  /* 品牌浅绿背景：降低白屏视觉冲击，呼应「岛屿」主题 */
-  background-color: var(--zy-bg-page, #F0FDF6);
+  background-color: var(--zy-bg-page, #f5f3ff);
+  background-image:
+    radial-gradient(ellipse 120% 80% at 0% -20%, rgba(99, 102, 241, 0.14), transparent 50%),
+    radial-gradient(ellipse 90% 60% at 100% 0%, rgba(14, 165, 233, 0.1), transparent 45%),
+    linear-gradient(180deg, #f8fafc 0%, #f5f3ff 40%, #fafafa 100%);
+  background-attachment: fixed;
   font-family: var(--zy-font-display, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif);
   -moz-osx-font-smoothing: grayscale;
   -webkit-font-smoothing: antialiased;
-  color: var(--zy-color-text-primary, #1A2E22);
+  color: var(--zy-color-text-primary, #0f172a);
 }
 
 .echarts-tooltip-diy {
@@ -77,14 +81,21 @@ body {
 }
 
 .general-card {
-  border: none;
+  border: 1px solid rgba(255, 255, 255, 0.55);
   border-radius: var(--zy-radius-card, 16px);
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   box-shadow: var(--zy-shadow-card);
-  transition: box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1), transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition:
+    box-shadow 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
+    transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
+    border-color 0.25s ease;
 
   &:hover {
     box-shadow: var(--zy-shadow-card-hover);
     transform: translateY(-2px);
+    border-color: rgba(99, 102, 241, 0.22);
   }
 
   & > .arco-card-header {

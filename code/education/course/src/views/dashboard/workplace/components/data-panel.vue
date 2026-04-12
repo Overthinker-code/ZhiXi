@@ -11,7 +11,7 @@
           </a-avatar>
           <a-statistic
             :title="$t('workplace.onlineContent')"
-            :value="overview.total_classes"
+            :value="displayOverview.total_classes"
             :precision="0"
             :value-from="0"
             animation
@@ -33,7 +33,7 @@
           </a-avatar>
           <a-statistic
             :title="$t('workplace.putIn')"
-            :value="overview.total_teachers"
+            :value="displayOverview.total_teachers"
             :value-from="0"
             animation
             show-group-separator
@@ -54,7 +54,7 @@
           </a-avatar>
           <a-statistic
             :title="$t('workplace.newDay')"
-            :value="overview.total_resources"
+            :value="displayOverview.total_resources"
             :value-from="0"
             animation
             show-group-separator
@@ -73,7 +73,7 @@
 </template>
 
 <script lang="ts" setup>
-  import { reactive, onMounted } from 'vue';
+  import { reactive, onMounted, ref } from 'vue';
   import useLoading from '@/hooks/loading';
   import { queryDashboardOverview } from '@/api/dashboard';
 
@@ -83,6 +83,31 @@
     total_teachers: 768,
     total_resources: 8874,
   });
+
+  const displayOverview = reactive({
+    total_classes: 0,
+    total_teachers: 0,
+    total_resources: 0,
+  });
+
+  function easeOutCubic(t: number) {
+    return 1 - (1 - t) ** 3;
+  }
+
+  function runCountUp(
+    key: 'total_classes' | 'total_teachers' | 'total_resources',
+    target: number,
+    durationMs: number
+  ) {
+    const from = 0;
+    const t0 = performance.now();
+    const tick = (now: number) => {
+      const p = Math.min(1, (now - t0) / durationMs);
+      displayOverview[key] = Math.round(from + (target - from) * easeOutCubic(p));
+      if (p < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
 
   const fetchData = async () => {
     setLoading(true);
@@ -98,8 +123,16 @@
     }
   };
 
-  onMounted(() => {
-    fetchData();
+  const animatedOnce = ref(false);
+
+  onMounted(async () => {
+    await fetchData();
+    if (animatedOnce.value) return;
+    animatedOnce.value = true;
+    const d = 1100;
+    runCountUp('total_classes', overview.total_classes, d);
+    runCountUp('total_teachers', overview.total_teachers, d);
+    runCountUp('total_resources', overview.total_resources, d);
   });
 </script>
 
@@ -112,15 +145,14 @@
 
   .panel-col {
     padding-left: 43px;
-    border-right: 1px solid rgba(45, 181, 131, 0.12);
+    border-right: 1px solid rgba(99, 102, 241, 0.12);
     margin-bottom: 20px;
   }
 
   .col-avatar {
     margin-right: 12px;
-    /* 品牌绿图标（designup.md §5.1） */
-    color: #1A9E6E;
-    background: linear-gradient(160deg, #d4f5e9, #e6f9f1);
+    color: #6366f1;
+    background: linear-gradient(145deg, #eef2ff, #e0e7ff);
   }
 
   .up-icon {

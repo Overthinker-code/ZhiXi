@@ -42,14 +42,18 @@
    * 文档：designup.md §5
    */
   .container {
-    /* 品牌翠绿放射渐变：呼应「知识岛屿」主题 */
     background:
       radial-gradient(
         circle at 0% 0%,
-        rgba(45, 181, 131, 0.10),
-        rgba(45, 181, 131, 0) 42%
+        rgba(99, 102, 241, 0.12),
+        rgba(99, 102, 241, 0) 42%
       ),
-      linear-gradient(180deg, #F0FDF6 0%, #FFFFFF 100%);
+      radial-gradient(
+        circle at 100% 20%,
+        rgba(14, 165, 233, 0.08),
+        rgba(14, 165, 233, 0) 40%
+      ),
+      linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
     padding: 16px 20px;
     padding-bottom: 0;
     display: flex;
@@ -70,8 +74,8 @@
     border-radius: var(--zy-radius-card, 16px);
     overflow: auto;
     /* 品牌绿光晕阴影 */
-    box-shadow: var(--zy-shadow-card, 0 4px 24px rgba(45, 181, 131, 0.10));
-    border: 1px solid rgba(45, 181, 131, 0.08);
+    box-shadow: var(--zy-shadow-card, 0 8px 32px rgba(31, 38, 135, 0.07));
+    border: 1px solid rgba(99, 102, 241, 0.1);
   }
 
   :deep(.panel-border) {

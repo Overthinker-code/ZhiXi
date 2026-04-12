@@ -52,7 +52,13 @@
     try {
       files.value = await fetchReferenceFiles(scopeFilter.value);
     } catch (error: any) {
-      Message.error(error?.message || 'Failed to load reference files');
+      const st = error?.response?.status;
+      const msg = String(error?.message || '');
+      if (st === 404 || msg.includes('404')) {
+        files.value = [];
+        return;
+      }
+      Message.error(msg || '加载参考文件失败');
     } finally {
       loadingFiles.value = false;
     }

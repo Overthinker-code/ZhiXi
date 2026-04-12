@@ -414,14 +414,15 @@
     height: 70px;
     width: 70px;
     border-radius: 50%;
-    background-color: var(--zy-color-brand, #2DB583) !important;
-    border-color: var(--zy-color-brand, #2DB583) !important;
-    box-shadow: 0 4px 20px rgba(45, 181, 131, 0.40);
+    background: var(--zy-gradient-brand, linear-gradient(135deg, #6366f1, #8b5cf6)) !important;
+    border: none !important;
+    box-shadow: 0 8px 28px rgba(99, 102, 241, 0.45);
     transition: all 0.2s ease;
   }
   .float-btn .arco-btn-primary:hover {
-    background-color: var(--zy-color-brand-hover, #1A9E6E) !important;
+    filter: brightness(1.08);
     transform: scale(1.05);
+    box-shadow: 0 12px 36px rgba(139, 92, 246, 0.4);
   }
   .arco-drawer-body {
     padding: 5px;

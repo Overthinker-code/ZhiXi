@@ -246,7 +246,7 @@
 
 <template>
   <div class="message-item" :class="{ 'is-mine': message.role === 'user' }">
-    <div class="content">
+    <div class="content" :class="{ 'is-user-content': message.role === 'user' }">
       <!-- 文件预览区域 -->
       <div
         v-if="message.files && message.files.length > 0"
@@ -341,7 +341,17 @@
         <div v-else-if="renderedReasoning" v-html="renderedReasoning"></div>
       </div>
       <!-- content -->
-      <div class="bubble markdown-body" v-html="renderedContent"></div>
+      <div
+        class="bubble-row"
+        :class="{ 'bubble-row--user': message.role === 'user' }"
+      >
+        <div class="bubble markdown-body" v-html="renderedContent" />
+        <span
+          v-if="message.role === 'assistant' && message.loading"
+          class="stream-tail-caret"
+          aria-hidden="true"
+        />
+      </div>
       <div
         v-if="
           message.role === 'assistant' &&
@@ -418,10 +428,14 @@
 
       .content {
         .bubble.markdown-body {
-          /* 用户气泡：品牌绿渐变（designup.md §4.3）*/
-          border: 1px solid rgba(45, 181, 131, 0.30);
-          background: linear-gradient(135deg, #2DB583 0%, #1A9E6E 100%);
-          box-shadow: 0 8px 20px rgba(45, 181, 131, 0.25);
+          border: 1px solid rgba(255, 255, 255, 0.35);
+          background: linear-gradient(
+            135deg,
+            #6366f1 0%,
+            #8b5cf6 52%,
+            #2563eb 100%
+          );
+          box-shadow: 0 12px 32px rgba(99, 102, 241, 0.35);
           color: #fff;
 
           /* 覆盖内部 markdown 样式为白色 */
@@ -430,7 +444,7 @@
             background: rgba(255,255,255,0.18);
             color: #fff;
           }
-          :deep(a) { color: #d4f5e9; }
+          :deep(a) { color: #e0e7ff; }
           :deep(blockquote) {
             border-left-color: rgba(255,255,255,0.4);
             background: rgba(255,255,255,0.10);
@@ -603,17 +617,57 @@
         }
       }
 
+      .bubble-row {
+        display: flex;
+        align-items: flex-end;
+        gap: 6px;
+        width: 100%;
+        max-width: min(92%, 860px);
+
+        &--user {
+          flex-direction: row-reverse;
+        }
+      }
+
+      .is-user-content .bubble-row {
+        margin-left: auto;
+      }
+
+      .stream-tail-caret {
+        flex-shrink: 0;
+        width: 10px;
+        height: 10px;
+        margin-bottom: 0.65rem;
+        border-radius: 50%;
+        background: radial-gradient(circle, #c4b5fd 0%, #6366f1 45%, transparent 72%);
+        box-shadow: 0 0 14px rgba(129, 140, 248, 0.95);
+        animation: caretPulse 1.1s ease-in-out infinite;
+      }
+
+      @keyframes caretPulse {
+        0%,
+        100% {
+          opacity: 1;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 0.55;
+          transform: scale(0.92);
+        }
+      }
+
       .bubble.markdown-body {
         display: block;
-        width: 100%;
+        flex: 1;
+        min-width: 0;
         padding: 0.82rem 1rem;
-        /* AI 气泡：白底 + 左侧品牌绿边框（designup.md §4.3）*/
         border-radius: 0 16px 16px 16px;
-        border: 1px solid rgba(45, 181, 131, 0.15);
-        border-left: 3px solid #2DB583;
-        background: #fff;
-        box-shadow: 0 6px 20px rgba(45, 181, 131, 0.10);
-        color: #1A2E22;
+        border: 1px solid rgba(99, 102, 241, 0.18);
+        border-left: 3px solid #6366f1;
+        background: rgba(255, 255, 255, 0.9);
+        backdrop-filter: blur(10px);
+        box-shadow: 0 8px 28px rgba(99, 102, 241, 0.12);
+        color: #0f172a;
         font-size: 0.95rem;
         line-height: 1.65;
         word-break: break-word;
@@ -631,8 +685,8 @@
           padding: 0.16em 0.38em;
           border-radius: 0.3rem;
           font-size: 0.86em;
-          background: #e6f9f1;
-          color: #0D7A52;
+          background: #eef2ff;
+          color: #4338ca;
           font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
         }
 
@@ -645,9 +699,9 @@
         :deep(blockquote) {
           margin: 0.55rem 0;
           padding: 0.4rem 0.75rem;
-          border-left: 3px solid rgba(45, 181, 131, 0.35);
-          background: #F0FDF6;
-          color: #5A7A68;
+          border-left: 3px solid rgba(99, 102, 241, 0.35);
+          background: #f5f3ff;
+          color: #64748b;
           border-radius: 0 8px 8px 0;
         }
 

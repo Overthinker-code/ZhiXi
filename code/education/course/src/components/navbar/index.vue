@@ -4,7 +4,26 @@
     <div class="left-side">
       <!-- 新 Logo -->
       <div class="brand-logo">
+<<<<<<< Updated upstream
         <img :src="logoImg" alt="智屿" style="height: 36px; width: auto;" />
+=======
+        <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="智屿 Logo">
+          <!-- 岛屿底座（沙土椭圆） -->
+          <ellipse cx="18" cy="29" rx="12" ry="5" fill="#C8956C"/>
+          <!-- 树干 -->
+          <rect x="16.5" y="18" width="3" height="11" rx="1.5" fill="#A0714A"/>
+          <!-- 树冠（绿色圆形） -->
+          <circle cx="18" cy="14" r="8" fill="#6366f1"/>
+          <!-- 神经网络节点辐射点 -->
+          <circle cx="18" cy="7" r="1.8" fill="white" opacity="0.9"/>
+          <circle cx="24.2" cy="17.5" r="1.8" fill="white" opacity="0.9"/>
+          <circle cx="11.8" cy="17.5" r="1.8" fill="white" opacity="0.9"/>
+          <!-- 连接线 -->
+          <line x1="18" y1="8.8" x2="18" y2="10" stroke="white" stroke-width="1" opacity="0.6"/>
+          <line x1="22.5" y1="17" x2="21" y2="16" stroke="white" stroke-width="1" opacity="0.6"/>
+          <line x1="13.5" y1="17" x2="15" y2="16" stroke="white" stroke-width="1" opacity="0.6"/>
+        </svg>
+>>>>>>> Stashed changes
 
         <!-- 品牌文字 -->
         <div class="brand-text">

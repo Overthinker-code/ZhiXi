@@ -1,5 +1,13 @@
 export default {
   'menu.dashboard.monitor': 'Real-time Monitor',
+  'monitor.title.chatStrip': 'Class chat',
+  'monitor.subtitle.chatStrip': 'Synced messages; search & export',
+  'monitor.tools.barLabel': 'Tools (opens floating panel; drag & resize)',
+  'monitor.tools.status': 'Class status',
+  'monitor.tools.attendance': 'Attendance list',
+  'monitor.tools.behavior': 'Behavior detection',
+  'monitor.tools.quick': 'Quick actions',
+  'monitor.tools.liveInfo': 'Live info',
   'monitor.title.chatPanel': 'Chat Window',
   'monitor.title.classroomNotes': 'Classroom Notes',
   'monitor.title.quickOperation': 'Quick Operation',
