@@ -46,5 +46,11 @@ export const renderMarkdown = (content) => {
   return md.render(content);
 };
 
+/** 去掉代码块头部操作区（复制/主题 PNG），避免在窄浮窗内被放大错位 */
+export function stripMarkdownCodeToolbar(html) {
+  if (!html) return '';
+  return html.replace(/<div class="code-actions">[\s\S]*?<\/div>/g, '');
+}
+
 // 导出 markdown-it 实例，以便需要时进行更多配置
 export { md };

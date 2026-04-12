@@ -85,17 +85,16 @@
       </button>
     </div>
 
-    <div v-if="isLoadingResponse" class="loading-row">
-      <a-spin />
-    </div>
-    <div v-if="aiResponse" class="ai-box">
-      <div class="ai-head">
-        <span>AI 解答</span>
-        <button type="button" class="x" @click="clearAi">✕</button>
-      </div>
-      <!-- eslint-disable-next-line vue/no-v-html -->
-      <div class="md markdown-body" v-html="renderedResponse"></div>
-    </div>
+    <SelectionAiAnswerPanel
+      v-if="showAnswerPanel && answerPanelBounds"
+      :visible="showAnswerPanel"
+      :session="answerPanelSession"
+      :initial-bounds="answerPanelBounds"
+      :html="renderedResponse"
+      :loading="isLoadingResponse"
+      :typing="isTypingAnswer"
+      @close="clearAi"
+    />
   </div>
 </template>
 
@@ -111,6 +110,7 @@
   import { useTypewriterText } from '@/composables/useTypewriterText';
   import CourseMindMapVisual from './CourseMindMapVisual.vue';
   import CourseKnowledgeGraphVisual from './CourseKnowledgeGraphVisual.vue';
+  import SelectionAiAnswerPanel from './SelectionAiAnswerPanel.vue';
 
   const notesStarted = ref(false);
   const notesTyping = ref(false);
@@ -133,9 +133,14 @@
     contextMenuStyle,
     isLoadingResponse,
     aiResponse,
+    showAnswerPanel,
+    answerPanelBounds,
+    answerPanelSession,
+    isTypingAnswer,
     renderedResponse,
     handleTextSelection,
     sendAIQuery,
+    clearAnswerPanel,
   } = useSelectionQueryMenu(() => {
     let s = '';
     if (notesComplete.value) s += RELATION_DB_CLASSROOM_NOTES;
@@ -173,7 +178,7 @@
     mindDone.value = false;
     graphActive.value = false;
     graphDone.value = false;
-    aiResponse.value = '';
+    clearAnswerPanel();
     showContextMenu.value = false;
   }
 
@@ -183,7 +188,7 @@
   });
 
   function clearAi() {
-    aiResponse.value = '';
+    clearAnswerPanel();
   }
 </script>
 
@@ -301,37 +306,4 @@
     }
   }
 
-  .loading-row {
-    display: flex;
-    justify-content: center;
-    padding: 12px;
-  }
-
-  .ai-box {
-    margin-top: 8px;
-    padding: 14px;
-    background: #f0f7ff;
-    border-radius: 8px;
-    border-left: 4px solid #1677ff;
-
-    .ai-head {
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 8px;
-      font-weight: 600;
-      color: #1677ff;
-    }
-
-    .x {
-      border: none;
-      background: none;
-      cursor: pointer;
-      color: #999;
-    }
-
-    .md {
-      font-size: 13px;
-      line-height: 1.7;
-    }
-  }
 </style>

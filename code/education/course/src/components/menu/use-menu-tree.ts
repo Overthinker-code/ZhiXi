@@ -23,6 +23,9 @@ export default function useMenuTree() {
       if (!_routes) return null;
 
       const collector: any = _routes.map((element) => {
+        if (element.meta?.hideInMenu === true) {
+          return null;
+        }
         // no access
         if (!permission.accessRouter(element)) {
           return null;

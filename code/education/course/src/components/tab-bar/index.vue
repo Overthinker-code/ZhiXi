@@ -94,8 +94,10 @@
     }
 
     .tag-bar-operation {
-      width: 100px;
+      width: 0;
+      min-width: 0;
       height: 32px;
+      overflow: hidden;
     }
   }
 </style>

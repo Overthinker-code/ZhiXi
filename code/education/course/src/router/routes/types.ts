@@ -11,7 +11,8 @@ export interface AppRouteRecordRaw {
   name?: string | symbol;
   meta?: RouteMeta;
   redirect?: string;
-  component: Component | string;
+  /** 仅有 redirect 的子路由可不填 */
+  component?: Component | string;
   children?: AppRouteRecordRaw[];
   alias?: string | string[];
   props?: Record<string, any>;

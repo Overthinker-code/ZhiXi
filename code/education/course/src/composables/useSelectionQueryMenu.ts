@@ -1,6 +1,12 @@
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
+import {
+  ref,
+  reactive,
+  computed,
+  onMounted,
+  onUnmounted,
+} from 'vue';
 import { Message } from '@arco-design/web-vue';
-import { renderMarkdown } from '@/utils/markdown';
+import { renderMarkdown, stripMarkdownCodeToolbar } from '@/utils/markdown';
 import { useChatStore } from '@/store/chat';
 import { askSelectionQuery } from '@/api/rag';
 import { useSettingStore } from '@/store/setting';
@@ -33,6 +39,22 @@ const promptTemplates = [
   },
 ];
 
+type ViewportRect = {
+  top: number;
+  left: number;
+  right: number;
+  bottom: number;
+  width: number;
+  height: number;
+};
+
+export type AnswerPanelBounds = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
 /** 划词菜单：fixed 定位须使用 getBoundingClientRect 的视口坐标，勿加 scrollX/scrollY */
 export function useSelectionQueryMenu(getContextSource: () => string) {
   const chatStore = useChatStore();
@@ -47,19 +69,101 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
   const surroundingContext = ref('');
   const isLoadingResponse = ref(false);
   const aiResponse = ref('');
+  const lastSelectionViewportRect = ref<ViewportRect | null>(null);
+  const answerPanelBounds = ref<AnswerPanelBounds | null>(null);
+  const answerPanelSession = ref(0);
+  const typewriterLen = ref(0);
+  let twTimer: ReturnType<typeof setInterval> | null = null;
+
   const currentThreadId = computed(
     () => chatStore.currentConversationId || 'selection-notes-thread'
   );
 
   const getThreadId = () => currentThreadId.value;
 
+  const showAnswerPanel = computed(
+    () => isLoadingResponse.value || Boolean(aiResponse.value)
+  );
+
+  const isTypingAnswer = computed(
+    () =>
+      Boolean(aiResponse.value) && typewriterLen.value < aiResponse.value.length
+  );
+
+  function stopTypewriter() {
+    if (twTimer) {
+      clearInterval(twTimer);
+      twTimer = null;
+    }
+  }
+
+  function startTypewriter() {
+    stopTypewriter();
+    const full = aiResponse.value;
+    if (!full) return;
+    typewriterLen.value = 0;
+    const len = full.length;
+    const perTick = Math.max(2, Math.ceil(len / 100));
+    twTimer = setInterval(() => {
+      if (typewriterLen.value >= len) {
+        stopTypewriter();
+        typewriterLen.value = len;
+        return;
+      }
+      typewriterLen.value = Math.min(len, typewriterLen.value + perTick);
+    }, 22);
+  }
+
   function closeMenu() {
     showContextMenu.value = false;
+  }
+
+  function syncBoundsFromSelection() {
+    const defaultH = 380;
+    const panelW = Math.min(
+      440,
+      Math.max(300, Math.floor(window.innerWidth * 0.38))
+    );
+    const r = lastSelectionViewportRect.value;
+    if (!r) {
+      answerPanelBounds.value = {
+        left: Math.max(12, window.innerWidth - panelW - 24),
+        top: 100,
+        width: panelW,
+        height: defaultH,
+      };
+      return;
+    }
+    const margin = 12;
+    const spaceRight = window.innerWidth - r.right - margin;
+    let left: number;
+    if (spaceRight >= panelW) {
+      left = r.right + margin;
+    } else {
+      left = r.left - panelW - margin;
+    }
+    left = Math.max(
+      margin,
+      Math.min(left, window.innerWidth - panelW - margin)
+    );
+    let top = r.top;
+    top = Math.max(60, Math.min(top, window.innerHeight - defaultH - 12));
+    const maxH = Math.min(520, window.innerHeight - top - 12);
+    const height = Math.min(defaultH, maxH);
+    answerPanelBounds.value = { left, top, width: panelW, height };
   }
 
   function positionMenuNearSelection(range: Range) {
     const rect = range.getBoundingClientRect();
     if (!rect.width && !rect.height) return false;
+    lastSelectionViewportRect.value = {
+      top: rect.top,
+      left: rect.left,
+      right: rect.right,
+      bottom: rect.bottom,
+      width: rect.width,
+      height: rect.height,
+    };
     const pad = 8;
     const menuW = 280;
     const menuH = 200;
@@ -134,8 +238,12 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
     const template = promptTemplates.find((t) => t.key === promptKey);
     if (!template) return;
 
-    isLoadingResponse.value = true;
+    stopTypewriter();
+    typewriterLen.value = 0;
     aiResponse.value = '';
+    answerPanelSession.value += 1;
+    syncBoundsFromSelection();
+    isLoadingResponse.value = true;
     closeMenu();
 
     try {
@@ -161,6 +269,7 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
         chatStore.addMessage(
           messageHandler.formatMessage('assistant', response.response)
         );
+        startTypewriter();
       } else {
         Message.error('AI 响应为空');
       }
@@ -173,9 +282,20 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
     }
   }
 
+  function clearAnswerPanel() {
+    stopTypewriter();
+    typewriterLen.value = 0;
+    aiResponse.value = '';
+    isLoadingResponse.value = false;
+    lastSelectionViewportRect.value = null;
+    answerPanelBounds.value = null;
+  }
+
   function onDocMouseDown(e: MouseEvent) {
     const t = e.target as HTMLElement;
     if (t.closest('.notes-context-menu')) return;
+    if (t.closest('.selection-ai-answer-panel')) return;
+    if (t.closest('.selection-ai-resize-handle')) return;
     closeMenu();
   }
 
@@ -186,6 +306,15 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
   onUnmounted(() => {
     document.removeEventListener('mousedown', onDocMouseDown);
     document.removeEventListener('scroll', closeMenu, true);
+    stopTypewriter();
+  });
+
+  const renderedResponse = computed(() => {
+    const full = aiResponse.value;
+    if (!full) return '';
+    const slice = full.slice(0, typewriterLen.value);
+    if (!slice) return '';
+    return stripMarkdownCodeToolbar(renderMarkdown(slice));
   });
 
   return {
@@ -195,12 +324,14 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
     selectedText,
     isLoadingResponse,
     aiResponse,
-    renderedResponse: computed(() =>
-      aiResponse.value ? renderMarkdown(aiResponse.value) : ''
-    ),
+    showAnswerPanel,
+    answerPanelBounds,
+    answerPanelSession,
+    isTypingAnswer,
+    renderedResponse,
     handleTextSelection,
     sendAIQuery,
     closeMenu,
+    clearAnswerPanel,
   };
 }
-

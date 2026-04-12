@@ -186,7 +186,9 @@
   const handleClick = () => {
     const onCourseMonitor =
       route.name === 'Monitor' || route.path === '/course/monitor';
-    if (onCourseMonitor) {
+    const onCourseContent =
+      route.name === 'CourseContent' || route.path === '/course/course-content';
+    if (onCourseMonitor || onCourseContent) {
       visible.value = true;
       panelPos.value = {
         x: Math.min(
@@ -200,7 +202,7 @@
       };
       return;
     }
-    router.push({ name: 'Chat' });
+    router.push({ name: 'AssistantChat' });
   };
   const handleOk = () => {
     visible.value = false;
@@ -208,7 +210,7 @@
   const handleCancel = () => {
     visible.value = false;
   };
-  const hideFloatUI = computed(() => route.path === '/profile/chat');
+  const hideFloatUI = computed(() => route.path.startsWith('/assistant'));
 
   const startDragRobot = (e: MouseEvent) => {
     dragState.value = {
@@ -380,8 +382,16 @@
   .layout-content {
     min-height: 100vh;
     overflow-y: hidden;
+    display: flex;
+    flex-direction: column;
     background-color: var(--color-fill-2);
     transition: padding 0.2s cubic-bezier(0.34, 0.69, 0.1, 1);
+
+    > :deep(.arco-layout-content) {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+    }
   }
 
   .float-ai {

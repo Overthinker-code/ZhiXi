@@ -1,5 +1,5 @@
 export default {
-  'menu.profile.basic': 'Basic Profile',
+  'menu.profile.basic': 'User Settings',
   'basicProfile.title.form': 'Parameter Approval Process Table',
   'basicProfile.steps.commit': 'Commit',
   'basicProfile.steps.approval': 'Approval',

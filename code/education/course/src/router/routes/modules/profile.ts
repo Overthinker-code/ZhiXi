@@ -8,23 +8,13 @@ const PROFILE: AppRouteRecordRaw = {
   meta: {
     locale: 'menu.profile',
     requiresAuth: true,
-    icon: 'icon-file',
+    icon: 'icon-user',
     order: 3,
   },
   children: [
     {
       path: '',
-      redirect: { name: 'Chat' },
-    },
-    {
-      path: 'chat',
-      name: 'Chat',
-      component: () => import('@/views/chat/ChatView.vue'),
-      meta: {
-        locale: 'menu.profile.chat',
-        requiresAuth: true,
-        roles: ['*'],
-      },
+      redirect: '/profile/user-info',
     },
     {
       path: 'user-info',

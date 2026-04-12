@@ -85,7 +85,7 @@
   import { createAssistantChatStream } from '@/api/rag';
   import { Message } from '@arco-design/web-vue';
   import { nextTick, ref } from 'vue';
-  import { renderMarkdown } from '@/utils/markdown';
+  import { renderMarkdown, stripMarkdownCodeToolbar } from '@/utils/markdown';
   import humanizeAgentReasoning from '@/utils/humanizeAgentReasoning';
 
   interface ChatItem {
@@ -108,10 +108,8 @@
   const autoStickToBottom = ref(true);
   const localThreadId = ref(`monitor-db-${Date.now()}`);
   let abortController: AbortController | null = null;
-  const renderSafeMarkdown = (content: string) => {
-    const html = renderMarkdown(content || '');
-    return html.replace(/<div class="code-actions">[\s\S]*?<\/div>/g, '');
-  };
+  const renderSafeMarkdown = (content: string) =>
+    stripMarkdownCodeToolbar(renderMarkdown(content || ''));
 
   const scrollToBottom = async (force = false) => {
     if (!force && !autoStickToBottom.value) return;

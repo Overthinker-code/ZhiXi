@@ -10,6 +10,8 @@ const USER: AppRouteRecordRaw = {
     icon: 'icon-user',
     requiresAuth: true,
     order: 3,
+    /** 与「个人中心」菜单合并展示后易重复，仅保留路由供直达，侧边栏隐藏整组 */
+    hideInMenu: true,
   },
   children: [
     {
