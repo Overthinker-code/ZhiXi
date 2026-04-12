@@ -1,6 +1,6 @@
 <script setup>
   import { ref } from 'vue';
-  // import { ElMessage } from 'element-plus'
+  import { Message } from '@arco-design/web-vue';
   import { useChatStore } from '@/store/chat';
   import { WarningFilled } from '@element-plus/icons-vue';
 
@@ -28,17 +28,27 @@
   const handleConfirm = async () => {
     if (dialogType.value === 'edit') {
       if (!inputTitle.value.trim()) {
-        // ElMessage.warning('标题不能为空')
+        Message.warning('标题不能为空');
         return;
       }
-      await chatStore.updateConversationTitle(
-        currentConversationId.value,
-        inputTitle.value.trim()
-      );
-      // ElMessage.success('修改成功')
+      try {
+        await chatStore.updateConversationTitle(
+          currentConversationId.value,
+          inputTitle.value.trim()
+        );
+        Message.success('已更新标题');
+      } catch {
+        Message.error('更新失败，请稍后重试');
+        return;
+      }
     } else {
-      await chatStore.deleteConversation(currentConversationId.value);
-      // ElMessage.success('删除成功')
+      try {
+        await chatStore.deleteConversation(currentConversationId.value);
+        Message.success('已删除该对话');
+      } catch {
+        Message.error('删除失败，请稍后重试');
+        return;
+      }
     }
     dialogVisible.value = false;
     inputTitle.value = '';

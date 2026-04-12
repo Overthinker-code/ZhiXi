@@ -7,27 +7,43 @@ import {
   updateChatThreadTitle,
 } from '@/api/rag';
 
+/** 未落库会话：仅内存消息，进入智能助手页默认停留在此，首条发送时才创建后端线程 */
+const DRAFT_KEY = '';
+
 const useChatStore = defineStore(
   'llm-chat',
   () => {
-    // 所有对话列表（元信息：id, title, createdAt）
     const conversations = ref([]);
 
-    // 当前选中的对话ID
     const currentConversationId = ref('');
 
-    // 加载状态
     const isLoading = ref(false);
 
-    // 当前对话的消息（仅内存，不持久化）
     const _messagesMap = ref({});
     const _mountedFileMap = ref({});
 
-    // 获取当前对话
+    const activeConvKey = () =>
+      currentConversationId.value === '' ||
+      currentConversationId.value == null
+        ? DRAFT_KEY
+        : currentConversationId.value;
+
     const currentConversation = computed(() => {
-      const meta = conversations.value.find(
-        (conv) => conv.id === currentConversationId.value
-      );
+      const id = currentConversationId.value;
+      if (id === '') {
+        return {
+          id: '',
+          title: '新对话',
+          createdAt: Date.now(),
+          get messages() {
+            return _messagesMap.value[DRAFT_KEY] || [];
+          },
+          set messages(val) {
+            _messagesMap.value[DRAFT_KEY] = val;
+          },
+        };
+      }
+      const meta = conversations.value.find((conv) => conv.id === id);
       if (!meta) return null;
       return {
         ...meta,
@@ -40,13 +56,18 @@ const useChatStore = defineStore(
       };
     });
 
-    // 获取当前对话的消息
     const currentMessages = computed(
-      () => _messagesMap.value[currentConversationId.value] || []
+      () => _messagesMap.value[activeConvKey()] || []
     );
 
-    // 创建新对话（后端线程接口不可用时降级为本地线程，避免智能助手页卡死）
     const createConversation = async () => {
+      const attachDraftMount = (newId) => {
+        const draftMount = _mountedFileMap.value[DRAFT_KEY];
+        if (draftMount) {
+          _mountedFileMap.value[newId] = draftMount;
+          delete _mountedFileMap.value[DRAFT_KEY];
+        }
+      };
       try {
         const thread = await createChatThread();
         const newConversation = {
@@ -56,6 +77,7 @@ const useChatStore = defineStore(
         };
         conversations.value.unshift(newConversation);
         _messagesMap.value[newConversation.id] = [];
+        attachDraftMount(newConversation.id);
         currentConversationId.value = newConversation.id;
       } catch {
         const id = `local-${Date.now()}`;
@@ -66,71 +88,80 @@ const useChatStore = defineStore(
         };
         conversations.value.unshift(newConversation);
         _messagesMap.value[newConversation.id] = [];
+        attachDraftMount(newConversation.id);
         currentConversationId.value = newConversation.id;
       }
     };
 
+    /**
+     * 进入「空白新会话」：不请求后端、不出现在历史列表，仅清空草稿区消息。
+     */
+    const enterDraftSession = () => {
+      currentConversationId.value = '';
+      _messagesMap.value[DRAFT_KEY] = [];
+    };
+
     const loadConversations = async () => {
       const localConversations = conversations.value.slice();
-      const localCurrentId = currentConversationId.value;
       try {
-        const threads = await fetchChatThreads();
+        const raw = await fetchChatThreads();
+        const threads = Array.isArray(raw) ? raw : [];
         conversations.value = threads.map((thread) => ({
           id: thread.thread_id,
           title: thread.title,
           createdAt: Date.parse(thread.created_at) || Date.now(),
         }));
 
-        if (!conversations.value.length) {
-          if (localConversations.length) {
-            await Promise.all(
-              localConversations.map((conv) =>
-                createChatThread(conv.title, conv.id).catch(() => null)
-              )
-            );
-            const refreshed = await fetchChatThreads();
-            conversations.value = refreshed.map((thread) => ({
-              id: thread.thread_id,
-              title: thread.title,
-              createdAt: Date.parse(thread.created_at) || Date.now(),
-            }));
-          } else {
-            await createConversation();
-            return;
-          }
+        if (!conversations.value.length && localConversations.length) {
+          await Promise.all(
+            localConversations.map((conv) =>
+              createChatThread(conv.title, conv.id).catch(() => null)
+            )
+          );
+          const refreshed = await fetchChatThreads();
+          const list = Array.isArray(refreshed) ? refreshed : [];
+          conversations.value = list.map((thread) => ({
+            id: thread.thread_id,
+            title: thread.title,
+            createdAt: Date.parse(thread.created_at) || Date.now(),
+          }));
         }
 
-        const exists = conversations.value.find(
-          (conv) => conv.id === currentConversationId.value
-        );
-        if (!exists) {
-          currentConversationId.value =
-            localCurrentId || conversations.value[0].id;
+        const cid = currentConversationId.value;
+        if (cid === '') {
+          return;
         }
-      } catch (error) {
+        const exists = conversations.value.some((c) => c.id === cid);
+        if (!exists) {
+          if (conversations.value.length > 0) {
+            currentConversationId.value = conversations.value[0].id;
+          } else {
+            currentConversationId.value = '';
+            if (!_messagesMap.value[DRAFT_KEY]) {
+              _messagesMap.value[DRAFT_KEY] = [];
+            }
+          }
+        }
+      } catch {
         if (!conversations.value.length) {
-          try {
-            await createConversation();
-          } catch {
-            // 首次加载失败时留给发送消息等流程再提示
+          currentConversationId.value = '';
+          if (!_messagesMap.value[DRAFT_KEY]) {
+            _messagesMap.value[DRAFT_KEY] = [];
           }
         }
       }
     };
 
-    // 切换对话
     const switchConversation = (conversationId) => {
       currentConversationId.value = conversationId;
     };
 
-    // 添加消息到当前对话
     const addMessage = (message) => {
-      const id = currentConversationId.value;
-      if (!id) return;
-      if (!_messagesMap.value[id]) {
-        _messagesMap.value[id] = [];
+      const key = activeConvKey();
+      if (!_messagesMap.value[key]) {
+        _messagesMap.value[key] = [];
       }
-      _messagesMap.value[id].push({
+      _messagesMap.value[key].push({
         id: Date.now(),
         timestamp: new Date().toISOString(),
         thoughts: [],
@@ -145,15 +176,16 @@ const useChatStore = defineStore(
     };
 
     const setCurrentConversationMessages = (messages) => {
-      const id = currentConversationId.value;
-      if (id) {
-        _messagesMap.value[id] = messages;
-      }
+      const key = activeConvKey();
+      _messagesMap.value[key] = messages;
     };
 
     const getConversationMessages = (conversationId) => {
-      if (!conversationId) return [];
-      return _messagesMap.value[conversationId] || [];
+      const id =
+        conversationId === '' || conversationId == null
+          ? DRAFT_KEY
+          : conversationId;
+      return _messagesMap.value[id] || [];
     };
 
     const setIsLoading = (value) => {
@@ -170,7 +202,8 @@ const useChatStore = defineStore(
       pendingActionId = '',
       suggestions = []
     ) => {
-      const msgs = _messagesMap.value[currentConversationId.value];
+      const key = activeConvKey();
+      const msgs = _messagesMap.value[key];
       if (msgs && msgs.length > 0) {
         const lastMessage = msgs[msgs.length - 1];
         lastMessage.content = content;
@@ -185,25 +218,26 @@ const useChatStore = defineStore(
     };
 
     const setMountedFile = (conversationId, fileMeta) => {
-      if (!conversationId) return;
-      _mountedFileMap.value[conversationId] = fileMeta;
+      if (conversationId === undefined || conversationId === null) return;
+      const key = conversationId === '' ? DRAFT_KEY : conversationId;
+      _mountedFileMap.value[key] = fileMeta;
     };
 
     const getMountedFile = (conversationId) => {
-      if (!conversationId) return null;
-      return _mountedFileMap.value[conversationId] || null;
+      if (conversationId === undefined || conversationId === null) return null;
+      const key = conversationId === '' ? DRAFT_KEY : conversationId;
+      return _mountedFileMap.value[key] || null;
     };
 
     const getLastMessage = () => {
-      const msgs = _messagesMap.value[currentConversationId.value];
+      const key = activeConvKey();
+      const msgs = _messagesMap.value[key];
       if (msgs && msgs.length > 0) {
         return msgs[msgs.length - 1];
       }
       return null;
     };
 
-    // 更新对话标题
-    /** 仅更新内存中的标题（不落库），用于首条发送后的临时展示，避免抢在服务端「问+答」标题之前写入 DB */
     const patchConversationTitleLocal = (conversationId, newTitle) => {
       const conversation = conversations.value.find(
         (c) => c.id === conversationId
@@ -227,12 +261,11 @@ const useChatStore = defineStore(
       }
     };
 
-    // 删除对话
     const deleteConversation = async (conversationId) => {
       try {
         await deleteChatThread(conversationId);
-      } catch (error) {
-        return;
+      } catch {
+        /* 仍执行本地移除，避免列表无法操作 */
       }
       const index = conversations.value.findIndex(
         (c) => c.id === conversationId
@@ -240,37 +273,29 @@ const useChatStore = defineStore(
       if (index !== -1) {
         conversations.value.splice(index, 1);
         delete _messagesMap.value[conversationId];
-
-        // 如果删除后没有对话了，创建一个新对话
-        if (conversations.value.length === 0) {
-          await createConversation();
-        }
-        // 如果删除的是当前对话，切换到第一个对话
-        else if (conversationId === currentConversationId.value) {
+      }
+      if (conversationId === currentConversationId.value) {
+        if (conversations.value.length > 0) {
           currentConversationId.value = conversations.value[0].id;
+        } else {
+          enterDraftSession();
         }
       }
     };
 
-    /** 一键清空所有线程（后端逐条删除 + 本地状态重置） */
     const deleteAllConversations = async () => {
       const list = [...conversations.value];
       for (const c of list) {
         try {
           await deleteChatThread(c.id);
         } catch {
-          /* 单条失败仍继续 */
+          /* */
         }
         delete _messagesMap.value[c.id];
       }
       conversations.value = [];
-      currentConversationId.value = '';
       _mountedFileMap.value = {};
-      try {
-        await createConversation();
-      } catch {
-        // 留给用户稍后重试
-      }
+      enterDraftSession();
     };
 
     return {
@@ -290,6 +315,7 @@ const useChatStore = defineStore(
       getMountedFile,
       loadConversations,
       createConversation,
+      enterDraftSession,
       switchConversation,
       patchConversationTitleLocal,
       updateConversationTitle,

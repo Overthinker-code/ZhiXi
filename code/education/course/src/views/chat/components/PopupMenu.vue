@@ -33,9 +33,9 @@
     isVisible.value = !isVisible.value;
   };
 
-  // 创建新对话
-  const handleNewChat = async () => {
-    await chatStore.createConversation();
+  // 新对话：仅草稿，不落库
+  const handleNewChat = () => {
+    chatStore.enterDraftSession();
     isVisible.value = false;
   };
 
@@ -91,16 +91,12 @@
           <el-button class="new-chat-btn" :icon="Plus" @click="handleNewChat"
             >新对话</el-button
           >
-          <a-button
-            type="outline"
-            status="danger"
-            size="small"
-            long
-            class="clear-all-btn"
+          <el-button
+            class="clear-history-btn"
             @click="handleClearAllHistory"
           >
             清空全部历史
-          </a-button>
+          </el-button>
         </div>
         <div class="divider"></div>
         <div class="menu-section">
@@ -325,8 +321,36 @@
         }
       }
 
-      .clear-all-btn {
-        margin: 0.35rem 1rem 0;
+      .clear-history-btn {
+        width: calc(100% - 2rem);
+        margin: 0.4rem 1rem 0;
+        height: 2rem;
+        padding: 0 0.75rem;
+        border-radius: 999px;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        color: #64748b;
+        border: 1px solid rgba(99, 102, 241, 0.22);
+        background: linear-gradient(
+          180deg,
+          rgba(255, 255, 255, 0.95),
+          rgba(238, 242, 255, 0.88)
+        );
+        transition:
+          color 0.2s ease,
+          border-color 0.2s ease,
+          box-shadow 0.2s ease;
+
+        &:hover {
+          color: #b91c1c;
+          border-color: rgba(239, 68, 68, 0.45);
+          background: linear-gradient(
+            180deg,
+            rgba(254, 242, 242, 0.95),
+            rgba(255, 255, 255, 0.92)
+          );
+          box-shadow: 0 4px 12px rgba(239, 68, 68, 0.12);
+        }
       }
     }
 

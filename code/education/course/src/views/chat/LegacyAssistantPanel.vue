@@ -5,7 +5,8 @@
   import { useChat } from '@/hooks/useChat';
   import { Plus } from '@element-plus/icons-vue';
   import 'animate.css';
-  import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+  import { computed, nextTick, onActivated, onMounted, onUnmounted, ref, watch } from 'vue';
+  import { onBeforeRouteLeave } from 'vue-router';
 
   import ChatInput from './components/ChatInput.vue';
   import ChatMessage from './components/ChatMessage.vue';
@@ -60,15 +61,26 @@
     }
   });
 
+  /** 离开智能助手路由后再进入（含 keep-alive 激活）时，打开空白草稿且不新建后端线程 */
+  const refreshDraftOnNextActivate = ref(false);
+
+  onBeforeRouteLeave(() => {
+    refreshDraftOnNextActivate.value = true;
+  });
+
   onMounted(async () => {
-    await Promise.all([chatStore.loadConversations(), loadAssistantSettings()]);
-    const { conversations, currentConversationId, switchConversation } =
-      chatStore;
-    const exists = conversations.some((c) => c.id === currentConversationId);
-    if (!currentConversationId || !exists) {
-      if (conversations.length > 0) {
-        switchConversation(conversations[0].id);
-      }
+    await loadAssistantSettings();
+    await chatStore.loadConversations();
+    chatStore.enterDraftSession();
+    await nextTick();
+    scrollToBottom();
+  });
+
+  onActivated(async () => {
+    await chatStore.loadConversations();
+    if (refreshDraftOnNextActivate.value) {
+      chatStore.enterDraftSession();
+      refreshDraftOnNextActivate.value = false;
     }
     await nextTick();
     scrollToBottom();
@@ -228,6 +240,8 @@
         <div class="title-wrapper">
           <h1 class="chat-title">{{ currentTitle }}</h1>
           <button
+            v-if="chatStore.currentConversationId"
+            type="button"
             class="edit-btn"
             @click="
               dialogEdit.openDialog(chatStore.currentConversationId, 'edit')

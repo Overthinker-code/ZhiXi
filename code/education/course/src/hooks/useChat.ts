@@ -435,8 +435,7 @@ export function useChat() {
    * Create a new conversation and clear its messages.
    */
   async function createNewChat() {
-    await chatStore.createConversation();
-    chatStore.setCurrentConversationMessages([]);
+    chatStore.enterDraftSession();
   }
 
   async function sendSelectionQuery(params: {
@@ -447,6 +446,19 @@ export function useChat() {
   }) {
     const text = params.selectedText?.trim();
     if (!text) return;
+    if (!currentThreadId.value) {
+      if (!getToken()) {
+        Message.error('请先登录后再使用 AI 对话');
+        return;
+      }
+      try {
+        await chatStore.createConversation();
+      } catch {
+        Message.error('无法创建对话，请稍后重试');
+        return;
+      }
+    }
+    if (!currentThreadId.value) return;
     chatStore.addMessage(
       messageHandler.formatMessage('user', `划词提问：${text}`)
     );

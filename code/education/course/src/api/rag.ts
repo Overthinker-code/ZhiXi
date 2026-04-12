@@ -527,13 +527,13 @@ export function fetchChatThreads() {
 
 export function updateChatThreadTitle(threadId: string, title: string) {
   return axios
-    .put(`/chat/threads/${threadId}`, { title })
+    .put(`/api/chat/threads/${threadId}`, { title })
     .then((res: any) => res.data as ChatThread);
 }
 
 export function deleteChatThread(threadId: string) {
   return axios
-    .delete(`/chat/threads/${threadId}`)
+    .delete(`/api/chat/threads/${threadId}`)
     .then((res: any) => res.data as ChatThread);
 }
 
