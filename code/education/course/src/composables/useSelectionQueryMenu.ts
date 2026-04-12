@@ -73,7 +73,16 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
   const answerPanelBounds = ref<AnswerPanelBounds | null>(null);
   const answerPanelSession = ref(0);
   const typewriterLen = ref(0);
+  /** 划词菜单中心 → 答案面板的短暂引导线（视口坐标） */
+  const bridgeLine = ref<{
+    active: boolean;
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+  }>({ active: false, x1: 0, y1: 0, x2: 0, y2: 0 });
   let twTimer: ReturnType<typeof setInterval> | null = null;
+  let bridgeTimer: ReturnType<typeof setTimeout> | null = null;
 
   const currentThreadId = computed(
     () => chatStore.currentConversationId || 'selection-notes-thread'
@@ -116,6 +125,25 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
 
   function closeMenu() {
     showContextMenu.value = false;
+  }
+
+  function triggerBridgeToPanel() {
+    if (bridgeTimer) {
+      clearTimeout(bridgeTimer);
+      bridgeTimer = null;
+    }
+    const r = lastSelectionViewportRect.value;
+    const b = answerPanelBounds.value;
+    if (!r || !b) return;
+    const x1 = (r.left + r.right) / 2;
+    const y1 = (r.top + r.bottom) / 2;
+    const x2 = b.left + 20;
+    const y2 = b.top + 48;
+    bridgeLine.value = { active: true, x1, y1, x2, y2 };
+    bridgeTimer = setTimeout(() => {
+      bridgeLine.value = { ...bridgeLine.value, active: false };
+      bridgeTimer = null;
+    }, 720);
   }
 
   function syncBoundsFromSelection() {
@@ -245,6 +273,7 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
     syncBoundsFromSelection();
     isLoadingResponse.value = true;
     closeMenu();
+    triggerBridgeToPanel();
 
     try {
       const response = await askSelectionQuery(
@@ -289,6 +318,11 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
     isLoadingResponse.value = false;
     lastSelectionViewportRect.value = null;
     answerPanelBounds.value = null;
+    bridgeLine.value = { active: false, x1: 0, y1: 0, x2: 0, y2: 0 };
+    if (bridgeTimer) {
+      clearTimeout(bridgeTimer);
+      bridgeTimer = null;
+    }
   }
 
   function onDocMouseDown(e: MouseEvent) {
@@ -307,6 +341,10 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
     document.removeEventListener('mousedown', onDocMouseDown);
     document.removeEventListener('scroll', closeMenu, true);
     stopTypewriter();
+    if (bridgeTimer) {
+      clearTimeout(bridgeTimer);
+      bridgeTimer = null;
+    }
   });
 
   const renderedResponse = computed(() => {
@@ -329,6 +367,7 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
     answerPanelSession,
     isTypingAnswer,
     renderedResponse,
+    bridgeLine,
     handleTextSelection,
     sendAIQuery,
     closeMenu,

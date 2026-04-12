@@ -4,9 +4,9 @@
   规格：designup.md §6.2
   
   使用示例：
-    <WaveDivider />                    // 默认浅绿
+    <WaveDivider />                    // 默认浅紫底
     <WaveDivider fill="#FFFFFF" />     // 白色
-    <WaveDivider fill="#F0FDF6" :flip="true" />  // 翻转
+    <WaveDivider fill="#f5f3ff" :flip="true" />  // 翻转
 -->
 <template>
   <div class="wave-divider" :class="{ 'wave-divider--flip': flip }">
@@ -17,7 +17,7 @@
     >
       <path
         d="M0,30 C360,60 1080,0 1440,30 L1440,60 L0,60 Z"
-        :fill="fill || '#F0FDF6'"
+        :fill="fill || '#f5f3ff'"
       />
     </svg>
   </div>
@@ -28,7 +28,7 @@ withDefaults(defineProps<{
   fill?: string;
   flip?: boolean;
 }>(), {
-  fill: '#F0FDF6',
+  fill: '#f5f3ff',
   flip: false,
 });
 </script>

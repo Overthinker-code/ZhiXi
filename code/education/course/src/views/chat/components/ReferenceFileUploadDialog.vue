@@ -375,7 +375,7 @@
 
       &.success {
         background: #f6ffed;
-        border-left: 4px solid #52c41a;
+        border-left: 4px solid #6366f1;
       }
 
       &.loading {
@@ -418,7 +418,7 @@
 
           .success-icon {
             font-size: 14px;
-            color: #52c41a;
+            color: #6366f1;
           }
 
           .error-icon {

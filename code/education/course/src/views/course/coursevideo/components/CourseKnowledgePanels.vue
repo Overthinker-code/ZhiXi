@@ -69,21 +69,41 @@
       </div>
     </a-card>
 
-    <div
-      v-if="showContextMenu"
-      :style="contextMenuStyle"
-      class="ctx-menu notes-context-menu"
-    >
-      <div class="menu-title">对所选文本执行操作：</div>
-      <button
-        v-for="t in promptTemplates"
-        :key="t.key"
-        class="menu-item"
-        @click="sendAIQuery(t.key)"
+    <Transition name="sel-menu">
+      <div
+        v-if="showContextMenu"
+        :style="contextMenuStyle"
+        class="ctx-menu notes-context-menu"
       >
-        {{ t.label }}
-      </button>
-    </div>
+        <div class="menu-title">对所选文本执行操作：</div>
+        <button
+          v-for="t in promptTemplates"
+          :key="t.key"
+          class="menu-item"
+          @click="sendAIQuery(t.key)"
+        >
+          {{ t.label }}
+        </button>
+      </div>
+    </Transition>
+
+    <svg
+      v-if="bridgeLine.active"
+      class="selection-bridge"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <line
+        :x1="bridgeLine.x1"
+        :y1="bridgeLine.y1"
+        :x2="bridgeLine.x2"
+        :y2="bridgeLine.y2"
+        stroke="#a78bfa"
+        stroke-width="2.5"
+        stroke-linecap="round"
+        class="selection-bridge-line"
+      />
+    </svg>
 
     <SelectionAiAnswerPanel
       v-if="showAnswerPanel && answerPanelBounds"
@@ -138,6 +158,7 @@
     answerPanelSession,
     isTypingAnswer,
     renderedResponse,
+    bridgeLine,
     handleTextSelection,
     sendAIQuery,
     clearAnswerPanel,
@@ -203,7 +224,7 @@
 
   .panel-card {
     border-radius: 12px;
-    border: 1px solid rgba(45, 181, 131, 0.2);
+    border: 1px solid rgba(99, 102, 241, 0.2);
   }
 
   .reveal-stage {
@@ -272,37 +293,133 @@
     }
   }
 
+  .notes-select-target::selection,
+  .graph-select-wrap ::selection {
+    background: rgba(99, 102, 241, 0.35);
+    color: inherit;
+  }
+
+  @keyframes sel-halo-flow {
+    0% {
+      background-position: 0% 50%;
+    }
+    100% {
+      background-position: 100% 50%;
+    }
+  }
+
+  .graph-select-wrap {
+    position: relative;
+  }
+
+  .graph-select-wrap::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 8px;
+    pointer-events: none;
+    opacity: 0;
+    z-index: 1;
+    background: linear-gradient(
+      120deg,
+      rgba(99, 102, 241, 0.12),
+      rgba(14, 165, 233, 0.18),
+      rgba(139, 92, 246, 0.12)
+    );
+    background-size: 220% 220%;
+    animation: sel-halo-flow 3.5s linear infinite;
+  }
+
+  .graph-select-wrap:hover::before {
+    opacity: 0.35;
+  }
+
   .ctx-menu {
     position: fixed;
     z-index: 1000;
-    background: #fff;
-    border: 1px solid #e5e5e5;
-    border-radius: 8px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-    min-width: 168px;
-    padding: 6px 0;
+    min-width: 200px;
+    padding: 8px 0;
+    border-radius: 14px;
+    border: 1px solid rgba(139, 92, 246, 0.45);
+    background: rgba(15, 23, 42, 0.42);
+    backdrop-filter: blur(20px) saturate(1.4);
+    -webkit-backdrop-filter: blur(20px) saturate(1.4);
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+      0 18px 48px rgba(2, 6, 23, 0.45);
 
     .menu-title {
-      padding: 6px 12px;
-      font-size: 12px;
-      color: #666;
-      border-bottom: 1px solid #f0f0f0;
+      padding: 8px 14px 6px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #94a3b8;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.2);
     }
 
     .menu-item {
       display: block;
       width: 100%;
       text-align: left;
-      padding: 8px 14px;
+      padding: 10px 16px;
       border: none;
       background: none;
       cursor: pointer;
       font-size: 13px;
+      color: #e2e8f0;
+      transition:
+        background 0.2s,
+        color 0.2s;
 
       &:hover {
-        background: #f5f5f5;
-        color: #1677ff;
+        background: rgba(99, 102, 241, 0.2);
+        color: #f8fafc;
       }
+    }
+  }
+
+  .sel-menu-enter-active,
+  .sel-menu-leave-active {
+    transition:
+      opacity 0.22s ease,
+      transform 0.42s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  }
+
+  .sel-menu-enter-from,
+  .sel-menu-leave-to {
+    opacity: 0;
+    transform: scale(0.82) translateY(6px);
+  }
+
+  .sel-menu-enter-to,
+  .sel-menu-leave-from {
+    transform: scale(1) translateY(0);
+  }
+
+  .selection-bridge {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+    z-index: 999;
+  }
+
+  .selection-bridge-line {
+    filter: drop-shadow(0 0 8px rgba(34, 211, 238, 0.75));
+    stroke-dasharray: 8 6;
+    animation: sel-bridge-dash 0.65s linear forwards;
+  }
+
+  @keyframes sel-bridge-dash {
+    from {
+      stroke-dashoffset: 40;
+      opacity: 0.2;
+    }
+    to {
+      stroke-dashoffset: 0;
+      opacity: 1;
     }
   }
 

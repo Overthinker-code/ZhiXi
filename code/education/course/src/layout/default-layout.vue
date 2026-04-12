@@ -436,8 +436,8 @@
     border-radius: 18px;
     overflow: hidden;
     box-shadow: 0 20px 40px rgba(15, 23, 42, 0.25);
-    border: 1px solid rgba(255, 255, 255, 0.9);
-    background: #e9fbf4;
+    border: 1px solid rgba(99, 102, 241, 0.18);
+    background: linear-gradient(180deg, #eef2ff 0%, #e0e7ff 55%, #f8fafc 100%);
   }
 
   .panel-header {
@@ -451,7 +451,7 @@
     cursor: move;
     span {
       font-weight: 600;
-      color: #2a4b43;
+      color: #1e293b;
     }
   }
 

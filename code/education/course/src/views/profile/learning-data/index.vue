@@ -109,7 +109,7 @@
   ];
 
   const pieParts = [
-    { name: '计算机组成原理', pct: 29.66, color: '#2DB583' },
+    { name: '计算机组成原理', pct: 29.66, color: '#6366f1' },
     { name: '计算机网络', pct: 26.27, color: '#1677FF' },
     { name: '操作系统', pct: 22.88, color: '#722ED1' },
     { name: '算法设计与分析', pct: 21.19, color: '#FA8C16' },
@@ -189,15 +189,15 @@
     text-align: center;
     padding: 12px 8px;
     border-radius: 10px;
-    background: linear-gradient(180deg, #f0fdf6, #fff);
-    border: 1px solid rgba(45, 181, 131, 0.12);
+    background: linear-gradient(180deg, #f5f3ff, #fff);
+    border: 1px solid rgba(99, 102, 241, 0.12);
     margin-bottom: 8px;
   }
 
   .stat-num {
     font-size: 22px;
     font-weight: 700;
-    color: #2db583;
+    color: #6366f1;
   }
 
   .stat-label {

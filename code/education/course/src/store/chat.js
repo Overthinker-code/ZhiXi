@@ -252,6 +252,27 @@ const useChatStore = defineStore(
       }
     };
 
+    /** 一键清空所有线程（后端逐条删除 + 本地状态重置） */
+    const deleteAllConversations = async () => {
+      const list = [...conversations.value];
+      for (const c of list) {
+        try {
+          await deleteChatThread(c.id);
+        } catch {
+          /* 单条失败仍继续 */
+        }
+        delete _messagesMap.value[c.id];
+      }
+      conversations.value = [];
+      currentConversationId.value = '';
+      _mountedFileMap.value = {};
+      try {
+        await createConversation();
+      } catch {
+        // 留给用户稍后重试
+      }
+    };
+
     return {
       conversations,
       currentConversationId,
@@ -273,6 +294,7 @@ const useChatStore = defineStore(
       patchConversationTitleLocal,
       updateConversationTitle,
       deleteConversation,
+      deleteAllConversations,
     };
   },
   {

@@ -14,7 +14,7 @@
         <div class="tags">
           <a-tag>计算机学院</a-tag>
           <a-tag color="arcoblue">计算机科学与技术</a-tag>
-          <a-tag color="green">武汉</a-tag>
+          <a-tag color="arcoblue">武汉</a-tag>
         </div>
       </div>
     </div>
@@ -113,14 +113,14 @@
     border-radius: 16px;
     overflow: hidden;
     min-height: 180px;
-    background: linear-gradient(135deg, #e8f4ff 0%, #f0fdf6 100%);
+    background: linear-gradient(135deg, #e8f4ff 0%, #f5f3ff 100%);
   }
 
   .hero-bg {
     position: absolute;
     inset: 0;
     opacity: 0.35;
-    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 200'%3E%3Cpath fill='%232DB583' d='M0 120L60 105C120 90 240 60 360 55C480 50 600 70 720 80C840 90 960 90 1080 75C1200 60 1320 30 1380 15L1440 0V200H0Z'/%3E%3C/svg%3E")
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 200'%3E%3Cpath fill='%236366f1' d='M0 120L60 105C120 90 240 60 360 55C480 50 600 70 720 80C840 90 960 90 1080 75C1200 60 1320 30 1380 15L1440 0V200H0Z'/%3E%3C/svg%3E")
       no-repeat bottom;
     background-size: cover;
   }
@@ -136,13 +136,13 @@
 
   .avatar {
     border: 3px solid #fff;
-    box-shadow: 0 8px 24px rgba(45, 181, 131, 0.2);
+    box-shadow: 0 8px 24px rgba(99, 102, 241, 0.2);
   }
 
   .name {
     margin: 12px 0 8px;
     font-size: 22px;
-    color: #1d3b2f;
+    color: #1e293b;
   }
 
   .tags {
@@ -160,7 +160,7 @@
   .course-card {
     padding: 12px;
     border-radius: 10px;
-    border: 1px solid rgba(45, 181, 131, 0.15);
+    border: 1px solid rgba(99, 102, 241, 0.15);
     background: #fafdfb;
     height: 100%;
   }
@@ -168,7 +168,7 @@
   .course-title {
     font-weight: 600;
     font-size: 15px;
-    color: #1d3b2f;
+    color: #1e293b;
   }
 
   .course-sub {
@@ -179,7 +179,7 @@
 
   .course-meta {
     font-size: 13px;
-    color: #2db583;
+    color: #6366f1;
   }
 
   .muted {

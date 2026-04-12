@@ -38,7 +38,7 @@
         <template #value="{ value, data }">
           <a-tag
             v-if="data.label === 'userSetting.label.certification'"
-            color="green"
+            color="arcoblue"
             size="small"
           >
             {{ $t('userSetting.certification.cell.pass') }}

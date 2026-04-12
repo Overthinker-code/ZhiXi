@@ -196,9 +196,9 @@
     height: 825px;
     margin-top: 20px;
     margin-right: 20px;
-    background-color: #F0FDF6;
+    background-color: #f5f3ff;
     border-radius: 12px;
-    border: 1px solid rgba(45, 181, 131, 0.15);
+    border: 1px solid rgba(99, 102, 241, 0.15);
   }
 
   .modal {
@@ -219,12 +219,12 @@
     padding: 30px;
     background-color: #fff;
     border-radius: 16px;
-    box-shadow: 0 8px 32px rgba(45, 181, 131, 0.15);
+    box-shadow: 0 8px 32px rgba(99, 102, 241, 0.15);
   }
 
   .close {
     float: right;
-    color: #5A7A68;
+    color: #64748b;
     font-weight: bold;
     font-size: 28px;
     cursor: pointer;
@@ -232,7 +232,7 @@
 
   .close:hover,
   .close:focus {
-    color: #2DB583;
+    color: #6366f1;
     text-decoration: none;
     cursor: pointer;
   }
@@ -243,7 +243,7 @@
     margin: 10px 0;
     padding: 10px;
     overflow: hidden;
-    border: 1px solid rgba(45, 181, 131, 0.30);
+    border: 1px solid rgba(99, 102, 241, 0.30);
     border-radius: 8px;
   }
 
@@ -256,7 +256,7 @@
     margin-top: 10px;
     padding: 10px 20px;
     color: white;
-    background-color: #2DB583;
+    background-color: #6366f1;
     border: none;
     border-radius: 8px;
     cursor: pointer;
@@ -264,7 +264,7 @@
   }
 
   .submit-button:hover {
-    background-color: #1A9E6E;
+    background-color: #4f46e5;
   }
 
   .upload-container {

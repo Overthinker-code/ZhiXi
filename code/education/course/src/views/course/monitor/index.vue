@@ -1,5 +1,5 @@
 <template>
-  <div class="container">
+  <div class="monitor-hud-scope">
     <Breadcrumb :items="['menu.dashboard', 'menu.dashboard.monitor']" />
 
     <div class="chat-hero">
@@ -9,6 +9,8 @@
       </div>
       <ChatPanel />
     </div>
+
+    <MonitorHudCharts />
 
     <div class="tools-bar">
       <span class="tools-label">{{ $t('monitor.tools.barLabel') }}</span>
@@ -58,6 +60,7 @@
   import StudioInformation from './components/studio-information.vue';
   import BehaviorDetectionPanel from './components/behavior-detection-panel.vue';
   import MonitorToolFloat from './components/MonitorToolFloat.vue';
+  import MonitorHudCharts from './components/MonitorHudCharts.vue';
 
   const { t } = useI18n();
 
@@ -102,23 +105,67 @@
 </script>
 
 <style scoped lang="less">
-  .container {
-    padding: 0 20px 24px;
+  /* 敞亮紫蓝教学监控：与全局智屿主题一致，避免整页「暗色 HUD」压抑感 */
+  .monitor-hud-scope {
+    padding: 0 20px 28px;
     max-width: 1600px;
     margin: 0 auto;
+    min-height: calc(100vh - 120px);
+    background: linear-gradient(
+      180deg,
+      #f8fafc 0%,
+      #f5f3ff 38%,
+      #ecfeff 100%
+    );
+    color: #0f172a;
+
+    :deep(.arco-breadcrumb-item) {
+      color: #64748b;
+    }
+    :deep(.arco-breadcrumb-item:last-child) {
+      color: #312e81;
+    }
+
+    :deep(.general-card) {
+      background: rgba(255, 255, 255, 0.92) !important;
+      border: 1px solid rgba(99, 102, 241, 0.16) !important;
+      box-shadow: 0 8px 28px rgba(99, 102, 241, 0.08) !important;
+    }
+
+    :deep(.arco-card-header-title) {
+      color: #1e293b !important;
+    }
+
+    :deep(.arco-typography) {
+      color: #475569 !important;
+    }
+
+    :deep(.arco-table-th) {
+      color: #64748b !important;
+      background: rgba(238, 242, 255, 0.65) !important;
+    }
+
+    :deep(.arco-table-td) {
+      color: #1e293b !important;
+      background: transparent !important;
+    }
+
+    :deep(.arco-radio-button-content) {
+      color: #475569;
+    }
   }
 
   .chat-hero {
     margin-top: 8px;
     margin-bottom: 16px;
     border-radius: 16px;
-    border: 1px solid rgba(45, 181, 131, 0.22);
+    border: 1px solid rgba(99, 102, 241, 0.22);
     background: linear-gradient(
       180deg,
-      rgba(232, 250, 243, 0.95) 0%,
-      #fff 42%
+      rgba(238, 242, 255, 0.96) 0%,
+      #ffffff 52%
     );
-    box-shadow: 0 8px 28px rgba(45, 181, 131, 0.12);
+    box-shadow: 0 8px 28px rgba(99, 102, 241, 0.12);
     overflow: hidden;
   }
 
@@ -133,13 +180,13 @@
   .chat-hero-title {
     font-size: 17px;
     font-weight: 700;
-    color: #14523a;
+    color: #3730a3;
     letter-spacing: 0.02em;
   }
 
   .chat-hero-sub {
     font-size: 13px;
-    color: #5a7a6c;
+    color: #64748b;
   }
 
   .chat-hero :deep(.chat-panel) {
@@ -165,15 +212,17 @@
     margin-bottom: 16px;
     padding: 12px 16px;
     border-radius: 12px;
-    background: var(--color-bg-2);
-    border: 1px solid var(--color-border-2);
+    background: rgba(255, 255, 255, 0.88);
+    border: 1px solid rgba(99, 102, 241, 0.14);
+    box-shadow: 0 4px 20px rgba(99, 102, 241, 0.06);
   }
 
   .tools-label {
     font-size: 13px;
     font-weight: 600;
-    color: var(--color-text-2);
+    color: #4338ca;
     margin-right: 4px;
+    letter-spacing: 0.02em;
   }
 
   .main-stage {

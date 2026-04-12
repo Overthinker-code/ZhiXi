@@ -1,6 +1,10 @@
 <template>
-  <a-spin :loading="loading" style="width: 100%">
-    <a-grid :cols="18" :row-gap="16" class="panel">
+  <div class="data-panel-root">
+    <div v-if="loading" class="zy-panel-skeleton" aria-busy="true">
+      <div class="zy-skeleton zy-skeleton--radar zy-bar" style="height: 72px" />
+      <div class="zy-skeleton zy-skeleton--radar zy-bar" style="height: 120px" />
+    </div>
+    <a-grid v-show="!loading" :cols="18" :row-gap="16" class="panel">
       <a-grid-item
         class="panel-col"
         :span="{ xs: 12, sm: 12, md: 12, lg: 12, xl: 12, xxl: 6 }"
@@ -69,7 +73,7 @@
         <a-divider class="panel-border" />
       </a-grid-item>
     </a-grid>
-  </a-spin>
+  </div>
 </template>
 
 <script lang="ts" setup>
@@ -137,7 +141,10 @@
 </script>
 
 <style lang="less" scoped>
-  /* 智屿 Dashboard 数据卡片 — 品牌绿图标 */
+  .data-panel-root {
+    width: 100%;
+  }
+
   .arco-grid.panel {
     margin-bottom: 0;
     padding: 16px 20px 0 20px;

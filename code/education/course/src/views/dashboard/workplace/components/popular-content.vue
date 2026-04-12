@@ -1,6 +1,11 @@
 <template>
-  <a-spin :loading="loading" style="width: 100%">
+  <div class="chart-panel-root">
+    <div v-if="loading" class="zy-panel-skeleton" aria-busy="true">
+      <div class="zy-skeleton zy-skeleton--radar zy-bar" style="height: 48px" />
+      <div class="zy-skeleton zy-skeleton--radar zy-bar" style="height: 300px; margin-top: 12px" />
+    </div>
     <a-card
+      v-show="!loading"
       class="general-card"
       :header-style="{ paddingBottom: '0' }"
       :body-style="{ padding: '17px 20px 21px 20px' }"
@@ -80,7 +85,7 @@
         </a-table>
       </a-space>
     </a-card>
-  </a-spin>
+  </div>
 </template>
 
 <script lang="ts" setup>
@@ -124,6 +129,10 @@
     .arco-typography {
       margin-bottom: 0;
     }
+  }
+
+  .chart-panel-root {
+    width: 100%;
   }
 
   .increases-cell {

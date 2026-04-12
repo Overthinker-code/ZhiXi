@@ -1,6 +1,10 @@
 <template>
-  <a-spin :loading="loading" style="width: 100%">
+  <div class="chart-panel-root">
+    <div v-if="loading" class="zy-panel-skeleton" aria-busy="true">
+      <div class="zy-skeleton zy-skeleton--radar zy-bar" style="height: 310px" />
+    </div>
     <a-card
+      v-show="!loading"
       class="general-card"
       :header-style="{ paddingBottom: '0' }"
       :body-style="{
@@ -10,9 +14,9 @@
       <template #title>
         {{ $t('workplace.categoriesPercent') }}
       </template>
-      <Chart height="310px" :option="chartOption" />
+      <Chart height="310px" :options="chartOption" />
     </a-card>
-  </a-spin>
+  </div>
 </template>
 
 <script lang="ts" setup>
@@ -53,7 +57,7 @@
       value: [distribution.value.courses],
       name: t('workplace.category.courses'),
       itemStyle: {
-        color: '#0f9d8a',
+        color: '#8b5cf6',
       },
     },
     {
@@ -167,4 +171,8 @@
   });
 </script>
 
-<style scoped lang="less"></style>
+<style scoped lang="less">
+  .chart-panel-root {
+    width: 100%;
+  }
+</style>

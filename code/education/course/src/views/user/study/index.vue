@@ -304,9 +304,9 @@
   }
 
   .performance-item:nth-child(3) .performance-value {
-    color: #33ff57;
+    color: #8b5cf6;
 
-    /* 第3个数字的颜色 - 绿色 */
+    /* 第3个数字的颜色 - 紫罗兰 */
   }
 
   .performance-item:nth-child(4) .performance-value {

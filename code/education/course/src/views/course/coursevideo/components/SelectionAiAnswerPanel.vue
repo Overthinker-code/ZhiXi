@@ -2,6 +2,7 @@
   <div
     v-show="visible"
     class="selection-ai-answer-panel"
+    :class="{ 'selection-ai-answer-panel--enter': enterKick }"
     :style="panelCss"
     @mousedown.stop
   >
@@ -10,7 +11,12 @@
       <button type="button" class="x" @click="$emit('close')">✕</button>
     </div>
     <div class="ai-body" :class="{ loading: loading }">
-      <a-spin v-if="loading" tip="正在生成…" />
+      <div v-if="loading" class="ai-loading-skel" aria-busy="true">
+        <div class="zy-skeleton zy-skeleton--radar sk-line" />
+        <div class="zy-skeleton zy-skeleton--radar sk-line short" />
+        <div class="zy-skeleton zy-skeleton--radar sk-line" />
+        <p class="ai-loading-tip">正在生成…</p>
+      </div>
       <template v-else>
         <!-- eslint-disable-next-line vue/no-v-html -->
         <div
@@ -57,6 +63,8 @@
   const MAX_W = 720;
   const MAX_H = 640;
 
+  const enterKick = ref(false);
+
   const left = ref(0);
   const top = ref(0);
   const width = ref(400);
@@ -83,13 +91,29 @@
     () => props.session,
     () => {
       if (props.visible) applyInitial();
+      enterKick.value = false;
+      requestAnimationFrame(() => {
+        enterKick.value = true;
+        setTimeout(() => {
+          enterKick.value = false;
+        }, 520);
+      });
     }
   );
 
   watch(
     () => props.visible,
     (v) => {
-      if (v) applyInitial();
+      if (v) {
+        applyInitial();
+        enterKick.value = false;
+        requestAnimationFrame(() => {
+          enterKick.value = true;
+          setTimeout(() => {
+            enterKick.value = false;
+          }, 520);
+        });
+      }
     }
   );
 
@@ -203,14 +227,37 @@
   .selection-ai-answer-panel {
     position: fixed;
     z-index: 10002;
-    background: #fff;
-    border-radius: 10px;
-    border: 1px solid rgba(22, 119, 255, 0.35);
-    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+    background: rgba(15, 23, 42, 0.55);
+    backdrop-filter: blur(18px) saturate(1.25);
+    -webkit-backdrop-filter: blur(18px) saturate(1.25);
+    border-radius: 14px;
+    border: 1px solid rgba(139, 92, 246, 0.35);
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.06) inset,
+      0 20px 50px rgba(2, 6, 23, 0.45);
     display: flex;
     flex-direction: column;
     overflow: hidden;
     box-sizing: border-box;
+    transform-origin: top left;
+    transition:
+      opacity 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275),
+      transform 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  }
+
+  .selection-ai-answer-panel--enter {
+    animation: sel-panel-spring 0.48s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+  }
+
+  @keyframes sel-panel-spring {
+    from {
+      opacity: 0;
+      transform: scale(0.86) translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
   }
 
   .ai-head {
@@ -220,11 +267,11 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    background: linear-gradient(180deg, #f0f7ff 0%, #fff 100%);
-    border-bottom: 1px solid rgba(22, 119, 255, 0.12);
+    background: linear-gradient(90deg, rgba(49, 46, 129, 0.5), rgba(15, 23, 42, 0.3));
+    border-bottom: 1px solid rgba(99, 102, 241, 0.25);
     cursor: grab;
     font-weight: 600;
-    color: #1677ff;
+    color: #e0e7ff;
     user-select: none;
 
     &:active {
@@ -252,19 +299,44 @@
     align-items: stretch;
 
     &.loading {
-      align-items: center;
-      justify-content: center;
+      align-items: stretch;
+      justify-content: flex-start;
     }
+  }
+
+  .ai-loading-skel {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+    padding: 8px 0;
+  }
+
+  .sk-line {
+    height: 14px;
+    border-radius: 8px;
+  }
+
+  .sk-line.short {
+    width: 55%;
+  }
+
+  .ai-loading-tip {
+    margin: 8px 0 0;
+    font-size: 12px;
+    color: #94a3b8;
+    text-align: center;
   }
 
   .md {
     width: 100%;
     font-size: 13px;
     line-height: 1.7;
+    color: #e2e8f0;
   }
 
   .tw-caret {
-    color: #1677ff;
+    color: #a5b4fc;
     animation: blink 1s step-end infinite;
     margin-left: 2px;
     align-self: flex-start;

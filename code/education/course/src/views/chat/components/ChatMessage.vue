@@ -3,7 +3,7 @@
   import { submitChatFeedback } from '@/api/rag';
   import { useSettingStore } from '@/store/setting';
   import { ArrowDown, Document } from '@element-plus/icons-vue';
-  import { computed, onMounted, onUnmounted, ref } from 'vue';
+  import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
   // 导入图片资源
   import copyIcon from '@/assets/photo/复制.png';
   import successIcon from '@/assets/photo/成功.png';
@@ -34,6 +34,66 @@
 
   // 添加复制状态
   const isCopied = ref(false);
+
+  /** 流式回复：正文 / 思考过程追赶式「打字机」 */
+  const streamTypeLen = ref(0);
+  const streamReasonLen = ref(0);
+  let streamTypeTick = null;
+
+  const isStreamingAssistantBubble = () =>
+    props.message.role === 'assistant' &&
+    props.message.loading &&
+    props.isLastAssistantMessage;
+
+  watch(
+    () => [
+      props.message.content,
+      props.message.reasoning_content,
+      props.message.loading,
+      props.isLastAssistantMessage,
+      props.message.role,
+    ],
+    () => {
+      const fullLen = (props.message.content || '').length;
+      const reasonFull = humanizeAgentReasoning(
+        props.message.reasoning_content || ''
+      ).length;
+      if (!isStreamingAssistantBubble()) {
+        streamTypeLen.value = fullLen;
+        streamReasonLen.value = reasonFull;
+        if (streamTypeTick) {
+          clearInterval(streamTypeTick);
+          streamTypeTick = null;
+        }
+        return;
+      }
+      if (streamTypeLen.value > fullLen) streamTypeLen.value = 0;
+      if (streamReasonLen.value > reasonFull) streamReasonLen.value = 0;
+      if (!streamTypeTick) {
+        streamTypeTick = setInterval(() => {
+          const targetC = (props.message.content || '').length;
+          if (streamTypeLen.value < targetC) {
+            const behind = targetC - streamTypeLen.value;
+            const step = Math.max(1, Math.min(28, Math.ceil(behind / 4)));
+            streamTypeLen.value = Math.min(targetC, streamTypeLen.value + step);
+          }
+          const plainR = humanizeAgentReasoning(
+            props.message.reasoning_content || ''
+          );
+          const targetR = plainR.length;
+          if (streamReasonLen.value < targetR) {
+            const behind = targetR - streamReasonLen.value;
+            const step = Math.max(1, Math.min(36, Math.ceil(behind / 4)));
+            streamReasonLen.value = Math.min(
+              targetR,
+              streamReasonLen.value + step
+            );
+          }
+        }, 28);
+      }
+    },
+    { immediate: true }
+  );
 
   // 添加重新生成的事件
   const emit = defineEmits(['regenerate', 'resumeAction', 'suggestion']);
@@ -201,12 +261,20 @@
         copyBtn?.removeEventListener('click', handleCodeCopy);
         themeBtn?.removeEventListener('click', handleThemeToggle);
       });
+      if (streamTypeTick) {
+        clearInterval(streamTypeTick);
+        streamTypeTick = null;
+      }
     });
   });
 
   // 将消息内容转换为 HTML
   const renderedContent = computed(() => {
-    return renderMarkdown(props.message.content);
+    let raw = props.message.content || '';
+    if (isStreamingAssistantBubble()) {
+      raw = raw.slice(0, streamTypeLen.value);
+    }
+    return renderMarkdown(raw);
   });
 
   /** 仅模型侧链式推理；多智能体流水线单独用 AgentThoughtCard（message.thoughts） */
@@ -232,8 +300,11 @@
   );
 
   const renderedReasoning = computed(() => {
-    const s = displayReasoningPlain.value;
+    let s = displayReasoningPlain.value;
     if (!s || !String(s).trim()) return '';
+    if (isStreamingAssistantBubble()) {
+      s = s.slice(0, streamReasonLen.value);
+    }
     return renderMarkdown(s);
   });
 
@@ -284,9 +355,10 @@
         </el-icon>
       </div>
       <AgentThoughtCard
-        v-if="showAgentPipeline && isPipelineExpanded"
+        v-if="showAgentPipeline"
         :thoughts="message.thoughts || []"
         :streaming="!!message.loading"
+        :collapsed="!isPipelineExpanded"
       />
 
       <!-- 消息内容 -->
@@ -463,8 +535,8 @@
         flex-shrink: 0;
         width: 0.88rem;
         height: 0.88rem;
-        border: 2px solid rgba(45, 181, 131, 0.2);
-        border-top-color: #2DB583;
+        border: 2px solid rgba(99, 102, 241, 0.2);
+        border-top-color: #6366f1;
         border-radius: 50%;
         animation: reasoning-spin 0.65s linear infinite;
       }
@@ -477,11 +549,11 @@
         margin: 0 0 0.5rem 0.5rem;
         border-radius: 999px;
         /* 品牌绿 toggle */
-        border: 1px solid rgba(45, 181, 131, 0.25);
+        border: 1px solid rgba(99, 102, 241, 0.25);
         background: linear-gradient(
           135deg,
-          rgba(45, 181, 131, 0.12),
-          rgba(45, 181, 131, 0.04)
+          rgba(99, 102, 241, 0.12),
+          rgba(99, 102, 241, 0.04)
         );
         cursor: pointer;
         transition: all 0.2s ease;
@@ -492,13 +564,13 @@
         }
 
         span {
-          color: #1A9E6E;
+          color: #4f46e5;
           font-size: 0.78rem;
           font-weight: 600;
         }
 
         .toggle-icon {
-          color: #1A9E6E;
+          color: #4f46e5;
           font-size: 0.75rem;
           transition: transform 0.2s ease;
 
@@ -509,7 +581,7 @@
 
         &:hover {
           transform: translateY(-1px);
-          border-color: rgba(45, 181, 131, 0.45);
+          border-color: rgba(99, 102, 241, 0.45);
         }
       }
 
@@ -552,10 +624,10 @@
         margin: 0 0 0.6rem 1.4rem;
         padding: 0.65rem 0.8rem;
         /* 品牌绿左边框 */
-        border-left: 3px solid rgba(45, 181, 131, 0.40);
+        border-left: 3px solid rgba(99, 102, 241, 0.40);
         border-radius: 0 10px 10px 0;
-        background: #F0FDF6;
-        color: #5A7A68;
+        background: #f5f3ff;
+        color: #64748b;
         font-size: 0.85rem;
         line-height: 1.65;
 
@@ -564,14 +636,14 @@
           align-items: center;
           gap: 0.35rem;
           min-height: 1.5rem;
-          color: #5A7A68;
+          color: #64748b;
           font-size: 0.82rem;
 
           .wait-dot {
             width: 6px;
             height: 6px;
             border-radius: 50%;
-            background: #2DB583;
+            background: #6366f1;
             opacity: 0.35;
             animation: reasoning-dot 1.1s ease-in-out infinite;
 
@@ -836,14 +908,14 @@
       .hitl-card {
         margin-top: 8px;
         padding: 10px;
-        border: 1px solid rgba(45, 181, 131, 0.20);
+        border: 1px solid rgba(99, 102, 241, 0.20);
         border-radius: 10px;
-        background: #F0FDF6;
+        background: #f5f3ff;
 
         p {
           margin: 0 0 8px;
           font-size: 13px;
-          color: #1A2E22;
+          color: #0f172a;
         }
 
         .hitl-actions {
@@ -854,7 +926,7 @@
             border: none;
             border-radius: 6px;
             padding: 4px 10px;
-            background: #2DB583;
+            background: #6366f1;
             color: #fff;
             cursor: pointer;
             font-size: 12px;

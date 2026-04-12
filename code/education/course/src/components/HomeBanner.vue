@@ -2,6 +2,7 @@
   <div class="home-banner-wrapper">
     <!-- 左侧：图片轮播 -->
     <div class="banner-carousel-area">
+      <div class="banner-particles" aria-hidden="true" />
       <a-carousel
         :auto-play="{ interval: 4500, hoverToPause: true }"
         animation-name="fade"
@@ -122,16 +123,16 @@ const categories = [
   border-radius: 20px;
   overflow: hidden;
   box-shadow:
-    0 4px 32px rgba(45, 181, 131, 0.12),
+    0 4px 32px rgba(99, 102, 241, 0.12),
     0 1px 4px rgba(0, 0, 0, 0.06);
   margin-top: 40px;
   background: #ffffff;
-  border: 1px solid rgba(45, 181, 131, 0.10);
+  border: 1px solid rgba(99, 102, 241, 0.10);
   transition: box-shadow 0.3s ease;
 }
 .home-banner-wrapper:hover {
   box-shadow:
-    0 8px 40px rgba(45, 181, 131, 0.18),
+    0 8px 40px rgba(99, 102, 241, 0.18),
     0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
@@ -142,7 +143,39 @@ const categories = [
   position: relative;
 }
 
+/* 轻量粒子漂移（品牌紫 + 海洋青） */
+.banner-particles {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.42;
+  background-image:
+    radial-gradient(1.5px 1.5px at 12% 22%, rgba(99, 102, 241, 0.9), transparent),
+    radial-gradient(1.5px 1.5px at 38% 18%, rgba(14, 165, 233, 0.85), transparent),
+    radial-gradient(1.5px 1.5px at 72% 35%, rgba(139, 92, 246, 0.75), transparent),
+    radial-gradient(1.5px 1.5px at 88% 12%, rgba(99, 102, 241, 0.7), transparent),
+    radial-gradient(1.5px 1.5px at 55% 62%, rgba(14, 165, 233, 0.65), transparent),
+    radial-gradient(1.5px 1.5px at 24% 78%, rgba(139, 92, 246, 0.55), transparent),
+    radial-gradient(1.5px 1.5px at 66% 82%, rgba(99, 102, 241, 0.6), transparent);
+  background-size: 110% 110%;
+  animation: banner-particles-drift 22s linear infinite;
+}
+
+@keyframes banner-particles-drift {
+  0% {
+    transform: translate(0, 0);
+    background-position: 0% 0%;
+  }
+  100% {
+    transform: translate(-3%, -2%);
+    background-position: 100% 100%;
+  }
+}
+
 .banner-carousel {
+  position: relative;
+  z-index: 2;
   height: 330px;
 }
 
@@ -157,14 +190,15 @@ const categories = [
 .banner-overlay {
   position: absolute;
   inset: 0;
+  z-index: 3;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
   padding: 28px 32px;
   background: linear-gradient(
     to top,
-    rgba(8, 32, 18, 0.78) 0%,
-    rgba(8, 32, 18, 0.28) 55%,
+    rgba(15, 23, 42, 0.82) 0%,
+    rgba(30, 27, 75, 0.35) 55%,
     transparent 100%
   );
   pointer-events: none;
@@ -172,7 +206,7 @@ const categories = [
 
 .banner-tag {
   display: inline-block;
-  background: linear-gradient(135deg, #2DB583 0%, #1a9e6e 100%);
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
   color: #ffffff;
   font-size: 11px;
   font-weight: 600;
@@ -181,7 +215,7 @@ const categories = [
   border-radius: 9999px;
   margin-bottom: 10px;
   width: fit-content;
-  box-shadow: 0 2px 8px rgba(45, 181, 131, 0.35);
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
 }
 
 .banner-title {
@@ -206,7 +240,7 @@ const categories = [
 
 /* Arco Carousel 覆写 */
 :deep(.arco-carousel-arrow) {
-  background: rgba(45, 181, 131, 0.55);
+  background: rgba(99, 102, 241, 0.55);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   border: 1px solid rgba(255, 255, 255, 0.25);
@@ -216,7 +250,7 @@ const categories = [
   transition: background 0.2s, transform 0.2s;
 }
 :deep(.arco-carousel-arrow:hover) {
-  background: #2DB583;
+  background: #6366f1;
   transform: scale(1.1);
 }
 :deep(.arco-carousel-indicator-item) {
@@ -236,7 +270,7 @@ const categories = [
   width: 224px;
   flex-shrink: 0;
   background: #ffffff;
-  border-left: 1px solid rgba(45, 181, 131, 0.12);
+  border-left: 1px solid rgba(99, 102, 241, 0.12);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -245,11 +279,11 @@ const categories = [
 /* 顶部标题栏 */
 .side-panel-header {
   padding: 15px 18px;
-  background: linear-gradient(135deg, #f0fdf6 0%, #e8fbf1 100%);
+  background: linear-gradient(135deg, #f5f3ff 0%, #e8fbf1 100%);
   font-weight: 700;
   font-size: 15px;
-  color: #1A2E22;
-  border-bottom: 1px solid rgba(45, 181, 131, 0.12);
+  color: #0f172a;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.12);
   display: flex;
   align-items: center;
   gap: 7px;
@@ -266,8 +300,8 @@ const categories = [
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1px;
-  background: rgba(45, 181, 131, 0.10);
-  border-bottom: 1px solid rgba(45, 181, 131, 0.10);
+  background: rgba(99, 102, 241, 0.10);
+  border-bottom: 1px solid rgba(99, 102, 241, 0.10);
 }
 
 .quick-btn {
@@ -290,13 +324,13 @@ const categories = [
   content: '';
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle at center, rgba(45, 181, 131, 0.12) 0%, transparent 70%);
+  background: radial-gradient(circle at center, rgba(99, 102, 241, 0.12) 0%, transparent 70%);
   opacity: 0;
   transition: opacity 0.2s ease;
 }
 .quick-btn:hover {
-  background: #f0fdf6;
-  color: #2DB583;
+  background: #f5f3ff;
+  color: #6366f1;
 }
 .quick-btn:hover::after {
   opacity: 1;
@@ -337,7 +371,7 @@ const categories = [
   align-items: center;
   padding: 11px 16px;
   cursor: pointer;
-  border-bottom: 1px solid rgba(45, 181, 131, 0.07);
+  border-bottom: 1px solid rgba(99, 102, 241, 0.07);
   font-size: 13px;
   color: #2c4a3a;
   transition: background 0.18s ease, padding-left 0.18s ease;
@@ -351,7 +385,7 @@ const categories = [
   padding-left: 20px;
 }
 .category-item:hover .cat-arrow {
-  color: #2DB583;
+  color: #6366f1;
 }
 
 .cat-icon {

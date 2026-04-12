@@ -53,6 +53,8 @@
       color: #1e3a8a;
       font-size: 12px;
       font-weight: 600;
+      position: relative;
+      overflow: hidden;
     }
 
     .meta {
@@ -70,8 +72,8 @@
     }
 
     &.ok {
-      border-color: #86efac;
-      background: #f0fdf4;
+      border-color: #c7d2fe;
+      background: #eef2ff;
     }
 
     &.late {
@@ -87,6 +89,34 @@
     &.absent {
       border-color: #fca5a5;
       background: #fef2f2;
+
+      &:hover .avatar {
+        animation: hud-glitch 0.45s steps(2, end) infinite;
+        box-shadow: 0 0 10px rgba(248, 113, 113, 0.55);
+      }
+    }
+  }
+
+  @keyframes hud-glitch {
+    0% {
+      transform: translate(0, 0);
+      clip-path: inset(0 0 0 0);
+    }
+    25% {
+      transform: translate(-2px, 1px) skewX(-4deg);
+      clip-path: inset(0 15% 10% 0);
+    }
+    50% {
+      transform: translate(2px, -1px) skewX(3deg);
+      clip-path: inset(8% 0 0 12%);
+    }
+    75% {
+      transform: translate(-1px, 0);
+      clip-path: inset(0 0 12% 8%);
+    }
+    100% {
+      transform: translate(0, 0);
+      clip-path: inset(0 0 0 0);
     }
   }
 </style>

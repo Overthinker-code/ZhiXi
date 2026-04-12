@@ -13,10 +13,10 @@
   50%       { transform: translateY(-12px); }
 }
 
-/* 品牌绿脉冲光晕：用于重要按钮、在线状态 */
-@keyframes zy-pulse-green {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(45, 181, 131, 0.4); }
-  50%       { box-shadow: 0 0 0 8px rgba(45, 181, 131, 0); }
+/* 品牌靛紫脉冲光晕：用于重要按钮、在线状态 */
+@keyframes zy-pulse-brand {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4); }
+  50%       { box-shadow: 0 0 0 8px rgba(99, 102, 241, 0); }
 }
 
 /* 骨架屏闪烁：用于加载占位 */
@@ -46,13 +46,51 @@
 }
 
 .zy-pulse {
-  animation: zy-pulse-green 2s ease-in-out infinite;
+  animation: zy-pulse-brand 2s ease-in-out infinite;
 }
 
 .zy-skeleton {
-  background: linear-gradient(90deg, #e6f9f1 25%, #b3efd6 50%, #e6f9f1 75%);
+  background: linear-gradient(90deg, #eef2ff 25%, #c7d2fe 50%, #eef2ff 75%);
   background-size: 200% 100%;
   animation: zy-shimmer 1.5s infinite;
+}
+
+/* 品牌色扫光（教学总览等数据加载占位） */
+.zy-skeleton--radar {
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  background: linear-gradient(
+    105deg,
+    rgba(99, 102, 241, 0.08) 0%,
+    rgba(99, 102, 241, 0.02) 35%,
+    rgba(14, 165, 233, 0.12) 50%,
+    rgba(139, 92, 246, 0.08) 65%,
+    rgba(99, 102, 241, 0.06) 100%
+  );
+  background-size: 220% 100%;
+  animation: zy-radar-sweep 1.35s ease-in-out infinite;
+}
+
+@keyframes zy-radar-sweep {
+  0% {
+    background-position: 120% 0;
+  }
+  100% {
+    background-position: -120% 0;
+  }
+}
+
+.zy-panel-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 0 12px;
+}
+
+.zy-panel-skeleton .zy-bar {
+  height: 14px;
+  border-radius: 8px;
 }
 
 .zy-fade-up {

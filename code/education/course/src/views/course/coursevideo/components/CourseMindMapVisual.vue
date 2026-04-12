@@ -115,8 +115,8 @@
             width="120"
             height="36"
             rx="8"
-            fill="#52c41a"
-            stroke="#389e0d"
+            fill="#6366f1"
+            stroke="#4f46e5"
           />
           <text
             x="320"

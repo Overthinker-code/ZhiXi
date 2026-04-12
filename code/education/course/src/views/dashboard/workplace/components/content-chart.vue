@@ -1,6 +1,10 @@
 <template>
-  <a-spin :loading="loading" style="width: 100%">
+  <div class="chart-panel-root">
+    <div v-if="loading" class="zy-panel-skeleton" aria-busy="true">
+      <div class="zy-skeleton zy-skeleton--radar zy-bar" style="height: 289px" />
+    </div>
     <a-card
+      v-show="!loading"
       class="general-card"
       :header-style="{ paddingBottom: 0 }"
       :body-style="{
@@ -11,9 +15,9 @@
       <template #extra>
         <a-link>{{ $t('workplace.viewMore') }}</a-link>
       </template>
-      <Chart height="289px" :option="chartOption" />
+      <Chart height="289px" :options="chartOption" />
     </a-card>
-  </a-spin>
+  </div>
 </template>
 
 <script lang="ts" setup>
@@ -201,4 +205,8 @@
   fetchData();
 </script>
 
-<style scoped lang="less"></style>
+<style scoped lang="less">
+  .chart-panel-root {
+    width: 100%;
+  }
+</style>

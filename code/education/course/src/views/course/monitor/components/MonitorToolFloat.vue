@@ -181,7 +181,7 @@
     border-radius: 14px;
     overflow: hidden;
     box-shadow: 0 16px 48px rgba(15, 23, 42, 0.22);
-    border: 1px solid rgba(45, 181, 131, 0.25);
+    border: 1px solid rgba(99, 102, 241, 0.25);
     background: var(--color-bg-2);
     box-sizing: border-box;
   }
@@ -193,8 +193,8 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    background: linear-gradient(90deg, #e8faf3 0%, #fff 100%);
-    border-bottom: 1px solid rgba(45, 181, 131, 0.12);
+    background: linear-gradient(90deg, #eef2ff 0%, #fff 100%);
+    border-bottom: 1px solid rgba(99, 102, 241, 0.12);
     cursor: grab;
     user-select: none;
 
@@ -206,7 +206,7 @@
   .float-title {
     font-weight: 600;
     font-size: 14px;
-    color: #1d3b2f;
+    color: #312e81;
   }
 
   .float-body {

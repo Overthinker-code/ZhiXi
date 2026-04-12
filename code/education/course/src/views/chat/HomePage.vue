@@ -83,7 +83,7 @@
           <svg width="32" height="32" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
             <ellipse cx="18" cy="29" rx="12" ry="5" fill="#C8956C"/>
             <rect x="16.5" y="18" width="3" height="11" rx="1.5" fill="#A0714A"/>
-            <circle cx="18" cy="14" r="8" fill="#2DB583"/>
+            <circle cx="18" cy="14" r="8" fill="#6366f1"/>
             <circle cx="18" cy="7" r="1.8" fill="white" opacity="0.9"/>
             <circle cx="24.2" cy="17.5" r="1.8" fill="white" opacity="0.9"/>
             <circle cx="11.8" cy="17.5" r="1.8" fill="white" opacity="0.9"/>
@@ -170,7 +170,7 @@
               <!-- 树干 -->
               <rect x="193" y="170" width="14" height="70" rx="7" fill="#A0714A"/>
               <!-- 树冠大圆 -->
-              <circle cx="200" cy="140" r="68" fill="url(#green-grad)"/>
+              <circle cx="200" cy="140" r="68" fill="url(#brand-grad)"/>
               <!-- 神经网络节点 -->
               <circle cx="200" cy="88" r="10" fill="white" opacity="0.95"/>
               <circle cx="252" cy="162" r="9" fill="white" opacity="0.90"/>
@@ -185,16 +185,16 @@
               <line x1="192" y1="96" x2="175" y2="112" stroke="white" stroke-width="1.5" opacity="0.5"/>
               <!-- 装饰波浪 -->
               <path d="M100,265 Q150,250 200,265 Q250,280 300,265" stroke="#3B82F6" stroke-width="3" stroke-linecap="round" fill="none" opacity="0.35"/>
-              <path d="M80,285 Q160,268 240,285 Q300,298 320,278" stroke="#2DB583" stroke-width="2" stroke-linecap="round" fill="none" opacity="0.25"/>
+              <path d="M80,285 Q160,268 240,285 Q300,298 320,278" stroke="#6366f1" stroke-width="2" stroke-linecap="round" fill="none" opacity="0.25"/>
               <!-- 渐变定义 -->
               <defs>
-                <linearGradient id="green-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stop-color="#4dd9a0"/>
-                  <stop offset="100%" stop-color="#1A9E6E"/>
+                <linearGradient id="brand-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#818cf8"/>
+                  <stop offset="100%" stop-color="#3b82f6"/>
                 </linearGradient>
                 <linearGradient id="ocean-grad" x1="0%" y1="0%" x2="100%" y2="100%">
                   <stop offset="0%" stop-color="#3B82F6"/>
-                  <stop offset="100%" stop-color="#2DB583"/>
+                  <stop offset="100%" stop-color="#6366f1"/>
                 </linearGradient>
               </defs>
             </svg>
@@ -221,7 +221,7 @@
       </section>
 
       <!-- ===== 波浪分隔线 ===== -->
-      <WaveDivider fill="rgba(45,181,131,0.06)" />
+      <WaveDivider fill="rgba(99, 102, 241,0.06)" />
 
       <!-- ===== 功能亮点区（designup.md §2.2）===== -->
       <section class="features-section">
@@ -266,7 +266,7 @@
 
   .home-page {
     min-height: 100vh;
-    background: var(--zy-gradient-hero, linear-gradient(135deg, #F0FDF6 0%, #FFFFFF 100%));
+    background: var(--zy-gradient-hero, linear-gradient(135deg, #f5f3ff 0%, #FFFFFF 100%));
     font-family: var(--zy-font-display, "PingFang SC", "Hiragino Sans GB", sans-serif);
   }
 
@@ -281,14 +281,14 @@
     align-items: center;
     justify-content: space-between;
     background-color: rgba(255, 255, 255, 0.92);
-    border-bottom: 1px solid rgba(45, 181, 131, 0.12);
+    border-bottom: 1px solid rgba(99, 102, 241, 0.12);
     transition: box-shadow 0.3s ease, backdrop-filter 0.3s ease;
   }
 
   .header--scrolled {
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    box-shadow: 0 2px 16px rgba(45, 181, 131, 0.10);
+    box-shadow: 0 2px 16px rgba(99, 102, 241, 0.10);
   }
 
   /* Logo */
@@ -310,13 +310,13 @@
   .brand-name {
     font-size: 18px;
     font-weight: 700;
-    color: #1A2E22;
+    color: #0f172a;
     letter-spacing: 0.02em;
   }
 
   .brand-sub {
     font-size: 11px;
-    color: #5A7A68;
+    color: #64748b;
     margin-top: 2px;
   }
 
@@ -341,19 +341,19 @@
     height: 36px;
     padding: 0 12px;
     border-radius: 9999px;
-    background: rgba(45, 181, 131, 0.06);
-    border: 1px solid rgba(45, 181, 131, 0.20);
+    background: rgba(99, 102, 241, 0.06);
+    border: 1px solid rgba(99, 102, 241, 0.20);
     transition: all 0.2s ease;
 
     &:hover {
-      border-color: rgba(45, 181, 131, 0.40);
-      background: rgba(45, 181, 131, 0.10);
+      border-color: rgba(99, 102, 241, 0.40);
+      background: rgba(99, 102, 241, 0.10);
     }
 
     .search-icon {
       flex-shrink: 0;
       font-size: 14px;
-      color: #5A7A68;
+      color: #64748b;
       margin-right: 8px;
     }
 
@@ -365,22 +365,22 @@
       outline: none;
       background: none;
       font-size: 13px;
-      color: #1A2E22;
+      color: #0f172a;
       cursor: pointer;
 
       &::placeholder {
-        color: #5A7A68;
+        color: #64748b;
       }
     }
 
     .shortcut-key {
       flex-shrink: 0;
       font-size: 11px;
-      color: #5A7A68;
-      background: rgba(45, 181, 131, 0.10);
+      color: #64748b;
+      background: rgba(99, 102, 241, 0.10);
       padding: 2px 6px;
       border-radius: 4px;
-      border: 1px solid rgba(45, 181, 131, 0.25);
+      border: 1px solid rgba(99, 102, 241, 0.25);
     }
   }
 
@@ -413,9 +413,9 @@
     display: inline-flex;
     align-items: center;
     padding: 5px 14px;
-    border: 1px solid #2DB583;
-    color: #2DB583;
-    background: #e6f9f1;
+    border: 1px solid #6366f1;
+    color: #6366f1;
+    background: #eef2ff;
     border-radius: 9999px;
     font-size: 13px;
     font-weight: 500;
@@ -428,14 +428,14 @@
   .hero-title {
     font-size: 48px;
     font-weight: 700;
-    color: #1A2E22;
+    color: #0f172a;
     line-height: 1.2;
     margin: 0;
     animation: zy-fade-up 0.5s ease 0.25s both;
   }
 
   .hero-title-gradient {
-    background: linear-gradient(135deg, #2DB583, #3B82F6);
+    background: linear-gradient(135deg, #6366f1, #3B82F6);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -444,7 +444,7 @@
   /* 副标题 */
   .hero-desc {
     font-size: 16px;
-    color: #5A7A68;
+    color: #64748b;
     line-height: 1.7;
     max-width: 480px;
     margin: 0;
@@ -463,18 +463,18 @@
     display: inline-flex;
     align-items: center;
     padding: 14px 32px;
-    background: linear-gradient(135deg, #2DB583, #1A9E6E);
+    background: linear-gradient(135deg, #6366f1, #4f46e5);
     color: #fff;
     border-radius: 9999px;
     font-size: 16px;
     font-weight: 600;
     text-decoration: none;
-    box-shadow: 0 6px 24px rgba(45, 181, 131, 0.35);
+    box-shadow: 0 6px 24px rgba(99, 102, 241, 0.35);
     transition: all 0.25s ease;
 
     &:hover {
       transform: translateY(-2px);
-      box-shadow: 0 10px 32px rgba(45, 181, 131, 0.45);
+      box-shadow: 0 10px 32px rgba(99, 102, 241, 0.45);
     }
   }
 
@@ -482,8 +482,8 @@
     display: inline-flex;
     align-items: center;
     padding: 14px 32px;
-    border: 2px solid #2DB583;
-    color: #2DB583;
+    border: 2px solid #6366f1;
+    color: #6366f1;
     border-radius: 9999px;
     font-size: 16px;
     font-weight: 600;
@@ -492,7 +492,7 @@
     transition: all 0.25s ease;
 
     &:hover {
-      background: rgba(45, 181, 131, 0.08);
+      background: rgba(99, 102, 241, 0.08);
       transform: translateY(-2px);
     }
   }
@@ -514,18 +514,18 @@
   .stat-num {
     font-size: 22px;
     font-weight: 700;
-    color: #2DB583;
+    color: #6366f1;
   }
 
   .stat-label {
     font-size: 12px;
-    color: #5A7A68;
+    color: #64748b;
   }
 
   .stat-divider {
     width: 1px;
     height: 36px;
-    background: rgba(45, 181, 131, 0.25);
+    background: rgba(99, 102, 241, 0.25);
   }
 
   /* ---- 右列：插画区 ---- */
@@ -555,13 +555,13 @@
     padding: 10px 14px;
     background: white;
     border-radius: 12px;
-    border-left: 3px solid #2DB583;
-    box-shadow: 0 6px 24px rgba(45, 181, 131, 0.15);
+    border-left: 3px solid #6366f1;
+    box-shadow: 0 6px 24px rgba(99, 102, 241, 0.15);
     white-space: nowrap;
   }
 
   .float-card-icon { font-size: 18px; }
-  .float-card-text { font-size: 13px; font-weight: 600; color: #1A2E22; }
+  .float-card-text { font-size: 13px; font-weight: 600; color: #0f172a; }
 
   /* 卡片位置 */
   .float-card--tl { top: 10%; left: -8%; }
@@ -583,14 +583,14 @@
   .section-title {
     font-size: 32px;
     font-weight: 700;
-    color: #1A2E22;
+    color: #0f172a;
     margin: 0 0 12px;
   }
 
   .section-line {
     width: 48px;
     height: 4px;
-    background: linear-gradient(90deg, #2DB583, #3B82F6);
+    background: linear-gradient(90deg, #6366f1, #3B82F6);
     border-radius: 9999px;
     margin: 0 auto;
   }
@@ -615,15 +615,15 @@
     padding: 28px 24px;
     background: #FFFFFF;
     border-radius: 16px;
-    border: 1px solid rgba(45, 181, 131, 0.08);
-    box-shadow: 0 4px 24px rgba(45, 181, 131, 0.06);
+    border: 1px solid rgba(99, 102, 241, 0.08);
+    box-shadow: 0 4px 24px rgba(99, 102, 241, 0.06);
     overflow: hidden;
     cursor: default;
     transition: transform 0.25s ease, box-shadow 0.25s ease;
 
     &:hover {
       transform: translateY(-4px);
-      box-shadow: 0 8px 32px rgba(45, 181, 131, 0.15);
+      box-shadow: 0 8px 32px rgba(99, 102, 241, 0.15);
 
       .feat-hover-bar {
         opacity: 1;
@@ -638,7 +638,7 @@
     left: 0;
     right: 0;
     height: 3px;
-    background: linear-gradient(90deg, #2DB583, #3B82F6);
+    background: linear-gradient(90deg, #6366f1, #3B82F6);
     border-radius: 0 0 16px 16px;
     opacity: 0;
     transition: opacity 0.3s ease;
@@ -653,13 +653,13 @@
   .feat-title {
     font-size: 17px;
     font-weight: 600;
-    color: #1A2E22;
+    color: #0f172a;
     margin: 0 0 10px;
   }
 
   .feat-desc {
     font-size: 14px;
-    color: #5A7A68;
+    color: #64748b;
     line-height: 1.6;
     margin: 0;
   }

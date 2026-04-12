@@ -21,7 +21,7 @@
               <a-tag
                 v-if="open && isExpires === false"
                 size="small"
-                color="green"
+                color="arcoblue"
               >
                 <template #icon>
                   <icon-check-circle-fill />

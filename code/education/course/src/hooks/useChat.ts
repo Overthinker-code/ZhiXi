@@ -63,6 +63,17 @@ function buildFallbackTitleFromFirstQuery(text: string) {
   return (cleaned || normalized).slice(0, 10) || '新对话';
 }
 
+/** 首轮发送后：占位标题才走 LLM 命名，避免覆盖用户已改好的标题 */
+function isGenericThreadTitle(title: string) {
+  const t = (title || '').trim();
+  if (!t) return true;
+  if (t === '新对话') return true;
+  if (/^新会话\d*$/i.test(t)) return true;
+  if (/^(未命名|无标题)/.test(t)) return true;
+  if (/^LLM\s*Chat$/i.test(t)) return true;
+  return false;
+}
+
 /**
  * Composable for managing AI chat interactions.
  * Extracts conversation logic from LegacyAssistantPanel into a reusable hook.
@@ -193,8 +204,7 @@ export function useChat() {
     ).length;
     const existingTitle = (chatStore.currentConversation?.title || '').trim();
     const needTitleSync =
-      userCountBeforeSend === 0 &&
-      (!existingTitle || existingTitle === '新对话');
+      userCountBeforeSend === 0 && isGenericThreadTitle(existingTitle);
     let mountedFile = chatStore.getMountedFile(threadIdForTitle);
     const firstDoc = (messageContent.files || []).find((f: any) => {
       const raw = f?.raw;
@@ -382,32 +392,22 @@ export function useChat() {
       const lastMessage = chatStore.getLastMessage();
       if (lastMessage) lastMessage.loading = false;
 
+      /* 首轮对话完成后：根据「用户首问 + 助手首答」自动生成会话标题（不依赖列表里是否仍为「新对话」） */
       if (needTitleSync && roundSucceeded && threadIdForTitle) {
-        try {
-          await chatStore.loadConversations();
-          const conv = chatStore.conversations.find(
-            (c: any) => c.id === threadIdForTitle
-          );
-          const t = (conv?.title || '').trim();
-          if (!t || t === '新对话') {
-            const raw = chatStore.getLastMessage()?.content || '';
-            const plain = parseAssistantResponse(raw).content || raw;
-            const snippet = plain.slice(0, 2000);
-            if (snippet && !snippet.startsWith('生成未成功')) {
-              generateChatTitle(messageContent.text, snippet)
-                .then((res) => {
-                  const title = (res?.title || '').trim();
-                  if (!title || title === '新对话') return undefined;
-                  return chatStore.updateConversationTitle(
-                    threadIdForTitle,
-                    title
-                  );
-                })
-                .catch(() => null);
-            }
-          }
-        } catch {
-          // ignore title sync failures
+        const raw = chatStore.getLastMessage()?.content || '';
+        const plain = parseAssistantResponse(raw).content || raw;
+        const snippet = plain.slice(0, 2000);
+        if (snippet && !snippet.startsWith('生成未成功')) {
+          generateChatTitle(messageContent.text, snippet)
+            .then((res) => {
+              const title = (res?.title || '').trim();
+              if (!title || title === '新对话') return undefined;
+              return chatStore.updateConversationTitle(threadIdForTitle, title);
+            })
+            .then(() => chatStore.loadConversations())
+            .catch(() => null);
+        } else {
+          void chatStore.loadConversations();
         }
       }
     }

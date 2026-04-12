@@ -31,13 +31,13 @@
 
   const messagesContainer = ref(null);
   const autoStickToBottom = ref(true);
+  /* 不包含 thoughts：避免多智能体流式事件频繁触发整页滚到底，用户可停留在上方阅读 */
   const messageStreamSignature = computed(() => {
     const last = currentMessages.value[currentMessages.value.length - 1];
     return [
       currentMessages.value.length,
       last?.id || '',
       (last?.content || '').length,
-      (last?.thoughts || []).length,
       Boolean(last?.loading),
     ].join(':');
   });
@@ -62,7 +62,15 @@
 
   onMounted(async () => {
     await Promise.all([chatStore.loadConversations(), loadAssistantSettings()]);
-    await createNewChat();
+    const { conversations, currentConversationId, switchConversation } =
+      chatStore;
+    const exists = conversations.some((c) => c.id === currentConversationId);
+    if (!currentConversationId || !exists) {
+      if (conversations.length > 0) {
+        switchConversation(conversations[0].id);
+      }
+    }
+    await nextTick();
     scrollToBottom();
   });
 
@@ -292,13 +300,13 @@
 <style lang="scss" scoped>
   .chat-container {
     /* ===== 智屿品牌 AI 聊天面板变量 ===== */
-    --assistant-primary: #2DB583;
-    --assistant-primary-dark: #1A9E6E;
+    --assistant-primary: #6366f1;
+    --assistant-primary-dark: #4f46e5;
     --assistant-accent: #F97316;
-    --assistant-border: rgba(45, 181, 131, 0.18);
+    --assistant-border: rgba(99, 102, 241, 0.18);
     --assistant-surface: rgba(255, 255, 255, 0.82);
-    --assistant-text-main: #1A2E22;
-    --assistant-text-sub: #5A7A68;
+    --assistant-text-main: #0f172a;
+    --assistant-text-sub: #64748b;
     position: relative;
     height: calc(100vh - 140px);
     display: flex;
@@ -317,7 +325,7 @@
     padding: 0.9rem 1.1rem;
     background: var(--assistant-surface);
     backdrop-filter: blur(10px);
-    border-bottom: 1px solid rgba(45, 181, 131, 0.15);
+    border-bottom: 1px solid rgba(99, 102, 241, 0.15);
 
     .header-left {
       display: flex;
@@ -329,11 +337,11 @@
         height: 2rem;
         padding: 0 0.8rem;
         border-radius: 999px;
-        border: 1px solid rgba(45, 181, 131, 0.30);
+        border: 1px solid rgba(99, 102, 241, 0.30);
         background: linear-gradient(
           135deg,
-          rgba(45, 181, 131, 0.12),
-          rgba(45, 181, 131, 0.05)
+          rgba(99, 102, 241, 0.12),
+          rgba(99, 102, 241, 0.05)
         );
         color: var(--assistant-primary-dark);
         font-size: 0.82rem;
@@ -349,7 +357,7 @@
             var(--assistant-primary),
             var(--assistant-primary-dark)
           );
-          box-shadow: 0 8px 16px rgba(45, 181, 131, 0.25);
+          box-shadow: 0 8px 16px rgba(99, 102, 241, 0.25);
         }
 
         :deep(.el-icon) {
@@ -453,7 +461,7 @@
 
     &::-webkit-scrollbar-thumb {
       border-radius: 999px;
-      background: linear-gradient(180deg, rgba(45, 181, 131, 0.4), rgba(45, 181, 131, 0.2));
+      background: linear-gradient(180deg, rgba(99, 102, 241, 0.4), rgba(99, 102, 241, 0.2));
       border: 2px solid transparent;
       background-clip: padding-box;
     }
@@ -474,10 +482,10 @@
       width: min(100%, 460px);
       text-align: center;
       background: rgba(240, 253, 246, 0.92);
-      border: 1px solid rgba(45, 181, 131, 0.15);
+      border: 1px solid rgba(99, 102, 241, 0.15);
       border-radius: 20px;
       padding: 2rem 1.2rem;
-      box-shadow: 0 14px 30px rgba(45, 181, 131, 0.08);
+      box-shadow: 0 14px 30px rgba(99, 102, 241, 0.08);
       animation: float-in 0.35s ease;
 
       .empty-icon {
@@ -525,13 +533,13 @@
       border: none;
       border-radius: 8px;
       padding: 4px 8px;
-      background: rgba(45, 181, 131, 0.10);
-      color: #1A2E22;
+      background: rgba(99, 102, 241, 0.10);
+      color: #0f172a;
       font-size: 12px;
       cursor: pointer;
 
       &:hover {
-        background: rgba(45, 181, 131, 0.20);
+        background: rgba(99, 102, 241, 0.20);
         color: var(--assistant-primary);
       }
     }

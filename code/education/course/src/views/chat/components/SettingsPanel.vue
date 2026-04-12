@@ -209,7 +209,7 @@
    */
   .setting-container {
     padding: 20px;
-    color: #1A2E22;
+    color: #0f172a;
   }
 
   .setting-item {
@@ -219,7 +219,7 @@
   .setting-label {
     margin-bottom: 8px;
     font-weight: 600;
-    color: #1A2E22;
+    color: #0f172a;
     font-size: 14px;
   }
 
@@ -232,10 +232,10 @@
 
   .readonly-value {
     padding: 10px 12px;
-    border: 1px solid rgba(45, 181, 131, 0.25);
+    border: 1px solid rgba(99, 102, 241, 0.25);
     border-radius: 8px;
-    background: #F0FDF6;
-    color: #1A2E22;
+    background: #f5f3ff;
+    color: #0f172a;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 13px;
   }
@@ -244,7 +244,7 @@
     margin: 8px 0 0;
     font-size: 12px;
     line-height: 1.5;
-    color: #5A7A68;
+    color: #64748b;
   }
 
   .level-group {
@@ -270,30 +270,30 @@
 
   /* Radio 按钮品牌绿 */
   .level-group :deep(.el-radio-button__inner) {
-    color: #2DB583;
-    border-color: rgba(45, 181, 131, 0.4);
+    color: #6366f1;
+    border-color: rgba(99, 102, 241, 0.4);
   }
 
   .level-group
     :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
-    background: #2DB583;
-    border-color: #2DB583;
+    background: #6366f1;
+    border-color: #6366f1;
     color: #fff;
-    box-shadow: -1px 0 0 0 #2DB583;
+    box-shadow: -1px 0 0 0 #6366f1;
   }
 
   /* Switch 开关品牌绿 */
   :deep(.el-switch.is-checked .el-switch__core) {
-    background-color: #2DB583 !important;
-    border-color: #2DB583 !important;
+    background-color: #6366f1 !important;
+    border-color: #6366f1 !important;
   }
 
   /* 主要按钮品牌绿 */
   .actions :deep(.el-button--primary) {
-    --el-button-bg-color: #2DB583;
-    --el-button-border-color: #2DB583;
-    --el-button-hover-bg-color: #1A9E6E;
-    --el-button-hover-border-color: #1A9E6E;
+    --el-button-bg-color: #6366f1;
+    --el-button-border-color: #6366f1;
+    --el-button-hover-bg-color: #4f46e5;
+    --el-button-hover-border-color: #4f46e5;
     border-radius: 8px;
   }
 </style>

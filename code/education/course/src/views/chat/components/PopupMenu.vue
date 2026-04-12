@@ -1,6 +1,7 @@
 <script setup>
   import { useChatStore } from '@/store/chat';
   import { Plus } from '@element-plus/icons-vue';
+  import { Message, Modal } from '@arco-design/web-vue';
   import { onMounted, onUnmounted, ref } from 'vue';
   import DialogEdit from './DialogEdit.vue';
 
@@ -36,6 +37,20 @@
   const handleNewChat = async () => {
     await chatStore.createConversation();
     isVisible.value = false;
+  };
+
+  const handleClearAllHistory = () => {
+    Modal.confirm({
+      title: '清空全部历史对话',
+      content: '将永久删除所有会话记录，此操作不可撤销。是否继续？',
+      okText: '清空',
+      cancelText: '取消',
+      async onOk() {
+        await chatStore.deleteAllConversations();
+        Message.success('已清空全部历史');
+        isVisible.value = false;
+      },
+    });
   };
 
   // 切换对话
@@ -76,6 +91,16 @@
           <el-button class="new-chat-btn" :icon="Plus" @click="handleNewChat"
             >新对话</el-button
           >
+          <a-button
+            type="outline"
+            status="danger"
+            size="small"
+            long
+            class="clear-all-btn"
+            @click="handleClearAllHistory"
+          >
+            清空全部历史
+          </a-button>
         </div>
         <div class="divider"></div>
         <div class="menu-section">
@@ -298,6 +323,10 @@
           margin-right: 0.5rem;
           font-size: 1rem;
         }
+      }
+
+      .clear-all-btn {
+        margin: 0.35rem 1rem 0;
       }
     }
 

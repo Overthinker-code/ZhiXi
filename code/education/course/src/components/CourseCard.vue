@@ -189,7 +189,7 @@ const toggleFavorite = () => {
   margin: 0;
   font-size: 15px;
   font-weight: 600;
-  color: #1A2E22;
+  color: #0f172a;
   line-height: 1.4;
   overflow: hidden;
   display: -webkit-box;
@@ -230,7 +230,7 @@ const toggleFavorite = () => {
 
 .teacher-name {
   font-size: 12px;
-  color: #5A7A68;
+  color: #64748b;
 }
 
 /* 进度条 */
@@ -242,7 +242,7 @@ const toggleFavorite = () => {
 
 .progress-text {
   font-size: 11px;
-  color: #5A7A68;
+  color: #64748b;
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -263,7 +263,7 @@ const toggleFavorite = () => {
 }
 
 .rating-star { font-size: 13px; }
-.rating-score { font-size: 13px; font-weight: 600; color: #1A2E22; }
+.rating-score { font-size: 13px; font-weight: 600; color: #0f172a; }
 
 .continue-btn {
   font-size: 13px;

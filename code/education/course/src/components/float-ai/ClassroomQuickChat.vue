@@ -33,7 +33,7 @@
               class="reasoning-content markdown-body"
               v-html="
                 renderSafeMarkdown(
-                  item.reasoning ||
+                  displayAssistantReasoning(item) ||
                     '我先拆分你的问题，再整理成更容易吸收的讲解。'
                 )
               "
@@ -41,7 +41,7 @@
             <!-- eslint-disable-next-line vue/no-v-html -->
             <div
               class="markdown-body"
-              v-html="renderSafeMarkdown(item.content)"
+              v-html="renderSafeMarkdown(displayAssistantContent(item))"
             />
           </template>
           <template v-else>
@@ -84,7 +84,7 @@
 <script setup lang="ts">
   import { createAssistantChatStream } from '@/api/rag';
   import { Message } from '@arco-design/web-vue';
-  import { nextTick, ref } from 'vue';
+  import { nextTick, onUnmounted, ref, watch } from 'vue';
   import { renderMarkdown, stripMarkdownCodeToolbar } from '@/utils/markdown';
   import humanizeAgentReasoning from '@/utils/humanizeAgentReasoning';
 
@@ -108,8 +108,98 @@
   const autoStickToBottom = ref(true);
   const localThreadId = ref(`monitor-db-${Date.now()}`);
   let abortController: AbortController | null = null;
+  const streamAssistId = ref<number | null>(null);
+  const streamContentLen = ref(0);
+  const streamReasonLen = ref(0);
+  let streamChaseTimer: ReturnType<typeof setInterval> | null = null;
+
   const renderSafeMarkdown = (content: string) =>
     stripMarkdownCodeToolbar(renderMarkdown(content || ''));
+
+  const displayAssistantContent = (item: ChatItem) => {
+    if (item.role !== 'assistant') return item.content;
+    if (item.loading && item.id === streamAssistId.value) {
+      return (item.content || '').slice(0, streamContentLen.value);
+    }
+    return item.content;
+  };
+
+  const displayAssistantReasoning = (item: ChatItem) => {
+    if (item.role !== 'assistant') return item.reasoning || '';
+    if (item.loading && item.id === streamAssistId.value) {
+      return (item.reasoning || '').slice(0, streamReasonLen.value);
+    }
+    return item.reasoning || '';
+  };
+
+  const getLastAssistant = () => {
+    const last = messages.value[messages.value.length - 1];
+    return last && last.role === 'assistant' ? last : null;
+  };
+
+  watch(
+    () => {
+      const last = messages.value[messages.value.length - 1];
+      const isAssist =
+        last && last.role === 'assistant' && last.loading === true;
+      return [
+        loading.value,
+        isAssist ? last.id : 0,
+        isAssist ? last.content : '',
+        isAssist ? last.reasoning : '',
+      ] as const;
+    },
+    () => {
+      const last = messages.value[messages.value.length - 1];
+      const active =
+        last &&
+        last.role === 'assistant' &&
+        last.loading &&
+        last.id === streamAssistId.value;
+      if (!loading.value || !active) {
+        const m = getLastAssistant();
+        streamContentLen.value = (m?.content || '').length;
+        streamReasonLen.value = (m?.reasoning || '').length;
+        if (streamChaseTimer) {
+          clearInterval(streamChaseTimer);
+          streamChaseTimer = null;
+        }
+        return;
+      }
+      if (streamContentLen.value > (last.content || '').length) {
+        streamContentLen.value = 0;
+      }
+      if (streamReasonLen.value > (last.reasoning || '').length) {
+        streamReasonLen.value = 0;
+      }
+      if (!streamChaseTimer) {
+        streamChaseTimer = setInterval(() => {
+          const m = messages.value[messages.value.length - 1];
+          if (!m || m.role !== 'assistant' || !m.loading) return;
+          const tc = (m.content || '').length;
+          if (streamContentLen.value < tc) {
+            const behind = tc - streamContentLen.value;
+            const step = Math.max(1, Math.min(28, Math.ceil(behind / 4)));
+            streamContentLen.value = Math.min(tc, streamContentLen.value + step);
+          }
+          const tr = (m.reasoning || '').length;
+          if (streamReasonLen.value < tr) {
+            const behind = tr - streamReasonLen.value;
+            const step = Math.max(1, Math.min(36, Math.ceil(behind / 4)));
+            streamReasonLen.value = Math.min(tr, streamReasonLen.value + step);
+          }
+        }, 28);
+      }
+    },
+    { immediate: true }
+  );
+
+  onUnmounted(() => {
+    if (streamChaseTimer) {
+      clearInterval(streamChaseTimer);
+      streamChaseTimer = null;
+    }
+  });
 
   const scrollToBottom = async (force = false) => {
     if (!force && !autoStickToBottom.value) return;
@@ -125,19 +215,18 @@
   };
 
   const addAssistantPlaceholder = () => {
+    const id = Date.now() + Math.floor(Math.random() * 1000);
+    streamAssistId.value = id;
+    streamContentLen.value = 0;
+    streamReasonLen.value = 0;
     messages.value.push({
-      id: Date.now() + Math.floor(Math.random() * 1000),
+      id,
       role: 'assistant',
       content: '',
       reasoning: '',
       loading: true,
       showReasoning: true,
     });
-  };
-
-  const getLastAssistant = () => {
-    const last = messages.value[messages.value.length - 1];
-    return last && last.role === 'assistant' ? last : null;
   };
 
   const handleSend = async () => {
@@ -188,7 +277,7 @@
           } else if (event.type === 'error') {
             streamError = event.content || '生成失败';
           }
-          scrollToBottom();
+          void scrollToBottom();
         },
         abortController.signal
       );
@@ -207,7 +296,7 @@
       if (msg) msg.loading = false;
       loading.value = false;
       abortController = null;
-      scrollToBottom();
+      void scrollToBottom();
     }
   };
 
@@ -230,6 +319,13 @@
     suggestions.value = [];
     loading.value = false;
     autoStickToBottom.value = true;
+    streamAssistId.value = null;
+    streamContentLen.value = 0;
+    streamReasonLen.value = 0;
+    if (streamChaseTimer) {
+      clearInterval(streamChaseTimer);
+      streamChaseTimer = null;
+    }
     localThreadId.value = `monitor-db-${Date.now()}`;
   };
 </script>
@@ -239,7 +335,7 @@
     height: 100%;
     display: flex;
     flex-direction: column;
-    background: linear-gradient(180deg, #e9fbf4 0%, #e4f7ef 100%);
+    background: linear-gradient(180deg, #f5f3ff 0%, #eef2ff 45%, #f8fafc 100%);
     border-radius: 20px;
     overflow: hidden;
   }
@@ -253,10 +349,10 @@
       .name {
         font-size: 26px;
         font-weight: 800;
-        color: #1c3a34;
+        color: #312e81;
       }
       .course {
-        color: #35534b;
+        color: #475569;
         font-size: 15px;
         font-weight: 500;
       }
@@ -273,11 +369,11 @@
     border-radius: 14px;
     padding: 12px 14px;
     margin-bottom: 8px;
-    box-shadow: 0 4px 14px rgba(17, 47, 40, 0.08);
+    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.1);
     .intro {
       font-size: 14px;
       line-height: 1.45;
-      color: #1f2d2a;
+      color: #1e293b;
     }
   }
   .bubble-row {
@@ -299,7 +395,7 @@
     }
     &.assistant {
       background: #fff;
-      color: #1f2d2a;
+      color: #1e293b;
     }
   }
   .reasoning-toggle {

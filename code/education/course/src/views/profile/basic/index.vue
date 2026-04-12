@@ -129,7 +129,7 @@
         <a-tab-pane key="verify" title="实名认证">
           <div class="tab-placeholder">
             <p>完成实名认证可享受更多课程与实验权限。</p>
-            <a-tag v-if="userStore.certification === 1" color="green"
+            <a-tag v-if="userStore.certification === 1" color="arcoblue"
               >当前状态：已认证</a-tag
             >
             <a-tag v-else color="orangered">当前状态：未认证</a-tag>
@@ -308,7 +308,7 @@
   }
 
   .cert {
-    color: rgb(var(--green-6));
+    color: rgb(var(--primary-6));
   }
 
   .detail-card {

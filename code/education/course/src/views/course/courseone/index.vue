@@ -335,7 +335,7 @@ watch(
     padding: 10px;
     overflow-y: hidden;
     /* 品牌浅绿背景（原灰色 #e8e8e8）*/
-    background: var(--zy-bg-page, #F0FDF6);
+    background: var(--zy-bg-page, #f5f3ff);
     gap: 10px;
   }
 
@@ -359,8 +359,8 @@ watch(
     margin: 10px;
     background: #fff;
     border-radius: 16px;
-    border: 1px solid rgba(45, 181, 131, 0.12);
-    box-shadow: 0 4px 24px rgba(45, 181, 131, 0.08);
+    border: 1px solid rgba(99, 102, 241, 0.12);
+    box-shadow: 0 4px 24px rgba(99, 102, 241, 0.08);
     overflow: hidden;
   }
 
@@ -369,8 +369,8 @@ watch(
     margin: 10px;
     background: #fff;
     border-radius: 16px;
-    border: 1px solid rgba(45, 181, 131, 0.12);
-    box-shadow: 0 4px 24px rgba(45, 181, 131, 0.08);
+    border: 1px solid rgba(99, 102, 241, 0.12);
+    box-shadow: 0 4px 24px rgba(99, 102, 241, 0.08);
     overflow: hidden;
   }
 
@@ -379,8 +379,8 @@ watch(
     margin: 10px;
     background: #fff;
     border-radius: 16px;
-    border: 1px solid rgba(45, 181, 131, 0.12);
-    box-shadow: 0 4px 24px rgba(45, 181, 131, 0.08);
+    border: 1px solid rgba(99, 102, 241, 0.12);
+    box-shadow: 0 4px 24px rgba(99, 102, 241, 0.08);
     overflow: hidden;
   }
 
@@ -389,8 +389,8 @@ watch(
     margin: 10px;
     background: #fff;
     border-radius: 16px;
-    border: 1px solid rgba(45, 181, 131, 0.12);
-    box-shadow: 0 4px 24px rgba(45, 181, 131, 0.08);
+    border: 1px solid rgba(99, 102, 241, 0.12);
+    box-shadow: 0 4px 24px rgba(99, 102, 241, 0.08);
     overflow: hidden;
   }
 
@@ -399,8 +399,8 @@ watch(
     margin: 10px;
     background: #fff;
     border-radius: 16px;
-    border: 1px solid rgba(45, 181, 131, 0.12);
-    box-shadow: 0 4px 24px rgba(45, 181, 131, 0.08);
+    border: 1px solid rgba(99, 102, 241, 0.12);
+    box-shadow: 0 4px 24px rgba(99, 102, 241, 0.08);
     overflow: hidden;
   }
 
@@ -409,21 +409,21 @@ watch(
     margin: 20px;
     font-weight: 600;
     font-size: 18px;
-    color: #1A2E22;
+    color: #0f172a;
     padding-left: 12px;
-    border-left: 3px solid #2DB583;
+    border-left: 3px solid #6366f1;
   }
 
   .bar {
     width: 90%;
     margin-left: 5%;
-    border: 1px solid rgba(45, 181, 131, 0.12);
+    border: 1px solid rgba(99, 102, 241, 0.12);
   }
 
   /* 课程标题：从蓝色改为品牌绿 */
   .course-title {
     margin: 15px 20px;
-    color: #2DB583;
+    color: #6366f1;
     font-weight: 600;
     font-size: 24px;
   }
@@ -432,7 +432,7 @@ watch(
     margin: 10px;
     padding: 0 20px 10px;
     line-height: 20px;
-    color: #5A7A68;
+    color: #64748b;
   }
 
   .course-meta {
@@ -447,7 +447,7 @@ watch(
 
   /* 元数据标签：蓝色 → 品牌绿 */
   .meta-label {
-    color: #2DB583;
+    color: #6366f1;
     font-weight: 600;
     font-size: 14px;
     text-align: center;
@@ -457,7 +457,7 @@ watch(
     font-weight: 600;
     font-size: 14px;
     text-align: center;
-    color: #1A2E22;
+    color: #0f172a;
   }
 
   .bottom1 {
@@ -480,13 +480,13 @@ watch(
     width: 90%;
     height: 80px;
     margin-bottom: 15px;
-    border: 1.5px solid rgba(45, 181, 131, 0.20);
+    border: 1.5px solid rgba(99, 102, 241, 0.20);
     border-radius: 12px;
     transition: box-shadow 0.2s ease;
   }
 
   .all-classes:hover {
-    box-shadow: 0 4px 16px rgba(45, 181, 131, 0.12);
+    box-shadow: 0 4px 16px rgba(99, 102, 241, 0.12);
   }
 
   .class-info {
@@ -499,7 +499,7 @@ watch(
 
   /* 教学班标签：蓝色 → 品牌绿 */
   .info-label {
-    color: #2DB583;
+    color: #6366f1;
     font-weight: 600;
     font-size: 14px;
   }
@@ -527,13 +527,13 @@ watch(
 
   /* 模式百分比：原蓝色 #4ed6ff → 品牌绿 */
   .mode-percent {
-    color: #2DB583;
+    color: #6366f1;
     font-weight: 700;
     font-size: 32px;
   }
 
   .mode-label {
-    color: #5A7A68;
+    color: #64748b;
     font-size: 18px;
   }
 
@@ -563,21 +563,21 @@ watch(
     width: 25%;
     padding-bottom: 3px;
     font-size: 13px;
-    background: #F0FDF6;
-    border-bottom: 1px solid rgba(45, 181, 131, 0.15);
+    background: #f5f3ff;
+    border-bottom: 1px solid rgba(99, 102, 241, 0.15);
     height: 40px;
-    color: #1A2E22;
+    color: #0f172a;
   }
 
   .homework-table td {
-    border-bottom: 1px solid rgba(45, 181, 131, 0.10);
+    border-bottom: 1px solid rgba(99, 102, 241, 0.10);
     height: 40px;
-    color: #1A2E22;
+    color: #0f172a;
   }
 
   /* 查看更多：品牌绿 */
   .view-more {
-    color: #2DB583;
+    color: #6366f1;
     cursor: pointer;
     font-weight: 500;
   }
@@ -589,12 +589,12 @@ watch(
   .activity-feed {
     margin-left: 90px;
     text-align: center;
-    color: #5A7A68;
+    color: #64748b;
   }
 
   /* 学生姓名：品牌绿 */
   .name-color {
-    color: #2DB583;
+    color: #6366f1;
     font-weight: 600;
   }
 
@@ -639,17 +639,17 @@ watch(
   }
 
   .resource-type {
-    color: #5A7A68;
+    color: #64748b;
     font-size: 13px;
   }
 
   .resource-size {
     font-weight: 600;
-    color: #2DB583;
+    color: #6366f1;
   }
 
   .resource-count {
-    color: #5A7A68;
+    color: #64748b;
     font-size: 12px;
   }
 </style>

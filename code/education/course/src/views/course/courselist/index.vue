@@ -241,14 +241,14 @@ onMounted(() => {
 .page-title {
   font-size: 32px;
   font-weight: 700;
-  color: #1A2E22;
+  color: #0f172a;
   margin: 0 0 8px;
   font-family: var(--zy-font-display, "PingFang SC", sans-serif);
 }
 
 .page-subtitle {
   font-size: 15px;
-  color: #5A7A68;
+  color: #64748b;
   margin: 0;
 }
 
@@ -260,7 +260,7 @@ onMounted(() => {
   flex-wrap: wrap;
   gap: 12px;
   padding: 20px 0 16px;
-  border-bottom: 1px solid rgba(45, 181, 131, 0.12);
+  border-bottom: 1px solid rgba(99, 102, 241, 0.12);
   margin-bottom: 24px;
 }
 
@@ -274,28 +274,28 @@ onMounted(() => {
   padding: 6px 16px;
   border-radius: 9999px;
   font-size: 14px;
-  color: #5A7A68;
+  color: #64748b;
   cursor: pointer;
   transition: all 0.2s ease;
   border: 1px solid transparent;
 }
 
 .category-tab:hover {
-  color: #2DB583;
-  background: rgba(45, 181, 131, 0.08);
+  color: #6366f1;
+  background: rgba(99, 102, 241, 0.08);
 }
 
 .category-tab--active {
-  color: #2DB583;
-  background: rgba(45, 181, 131, 0.12);
-  border-color: rgba(45, 181, 131, 0.3);
+  color: #6366f1;
+  background: rgba(99, 102, 241, 0.12);
+  border-color: rgba(99, 102, 241, 0.3);
   font-weight: 600;
 }
 
 /* 搜索框结尾按鈕品牌化 */
 :deep(.arco-btn-primary) {
-  background-color: #2DB583 !important;
-  border-color: #2DB583 !important;
+  background-color: #6366f1 !important;
+  border-color: #6366f1 !important;
 }
 
 /* ===== 骨架屏 ===== */
@@ -313,7 +313,7 @@ onMounted(() => {
   border-radius: 16px;
   overflow: hidden;
   background: #fff;
-  box-shadow: 0 4px 24px rgba(45, 181, 131, 0.08);
+  box-shadow: 0 4px 24px rgba(99, 102, 241, 0.08);
 }
 
 .skeleton-cover {
@@ -347,13 +347,13 @@ onMounted(() => {
 .empty-title {
   font-size: 20px;
   font-weight: 600;
-  color: #1A2E22;
+  color: #0f172a;
   margin: 0 0 8px;
 }
 
 .empty-desc {
   font-size: 14px;
-  color: #5A7A68;
+  color: #64748b;
   margin: 0;
 }
 
@@ -377,8 +377,8 @@ onMounted(() => {
 }
 
 :deep(.arco-pagination-item-active) {
-  background-color: #2DB583 !important;
-  border-color: #2DB583 !important;
+  background-color: #6366f1 !important;
+  border-color: #6366f1 !important;
   color: #fff !important;
 }
 </style>

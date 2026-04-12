@@ -4,26 +4,7 @@
     <div class="left-side">
       <!-- 新 Logo -->
       <div class="brand-logo">
-<<<<<<< Updated upstream
         <img :src="logoImg" alt="智屿" style="height: 36px; width: auto;" />
-=======
-        <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="智屿 Logo">
-          <!-- 岛屿底座（沙土椭圆） -->
-          <ellipse cx="18" cy="29" rx="12" ry="5" fill="#C8956C"/>
-          <!-- 树干 -->
-          <rect x="16.5" y="18" width="3" height="11" rx="1.5" fill="#A0714A"/>
-          <!-- 树冠（绿色圆形） -->
-          <circle cx="18" cy="14" r="8" fill="#6366f1"/>
-          <!-- 神经网络节点辐射点 -->
-          <circle cx="18" cy="7" r="1.8" fill="white" opacity="0.9"/>
-          <circle cx="24.2" cy="17.5" r="1.8" fill="white" opacity="0.9"/>
-          <circle cx="11.8" cy="17.5" r="1.8" fill="white" opacity="0.9"/>
-          <!-- 连接线 -->
-          <line x1="18" y1="8.8" x2="18" y2="10" stroke="white" stroke-width="1" opacity="0.6"/>
-          <line x1="22.5" y1="17" x2="21" y2="16" stroke="white" stroke-width="1" opacity="0.6"/>
-          <line x1="13.5" y1="17" x2="15" y2="16" stroke="white" stroke-width="1" opacity="0.6"/>
-        </svg>
->>>>>>> Stashed changes
 
         <!-- 品牌文字 -->
         <div class="brand-text">
@@ -300,7 +281,7 @@
     align-items: center;
     height: 100%;
     background-color: #FFFFFF;
-    border-bottom: 1px solid rgba(45, 181, 131, 0.15);
+    border-bottom: 1px solid rgba(99, 102, 241, 0.15);
     transition: background-color 0.3s ease, backdrop-filter 0.3s ease, box-shadow 0.3s ease;
   }
 
@@ -309,7 +290,7 @@
     background-color: rgba(255, 255, 255, 0.88);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    box-shadow: 0 2px 16px rgba(45, 181, 131, 0.10);
+    box-shadow: 0 2px 16px rgba(99, 102, 241, 0.10);
   }
 
   /* ===== Logo 区 ===== */
@@ -337,14 +318,14 @@
   .brand-name {
     font-size: 18px;
     font-weight: 700;
-    color: var(--zy-color-text-primary, #1A2E22);
+    color: var(--zy-color-text-primary, #0f172a);
     letter-spacing: 0.02em;
     font-family: var(--zy-font-display);
   }
 
   .brand-subtitle {
     font-size: 11px;
-    color: var(--zy-color-text-secondary, #5A7A68);
+    color: var(--zy-color-text-secondary, #64748b);
     margin-top: 2px;
     letter-spacing: 0.03em;
   }
@@ -352,7 +333,7 @@
   .mobile-menu-icon {
     font-size: 22px;
     cursor: pointer;
-    color: var(--zy-color-text-primary, #1A2E22);
+    color: var(--zy-color-text-primary, #0f172a);
   }
 
   /* ===== 中部导航 ===== */
@@ -385,15 +366,15 @@
 
     /* 导航按鈕：绝边框，悬停时变绿色 */
     .nav-btn {
-      border-color: rgba(45, 181, 131, 0.25);
-      color: var(--zy-color-text-secondary, #5A7A68);
+      border-color: rgba(99, 102, 241, 0.25);
+      color: var(--zy-color-text-secondary, #64748b);
       font-size: 16px;
       transition: all 0.2s ease;
 
       &:hover {
-        border-color: var(--zy-color-brand, #2DB583);
-        color: var(--zy-color-brand, #2DB583);
-        background-color: rgba(45, 181, 131, 0.06);
+        border-color: var(--zy-color-brand, #6366f1);
+        color: var(--zy-color-brand, #6366f1);
+        background-color: rgba(99, 102, 241, 0.06);
       }
     }
 
@@ -421,7 +402,7 @@
     transition: border-color 0.2s ease;
 
     &:hover {
-      border-color: var(--zy-color-brand, #2DB583);
+      border-color: var(--zy-color-brand, #6366f1);
     }
   }
 

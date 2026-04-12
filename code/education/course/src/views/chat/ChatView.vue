@@ -181,9 +181,9 @@
     flex-direction: column;
     height: 100%;
     padding: 14px;
-    background-color: var(--zy-bg-page, #F0FDF6);
+    background-color: var(--zy-bg-page, #f5f3ff);
     border-radius: var(--zy-radius-card, 16px);
-    border: 1px solid rgba(45, 181, 131, 0.12);
+    border: 1px solid rgba(99, 102, 241, 0.12);
     box-shadow: var(--zy-shadow-card);
   }
 
@@ -197,20 +197,20 @@
     border-radius: 9999px;
     border: 1px solid transparent;
     transition: all 0.2s ease;
-    color: var(--zy-color-text-secondary, #5A7A68);
+    color: var(--zy-color-text-secondary, #64748b);
   }
 
   :deep(.arco-tabs-nav-type-rounded .arco-tabs-tab:hover) {
-    background-color: rgba(45, 181, 131, 0.08);
-    color: var(--zy-color-brand, #2DB583);
+    background-color: rgba(99, 102, 241, 0.08);
+    color: var(--zy-color-brand, #6366f1);
   }
 
   /* 激活 Tab：绿色背景白字 */
   :deep(.arco-tabs-nav-type-rounded .arco-tabs-tab-active) {
-    background-color: var(--zy-color-brand, #2DB583) !important;
-    border-color: var(--zy-color-brand, #2DB583) !important;
+    background-color: var(--zy-color-brand, #6366f1) !important;
+    border-color: var(--zy-color-brand, #6366f1) !important;
     color: #fff !important;
-    box-shadow: 0 4px 12px rgba(45, 181, 131, 0.30);
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.30);
   }
 
   :deep(.arco-tabs-content) {
@@ -228,26 +228,26 @@
     gap: 10px;
     margin-bottom: 14px;
     padding-bottom: 12px;
-    border-bottom: 1px solid rgba(45, 181, 131, 0.10);
+    border-bottom: 1px solid rgba(99, 102, 241, 0.10);
   }
 
   /* 主要按钮品牌绿 */
   :deep(.arco-btn-primary) {
-    background-color: var(--zy-color-brand, #2DB583) !important;
-    border-color: var(--zy-color-brand, #2DB583) !important;
+    background-color: var(--zy-color-brand, #6366f1) !important;
+    border-color: var(--zy-color-brand, #6366f1) !important;
     border-radius: var(--zy-radius-sm, 8px);
     transition: all 0.2s ease;
   }
 
   :deep(.arco-btn-primary:hover) {
-    background-color: var(--zy-color-brand-hover, #1A9E6E) !important;
-    border-color: var(--zy-color-brand-hover, #1A9E6E) !important;
-    box-shadow: 0 4px 12px rgba(45, 181, 131, 0.30);
+    background-color: var(--zy-color-brand-hover, #4f46e5) !important;
+    border-color: var(--zy-color-brand-hover, #4f46e5) !important;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.30);
   }
 
   /* 表格行悬停品牌色 */
   :deep(.arco-table-tr:hover .arco-table-td) {
-    background-color: rgba(45, 181, 131, 0.04) !important;
+    background-color: rgba(99, 102, 241, 0.04) !important;
   }
 
   @media (max-width: 760px) {

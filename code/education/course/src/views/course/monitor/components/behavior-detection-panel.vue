@@ -4,7 +4,7 @@
     :title="$t('monitor.behaviorDetection.title')"
   >
     <template #extra>
-      <a-tag :color="detectionStatus === 'running' ? 'green' : 'gray'">
+      <a-tag :color="detectionStatus === 'running' ? 'arcoblue' : 'gray'">
         {{ detectionStatus === 'running' ? '检测中' : '未启动' }}
       </a-tag>
     </template>
@@ -334,7 +334,7 @@ const startSimulation = () => {
 
 // 获取分数颜色
 const getScoreColor = (score: number): string => {
-  if (score >= 0.7) return '#52c41a';
+  if (score >= 0.7) return '#6366f1';
   if (score >= 0.3) return '#1890ff';
   if (score >= -0.3) return '#faad14';
   if (score >= -0.7) return '#fa541c';
@@ -349,7 +349,7 @@ const getBehaviorColor = (behaviorName: string): string => {
 
 // 获取状态颜色
 const getStatusColor = (status: string): string => {
-  if (status.includes('优秀')) return 'green';
+  if (status.includes('优秀')) return 'arcoblue';
   if (status.includes('良好')) return 'blue';
   if (status.includes('一般')) return 'orange';
   if (status.includes('较差')) return 'red';
@@ -608,7 +608,7 @@ const drawDetectionBoxes = () => {
     console.log(`检测框 ${index}:`, { sx1, sy1, width, height, color: person.color });
     
     // 绘制矩形框
-    ctx.strokeStyle = person.color || '#52c41a';
+    ctx.strokeStyle = person.color || '#6366f1';
     ctx.lineWidth = 3;
     ctx.strokeRect(sx1, sy1, width, height);
     
@@ -618,7 +618,7 @@ const drawDetectionBoxes = () => {
     const textWidth = ctx.measureText(label).width;
     const textHeight = 20;
     
-    ctx.fillStyle = person.color || '#52c41a';
+    ctx.fillStyle = person.color || '#6366f1';
     ctx.fillRect(sx1, sy1 - textHeight - 4, textWidth + 10, textHeight + 4);
     
     // 绘制标签文字
