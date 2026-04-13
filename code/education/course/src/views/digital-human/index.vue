@@ -8,14 +8,14 @@
       </div>
 
       <div class="tools-grid">
-        <router-link class="tool-card" :to="{ name: 'TextToVideo' }">
+        <a class="tool-card" href="/digital-human/text-to-video">
           <div class="tool-icon">📝</div>
           <div class="tool-info">
             <h3 class="tool-name">文本生成视频</h3>
             <p class="tool-desc">输入脚本，生成数字人口播视频</p>
           </div>
           <div class="tool-arrow"><icon-right /></div>
-        </router-link>
+        </a>
 
         <router-link class="tool-card" :to="{ name: 'PptToVideo' }">
           <div class="tool-icon ppt">📊</div>
