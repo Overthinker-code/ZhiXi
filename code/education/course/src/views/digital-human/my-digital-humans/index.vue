@@ -1,6 +1,6 @@
 <template>
   <div class="container">
-    <Breadcrumb :items="['menu.digitalHuman', 'menu.digitalHuman.myDigitalHumans']" />
+    <Breadcrumb :items="['menu.digitalHuman', 'menu.digitalHuman.my']" />
     <div class="content">
       <!-- 头部 -->
       <div class="header">
@@ -232,7 +232,7 @@ const digitalHumanList = ref([
     id: '1',
     name: '小明老师',
     description: '标准男声，适合教学讲解',
-    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=1',
+    avatar: 'https://i.pravatar.cc/320?img=52',
     createdAt: '2026-04-10',
     videoCount: 5,
     isDefault: true,
@@ -241,7 +241,7 @@ const digitalHumanList = ref([
     id: '2',
     name: '小红老师',
     description: '温柔女声，适合儿童教育',
-    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=2',
+    avatar: 'https://i.pravatar.cc/320?img=47',
     createdAt: '2026-04-09',
     videoCount: 3,
     isDefault: false,
@@ -250,7 +250,7 @@ const digitalHumanList = ref([
     id: '3',
     name: '商务男士',
     description: '专业沉稳，适合商务场合',
-    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=3',
+    avatar: 'https://i.pravatar.cc/320?img=56',
     createdAt: '2026-04-08',
     videoCount: 2,
     isDefault: false,

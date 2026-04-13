@@ -257,10 +257,10 @@ const quickPhrases = [
 ];
 
 const digitalHumanList = ref([
-  { id: '1', name: '小明老师', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=1' },
-  { id: '2', name: '小红老师', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=2' },
-  { id: '3', name: '商务男士', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=3' },
-  { id: '4', name: '职业女性', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=4' },
+  { id: '1', name: '小明老师', avatar: 'https://i.pravatar.cc/200?img=52' },
+  { id: '2', name: '小红老师', avatar: 'https://i.pravatar.cc/200?img=47' },
+  { id: '3', name: '商务男士', avatar: 'https://i.pravatar.cc/200?img=56' },
+  { id: '4', name: '职业女性', avatar: 'https://i.pravatar.cc/200?img=58' },
 ]);
 
 const voiceList = ref([

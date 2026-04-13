@@ -178,11 +178,11 @@ const uploadSlots = reactive<UploadSlot[]>([
 ]);
 
 const photoExamples = ref([
-  { label: '正面', image: 'https://api.dicebear.com/7.x/avataaars/svg?seed=front&gender=male' },
-  { label: '左侧45°', image: 'https://api.dicebear.com/7.x/avataaars/svg?seed=left45&gender=male' },
-  { label: '左侧90°', image: 'https://api.dicebear.com/7.x/avataaars/svg?seed=left90&gender=male' },
-  { label: '右侧45°', image: 'https://api.dicebear.com/7.x/avataaars/svg?seed=right45&gender=male' },
-  { label: '右侧90°', image: 'https://api.dicebear.com/7.x/avataaars/svg?seed=right90&gender=male' },
+  { label: '正面', image: 'https://i.pravatar.cc/240?img=12' },
+  { label: '左侧45°', image: 'https://i.pravatar.cc/240?img=15' },
+  { label: '左侧90°', image: 'https://i.pravatar.cc/240?img=18' },
+  { label: '右侧45°', image: 'https://i.pravatar.cc/240?img=22' },
+  { label: '右侧90°', image: 'https://i.pravatar.cc/240?img=25' },
 ]);
 
 const formData = reactive({
@@ -193,11 +193,11 @@ const formData = reactive({
 const isSubmitting = ref(false);
 
 const generatedExamples = ref([
-  { name: '商务女性', image: 'https://api.dicebear.com/7.x/avataaars/svg?seed=ex1&gender=female' },
-  { name: '青年男性', image: 'https://api.dicebear.com/7.x/avataaars/svg?seed=ex2&gender=male' },
-  { name: '阳光男孩', image: 'https://api.dicebear.com/7.x/avataaars/svg?seed=ex3&gender=male' },
-  { name: '职业女性', image: 'https://api.dicebear.com/7.x/avataaars/svg?seed=ex4&gender=female' },
-  { name: '成熟男性', image: 'https://api.dicebear.com/7.x/avataaars/svg?seed=ex5&gender=male' },
+  { name: '商务女性', image: 'https://i.pravatar.cc/260?img=32' },
+  { name: '青年男性', image: 'https://i.pravatar.cc/260?img=35' },
+  { name: '阳光男孩', image: 'https://i.pravatar.cc/260?img=38' },
+  { name: '职业女性', image: 'https://i.pravatar.cc/260?img=41' },
+  { name: '成熟男性', image: 'https://i.pravatar.cc/260?img=44' },
 ]);
 
 const canSubmit = computed(() => {
