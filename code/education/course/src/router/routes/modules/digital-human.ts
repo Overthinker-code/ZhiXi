@@ -41,7 +41,7 @@ const DIGITAL_HUMAN: AppRouteRecordRaw = {
         locale: 'menu.digitalHuman.textToVideo',
         requiresAuth: true,
         roles: ['*'],
-        hideInMenu: true,
+        hideInMenu: false,
       },
     },
     {

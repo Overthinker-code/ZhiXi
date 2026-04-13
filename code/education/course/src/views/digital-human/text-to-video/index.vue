@@ -425,21 +425,21 @@ export default {
   gap: 18px;
   padding: 18px;
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(255, 255, 255, 0.56);
-  box-shadow: 0 14px 38px rgba(15, 23, 42, 0.09);
+  background: linear-gradient(132deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.88));
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  box-shadow: 0 18px 42px rgba(2, 6, 23, 0.34);
 }
 
 .studio-hero-content {
   h2 {
     margin: 0 0 8px;
     font-size: 30px;
-    color: #0f172a;
+    color: #e2e8f0;
     line-height: 1.2;
   }
   p {
     margin: 0 0 12px;
-    color: #64748b;
+    color: #94a3b8;
     line-height: 1.5;
   }
 }
