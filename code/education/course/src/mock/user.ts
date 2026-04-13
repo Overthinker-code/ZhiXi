@@ -12,7 +12,7 @@ setupMock({
     // Mock.XHR.prototype.withCredentials = true;
 
     // 用户信息
-    Mock.mock(new RegExp('/api/user/info'), () => {
+    Mock.mock(new RegExp('/api/users/me'), () => {
       if (isLogin()) {
         const role = window.localStorage.getItem('userRole') || 'admin';
         return successResponseWrap({
@@ -39,8 +39,12 @@ setupMock({
     });
 
     // 登录
-    Mock.mock(new RegExp('/api/user/login'), (params: MockParams) => {
-      const { username, password } = JSON.parse(params.body);
+    Mock.mock(new RegExp('/api/login/access-token'), (params: MockParams) => {
+      // Decode x-www-form-urlencoded body
+      const urlParams = new URLSearchParams(params.body);
+      const username = urlParams.get('username') || '';
+      const password = urlParams.get('password') || '';
+      
       if (!username) {
         return failResponseWrap(null, '用户名不能为空', 5000);
       }
@@ -50,13 +54,13 @@ setupMock({
       if (username === 'admin' && password === 'admin') {
         window.localStorage.setItem('userRole', 'admin');
         return successResponseWrap({
-          token: '12345',
+          access_token: '12345',
         });
       }
       if (username === 'user' && password === 'user') {
         window.localStorage.setItem('userRole', 'user');
         return successResponseWrap({
-          token: '54321',
+          access_token: '54321',
         });
       }
       return failResponseWrap(null, '账号或者密码错误', 5000);

@@ -3,6 +3,7 @@
     <div class="left-side">
       <div class="panel">
         <Banner />
+        <AdBanner />
         <DataPanel />
         <ContentChart />
       </div>
@@ -24,6 +25,7 @@
 
 <script lang="ts" setup>
   import Banner from './components/banner.vue';
+  import AdBanner from './components/ad-banner.vue';
   import DataPanel from './components/data-panel.vue';
   import ContentChart from './components/content-chart.vue';
   import PopularContent from './components/popular-content.vue';
