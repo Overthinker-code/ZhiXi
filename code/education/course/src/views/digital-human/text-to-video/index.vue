@@ -12,7 +12,22 @@
         <p class="subtitle">输入脚本内容，生成数字人口播视频</p>
       </div>
 
-      <div class="studio-workbench">
+      <div class="studio-hero">
+        <div class="studio-hero-content">
+          <h2>文本生成视频 Studio</h2>
+          <p>这里是可进入的具体创作界面入口，已接入你上传的数字人封面预览。</p>
+          <a-button type="primary" @click="scrollToWorkbench">
+            进入文本生成视频
+          </a-button>
+        </div>
+        <div class="studio-hero-preview" aria-label="数字人封面视频预览（不可点击）">
+          <img :src="studioCoverImage" alt="数字人封面预览" />
+          <span class="hero-scan-line" />
+          <span class="hero-play-mask">▶</span>
+        </div>
+      </div>
+
+      <div ref="workbenchRef" class="studio-workbench">
         <!-- 左侧：控制台 -->
         <div class="studio-control-panel">
           <div class="panel-card">
@@ -233,6 +248,7 @@ const selectedTemplate = ref<any>(null);
 const isStudioRendering = ref(false);
 const studioResultReady = ref(false);
 const studioCoverImage = ref(studioCover);
+const workbenchRef = ref<HTMLElement | null>(null);
 
 const placeholderText = `请输入您想要数字人讲解的内容...
 
@@ -340,6 +356,10 @@ const generateVideo = () => {
     Message.success('视频生成任务已提交，请在"我的数字人"中查看进度');
   }, 3000);
 };
+
+const scrollToWorkbench = () => {
+  workbenchRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
 </script>
 
 <script lang="ts">
@@ -395,6 +415,83 @@ export default {
 .studio-workbench {
   display: flex;
   gap: 24px;
+}
+
+.studio-hero {
+  margin-bottom: 18px;
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  align-items: center;
+  gap: 18px;
+  padding: 18px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.56);
+  box-shadow: 0 14px 38px rgba(15, 23, 42, 0.09);
+}
+
+.studio-hero-content {
+  h2 {
+    margin: 0 0 8px;
+    font-size: 30px;
+    color: #0f172a;
+    line-height: 1.2;
+  }
+  p {
+    margin: 0 0 12px;
+    color: #64748b;
+    line-height: 1.5;
+  }
+}
+
+.studio-hero-preview {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  aspect-ratio: 16 / 9;
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+}
+
+.hero-scan-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #38bdf8, transparent);
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.8);
+  animation: hero-scan 1.5s linear infinite;
+}
+
+.hero-play-mask {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.24);
+  color: #fff;
+  font-size: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(8px);
+}
+
+@keyframes hero-scan {
+  0% {
+    top: 0;
+  }
+  100% {
+    top: calc(100% - 2px);
+  }
 }
 
 .studio-control-panel {
@@ -697,6 +794,10 @@ export default {
 
 // 响应式
 @media (max-width: @screen-lg) {
+  .studio-hero {
+    grid-template-columns: 1fr;
+  }
+
   .studio-workbench {
     flex-direction: column;
   }
