@@ -69,6 +69,7 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
   const surroundingContext = ref('');
   const isLoadingResponse = ref(false);
   const aiResponse = ref('');
+  const localSelectionThreadId = ref(`selection-notes-${Date.now()}`);
   const lastSelectionViewportRect = ref<ViewportRect | null>(null);
   const answerPanelBounds = ref<AnswerPanelBounds | null>(null);
   const answerPanelSession = ref(0);
@@ -84,11 +85,17 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
   let twTimer: ReturnType<typeof setInterval> | null = null;
   let bridgeTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const currentThreadId = computed(
-    () => chatStore.currentConversationId || 'selection-notes-thread'
-  );
+  const sanitizeSelectionAnswer = (raw: string) =>
+    (raw || '')
+      .replace(/<think>[\s\S]*?<\/think>/gi, '')
+      .replace(/<analysis>[\s\S]*?<\/analysis>/gi, '')
+      .replace(/<\/?final>/gi, '')
+      .trim();
 
-  const getThreadId = () => currentThreadId.value;
+  const currentThreadId = computed(() => chatStore.currentConversationId || '');
+
+  const getThreadId = () =>
+    currentThreadId.value || localSelectionThreadId.value;
 
   const showAnswerPanel = computed(
     () => isLoadingResponse.value || Boolean(aiResponse.value)
@@ -209,6 +216,42 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
     return true;
   }
 
+  function resolveSelectionContainer(
+    range: Range,
+    containerSelector: string
+  ): HTMLElement | null {
+    const node = range.commonAncestorContainer;
+    const base =
+      node.nodeType === Node.ELEMENT_NODE
+        ? (node as HTMLElement)
+        : node.parentElement;
+    return base?.closest(containerSelector) || null;
+  }
+
+  function buildSurroundingContextFromRange(
+    containerEl: HTMLElement,
+    range: Range,
+    selected: string
+  ) {
+    try {
+      const beforeRange = range.cloneRange();
+      beforeRange.selectNodeContents(containerEl);
+      beforeRange.setEnd(range.startContainer, range.startOffset);
+      const fullText = containerEl.innerText || containerEl.textContent || '';
+      const startIndex = beforeRange.toString().length;
+      const endIndex = startIndex + selected.length;
+      const contextStart = Math.max(0, startIndex - 120);
+      const contextEnd = Math.min(fullText.length, endIndex + 120);
+      return fullText.slice(contextStart, contextEnd) || selected;
+    } catch {
+      const fallback = getContextSource();
+      const startIndex = fallback.indexOf(selected);
+      if (startIndex < 0) return selected;
+      const endIndex = startIndex + selected.length;
+      return fallback.slice(Math.max(0, startIndex - 120), endIndex + 120);
+    }
+  }
+
   function handleTextSelection(containerSelector: string, _event?: Event) {
     requestAnimationFrame(() => {
       const selection = window.getSelection();
@@ -216,33 +259,6 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
         closeMenu();
         return;
       }
-      const raw = selection.toString().trim();
-      if (!raw) {
-        closeMenu();
-        return;
-      }
-      const anchor = selection.anchorNode;
-      const el =
-        anchor?.nodeType === Node.TEXT_NODE
-          ? (anchor.parentElement as HTMLElement | null)
-          : (anchor as HTMLElement | null);
-      if (!el?.closest(containerSelector)) {
-        closeMenu();
-        return;
-      }
-
-      selectedText.value = raw;
-      const fullText = getContextSource();
-      const startIndex = fullText.indexOf(raw);
-      if (startIndex >= 0) {
-        const endIndex = startIndex + raw.length;
-        const contextStart = Math.max(0, startIndex - 100);
-        const contextEnd = Math.min(fullText.length, endIndex + 100);
-        surroundingContext.value = fullText.substring(contextStart, contextEnd);
-      } else {
-        surroundingContext.value = raw;
-      }
-
       let range: Range;
       try {
         range = selection.getRangeAt(0);
@@ -250,6 +266,27 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
         closeMenu();
         return;
       }
+      const raw = range.toString().trim();
+      if (!raw) {
+        closeMenu();
+        return;
+      }
+      if (raw.length < 2 || raw.length > 400) {
+        closeMenu();
+        return;
+      }
+      const containerEl = resolveSelectionContainer(range, containerSelector);
+      if (!containerEl) {
+        closeMenu();
+        return;
+      }
+
+      selectedText.value = raw;
+      surroundingContext.value = buildSurroundingContextFromRange(
+        containerEl,
+        range,
+        raw
+      );
       if (!positionMenuNearSelection(range)) {
         closeMenu();
         return;
@@ -276,6 +313,10 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
     triggerBridgeToPanel();
 
     try {
+      if (!currentThreadId.value) {
+        // 课堂内容页无主会话时，划词问答使用独立临时线程，避免历史串话导致答非所问
+        localSelectionThreadId.value = `selection-notes-${Date.now()}`;
+      }
       const response = await askSelectionQuery(
         selectedText.value,
         surroundingContext.value,
@@ -286,17 +327,18 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
           promptKey: 'custom',
           strictMode: settingStore.settings.strictMode,
           activeTools: settingStore.settings.activeTools || [],
-          maxTokens: 2000,
-          temperature: 0.7,
+          maxTokens: Math.max(Number(settingStore.settings.maxTokens) || 0, 8192),
+          temperature: 0.5,
         }
       );
       if (response?.response) {
-        aiResponse.value = response.response;
+        const cleanAnswer = sanitizeSelectionAnswer(response.response);
+        aiResponse.value = cleanAnswer;
         chatStore.addMessage(
           messageHandler.formatMessage('user', selectedText.value)
         );
         chatStore.addMessage(
-          messageHandler.formatMessage('assistant', response.response)
+          messageHandler.formatMessage('assistant', cleanAnswer || response.response)
         );
         startTypewriter();
       } else {

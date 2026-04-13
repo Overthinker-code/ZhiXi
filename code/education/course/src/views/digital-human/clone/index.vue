@@ -60,12 +60,21 @@
             
             <template v-else>
               <img :src="slot.preview" class="slot-preview" />
+              <div class="feature-scan-overlay">
+                <span class="scan-line" />
+                <span class="scan-text">Feature Extracting...</span>
+              </div>
               <div class="slot-actions" @click.stop>
                 <a-button type="text" status="danger" size="mini" @click="removeFile(index)">
                   <template #icon><icon-delete /></template>
                 </a-button>
               </div>
             </template>
+
+            <span class="view-corner lt" />
+            <span class="view-corner rt" />
+            <span class="view-corner lb" />
+            <span class="view-corner rb" />
 
             <div v-if="slot.uploading" class="upload-progress">
               <a-progress :percent="slot.progress" type="circle" size="small" />
@@ -106,12 +115,6 @@
             立即生成
           </a-button>
           
-          <div class="agreement">
-            <a-checkbox v-model="formData.agreed">
-              我已阅读并同意
-              <a-link>魔法有言形象克隆服务规范</a-link>
-            </a-checkbox>
-          </div>
         </div>
       </div>
 
@@ -185,7 +188,6 @@ const photoExamples = ref([
 const formData = reactive({
   gender: '',
   ethnicity: '',
-  agreed: false,
 });
 
 const isSubmitting = ref(false);
@@ -200,7 +202,7 @@ const generatedExamples = ref([
 
 const canSubmit = computed(() => {
   const allUploaded = uploadSlots.every((slot) => slot.file !== null);
-  return allUploaded && formData.gender && formData.ethnicity && formData.agreed;
+  return allUploaded && formData.gender && formData.ethnicity;
 });
 
 const goBack = () => {
@@ -270,9 +272,7 @@ const removeFile = (index: number) => {
 
 const submitClone = () => {
   if (!canSubmit.value) {
-    if (!formData.agreed) {
-      Message.warning('请同意服务规范');
-    }
+    Message.warning('请先上传完整照片并选择性别、族裔');
     return;
   }
   
@@ -428,24 +428,26 @@ export default {
   position: relative;
   width: 140px;
   height: 170px;
-  border: 2px dashed var(--color-border-3);
+  border: 1px solid color-mix(in srgb, var(--zy-color-brand, #6366f1) 40%, transparent);
   border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   transition: all 0.3s;
-  background: var(--color-fill-1);
+  background: linear-gradient(180deg, #0b1222 0%, #111827 100%);
   overflow: hidden;
 
   &:hover {
-    border-color: rgb(var(--primary-5));
-    background: rgb(var(--primary-1));
+    border-color: color-mix(in srgb, var(--zy-color-brand, #6366f1) 75%, transparent);
+    box-shadow:
+      inset 0 0 22px rgba(56, 189, 248, 0.16),
+      0 8px 18px rgba(15, 23, 42, 0.35);
   }
 
   &.has-file {
     border-style: solid;
-    border-color: rgb(var(--primary-4));
+    border-color: color-mix(in srgb, var(--zy-color-brand, #6366f1) 80%, transparent);
   }
 
   &.is-uploading {
@@ -458,7 +460,7 @@ export default {
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  color: var(--color-text-3);
+  color: #cbd5e1;
 
   .slot-label {
     font-size: 14px;
@@ -469,6 +471,70 @@ export default {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.view-corner {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+  border-color: color-mix(in srgb, var(--zy-color-brand, #6366f1) 90%, #fff 10%);
+  border-style: solid;
+  z-index: 2;
+  &.lt {
+    left: 6px;
+    top: 6px;
+    border-width: 2px 0 0 2px;
+  }
+  &.rt {
+    right: 6px;
+    top: 6px;
+    border-width: 2px 2px 0 0;
+  }
+  &.lb {
+    left: 6px;
+    bottom: 6px;
+    border-width: 0 0 2px 2px;
+  }
+  &.rb {
+    right: 6px;
+    bottom: 6px;
+    border-width: 0 2px 2px 0;
+  }
+}
+
+.feature-scan-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  .scan-line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--zy-color-ocean, #22d3ee), transparent);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--zy-color-ocean, #22d3ee) 75%, transparent);
+    animation: feature-scan 1.2s linear infinite;
+  }
+  .scan-text {
+    position: absolute;
+    left: 8px;
+    bottom: 8px;
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    color: color-mix(in srgb, var(--zy-color-ocean, #22d3ee) 85%, #fff 15%);
+    text-shadow: 0 0 8px rgba(34, 211, 238, 0.6);
+  }
+}
+
+@keyframes feature-scan {
+  0% {
+    top: 8px;
+  }
+  100% {
+    top: calc(100% - 8px);
+  }
 }
 
 .slot-actions {
@@ -511,9 +577,6 @@ export default {
     flex-wrap: wrap;
   }
 
-  .agreement {
-    font-size: 13px;
-  }
 }
 
 .examples-section {

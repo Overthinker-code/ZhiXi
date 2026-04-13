@@ -12,9 +12,9 @@
         <p class="subtitle">输入脚本内容，生成数字人口播视频</p>
       </div>
 
-      <div class="main-content">
-        <!-- 左侧：文本输入 -->
-        <div class="left-panel">
+      <div class="studio-workbench">
+        <!-- 左侧：控制台 -->
+        <div class="studio-control-panel">
           <div class="panel-card">
             <div class="panel-header">
               <h3>输入脚本内容</h3>
@@ -61,8 +61,8 @@
           </div>
         </div>
 
-        <!-- 右侧：设置 -->
-        <div class="right-panel">
+        <!-- 中间：参数设置 -->
+        <div class="studio-control-panel">
           <div class="panel-card">
             <h3 class="panel-title">视频设置</h3>
             
@@ -157,6 +157,30 @@
             生成视频
           </a-button>
         </div>
+
+        <!-- 右侧：专业预览区 -->
+        <div class="studio-preview-shell">
+          <div class="studio-preview-bg">
+            <div class="studio-preview-canvas">
+              <div class="canvas-frame" :class="{ 'is-rendering': isStudioRendering }">
+                <template v-if="!studioResultReady">
+                  <div class="canvas-waiting">
+                    <icon-video-camera :size="32" />
+                    <p>AI Studio 预览画布</p>
+                    <span>点击「生成视频」后展示渲染结果</span>
+                  </div>
+                </template>
+                <template v-else>
+                  <img :src="studioCoverImage" class="studio-cover" alt="数字人视频封面" />
+                  <button type="button" class="play-glass-btn">
+                    <icon-play-arrow :size="26" />
+                  </button>
+                </template>
+                <div v-if="isStudioRendering" class="laser-scan-line" />
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -188,12 +212,14 @@
 import { ref, reactive, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { Message } from '@arco-design/web-vue';
+import studioCover from '@/assets/digital-human/studio-cover.png';
 import {
   IconLeft,
   IconApps,
   IconRobot,
   IconMagic,
   IconPlayCircle,
+  IconPlayArrow,
   IconVideoCamera,
   IconCheck,
 } from '@arco-design/web-vue/es/icon';
@@ -204,6 +230,9 @@ const isPolishing = ref(false);
 const isGenerating = ref(false);
 const showTemplates = ref(false);
 const selectedTemplate = ref<any>(null);
+const isStudioRendering = ref(false);
+const studioResultReady = ref(false);
+const studioCoverImage = ref(studioCover);
 
 const placeholderText = `请输入您想要数字人讲解的内容...
 
@@ -302,10 +331,14 @@ const applyTemplate = () => {
 
 const generateVideo = () => {
   isGenerating.value = true;
+  isStudioRendering.value = true;
+  studioResultReady.value = false;
   setTimeout(() => {
+    isStudioRendering.value = false;
+    studioResultReady.value = true;
     isGenerating.value = false;
     Message.success('视频生成任务已提交，请在"我的数字人"中查看进度');
-  }, 2000);
+  }, 3000);
 };
 </script>
 
@@ -359,18 +392,14 @@ export default {
   }
 }
 
-.main-content {
+.studio-workbench {
   display: flex;
   gap: 24px;
 }
 
-.left-panel {
+.studio-control-panel {
   flex: 1;
-}
-
-.right-panel {
-  width: 380px;
-  flex-shrink: 0;
+  min-width: 0;
 }
 
 .panel-card {
@@ -398,6 +427,110 @@ export default {
     font-weight: 600;
     color: var(--color-text-1);
     margin-bottom: 20px;
+  }
+}
+
+.studio-preview-shell {
+  width: 60%;
+  min-width: 420px;
+  flex-shrink: 0;
+}
+
+.studio-preview-bg {
+  height: 100%;
+  min-height: 560px;
+  border-radius: 18px;
+  background-color: #0f172a;
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px);
+  background-size: 26px 26px, 26px 26px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  box-shadow: inset 0 0 40px rgba(15, 23, 42, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 22px;
+}
+
+.studio-preview-canvas {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.canvas-frame {
+  width: min(100%, 720px);
+  aspect-ratio: 16 / 9;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.95), rgba(2, 6, 23, 0.98));
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  overflow: hidden;
+  position: relative;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.05) inset,
+    0 18px 50px rgba(2, 6, 23, 0.65);
+}
+
+.canvas-waiting {
+  height: 100%;
+  color: #93c5fd;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  p {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+  }
+  span {
+    font-size: 12px;
+    color: #94a3b8;
+  }
+}
+
+.studio-cover {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.play-glass-btn {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 82px;
+  height: 82px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  backdrop-filter: blur(10px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.laser-scan-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #38bdf8, transparent);
+  box-shadow: 0 0 18px rgba(56, 189, 248, 0.8);
+  animation: studio-scan 1.2s linear infinite;
+}
+
+@keyframes studio-scan {
+  0% {
+    top: 0%;
+  }
+  100% {
+    top: calc(100% - 2px);
   }
 }
 
@@ -564,12 +697,13 @@ export default {
 
 // 响应式
 @media (max-width: @screen-lg) {
-  .main-content {
+  .studio-workbench {
     flex-direction: column;
   }
 
-  .right-panel {
+  .studio-preview-shell {
     width: 100%;
+    min-width: 0;
   }
 }
 </style>

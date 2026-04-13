@@ -164,16 +164,19 @@ export default {
   display: flex;
   align-items: center;
   padding: 32px;
-  background: var(--color-bg-2);
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
   border-radius: 12px;
-  border: 1px solid var(--color-border-2);
+  border: 1px solid rgba(255, 255, 255, 0.5);
   cursor: pointer;
   transition: all 0.3s ease;
 
   &:hover {
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-    transform: translateY(-2px);
-    border-color: rgb(var(--primary-5));
+    transform: translateY(-6px);
+    border-color: color-mix(in srgb, var(--zy-color-brand, #6366f1) 45%, #fff 55%);
+    box-shadow:
+      0 18px 42px rgba(15, 23, 42, 0.14),
+      0 0 55px color-mix(in srgb, var(--zy-color-brand, #6366f1) 26%, transparent);
   }
 
   .tool-icon {
@@ -230,10 +233,11 @@ export default {
 }
 
 .guide-section {
-  background: var(--color-bg-2);
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
   border-radius: 12px;
   padding: 32px;
-  border: 1px solid var(--color-border-2);
+  border: 1px solid rgba(255, 255, 255, 0.5);
 
   .section-title {
     font-size: 20px;

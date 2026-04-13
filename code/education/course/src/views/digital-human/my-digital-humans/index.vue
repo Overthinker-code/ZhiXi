@@ -426,13 +426,14 @@ export default {
 }
 
 .stat-card {
-  background: var(--color-bg-2);
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
   border-radius: 12px;
   padding: 24px;
   display: flex;
   align-items: center;
   gap: 16px;
-  border: 1px solid var(--color-border-2);
+  border: 1px solid rgba(255, 255, 255, 0.5);
 
   .stat-icon {
     width: 56px;
@@ -473,10 +474,11 @@ export default {
 }
 
 .main-tabs {
-  background: var(--color-bg-2);
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
   border-radius: 12px;
   padding: 24px;
-  border: 1px solid var(--color-border-2);
+  border: 1px solid rgba(255, 255, 255, 0.5);
 }
 
 .section-header {
@@ -500,16 +502,19 @@ export default {
 }
 
 .digital-human-card {
-  background: var(--color-bg-2);
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
   border-radius: 12px;
   overflow: hidden;
-  border: 2px solid var(--color-border-2);
+  border: 1px solid rgba(255, 255, 255, 0.5);
   transition: all 0.3s;
   position: relative;
 
   &:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+    transform: translateY(-6px);
+    box-shadow:
+      0 18px 42px rgba(15, 23, 42, 0.14),
+      0 0 55px color-mix(in srgb, var(--zy-color-brand, #6366f1) 26%, transparent);
   }
 
   &.is-default {
@@ -639,18 +644,25 @@ export default {
 }
 
 .video-card {
-  background: var(--color-bg-2);
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
   border-radius: 12px;
   overflow: hidden;
-  border: 1px solid var(--color-border-2);
+  border: 1px solid rgba(255, 255, 255, 0.5);
   transition: all 0.3s;
 
   &:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+    transform: translateY(-6px);
+    box-shadow:
+      0 18px 42px rgba(15, 23, 42, 0.14),
+      0 0 55px color-mix(in srgb, var(--zy-color-brand, #6366f1) 26%, transparent);
 
     .play-overlay {
       opacity: 1;
+    }
+
+    .video-thumbnail img {
+      transform: scale(1.05);
     }
   }
 
@@ -665,6 +677,7 @@ export default {
       width: 100%;
       height: 100%;
       object-fit: cover;
+      transition: transform 0.35s ease;
     }
 
     .video-duration {
