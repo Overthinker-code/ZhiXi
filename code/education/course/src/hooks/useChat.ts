@@ -74,6 +74,16 @@ function isGenericThreadTitle(title: string) {
   return false;
 }
 
+function sanitizeStreamingContent(raw: string) {
+  const { content } = parseAssistantResponse(raw || '');
+  const cleaned = (content || raw || '')
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/<analysis>[\s\S]*?<\/analysis>/gi, '')
+    .replace(/<\/?final>/gi, '')
+    .trim();
+  return cleaned;
+}
+
 /**
  * Composable for managing AI chat interactions.
  * Extracts conversation logic from LegacyAssistantPanel into a reusable hook.
@@ -276,7 +286,7 @@ export function useChat() {
         promptKey: settingStore.settings.promptKey,
         strictMode: settingStore.settings.strictMode,
         activeTools: settingStore.settings.activeTools || [],
-        maxTokens: settingStore.settings.maxTokens,
+        maxTokens: Math.max(Number(settingStore.settings.maxTokens) || 0, 16384),
         temperature: settingStore.settings.temperature,
         topP: settingStore.settings.topP,
         topK: settingStore.settings.topK,
@@ -302,8 +312,9 @@ export function useChat() {
           (event) => {
             if (event.type === 'thought') {
               if (event.content) thoughts.push(event.content);
+              const displayContent = sanitizeStreamingContent(answer);
               chatStore.updateLastMessage(
-                answer,
+                displayContent,
                 thoughts.join('\n\n'),
                 0,
                 0,
@@ -314,8 +325,9 @@ export function useChat() {
               );
             } else if (event.type === 'token') {
               answer += event.content || '';
+              const displayContent = sanitizeStreamingContent(answer);
               chatStore.updateLastMessage(
-                answer,
+                displayContent,
                 thoughts.join('\n\n'),
                 0,
                 0,
@@ -330,9 +342,7 @@ export function useChat() {
                 : [];
             } else if (event.type === 'final') {
               answer = event.content || answer;
-              const { content: parsedMain } = parseAssistantResponse(answer);
-              const displayContent =
-                (parsedMain && parsedMain.trim()) || answer.trim() || answer;
+              const displayContent = sanitizeStreamingContent(answer);
               requiresConfirmation = Boolean(event.requires_confirmation);
               pendingActionId = event.pending_action_id || '';
               chatStore.updateLastMessage(

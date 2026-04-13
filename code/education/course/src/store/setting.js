@@ -8,7 +8,7 @@ export const useSettingStore = defineStore(
       model: 'deepseek-chat',
       apiKey: import.meta.env.VITE_API_BASE_URL,
       stream: true,
-      maxTokens: 16384,
+      maxTokens: 32768,
       temperature: 0.7,
       topP: 0.7,
       topK: 50,

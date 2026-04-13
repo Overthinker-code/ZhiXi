@@ -116,6 +116,13 @@
   const renderSafeMarkdown = (content: string) =>
     stripMarkdownCodeToolbar(renderMarkdown(content || ''));
 
+  const sanitizeStreamingContent = (raw: string) =>
+    (raw || '')
+      .replace(/<think>[\s\S]*?<\/think>/gi, '')
+      .replace(/<analysis>[\s\S]*?<\/analysis>/gi, '')
+      .replace(/<\/?final>/gi, '')
+      .trim();
+
   const displayAssistantContent = (item: ChatItem) => {
     if (item.role !== 'assistant') return item.content;
     if (item.loading && item.id === streamAssistId.value) {
@@ -258,13 +265,18 @@
           promptKey: 'tutor',
           ragK: 4,
           strictMode: false,
+          activeTools: ['knowledge_base'],
+          maxTokens: 32768,
+          temperature: 0.4,
+          topP: 0.85,
+          topK: 50,
         },
         (event) => {
           const msg = getLastAssistant();
           if (!msg) return;
           if (event.type === 'token') {
             answer += event.content || '';
-            msg.content = answer;
+            msg.content = sanitizeStreamingContent(answer);
           } else if (event.type === 'thought') {
             if (event.content) thoughts.push(event.content);
             msg.reasoning = humanizeAgentReasoning(thoughts.join('\n\n'));
@@ -273,7 +285,7 @@
               ? event.data.slice(0, 3)
               : [];
           } else if (event.type === 'final') {
-            msg.content = (event.content || answer || '').trim();
+            msg.content = sanitizeStreamingContent(event.content || answer || '');
           } else if (event.type === 'error') {
             streamError = event.content || '生成失败';
           }

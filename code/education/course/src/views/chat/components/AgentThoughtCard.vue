@@ -71,9 +71,17 @@
     return '[AGENT]';
   }
 
+  const bootAt = ref(Date.now());
+  watch(
+    () => props.streaming,
+    (v) => {
+      if (v) bootAt.value = Date.now();
+    },
+    { immediate: true }
+  );
+
   function ts(i: number): string {
-    const base = Date.now() - (parsed.value.length - i) * 420;
-    const d = new Date(base);
+    const d = new Date(bootAt.value + i * 420);
     return d.toTimeString().slice(0, 8);
   }
 
@@ -95,10 +103,11 @@
 
   const shownTerminal = ref('');
   const terminalEl = ref<HTMLElement | null>(null);
+  const capsuleTerminalEl = ref<HTMLElement | null>(null);
 
   /** 内容增高前是否贴在终端底部；仅在为 true 时自动滚到底，避免协作日志刷新时强行拽走阅读位置 */
   function captureStickToBottom(): boolean {
-    const el = terminalEl.value;
+    const el = terminalEl.value || capsuleTerminalEl.value;
     if (!el) return true;
     return el.scrollHeight - el.scrollTop - el.clientHeight < 48;
   }
@@ -113,7 +122,7 @@
       const stick = captureStickToBottom();
       shownTerminal.value = terminalTarget.value;
       nextTick(() => {
-        const el = terminalEl.value;
+        const el = terminalEl.value || capsuleTerminalEl.value;
         if (stick && el) el.scrollTop = el.scrollHeight;
       });
     },
@@ -138,7 +147,7 @@
       <span class="atc-capsule-hint">悬停展开算力日志</span>
       <transition name="atc-pop">
         <div v-show="capsuleHover" class="atc-capsule-pop">
-          <pre ref="terminalEl" class="atc-terminal atc-terminal--pop">{{ shownTerminal }}\n</pre>
+          <pre ref="capsuleTerminalEl" class="atc-terminal atc-terminal--pop">{{ shownTerminal }}\n</pre>
         </div>
       </transition>
     </div>
