@@ -86,11 +86,11 @@ onBeforeUnmount(() => {
   }
 }
 
-/* 内层：实际可见区域，与紫色色块圆角一致 */
+/* 内层：aspect-ratio 与图片原始尺寸 1638×1080 保持一致，宽度自适应后高度自动跟随 */
 .ad-banner-inner {
   position: relative;
   width: 100%;
-  height: 260px;           /* 更高，完整展示图片 */
+  aspect-ratio: 1638 / 1080;
   border-radius: 16px;
   overflow: hidden;
   box-shadow: 0 4px 20px rgba(31, 38, 135, 0.08);
