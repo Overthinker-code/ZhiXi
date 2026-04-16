@@ -238,56 +238,34 @@ async def start_realtime_analysis(
     }
 
 
-@router.get("/behaviors/definitions")
-def get_behavior_definitions(
+@router.get("/cameras")
+def get_classroom_cameras(
     current_user: models.User = Depends(deps.get_current_user),
 ) -> Any:
     """
-    获取支持的行为类型定义
+    获取各课堂对应的远程摄像头地址列表
+    ============================================================================
+    【手动配置区域】如需新增/修改教室摄像头地址，请直接编辑下方 return 语句。
+    生产环境建议改为从数据库或环境变量读取。
+    格式支持：HTTP / MJPEG / FLV / HLS(m3u8)
+    示例：{"id": "db", "cameraUrl": "http://192.168.1.101:8080/video"}
+    ============================================================================
     """
     return {
-        "behaviors": [
-            {
-                "id": 0,
-                "name": "专注学习",
-                "score": 1.0,
-                "description": "学习状态良好",
-                "color": "#52c41a",
-            },
-            {
-                "id": 1,
-                "name": "查看手机",
-                "score": -0.5,
-                "description": "注意力分散",
-                "color": "#faad14",
-            },
-            {
-                "id": 2,
-                "name": "与他人交谈",
-                "score": -0.3,
-                "description": "可能影响他人学习",
-                "color": "#fa8c16",
-            },
-            {
-                "id": 3,
-                "name": "睡觉",
-                "score": -1.0,
-                "description": "未在学习",
-                "color": "#f5222d",
-            },
-            {
-                "id": 4,
-                "name": "离开座位",
-                "score": -0.8,
-                "description": "未在学习区域",
-                "color": "#eb2f96",
-            },
-        ],
-        "score_ranges": [
-            {"min": 0.7, "max": 1.0, "status": "学习状态优秀", "color": "#52c41a"},
-            {"min": 0.3, "max": 0.7, "status": "学习状态良好", "color": "#1890ff"},
-            {"min": -0.3, "max": 0.3, "status": "学习状态一般", "color": "#faad14"},
-            {"min": -0.7, "max": -0.3, "status": "学习状态较差", "color": "#fa541c"},
-            {"min": -1.0, "max": -0.7, "status": "学习状态极差", "color": "#f5222d"},
-        ],
+        "cameras": [
+            {"id": "db", "cameraUrl": "http://192.168.1.101:8080/video"},
+            {"id": "ds", "cameraUrl": "http://192.168.1.102:8080/video"},
+            {"id": "ai", "cameraUrl": "http://192.168.1.103:8080/video"},
+            {"id": "eco", "cameraUrl": "http://192.168.1.104:8080/video"},
+        ]
     }
+
+
+@router.get("/behaviors/definitions")
+async def get_behavior_definitions(
+    current_user: models.User = Depends(deps.get_current_user),
+) -> Any:
+    """
+    获取支持的行为类型定义（从 YOLO 服务转发，确保前后端定义一致）
+    """
+    return await behavior_service.get_behavior_definitions()

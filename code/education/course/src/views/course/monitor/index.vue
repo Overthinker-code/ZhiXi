@@ -5,11 +5,46 @@
     <div class="monitor-stage-shell">
       <div class="monitor-stage-main" :class="{ 'with-panel': activePanel !== null }">
         <div class="stage-canvas">
+          <!-- 教室摄像头/本地摄像头实时画面 -->
+          <video
+            v-if="videoEnabled"
+            ref="mainVideo"
+            class="stage-video"
+            autoplay
+            playsinline
+            muted
+            crossorigin="anonymous"
+            @loadeddata="onMainVideoLoaded"
+          ></video>
+
+          <!-- 默认海报图 -->
           <img
+            v-else
             class="stage-poster"
             src="http://p1-arco.byteimg.com/tos-cn-i-uwbnlip3yd/c788fc704d32cf3b1136c7d45afc2669.png~tplv-uwbnlip3yd-webp.webp"
             alt="课堂主舞台"
           />
+
+          <!-- 主舞台检测框 Canvas -->
+          <canvas
+            v-if="detectionStatus === 'running' && currentResult?.persons?.length > 0"
+            ref="mainCanvas"
+            class="stage-detection-canvas"
+          ></canvas>
+
+          <!-- 主舞台评分浮层 -->
+          <div v-if="detectionStatus === 'running' && currentResult" class="stage-score-overlay">
+            <div
+              class="stage-score-badge"
+              :style="{ backgroundColor: getScoreColor(currentResult.overall_score) }"
+            >
+              {{ currentResult.learning_status }}
+            </div>
+            <div class="stage-score-detail">
+              综合评分: {{ currentResult.overall_score?.toFixed(2) || '0.00' }} ·
+              检测人数: {{ currentResult.persons?.length || 0 }}
+            </div>
+          </div>
 
           <div class="stage-status-bar">
             <div class="status-main">
@@ -43,7 +78,7 @@
               type="button"
               class="dock-item"
               :class="{
-                active: activePanel === item.panel,
+                active: activePanel === item.panel || item.active,
                 'dock-item--brand': item.key === 'ai',
               }"
               @click="onDockClick(item)"
@@ -63,8 +98,14 @@
         <div class="side-body">
           <ChatPanel v-if="activePanel === 'chat'" />
           <AttendanceGrid v-else-if="activePanel === 'signin'" />
-          <div v-else-if="activePanel === 'ai'" class="ai-panel-wrap">
-            <BehaviorDetectionPanel :course-id="currentCourse.id" />
+          <div
+            v-if="activePanel === 'ai' || detectionStatus === 'running'"
+            v-show="activePanel === 'ai'"
+            class="ai-panel-wrap"
+          >
+            <BehaviorDetectionPanel
+              :course-id="currentCourse.id"
+            />
             <MonitorHudCharts />
           </div>
           <div v-else-if="activePanel === 'setting'" class="settings-panel">
@@ -81,6 +122,56 @@
         </div>
       </aside>
     </div>
+
+    <!-- 视频源选择弹窗 -->
+    <a-modal
+      v-model:visible="videoSourceModalVisible"
+      :footer="false"
+      :title="videoSourceStep === 'source' ? '选择视频源' : '选择教室课堂'"
+      :mask-closable="true"
+      :unmount-on-close="true"
+      @cancel="videoSourceModalVisible = false"
+    >
+      <div v-if="videoSourceStep === 'source'" class="source-select">
+        <a-button
+          size="large"
+          type="primary"
+          style="width: 100%; margin-bottom: 12px;"
+          @click="onSelectLocalCamera"
+        >
+          🎥 本地摄像头
+        </a-button>
+        <a-button
+          size="large"
+          type="outline"
+          style="width: 100%;"
+          @click="videoSourceStep = 'classroom'"
+        >
+          🏫 远程摄像头
+        </a-button>
+      </div>
+
+      <div v-else class="classroom-select">
+        <div class="course-list-modal">
+          <button
+            v-for="c in monitorCourses"
+            :key="c.id"
+            type="button"
+            class="course-item"
+            @click="onSelectClassroomCamera(c)"
+          >
+            <img :src="c.cover" :alt="c.name" class="course-cover" />
+            <div class="course-meta">
+              <div class="course-name">{{ c.name }}</div>
+              <div class="course-sub">{{ c.subtitle }}</div>
+            </div>
+          </button>
+        </div>
+        <a-button type="text" long style="margin-top: 10px;" @click="videoSourceStep = 'source'">
+          ← 返回上一步
+        </a-button>
+      </div>
+    </a-modal>
 
     <a-drawer
       :visible="courseDrawerOpen"
@@ -112,7 +203,7 @@
 </template>
 
 <script lang="ts" setup>
-  import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
+  import { computed, onMounted, onUnmounted, reactive, ref, watch, nextTick } from 'vue';
   import { Message } from '@arco-design/web-vue';
   import ChatPanel from './components/chat-panel.vue';
   import AttendanceGrid from './components/attendance-grid.vue';
@@ -122,6 +213,8 @@
   import DatabaseImg from '@/assets/images/数据库图片.png';
   import DatastructureImg from '@/assets/images/数据结构.jpg';
   import EcoImg from '@/assets/images/宏观经济学.jpg';
+  import type { ImageAnalysisResult } from '@/api/behavior-analysis';
+  import { getClassroomCameras, getBehaviorDefinitions } from '@/api/behavior-analysis';
 
   type PanelKey = 'chat' | 'signin' | 'ai' | 'setting' | null;
 
@@ -130,12 +223,57 @@
   const courseDrawerOpen = ref(false);
   let timer: ReturnType<typeof setInterval> | null = null;
 
+  // AI 行为检测全局状态
+  const detectionStatus = ref<'idle' | 'running'>('idle');
+  const currentResult = ref<ImageAnalysisResult | null>(null);
+  const mainVideo = ref<HTMLVideoElement | null>(null);
+  const mainCanvas = ref<HTMLCanvasElement | null>(null);
+
+  // 视频源弹窗
+  const videoSourceModalVisible = ref(false);
+  const videoSourceStep = ref<'source' | 'classroom'>('source');
+
+  // 摄像头
+  const videoEnabled = ref(false);
+  const mediaStream = ref<MediaStream | null>(null);
+
+  // 主舞台定时分析器
+  let mainStageInterval: ReturnType<typeof setInterval> | null = null;
+
+  // ===========================================================================
+  // 【课堂列表配置区】仅配置前端展示用的课堂信息，远程摄像头 URL 不再在前端硬编码
+  // 摄像头地址统一从后端 /api/behavior/cameras 读取，如需修改请编辑：
+  // code/backend/app/api/routes/behavior_analysis.py -> get_classroom_cameras()
+  // ===========================================================================
   const monitorCourses = [
-    { id: 'db', name: '数据库原理', subtitle: 'SQL 与关系模型', cover: DatabaseImg },
-    { id: 'ds', name: '数据结构', subtitle: '线性表与树图', cover: DatastructureImg },
-    { id: 'ai', name: '人工智能导论', subtitle: 'AI 概念与应用', cover: AIImg },
-    { id: 'eco', name: '宏观经济学', subtitle: '经济周期与政策', cover: EcoImg },
+    {
+      id: 'db',
+      name: '数据库原理',
+      subtitle: 'SQL 与关系模型',
+      cover: DatabaseImg,
+    },
+    {
+      id: 'ds',
+      name: '数据结构',
+      subtitle: '线性表与树图',
+      cover: DatastructureImg,
+    },
+    {
+      id: 'ai',
+      name: '人工智能导论',
+      subtitle: 'AI 概念与应用',
+      cover: AIImg,
+    },
+    {
+      id: 'eco',
+      name: '宏观经济学',
+      subtitle: '经济周期与政策',
+      cover: EcoImg,
+    },
   ];
+
+  const cameraUrlMap = ref<Record<string, string>>({});
+  const behaviorDefinitions = ref<any>(null);
 
   const currentCourse = ref(monitorCourses[0]);
 
@@ -161,14 +299,20 @@
     },
   ]);
 
-  const dockItems = [
-    { key: 'video', icon: '🎥', label: '开启视频', panel: null as PanelKey },
+  const dockItems = computed(() => [
+    {
+      key: 'video',
+      icon: '🎥',
+      label: videoEnabled.value ? '关闭视频' : '开启视频',
+      panel: null as PanelKey,
+      active: videoEnabled.value,
+    },
     { key: 'mic', icon: '🎙️', label: '开启静音', panel: null as PanelKey },
     { key: 'chat', icon: '💬', label: '师生聊天', panel: 'chat' as PanelKey },
     { key: 'signin', icon: '🧾', label: '课堂签到', panel: 'signin' as PanelKey },
     { key: 'ai', icon: '🤖', label: 'AI 行为检测', panel: 'ai' as PanelKey },
     { key: 'setting', icon: '⚙️', label: '直播设置', panel: 'setting' as PanelKey },
-  ];
+  ]);
 
   const timerText = computed(() => {
     const m = Math.floor(elapsedSeconds.value / 60)
@@ -186,12 +330,240 @@
     return '功能面板';
   });
 
-  const onDockClick = (item: (typeof dockItems)[number]) => {
+  const onDockClick = async (item: typeof dockItems.value[number]) => {
+    if (item.key === 'video') {
+      if (videoEnabled.value) {
+        stopCamera();
+        Message.success('视频已关闭');
+      } else {
+        // 弹出视频源选择
+        videoSourceStep.value = 'source';
+        videoSourceModalVisible.value = true;
+      }
+      return;
+    }
     if (!item.panel) {
       Message.info(`${item.label} 功能已接入中`);
       return;
     }
     activePanel.value = activePanel.value === item.panel ? null : item.panel;
+  };
+
+  // 选择本地摄像头
+  const onSelectLocalCamera = async () => {
+    videoSourceModalVisible.value = false;
+    await startCamera('local');
+  };
+
+  // 选择远程摄像头（教室）
+  const onSelectClassroomCamera = async (course: typeof monitorCourses[number]) => {
+    const url = cameraUrlMap.value[course.id];
+    if (!url) {
+      Message.error('未获取到该教室的摄像头地址，请检查网络或后端配置');
+      return;
+    }
+    currentCourse.value = course;
+    videoSourceModalVisible.value = false;
+    await startCamera('classroom', url);
+  };
+
+  // 开启摄像头（本地 or 教室流）
+  const startCamera = async (source: 'local' | 'classroom', url?: string) => {
+    if (source === 'classroom' && url) {
+      videoEnabled.value = true;
+      await nextTick();
+      if (mainVideo.value) {
+        mainVideo.value.srcObject = null;
+        mainVideo.value.src = url;
+        try {
+          await mainVideo.value.play();
+          Message.success(`已连接到《${currentCourse.value.name}》教室摄像头，自动开始行为分析`);
+          startMainStageAnalysis();
+        } catch (e: any) {
+          Message.error('教室摄像头连接失败，请检查地址是否可播放');
+          videoEnabled.value = false;
+        }
+      }
+      return;
+    }
+
+    // 本地摄像头模式
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      });
+      mediaStream.value = stream;
+      videoEnabled.value = true;
+      await nextTick();
+      if (mainVideo.value) {
+        mainVideo.value.src = '';
+        mainVideo.value.srcObject = stream;
+        try { await mainVideo.value.play(); } catch (e) { /* ignore */ }
+      }
+      Message.success('本地摄像头已开启，自动开始行为分析');
+      startMainStageAnalysis();
+    } catch (error: any) {
+      if (error.name === 'NotAllowedError') {
+        Message.error('摄像头权限被拒绝');
+      } else if (error.name === 'NotFoundError') {
+        Message.error('未找到摄像头设备');
+      } else {
+        Message.error('开启视频失败: ' + (error.message || '未知错误'));
+      }
+    }
+  };
+
+  // 关闭摄像头
+  const stopCamera = () => {
+    videoEnabled.value = false;
+    stopMainStageAnalysis();
+    if (mediaStream.value) {
+      mediaStream.value.getTracks().forEach((track) => track.stop());
+      mediaStream.value = null;
+    }
+    if (mainVideo.value) {
+      mainVideo.value.pause();
+      mainVideo.value.srcObject = null;
+      mainVideo.value.src = '';
+    }
+  };
+
+  // 视频加载完成回调（教室流用）
+  const onMainVideoLoaded = () => {
+    if (detectionStatus.value === 'running') {
+      captureMainStageAndAnalyze();
+    }
+  };
+
+
+
+  // 启动主舞台实时分析
+  const startMainStageAnalysis = () => {
+    if (mainStageInterval) return; // 已在运行
+    detectionStatus.value = 'running';
+    // 1 秒后首次分析，然后每 3 秒一次
+    setTimeout(() => captureMainStageAndAnalyze(), 1000);
+    mainStageInterval = setInterval(() => {
+      captureMainStageAndAnalyze();
+    }, 3000);
+  };
+
+  // 停止主舞台实时分析
+  const stopMainStageAnalysis = () => {
+    detectionStatus.value = 'idle';
+    if (mainStageInterval) {
+      clearInterval(mainStageInterval);
+      mainStageInterval = null;
+    }
+    currentResult.value = null;
+  };
+
+  // 截取主舞台画面并分析
+  const captureMainStageAndAnalyze = async () => {
+    if (!mainVideo.value || mainVideo.value.paused || mainVideo.value.ended) return;
+
+    const video = mainVideo.value;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    canvas.toBlob(
+      async (blob) => {
+        if (!blob) return;
+        const file = new File([blob], 'classroom_frame.jpg', { type: 'image/jpeg' });
+        try {
+          const { analyzeImage } = await import('@/api/behavior-analysis');
+          const res = await analyzeImage(file);
+          if (res.data?.status === 'error') {
+            throw new Error(res.data?.error || '分析失败');
+          }
+          currentResult.value = res.data;
+          nextTick(() => drawMainStageBoxes());
+        } catch (err: any) {
+          console.error('主舞台分析失败:', err);
+        }
+      },
+      'image/jpeg',
+      0.85
+    );
+  };
+
+  // 颜色映射（优先使用后端行为定义里的 score_ranges，未加载时走默认兜底）
+  const getScoreColor = (score: number): string => {
+    const ranges = behaviorDefinitions.value?.score_ranges || [];
+    for (const r of ranges) {
+      if (score >= r.min && score <= r.max) {
+        return r.color;
+      }
+    }
+    if (score >= 0.7) return '#52c41a';
+    if (score >= 0.3) return '#1890ff';
+    if (score >= -0.3) return '#faad14';
+    if (score >= -0.7) return '#fa541c';
+    return '#f5222d';
+  };
+
+  // 在主舞台 Canvas 上绘制检测框
+  const drawMainStageBoxes = () => {
+    if (!mainCanvas.value || !mainVideo.value || !currentResult.value?.persons) return;
+
+    const canvas = mainCanvas.value;
+    const video = mainVideo.value;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const rect = video.getBoundingClientRect();
+    const parentRect = video.parentElement!.getBoundingClientRect();
+    const videoScale = Math.min(parentRect.width / video.videoWidth, parentRect.height / video.videoHeight);
+    const displayWidth = video.videoWidth * videoScale;
+    const displayHeight = video.videoHeight * videoScale;
+    const offsetX = (parentRect.width - displayWidth) / 2;
+    const offsetY = (parentRect.height - displayHeight) / 2;
+
+    canvas.width = parentRect.width;
+    canvas.height = parentRect.height;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const imgWidth = currentResult.value.image_width || video.videoWidth;
+    const imgHeight = currentResult.value.image_height || video.videoHeight;
+    const scaleX = displayWidth / imgWidth;
+    const scaleY = displayHeight / imgHeight;
+
+    currentResult.value.persons.forEach((person: any) => {
+      const [x1, y1, x2, y2] = person.bbox;
+      const sx1 = offsetX + x1 * scaleX;
+      const sy1 = offsetY + y1 * scaleY;
+      const sx2 = offsetX + x2 * scaleX;
+      const sy2 = offsetY + y2 * scaleY;
+      const width = sx2 - sx1;
+      const height = sy2 - sy1;
+
+      ctx.strokeStyle = person.color || '#22d3ee';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(sx1, sy1, width, height);
+
+      const label = `${person.behavior} (${Math.round(person.confidence * 100)}%)`;
+      ctx.font = 'bold 16px Arial';
+      const textWidth = ctx.measureText(label).width;
+      const textHeight = 22;
+
+      ctx.fillStyle = person.color || '#22d3ee';
+      ctx.fillRect(sx1, sy1 - textHeight - 4, textWidth + 12, textHeight + 4);
+
+      ctx.fillStyle = '#fff';
+      ctx.fillText(label, sx1 + 6, sy1 - 6);
+    });
+  };
+
+  // 窗口变化时重绘
+  const onResize = () => {
+    if (detectionStatus.value === 'running') {
+      drawMainStageBoxes();
+    }
   };
 
   const selectCourse = (course: (typeof monitorCourses)[number]) => {
@@ -204,10 +576,35 @@
     timer = setInterval(() => {
       elapsedSeconds.value += 1;
     }, 1000);
+    window.addEventListener('resize', onResize);
+
+    // 远程摄像头地址统一从后端读取，修改请编辑后端 behavior_analysis.py 的 /cameras 接口
+    getClassroomCameras()
+      .then((res) => {
+        const cameras = res.data?.cameras || [];
+        const map: Record<string, string> = {};
+        cameras.forEach((item: any) => {
+          if (item.id && item.cameraUrl) map[item.id] = item.cameraUrl;
+        });
+        cameraUrlMap.value = map;
+      })
+      .catch(() => {
+        Message.warning('获取教室摄像头配置失败，请检查后端服务');
+      });
+
+    getBehaviorDefinitions()
+      .then((res) => {
+        behaviorDefinitions.value = res.data;
+      })
+      .catch(() => {
+        // 静默失败，getScoreColor 会使用默认兜底颜色
+      });
   });
 
   onUnmounted(() => {
     if (timer) clearInterval(timer);
+    window.removeEventListener('resize', onResize);
+    stopCamera();
   });
 </script>
 
@@ -267,6 +664,56 @@
     height: 100%;
     object-fit: cover;
     filter: saturate(0.98) contrast(1.04);
+  }
+
+  .stage-video {
+    width: min(100%, 1280px);
+    height: 100%;
+    object-fit: contain;
+    background: #000;
+  }
+
+  .stage-detection-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 3;
+  }
+
+  .stage-score-overlay {
+    position: absolute;
+    top: 72px;
+    left: 16px;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .stage-score-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+    backdrop-filter: blur(4px);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  }
+
+  .stage-score-detail {
+    font-size: 12px;
+    color: #e2e8f0;
+    background: rgba(15, 23, 42, 0.6);
+    padding: 4px 10px;
+    border-radius: 999px;
+    backdrop-filter: blur(4px);
+    width: fit-content;
   }
 
   .stage-status-bar {
@@ -541,5 +988,21 @@
     margin-top: 4px;
     font-size: 12px;
     color: #64748b;
+  }
+
+  .source-select {
+    padding: 8px 0;
+  }
+
+  .classroom-select {
+    padding: 4px 0;
+  }
+
+  .course-list-modal {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 320px;
+    overflow-y: auto;
   }
 </style>

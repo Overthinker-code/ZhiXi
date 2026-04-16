@@ -270,3 +270,12 @@ export function getBehaviorDefinitions() {
     '/api/behavior/behaviors/definitions'
   );
 }
+
+/**
+ * 获取各课堂对应的远程摄像头地址列表
+ */
+export function getClassroomCameras() {
+  return axios.get<{ cameras: Array<{ id: string; cameraUrl: string }> }>(
+    '/api/behavior/cameras'
+  );
+}

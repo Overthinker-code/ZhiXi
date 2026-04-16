@@ -243,27 +243,6 @@ class BehaviorAnalysisService:
             "total_predictions": total_windows
         }
 
-    def _evaluate_learning_status(self, score: float) -> str:
-        """根据得分评估学习状态（0-1范围）
-        
-        优化后的评分标准：
-        - 0.90-1.00: 优秀（绝大多数学生专注）
-        - 0.75-0.90: 良好（多数学生专注，少量负面行为）
-        - 0.60-0.75: 一般（专注与负面行为参半）
-        - 0.45-0.60: 较差（负面行为较多）
-        - 0.00-0.45: 极差（严重违纪，课堂秩序混乱）
-        """
-        if score >= 0.90:
-            return "学习状态优秀"
-        elif score >= 0.75:
-            return "学习状态良好"
-        elif score >= 0.60:
-            return "学习状态一般"
-        elif score >= 0.45:
-            return "学习状态较差"
-        else:
-            return "学习状态极差"
-
     async def analyze_image(self, image_data: bytes) -> Dict[str, Any]:
         """
         分析单张图片中的行为

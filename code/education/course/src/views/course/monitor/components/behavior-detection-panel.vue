@@ -12,12 +12,13 @@
     <div class="detection-content">
       <!-- 实时视频预览区域 -->
       <div class="video-preview-area">
-        <div v-if="detectionStatus === 'running' || hasAnalyzedImage" class="video-container">
-          <img 
-            v-if="currentFrame" 
+        <div v-if="detectionStatus === 'running' || hasAnalyzedImage || hasAnalyzedVideo" class="video-container">
+          <!-- 上传的图片/视频预览帧 -->
+          <img
+            v-if="currentFrame"
             ref="previewImage"
-            :src="currentFrame" 
-            alt="实时检测画面" 
+            :src="currentFrame"
+            alt="实时检测画面"
             class="preview-image"
             @load="onImageLoad"
           />
@@ -25,14 +26,14 @@
             <IconVideoCamera class="icon" />
             <span>等待视频流...</span>
           </div>
-          
-          <!-- Canvas 绘制检测框 -->
-          <canvas 
-            v-if="currentFrame && currentResult?.persons?.length > 0"
+
+          <!-- Canvas 绘制检测框（覆盖在 video/img 之上） -->
+          <canvas
+            v-if="(detectionStatus === 'running' || currentFrame) && currentResult?.persons?.length > 0"
             ref="detectionCanvas"
             class="detection-canvas"
           ></canvas>
-          
+
           <!-- 检测结果叠加层 -->
           <div v-if="currentResult" class="detection-overlay">
             <div
@@ -123,7 +124,7 @@
 
       <!-- 实时统计 -->
       <div
-        v-if="detectionStatus === 'running' && currentResult"
+        v-if="currentResult"
         class="realtime-stats"
       >
         <a-divider orientation="center">{{
@@ -200,7 +201,7 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, watch } from 'vue';
 import { Message } from '@arco-design/web-vue';
 import {
   IconVideoCamera,
@@ -224,8 +225,12 @@ import {
     courseId?: string;
   }>();
 
+  const emit = defineEmits<{
+    (e: 'update:result', result: ImageAnalysisResult | null): void;
+  }>();
+
 // 状态
-const detectionStatus = ref<'idle' | 'running' | 'paused'>('idle');
+const detectionStatus = ref<'idle' | 'running'>('idle');
 const isStarting = ref(false);
 const isUploading = ref(false);
 const isUploadingVideo = ref(false);
@@ -244,9 +249,14 @@ const hasAnalyzedImage = ref(false);
 const hasAnalyzedVideo = ref(false);
 const videoFrameUrl = ref<string>('');  // 视频分析时的预览图（提取第一帧）
 
+// 最近一次上传的文件（待分析）
+const lastUploadedFile = ref<File | null>(null);
+const lastUploadedType = ref<'image' | 'video' | null>(null);
+
 // 定时器
-let detectionInterval: any = null;
 let refreshInterval: any = null;
+
+// （结果仅在面板内展示）
 
 // 获取行为定义
 const loadBehaviorDefinitions = async () => {
@@ -269,72 +279,98 @@ const loadRecentRecords = async () => {
   }
 };
 
-// 开始检测
+// 开始检测（分析最近一次上传的文件）
 const startDetection = async () => {
   if (!props.courseId) {
     Message.warning('请先选择课程');
     return;
   }
-  
-  isStarting.value = true;
-  try {
-    const res = await startRealtimeAnalysis(props.courseId);
-    sessionId.value = res.data.session_id;
-    detectionStatus.value = 'running';
-    Message.success('课堂行为检测已启动');
-    
-    // 模拟实时检测
-    startSimulation();
-  } catch (error) {
-    Message.error('启动检测失败');
-    console.error(error);
-  } finally {
-    isStarting.value = false;
+  if (!lastUploadedFile.value) {
+    Message.warning('请先上传图片或视频');
+    return;
+  }
+
+  detectionStatus.value = 'running';
+
+  if (lastUploadedType.value === 'image') {
+    isUploading.value = true;
+    Message.loading('正在分析图片...');
+    try {
+      const res = await analyzeImage(lastUploadedFile.value);
+      if (res.data?.status === 'error') {
+        throw new Error(res.data?.error || '分析失败');
+      }
+      currentResult.value = res.data;
+      hasAnalyzedImage.value = true;
+      hasAnalyzedVideo.value = false;
+      setTimeout(() => drawDetectionBoxes(), 100);
+      Message.success('分析完成！检测到 ' + (res.data.persons?.length || 0) + ' 人');
+    } catch (error: any) {
+      console.error('图片分析失败:', error);
+      Message.error(error?.message || '分析失败');
+    } finally {
+      isUploading.value = false;
+      detectionStatus.value = 'idle';
+    }
+  } else if (lastUploadedType.value === 'video') {
+    isUploadingVideo.value = true;
+    Message.loading('正在分析视频，请稍候...');
+    try {
+      const res = await analyzeVideo(lastUploadedFile.value, props.courseId || undefined, 30);
+      if (res.data?.status === 'error') {
+        throw new Error(res.data?.error || '分析失败');
+      }
+      const summary = res.data.summary;
+      const personsFromVideo = res.data.persons || [];
+      const videoInfo = res.data.video_info || {};
+      currentResult.value = {
+        status: 'success',
+        behaviors: [],
+        persons: personsFromVideo,
+        overall_score: summary?.average_score || 0,
+        learning_status: summary?.overall_status || '无法评估',
+        timestamp: new Date().toISOString(),
+        image_width: videoInfo.image_width || 0,
+        image_height: videoInfo.image_height || 0,
+      };
+      hasAnalyzedVideo.value = true;
+      hasAnalyzedImage.value = false;
+      setTimeout(() => drawDetectionBoxes(), 200);
+      Message.success(`视频分析完成！检测到 ${personsFromVideo.length} 人`);
+      loadRecentRecords();
+    } catch (error: any) {
+      console.error('视频分析失败:', error);
+      Message.error(error?.message || '视频分析失败');
+      hasAnalyzedVideo.value = false;
+    } finally {
+      isUploadingVideo.value = false;
+      detectionStatus.value = 'idle';
+    }
   }
 };
 
 // 停止检测
 const stopDetection = () => {
   detectionStatus.value = 'idle';
-  if (detectionInterval) {
-    clearInterval(detectionInterval);
-    detectionInterval = null;
-  }
   // 只清空实时检测的状态，不清空上传图片/视频的结果
   if (!hasAnalyzedImage.value && !hasAnalyzedVideo.value) {
     currentFrame.value = '';
     currentResult.value = null;
   }
-  Message.success('实时检测已停止');
+  Message.success('分析已停止');
 };
 
-// 模拟实时检测数据
-const startSimulation = () => {
-  detectionInterval = setInterval(() => {
-    // 如果用户上传了图片分析，不要覆盖结果
-    if (hasAnalyzedImage.value) {
-      return;
-    }
-    
-    const mockBehaviors = [
-      { behavior: '专注学习', confidence: 0.85 + Math.random() * 0.1, description: '学习状态良好', score_contribution: 0.85 },
-      { behavior: '查看手机', confidence: 0.1 + Math.random() * 0.05, description: '注意力分散', score_contribution: -0.05 },
-    ];
-    
-    currentResult.value = {
-      status: 'success',
-      behaviors: mockBehaviors.filter(b => b.confidence > 0.3),
-      persons: [], // 模拟数据没有检测框
-      overall_score: 0.6 + Math.random() * 0.3,
-      learning_status: '学习状态良好',
-      timestamp: new Date().toISOString(),
-    };
-  }, 3000);
-};
+// （实时分析逻辑已移至主舞台页面组件）
 
-// 获取分数颜色
+// 获取分数颜色（优先使用后端返回的评分区间，未加载时走默认兜底）
 const getScoreColor = (score: number): string => {
-  if (score >= 0.7) return '#6366f1';
+  const ranges = behaviorDefinitions.value?.score_ranges || [];
+  for (const r of ranges) {
+    if (score >= r.min && score <= r.max) {
+      return r.color;
+    }
+  }
+  if (score >= 0.7) return '#52c41a';
   if (score >= 0.3) return '#1890ff';
   if (score >= -0.3) return '#faad14';
   if (score >= -0.7) return '#fa541c';
@@ -372,7 +408,7 @@ const viewAllRecords = () => {
   Message.info('查看所有历史记录功能待实现');
 };
 
-// 处理文件上传
+// 处理文件上传（仅保存，不立即分析）
 const handleFileUpload = async (event: Event) => {
   const target = event.target as HTMLInputElement;
   const file = target.files?.[0];
@@ -384,48 +420,22 @@ const handleFileUpload = async (event: Event) => {
     return;
   }
   
-  isUploading.value = true;
-  hasAnalyzedImage.value = true;
-  hasAnalyzedVideo.value = false;  // 重置视频分析状态
-  
-  // 停止实时检测，避免覆盖结果
-  if (detectionInterval) {
-    clearInterval(detectionInterval);
-    detectionInterval = null;
-  }
+  lastUploadedFile.value = file;
+  lastUploadedType.value = 'image';
+  hasAnalyzedImage.value = false;
+  hasAnalyzedVideo.value = false;
   detectionStatus.value = 'idle';
+  currentResult.value = null;
   
-  Message.loading('正在分析图片...');
+  // 显示图片预览
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    currentFrame.value = e.target?.result as string;
+  };
+  reader.readAsDataURL(file);
   
-  try {
-    const res = await analyzeImage(file);
-    
-    if (res.data?.status === 'error') {
-      throw new Error(res.data?.error || '分析失败');
-    }
-    
-    console.log('分析结果:', res.data);
-    currentResult.value = res.data;
-    
-    // 显示图片预览
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      currentFrame.value = e.target?.result as string;
-      // 延迟绘制检测框，确保图片已渲染
-      setTimeout(() => {
-        drawDetectionBoxes();
-      }, 100);
-    };
-    reader.readAsDataURL(file);
-    
-    Message.success('分析完成！检测到 ' + (res.data.persons?.length || 0) + ' 人');
-  } catch (error: any) {
-    console.error('图片分析失败:', error);
-    Message.error(error?.message || '分析失败，请检查网络连接');
-  } finally {
-    isUploading.value = false;
-    target.value = '';
-  }
+  Message.info('图片已上传，点击"开启课堂行为检测"开始分析');
+  target.value = '';
 };
 
 // 从视频文件提取第一帧作为预览图
@@ -455,7 +465,7 @@ const extractVideoFirstFrame = (file: File): Promise<string> => {
   });
 };
 
-// 处理视频上传
+// 处理视频上传（仅保存，不立即分析）
 const handleVideoUpload = async (event: Event) => {
   const target = event.target as HTMLInputElement;
   const file = target.files?.[0];
@@ -473,75 +483,37 @@ const handleVideoUpload = async (event: Event) => {
     return;
   }
   
-  isUploadingVideo.value = true;
-  hasAnalyzedVideo.value = true;
-  hasAnalyzedImage.value = false;  // 重置图片分析状态
-  Message.loading('正在分析视频，请稍候...');
-  
-  // 停止实时检测，避免覆盖结果
-  if (detectionInterval) {
-    clearInterval(detectionInterval);
-    detectionInterval = null;
-  }
+  lastUploadedFile.value = file;
+  lastUploadedType.value = 'video';
+  hasAnalyzedImage.value = false;
+  hasAnalyzedVideo.value = false;
   detectionStatus.value = 'idle';
+  currentResult.value = null;
   
+  // 提取视频第一帧作为预览图
   try {
-    // 提取视频第一帧作为预览图
     const firstFrameUrl = await extractVideoFirstFrame(file);
     videoFrameUrl.value = firstFrameUrl;
     currentFrame.value = firstFrameUrl;
-    
-    // 重新读取文件（因为extractVideoFirstFrame可能消耗了文件）
-    const res = await analyzeVideo(file, props.courseId || undefined, 30);
-    
-    if (res.data?.status === 'error') {
-      throw new Error(res.data?.error || '分析失败');
-    }
-    
-    // 视频分析返回汇总结果和第一帧的人员检测数据
-    const summary = res.data.summary;
-    const personsFromVideo = res.data.persons || [];
-    const videoInfo = res.data.video_info || {};
-    
-    currentResult.value = {
-      status: 'success',
-      behaviors: [],
-      persons: personsFromVideo,
-      overall_score: summary?.average_score || 0,
-      learning_status: summary?.overall_status || '无法评估',
-      timestamp: new Date().toISOString(),
-      image_width: videoInfo.image_width || 0,
-      image_height: videoInfo.image_height || 0,
-    };
-    
-    // 延迟绘制检测框
-    setTimeout(() => {
-      drawDetectionBoxes();
-    }, 200);
-    
-    Message.success(`视频分析完成！检测到 ${personsFromVideo.length} 人，平均评分: ${(summary?.average_score || 0).toFixed(2)}`);
-    
-    // 显示统计信息
-    if (summary?.behavior_statistics) {
-      console.log('行为统计:', summary.behavior_statistics);
-    }
-    
-    // 刷新历史记录
-    loadRecentRecords();
+    Message.info('视频已上传，点击"开启课堂行为检测"开始分析');
   } catch (error: any) {
-    console.error('视频分析失败:', error);
-    Message.error(error?.message || '视频分析失败');
-    hasAnalyzedVideo.value = false;
-  } finally {
-    isUploadingVideo.value = false;
-    target.value = '';
+    Message.error('视频预览生成失败');
   }
+  
+  target.value = '';
 };
 
 // 图片加载完成后绘制检测框
 const onImageLoad = () => {
   console.log('图片加载完成，准备绘制检测框');
   setTimeout(drawDetectionBoxes, 50);
+};
+
+// 窗口大小变化时重绘检测框
+const onResize = () => {
+  if (currentFrame.value && currentResult.value?.persons) {
+    drawDetectionBoxes();
+  }
 };
 
 // 绘制检测框
@@ -631,22 +603,22 @@ const drawDetectionBoxes = () => {
 onMounted(() => {
   loadBehaviorDefinitions();
   loadRecentRecords();
-  
+
   refreshInterval = setInterval(() => {
     if (detectionStatus.value !== 'running') {
       loadRecentRecords();
     }
   }, 30000);
+
+  window.addEventListener('resize', onResize);
 });
 
 // 组件卸载
 onUnmounted(() => {
-  if (detectionInterval) {
-    clearInterval(detectionInterval);
-  }
   if (refreshInterval) {
     clearInterval(refreshInterval);
   }
+  window.removeEventListener('resize', onResize);
 });
 </script>
 
@@ -662,8 +634,20 @@ onUnmounted(() => {
       .video-container {
         position: relative;
         width: 100%;
-        height: 100%;
+        min-height: 150px;
+        max-height: 220px;
         object-fit: contain;
+      }
+
+      .preview-image,
+      .preview-video {
+        display: block;
+        width: 100%;
+        height: auto;
+        max-height: 220px;
+        object-fit: contain;
+        background: #000;
+        border-radius: 8px;
       }
       
       .detection-canvas {
