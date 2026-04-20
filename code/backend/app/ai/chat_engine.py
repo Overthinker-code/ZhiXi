@@ -19,10 +19,13 @@ from app.ai.chat_tools import (
     collect_tool_calls,
 )
 from app.core.config import settings
+from app.core.db import engine
 from app.services.chat_model_factory import ChatModelFactory
 from app.services.rag_service import RAGService
 from app.services.pending_actions import pending_action_store
 from app.services.chat_semantic_cache import chat_semantic_cache
+from app.services.user_memory_profile_service import user_memory_profile_service
+from sqlmodel import Session
 
 rag_service = RAGService()
 
@@ -292,6 +295,16 @@ def _rag_system_excerpt(messages: list, max_chars: int) -> str:
     if len(body) > max_chars:
         return body[:max_chars] + "\n…[知识库上下文已截断]"
     return body
+
+
+def _load_user_memory_context(user_id: str | None) -> str:
+    if not user_id:
+        return ""
+    try:
+        with Session(engine) as session:
+            return user_memory_profile_service.build_prompt_injection(session, user_id)
+    except Exception:
+        return ""
 
 
 def _collect_worker_outputs_for_finalize(messages: list, max_total: int = 14000) -> str:
@@ -592,6 +605,9 @@ def _invoke_supervisor_llm(state: State) -> tuple[SupervisorDecision, bool]:
             + "\n\n当前 task_breakdown 草稿（可覆盖）：\n"
             + (state.get("task_breakdown") or "（空）")
         )
+        memory_context = (state.get("user_memory_context") or "").strip()
+        if memory_context:
+            supervisor_text += f"\n\n{memory_context}"
         current_file_id = (state.get("current_file_id") or "").strip()
         current_file_name = (state.get("current_file_name") or "").strip()
         if current_file_id:
@@ -741,6 +757,9 @@ def finalize_node(state: State) -> dict[str, Any]:
     resolved = (state.get("resolved_system_prompt") or "").strip()
     if resolved:
         sys_chunks.append(f"【全局辅导偏好】\n{resolved}")
+    memory_context = (state.get("user_memory_context") or "").strip()
+    if memory_context:
+        sys_chunks.append(memory_context)
     rr = (state.get("routing_reason") or "").strip()
     if rr and ("强制" in rr or "解析失败" in rr or "连续" in rr):
         sys_chunks.append(
@@ -832,6 +851,9 @@ def _invoke_worker(state: State, agent: str) -> dict[str, Any]:
     resolved = (state.get("resolved_system_prompt") or "").strip()
     if resolved:
         merged = f"{resolved}\n\n{merged}"
+    memory_context = (state.get("user_memory_context") or "").strip()
+    if memory_context:
+        merged = f"{memory_context}\n\n{merged}"
     sys = SystemMessage(content=merged)
     llm = get_llm(
         agent,
@@ -1007,6 +1029,7 @@ def _tool_status_text(
 def _initial_state(request: ChatRequest, user_text: str) -> State:
     rag_msg = _rag_system_message(request)
     preset = resolve_system_prompt(request.prompt_key, request.system_prompt)
+    memory_context = _load_user_memory_context(request.user_id)
     messages: list = [rag_msg]
     for turn in request.prior_turns or []:
         u = (turn.get("user") or "").strip()
@@ -1044,6 +1067,7 @@ def _initial_state(request: ChatRequest, user_text: str) -> State:
             "current_thread_id": str(request.thread_id),
             "current_file_id": request.current_file_id,
             "current_file_name": request.file_name or "",
+            "user_memory_context": memory_context,
         },
     )
 

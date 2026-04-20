@@ -36,6 +36,7 @@ class State(TypedDict):
     current_thread_id: str
     current_file_id: str | None
     current_file_name: str
+    user_memory_context: str
 
 
 class SupervisorDecision(BaseModel):

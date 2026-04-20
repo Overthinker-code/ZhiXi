@@ -1,6 +1,9 @@
 fastapi[standard]
 python-multipart
 email-validator
+celery
+redis
+edge-tts
 passlib[bcrypt]
 tenacity
 pydantic

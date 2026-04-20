@@ -152,6 +152,26 @@ class Settings(BaseSettings):
     RAG_CHUNK_SIZE: int = 1000
     RAG_CHUNK_OVERLAP: int = 200
 
+    REDIS_BROKER_URL: str = "redis://127.0.0.1:6379/0"
+    REDIS_RESULT_BACKEND: str = "redis://127.0.0.1:6379/1"
+
+    DIGITAL_HUMAN_INPUT_DIR: str = os.path.join(BASE_PATH, "digital_human_inputs")
+    DIGITAL_HUMAN_OUTPUT_DIR: str = os.path.join(BASE_PATH, "digital_human_outputs")
+    DIGITAL_HUMAN_WAV2LIP_DIR: str = os.path.join(BASE_PATH, "Wav2Lip")
+    DIGITAL_HUMAN_FACE_IMAGE: str = os.path.join(
+        BASE_PATH, "digital_human_assets", "teacher_face.jpg"
+    )
+    DIGITAL_HUMAN_EDGE_TTS_VOICE: str = "zh-CN-YunxiNeural"
+    DIGITAL_HUMAN_WAV2LIP_CHECKPOINT: str = os.path.join(
+        DIGITAL_HUMAN_WAV2LIP_DIR, "checkpoints", "wav2lip_gan.pth"
+    )
+    DIGITAL_HUMAN_RENDER_TIMEOUT_SECONDS: int = 1800
+    DIGITAL_HUMAN_CELERY_ENABLED: bool = True
+
+    MEMORY_PROFILE_AUTO_REFRESH: bool = True
+    MEMORY_PROFILE_MAX_TURNS: int = 20
+    MEMORY_PROFILE_MAX_CHARS: int = 12000
+
 
 settings = Settings()  # type: ignore
 
@@ -160,3 +180,5 @@ os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 os.makedirs(os.path.join(settings.UPLOAD_DIR, "videos"), exist_ok=True)
 os.makedirs(settings.RAG_UPLOAD_DIR, exist_ok=True)
 os.makedirs(settings.CHROMA_DB_PATH, exist_ok=True)
+os.makedirs(settings.DIGITAL_HUMAN_INPUT_DIR, exist_ok=True)
+os.makedirs(settings.DIGITAL_HUMAN_OUTPUT_DIR, exist_ok=True)

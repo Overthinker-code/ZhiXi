@@ -84,21 +84,38 @@
           <div class="studio-preview-bg">
             <div class="studio-preview-canvas">
               <div class="canvas-frame">
-                <template v-if="!studioResultReady">
+                <template v-if="videoUrl && jobStatus.status === 'success'">
+                  <video :src="videoUrl" class="studio-cover" controls />
+                </template>
+                <template v-else-if="jobStatus.status === 'processing' || activeTaskId">
+                  <div class="canvas-progress">
+                    <div class="canvas-progress-title">{{ jobMessage }}</div>
+                    <div class="canvas-progress-value">{{ jobProgress }}%</div>
+                    <a-progress :percent="jobProgress" :show-text="false" :animation="true" />
+                    <div class="canvas-progress-sub">
+                      任务 ID：{{ activeTaskId || '等待创建' }}
+                    </div>
+                  </div>
+                </template>
+                <template v-else>
                   <div class="canvas-waiting">
                     <icon-play-circle :size="32" />
                     <p>PPT 渲染画布</p>
                     <span>生成后将展示数字人成片封面</span>
                   </div>
                 </template>
-                <template v-else>
-                  <img :src="studioCoverImage" class="studio-cover" alt="数字人封面" />
-                  <button type="button" class="play-glass-btn">
-                    <icon-play-arrow :size="26" />
-                  </button>
-                </template>
                 <div v-if="isStudioRendering" class="laser-scan-line" />
               </div>
+            </div>
+          </div>
+          <div class="status-card">
+            <div class="status-card__row">
+              <span>当前状态</span>
+              <strong>{{ statusBadge }}</strong>
+            </div>
+            <div class="status-card__row">
+              <span>任务消息</span>
+              <strong>{{ jobMessage }}</strong>
             </div>
           </div>
         </div>
@@ -108,17 +125,17 @@
 </template>
 
 <script lang="ts" setup>
-  import { reactive, ref } from 'vue';
+  import { reactive, ref, computed } from 'vue';
   import { useRouter } from 'vue-router';
   import { Message } from '@arco-design/web-vue';
-  import studioCover from '@/assets/digital-human/studio-cover.png';
   import {
     IconLeft,
     IconPlus,
     IconFile,
     IconPlayCircle,
-    IconPlayArrow,
   } from '@arco-design/web-vue/es/icon';
+  import { createPptToVideoJob } from '@/api/digital-human';
+  import { useDigitalHumanJob } from '@/composables/useDigitalHumanJob';
 
   const router = useRouter();
   const fileInput = ref<HTMLInputElement>();
@@ -126,8 +143,8 @@
   const selectedFile = ref<File | null>(null);
   const isGenerating = ref(false);
   const isStudioRendering = ref(false);
-  const studioResultReady = ref(false);
-  const studioCoverImage = ref(studioCover);
+  const videoUrl = ref('');
+  const { activeTaskId, status: jobStatus, startPolling } = useDigitalHumanJob();
 
   const formData = reactive({
     digitalHuman: '',
@@ -135,18 +152,30 @@
   });
 
   const digitalHumanList = ref([
-    { id: '1', name: '小明老师' },
-    { id: '2', name: '小红老师' },
-    { id: '3', name: '商务男士' },
-    { id: '4', name: '职业女性' },
+    { id: 'teacher-default', name: '默认教师形象' },
+    { id: 'teacher-warm', name: '温和女教师' },
+    { id: 'teacher-business', name: '商务讲师' },
   ]);
 
   const voiceList = ref([
-    { id: '1', name: '标准男声' },
-    { id: '2', name: '标准女声' },
-    { id: '3', name: '温柔女声' },
-    { id: '4', name: '磁性男声' },
+    { id: 'zh-CN-YunxiNeural', name: '知性男声 Yunxi' },
+    { id: 'zh-CN-XiaoxiaoNeural', name: '温和女声 Xiaoxiao' },
+    { id: 'zh-CN-YunjianNeural', name: '沉稳女声 Yunjian' },
   ]);
+
+  const jobProgress = computed(() => Number(jobStatus.value.progress || 0));
+  const jobMessage = computed(() => jobStatus.value.message || '等待任务开始');
+  const statusBadge = computed(() => {
+    if (jobStatus.value.status === 'success') return '渲染完成';
+    if (jobStatus.value.status === 'failed') return '渲染失败';
+    if (jobStatus.value.status === 'processing') {
+      return `${jobStatus.value.message} (${jobProgress.value}%)`;
+    }
+    if (activeTaskId.value) {
+      return `渲染排队中 (${jobProgress.value}%)`;
+    }
+    return '等待上传';
+  });
 
   const goBack = () => {
     router.back();
@@ -182,6 +211,7 @@
       return;
     }
     selectedFile.value = file;
+    videoUrl.value = '';
     Message.success('文件上传成功');
   };
 
@@ -191,20 +221,38 @@
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  const startGenerate = () => {
+  const startGenerate = async () => {
+    if (!selectedFile.value) {
+      Message.warning('请先上传课件');
+      return;
+    }
     if (!formData.digitalHuman || !formData.voice) {
       Message.warning('请先选择数字人和配音音色');
       return;
     }
     isGenerating.value = true;
     isStudioRendering.value = true;
-    studioResultReady.value = false;
-    setTimeout(() => {
+    videoUrl.value = '';
+    try {
+      const job = await createPptToVideoJob({
+        file: selectedFile.value,
+        title: selectedFile.value.name,
+        voice_id: formData.voice,
+        digital_human_id: formData.digitalHuman,
+      });
+      await startPolling(job.task_id);
+      if (jobStatus.value.status === 'success' && jobStatus.value.video_url) {
+        videoUrl.value = jobStatus.value.video_url;
+        Message.success('PPT 数字人视频渲染完成');
+      } else if (jobStatus.value.status === 'failed') {
+        Message.error(jobStatus.value.message || 'PPT 数字人渲染失败');
+      }
+    } catch (error: any) {
+      Message.error(error?.message || '提交 PPT 数字人任务失败');
+    } finally {
       isGenerating.value = false;
       isStudioRendering.value = false;
-      studioResultReady.value = true;
-      Message.success('视频生成任务已提交，请在“我的数字人”中查看进度');
-    }, 3000);
+    }
   };
 </script>
 
@@ -258,155 +306,173 @@
   .panel-card {
     background: #fff;
     border-radius: 14px;
-    padding: 20px;
-    border: 1px solid #e2e8f0;
-    box-shadow: 0 8px 28px rgba(15, 23, 42, 0.08);
-    margin-bottom: 14px;
+    padding: 24px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+    margin-bottom: 20px;
   }
   .panel-title {
-    font-size: 15px;
-    margin: 0 0 12px;
-    color: #0f172a;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--color-text-1);
+    margin-bottom: 16px;
   }
   .upload-area {
-    border: 1px dashed rgba(99, 102, 241, 0.45);
+    border: 2px dashed var(--color-border-2);
     border-radius: 12px;
-    padding: 26px 16px;
+    padding: 40px 20px;
     text-align: center;
     cursor: pointer;
-    background: #f8fafc;
-    &.drag-over,
-    &:hover {
-      border-color: #6366f1;
-      background: #eef2ff;
+    transition: all 0.3s ease;
+    &.drag-over {
+      border-color: rgb(var(--primary-6));
+      background: rgb(var(--primary-1));
+    }
+    &.has-file {
+      border-style: solid;
+      border-color: rgb(var(--success-6));
     }
   }
   .upload-icon {
-    color: #6366f1;
+    color: rgb(var(--primary-6));
+    margin-bottom: 12px;
   }
   .upload-text {
-    margin: 8px 0 4px;
-    color: #0f172a;
-    font-size: 14px;
+    font-size: 16px;
+    color: var(--color-text-1);
+    margin-bottom: 8px;
   }
   .upload-hint {
-    margin: 0;
-    color: #64748b;
-    font-size: 12px;
+    font-size: 13px;
+    color: var(--color-text-3);
   }
   .file-preview {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 10px;
-    color: #334155;
+    gap: 12px;
   }
   .file-name {
-    font-size: 13px;
-    font-weight: 600;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--color-text-1);
   }
   .file-size {
     font-size: 12px;
-    color: #64748b;
+    color: var(--color-text-3);
   }
   .studio-preview-shell {
-    width: 60%;
-    min-width: 420px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
   }
   .studio-preview-bg {
-    height: 100%;
-    min-height: 600px;
+    flex: 1;
+    background:
+      radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.18), transparent 35%),
+      linear-gradient(180deg, #0f172a 0%, #111827 100%);
     border-radius: 18px;
-    background-color: #0f172a;
-    background-image:
-      linear-gradient(rgba(148, 163, 184, 0.08) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px);
-    background-size: 26px 26px, 26px 26px;
-    border: 1px solid rgba(148, 163, 184, 0.25);
-    box-shadow: inset 0 0 40px rgba(15, 23, 42, 0.7);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 22px;
+    padding: 18px;
+    box-shadow: 0 20px 45px rgba(15, 23, 42, 0.22);
   }
   .studio-preview-canvas {
-    width: 100%;
+    height: 100%;
     display: flex;
+    align-items: center;
     justify-content: center;
   }
   .canvas-frame {
-    width: min(100%, 760px);
-    aspect-ratio: 16 / 9;
-    border-radius: 16px;
-    background: linear-gradient(180deg, rgba(15, 23, 42, 0.95), rgba(2, 6, 23, 0.98));
-    border: 1px solid rgba(59, 130, 246, 0.35);
-    overflow: hidden;
-    position: relative;
-  }
-  .canvas-waiting {
+    width: 100%;
     height: 100%;
-    color: #93c5fd;
+    min-height: 420px;
+    border-radius: 18px;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    background: rgba(15, 23, 42, 0.6);
+    position: relative;
+    overflow: hidden;
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 10px;
+  }
+  .canvas-waiting {
+    text-align: center;
+    color: #cbd5e1;
     p {
-      margin: 0;
-      font-size: 16px;
+      margin: 12px 0 8px;
+      font-size: 18px;
       font-weight: 600;
     }
     span {
-      font-size: 12px;
+      font-size: 14px;
       color: #94a3b8;
     }
+  }
+  .canvas-progress {
+    width: min(420px, 72%);
+    display: grid;
+    gap: 16px;
+    padding: 24px;
+    border-radius: 16px;
+    background: rgba(15, 23, 42, 0.72);
+    border: 1px solid rgba(56, 189, 248, 0.24);
+    color: #e2e8f0;
+  }
+  .canvas-progress-title {
+    font-size: 20px;
+    font-weight: 600;
+  }
+  .canvas-progress-value {
+    font-size: 48px;
+    font-weight: 700;
+    color: #38bdf8;
+  }
+  .canvas-progress-sub {
+    font-size: 12px;
+    color: #94a3b8;
+    word-break: break-all;
+  }
+  .laser-scan-line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #38bdf8, transparent);
+    box-shadow: 0 0 18px rgba(56, 189, 248, 0.9);
+    animation: laser-scan 1.4s linear infinite;
   }
   .studio-cover {
     width: 100%;
     height: 100%;
     object-fit: cover;
   }
-  .play-glass-btn {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    width: 82px;
-    height: 82px;
-    border-radius: 50%;
-    border: 1px solid rgba(255, 255, 255, 0.45);
-    background: rgba(255, 255, 255, 0.2);
-    color: #fff;
-    backdrop-filter: blur(10px);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
+  .status-card {
+    display: grid;
+    gap: 10px;
+    padding: 16px 18px;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
   }
-  .laser-scan-line {
-    position: absolute;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background: linear-gradient(90deg, transparent, #38bdf8, transparent);
-    box-shadow: 0 0 18px rgba(56, 189, 248, 0.8);
-    animation: studio-scan 1.2s linear infinite;
-  }
-  @keyframes studio-scan {
-    0% {
-      top: 0%;
-    }
-    100% {
-      top: calc(100% - 2px);
+  .status-card__row {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    color: #334155;
+    strong {
+      color: #0f172a;
+      text-align: right;
     }
   }
-
+  @keyframes laser-scan {
+    0% { top: 0; }
+    100% { top: calc(100% - 2px); }
+  }
   @media (max-width: @screen-lg) {
     .studio-workbench {
       flex-direction: column;
     }
-    .studio-control-panel,
-    .studio-preview-shell {
+    .studio-control-panel {
       width: 100%;
       min-width: 0;
     }

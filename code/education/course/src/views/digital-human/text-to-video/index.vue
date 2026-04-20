@@ -42,8 +42,8 @@
               </a-radio-group>
             </div>
             <div class="config-item">
-              <span>配音语种</span>
-              <a-select :default-value="'zh-CN'" :options="voiceOptions" />
+              <span>配音音色</span>
+              <a-select v-model="selectedVoice" :options="voiceOptions" />
             </div>
           </div>
           <div class="tips">
@@ -55,13 +55,37 @@
 
         <section class="right-panel panel-card dark-card">
           <div class="preview-canvas">
-            <img :src="studioCoverImage" class="studio-cover" alt="数字人封面" />
+            <video
+              v-if="videoUrl && jobStatus.status === 'success'"
+              class="studio-cover"
+              :src="videoUrl"
+              controls
+            />
+            <img v-else :src="studioCoverImage" class="studio-cover" alt="数字人封面" />
             <div v-if="isGenerating" class="scan-line"></div>
-            <div class="play-mask">▶</div>
-            <div class="status-badge">{{ isGenerating ? '渲染中...' : '预览就绪' }}</div>
+            <div class="play-mask">{{ videoUrl && jobStatus.status === 'success' ? '▶' : 'AI' }}</div>
+            <div class="status-badge">{{ statusBadge }}</div>
           </div>
+
+          <div class="job-panel">
+            <div class="job-line">
+              <span>当前任务</span>
+              <strong>{{ jobMessage }}</strong>
+            </div>
+            <div class="job-line">
+              <span>任务 ID</span>
+              <strong class="task-id">{{ activeTaskId || '未创建' }}</strong>
+            </div>
+            <a-progress
+              :percent="jobProgress"
+              :show-text="true"
+              :animation="true"
+              :status="jobStatus.status === 'failed' ? 'danger' : 'normal'"
+            />
+          </div>
+
           <p class="preview-tip">
-            当前显示：数字人预览画面（生成完成后将自动刷新）
+            当前显示：{{ videoUrl ? '已生成的视频成片，可直接预览播放' : '数字人预览画面，任务完成后会自动切换成片' }}
           </p>
         </section>
       </div>
@@ -70,31 +94,73 @@
 </template>
 
 <script lang="ts" setup>
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { Message } from '@arco-design/web-vue';
 import studioCover from '@/assets/digital-human/studio-cover.png';
+import { createTextToVideoJob } from '@/api/digital-human';
+import { useDigitalHumanJob } from '@/composables/useDigitalHumanJob';
 
 const router = useRouter();
 const scriptContent = ref('');
 const isGenerating = ref(false);
 const studioCoverImage = ref(studioCover);
+const videoUrl = ref('');
+const selectedVoice = ref('zh-CN-YunxiNeural');
+const selectedDigitalHumanId = ref('teacher-default');
+const { activeTaskId, status: jobStatus, startPolling } = useDigitalHumanJob();
+
 const voiceOptions = [
-  { label: '中文（普通话）', value: 'zh-CN' },
-  { label: '英文（美式）', value: 'en-US' },
-  { label: '日语（标准）', value: 'ja-JP' },
+  { label: '知性男声 Yunxi', value: 'zh-CN-YunxiNeural' },
+  { label: '温和女声 Xiaoxiao', value: 'zh-CN-XiaoxiaoNeural' },
+  { label: '沉稳女声 Yunjian', value: 'zh-CN-YunjianNeural' },
 ];
+
+const jobProgress = computed(() => Number(jobStatus.value.progress || 0));
+const jobMessage = computed(() => jobStatus.value.message || '等待任务开始');
+const statusBadge = computed(() => {
+  if (jobStatus.value.status === 'success') return '预览就绪';
+  if (jobStatus.value.status === 'failed') return '渲染失败';
+  if (jobStatus.value.status === 'processing') {
+    return `${jobStatus.value.message} (${jobProgress.value}%)`;
+  }
+  if (activeTaskId.value) {
+    return `渲染排队中 (${jobProgress.value}%)`;
+  }
+  return '等待任务';
+});
 
 const goBack = () => {
   router.push('/digital-human');
 };
 
-const generateVideo = () => {
+const generateVideo = async () => {
+  const text = scriptContent.value.trim();
+  if (!text) {
+    Message.warning('请先输入脚本内容');
+    return;
+  }
   isGenerating.value = true;
-  setTimeout(() => {
+  videoUrl.value = '';
+  try {
+    const job = await createTextToVideoJob({
+      text,
+      title: text.slice(0, 24),
+      voice_id: selectedVoice.value,
+      digital_human_id: selectedDigitalHumanId.value,
+    });
+    await startPolling(job.task_id);
+    if (jobStatus.value.status === 'success' && jobStatus.value.video_url) {
+      videoUrl.value = jobStatus.value.video_url;
+      Message.success('数字人视频渲染完成');
+    } else if (jobStatus.value.status === 'failed') {
+      Message.error(jobStatus.value.message || '数字人渲染失败');
+    }
+  } catch (error: any) {
+    Message.error(error?.message || '创建数字人任务失败');
+  } finally {
     isGenerating.value = false;
-    Message.success('渲染完成，已展示封面预览');
-  }, 3000);
+  }
 };
 </script>
 
@@ -245,6 +311,32 @@ export default {
   font-size: 11px;
   padding: 4px 10px;
   font-weight: 700;
+}
+.job-panel {
+  margin-top: 14px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(56, 189, 248, 0.22);
+}
+.job-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  color: #cbd5e1;
+  font-size: 13px;
+}
+.job-line strong {
+  color: #f8fafc;
+}
+.task-id {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .preview-tip {
   margin: 12px 0 0;

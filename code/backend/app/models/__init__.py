@@ -6,6 +6,7 @@ from app.models.chat_feedback import ChatFeedback
 from app.models.item import Item
 from app.models.chat_thread import ChatThread
 from app.models.user import User
+from app.models.user_memory_profile import UserMemoryProfile
 from app.models.message import Message
 from app.core.enums import MessageStatus, MessageType
 
@@ -50,6 +51,7 @@ __all__ = [
     "ItemCreate",
     "ItemUpdate",
     "User",
+    "UserMemoryProfile",
     "UserCreate",
     "UserUpdate",
     "MessageStatus",
@@ -60,4 +62,3 @@ __all__ = [
     "NewPassword",
     "UserPublic",
 ] 
-

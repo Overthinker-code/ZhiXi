@@ -14,6 +14,7 @@ from app.models.chat_feedback import ChatFeedback  # noqa: F401
 from app.models.item import Item  # noqa: F401
 from app.models.message import Message  # noqa: F401
 from app.models.user import User  # noqa: F401
+from app.models.user_memory_profile import UserMemoryProfile  # noqa: F401
 
 
 def custom_generate_unique_id(route: APIRoute) -> str:

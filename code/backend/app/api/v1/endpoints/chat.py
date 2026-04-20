@@ -23,6 +23,7 @@ from app.services.pending_actions import pending_action_store
 from app.services.realtime_event_bus import realtime_event_bus
 from app.services.chat_semantic_cache import chat_semantic_cache
 from app.services.chat_model_factory import ChatModelFactory
+from app.services.background_tasks import schedule_memory_profile_refresh
 
 router = APIRouter()
 
@@ -362,6 +363,7 @@ def stream_chat(
                             first_query=log_user,
                             first_answer=final_text,
                         )
+                        schedule_memory_profile_refresh(user_id)
                 except Exception:
                     pass
         except Exception as exc:
@@ -431,6 +433,7 @@ def selection_query(
                         first_query=log_user,
                         first_answer=str(out.get("response") or ""),
                     )
+                    schedule_memory_profile_refresh(user_id)
             except Exception:
                 pass
         return out

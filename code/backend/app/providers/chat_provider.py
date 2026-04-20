@@ -12,6 +12,7 @@ from app.ai.chat_service import (
 )
 from app.providers.chat_thread_provider import chat_thread_provider
 from app.schemas.chat_thread import ChatThreadCreate
+from app.services.background_tasks import schedule_memory_profile_refresh
 
 class ChatProvider(BaseProvider[Chat, ChatCreate, ChatUpdate]):
     def get_by_thread_id(self, db: Session, *, thread_id: str) -> List[Chat]:
@@ -66,6 +67,7 @@ class ChatProvider(BaseProvider[Chat, ChatCreate, ChatUpdate]):
         db.add(db_obj)
         db.commit()
         db.refresh(db_obj)
+        schedule_memory_profile_refresh(user_id)
         
         setattr(db_obj, "tool_calls", ai_response.tool_calls)
         setattr(db_obj, "agent", ai_response.agent)
@@ -106,6 +108,11 @@ class ChatProvider(BaseProvider[Chat, ChatCreate, ChatUpdate]):
         db.add(db_obj)
         db.commit()
         db.refresh(db_obj)
+        try:
+            thread = chat_thread_provider.get_by_thread_id(db, thread_id=thread_id)
+            schedule_memory_profile_refresh(getattr(thread, "user_id", None))
+        except Exception:
+            pass
         return db_obj
 
 chat_provider = ChatProvider(Chat)
