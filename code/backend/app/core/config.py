@@ -157,16 +157,42 @@ class Settings(BaseSettings):
 
     DIGITAL_HUMAN_INPUT_DIR: str = os.path.join(BASE_PATH, "digital_human_inputs")
     DIGITAL_HUMAN_OUTPUT_DIR: str = os.path.join(BASE_PATH, "digital_human_outputs")
-    DIGITAL_HUMAN_WAV2LIP_DIR: str = os.path.join(BASE_PATH, "Wav2Lip")
-    DIGITAL_HUMAN_FACE_IMAGE: str = os.path.join(
-        BASE_PATH, "digital_human_assets", "teacher_face.jpg"
-    )
+    DIGITAL_HUMAN_ASSET_DIR: str = os.path.join(BASE_PATH, "digital_human_assets")
+    DIGITAL_HUMAN_ENGINE: str = "musetalk"
     DIGITAL_HUMAN_EDGE_TTS_VOICE: str = "zh-CN-YunxiNeural"
+    DIGITAL_HUMAN_RENDER_TIMEOUT_SECONDS: int = 1800
+    DIGITAL_HUMAN_CELERY_ENABLED: bool = True
+
+    DIGITAL_HUMAN_MUSETALK_DIR: str = os.path.join(BASE_PATH, "MuseTalk")
+    DIGITAL_HUMAN_MUSETALK_CONDA_BIN: str = "conda"
+    DIGITAL_HUMAN_MUSETALK_CONDA_ENV: str = "MuseTalk"
+    DIGITAL_HUMAN_MUSETALK_PYTHON: str = ""
+    DIGITAL_HUMAN_MUSETALK_TEMPLATE_CONFIG: str = os.path.join(
+        DIGITAL_HUMAN_MUSETALK_DIR, "configs", "inference", "test.yaml"
+    )
+    DIGITAL_HUMAN_MUSETALK_UNET_MODEL_PATH: str = os.path.join(
+        DIGITAL_HUMAN_MUSETALK_DIR, "models", "musetalkV15", "unet.pth"
+    )
+    DIGITAL_HUMAN_MUSETALK_UNET_CONFIG_PATH: str = os.path.join(
+        DIGITAL_HUMAN_MUSETALK_DIR, "models", "musetalkV15", "musetalk.json"
+    )
+    DIGITAL_HUMAN_MUSETALK_VERSION: str = "v15"
+    DIGITAL_HUMAN_MUSETALK_EXTRA_ARGS: str = ""
+    DIGITAL_HUMAN_MUSETALK_RESULT_DIR: str = os.path.join(
+        DIGITAL_HUMAN_OUTPUT_DIR, "musetalk_runs"
+    )
+    DIGITAL_HUMAN_FFMPEG_PATH: str = ""
+    DIGITAL_HUMAN_FACE_IMAGE: str = os.path.join(
+        DIGITAL_HUMAN_ASSET_DIR, "teacher_face.jpg"
+    )
+    DIGITAL_HUMAN_IDLE_VIDEO: str = os.path.join(
+        DIGITAL_HUMAN_ASSET_DIR, "teacher_idle.mp4"
+    )
+
+    DIGITAL_HUMAN_WAV2LIP_DIR: str = os.path.join(BASE_PATH, "Wav2Lip")
     DIGITAL_HUMAN_WAV2LIP_CHECKPOINT: str = os.path.join(
         DIGITAL_HUMAN_WAV2LIP_DIR, "checkpoints", "wav2lip_gan.pth"
     )
-    DIGITAL_HUMAN_RENDER_TIMEOUT_SECONDS: int = 1800
-    DIGITAL_HUMAN_CELERY_ENABLED: bool = True
 
     MEMORY_PROFILE_AUTO_REFRESH: bool = True
     MEMORY_PROFILE_MAX_TURNS: int = 20
@@ -182,3 +208,5 @@ os.makedirs(settings.RAG_UPLOAD_DIR, exist_ok=True)
 os.makedirs(settings.CHROMA_DB_PATH, exist_ok=True)
 os.makedirs(settings.DIGITAL_HUMAN_INPUT_DIR, exist_ok=True)
 os.makedirs(settings.DIGITAL_HUMAN_OUTPUT_DIR, exist_ok=True)
+os.makedirs(settings.DIGITAL_HUMAN_ASSET_DIR, exist_ok=True)
+os.makedirs(settings.DIGITAL_HUMAN_MUSETALK_RESULT_DIR, exist_ok=True)

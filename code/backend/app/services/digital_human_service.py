@@ -16,6 +16,61 @@ from app.worker.celery_app import celery, celery_enabled
 class DigitalHumanService:
     allowed_upload_extensions = {".ppt", ".pptx", ".pdf"}
 
+    @staticmethod
+    def _ensure_exists(path: str, label: str) -> None:
+        if not path or not os.path.exists(path):
+            raise RuntimeError(f"{label} 不存在：{path}")
+
+    @staticmethod
+    def _ensure_command_available(command: str, label: str) -> None:
+        if command and shutil.which(command):
+            return
+        if command and os.path.exists(command):
+            return
+        raise RuntimeError(f"未检测到 {label} 命令，请检查：{command}")
+
+    def _ensure_musetalk_ready(self) -> None:
+        self._ensure_exists(settings.DIGITAL_HUMAN_MUSETALK_DIR, "MuseTalk 目录")
+        self._ensure_exists(
+            settings.DIGITAL_HUMAN_MUSETALK_TEMPLATE_CONFIG,
+            "MuseTalk 推理配置模板",
+        )
+        self._ensure_exists(
+            settings.DIGITAL_HUMAN_MUSETALK_UNET_MODEL_PATH,
+            "MuseTalk v1.5 权重",
+        )
+        self._ensure_exists(
+            settings.DIGITAL_HUMAN_MUSETALK_UNET_CONFIG_PATH,
+            "MuseTalk UNet 配置",
+        )
+        if settings.DIGITAL_HUMAN_MUSETALK_PYTHON:
+            self._ensure_exists(
+                settings.DIGITAL_HUMAN_MUSETALK_PYTHON,
+                "MuseTalk Python 解释器",
+            )
+        else:
+            self._ensure_command_available(
+                settings.DIGITAL_HUMAN_MUSETALK_CONDA_BIN,
+                "Conda",
+            )
+        if not (
+            os.path.exists(settings.DIGITAL_HUMAN_IDLE_VIDEO)
+            or os.path.exists(settings.DIGITAL_HUMAN_FACE_IMAGE)
+        ):
+            raise RuntimeError(
+                "未检测到数字人素材，请至少准备一份待机视频或正脸图片："
+                f"{settings.DIGITAL_HUMAN_IDLE_VIDEO} / "
+                f"{settings.DIGITAL_HUMAN_FACE_IMAGE}"
+            )
+
+    def _ensure_wav2lip_ready(self) -> None:
+        self._ensure_exists(settings.DIGITAL_HUMAN_WAV2LIP_DIR, "Wav2Lip 目录")
+        self._ensure_exists(settings.DIGITAL_HUMAN_FACE_IMAGE, "数字人底图")
+        self._ensure_exists(
+            settings.DIGITAL_HUMAN_WAV2LIP_CHECKPOINT,
+            "Wav2Lip 权重",
+        )
+
     def ensure_worker_ready(self) -> None:
         if not celery_enabled() or celery is None:
             raise RuntimeError(
@@ -23,19 +78,16 @@ class DigitalHumanService:
             )
         if shutil.which("edge-tts") is None:
             raise RuntimeError("未检测到 edge-tts 命令，请先安装 edge-tts。")
-        if not os.path.exists(settings.DIGITAL_HUMAN_WAV2LIP_DIR):
-            raise RuntimeError(
-                f"未检测到 Wav2Lip 目录，请检查：{settings.DIGITAL_HUMAN_WAV2LIP_DIR}"
-            )
-        if not os.path.exists(settings.DIGITAL_HUMAN_FACE_IMAGE):
-            raise RuntimeError(
-                f"未检测到数字人底图，请检查：{settings.DIGITAL_HUMAN_FACE_IMAGE}"
-            )
-        if not os.path.exists(settings.DIGITAL_HUMAN_WAV2LIP_CHECKPOINT):
-            raise RuntimeError(
-                "未检测到 Wav2Lip 权重，请检查："
-                f"{settings.DIGITAL_HUMAN_WAV2LIP_CHECKPOINT}"
-            )
+        engine = settings.DIGITAL_HUMAN_ENGINE.strip().lower()
+        if engine == "musetalk":
+            self._ensure_musetalk_ready()
+            return
+        if engine == "wav2lip":
+            self._ensure_wav2lip_ready()
+            return
+        raise RuntimeError(
+            "DIGITAL_HUMAN_ENGINE 配置无效，请使用 musetalk 或 wav2lip。"
+        )
 
     async def _save_source_file(self, file: UploadFile, task_id: str) -> str:
         suffix = Path(file.filename or "").suffix.lower()

@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import os
+import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 from app.core.config import settings
 from app.services.document_processor import DocumentProcessor
@@ -41,6 +45,193 @@ if celery_enabled():
         )
 
 
+    def _selected_avatar_source() -> Path:
+        idle_video = Path(settings.DIGITAL_HUMAN_IDLE_VIDEO)
+        if idle_video.exists():
+            return idle_video
+        face_image = Path(settings.DIGITAL_HUMAN_FACE_IMAGE)
+        if face_image.exists():
+            return face_image
+        raise RuntimeError("未找到数字人素材，请准备待机视频或正脸图片")
+
+
+    def _resolve_musetalk_python_command() -> list[str]:
+        python_path = settings.DIGITAL_HUMAN_MUSETALK_PYTHON.strip()
+        if python_path:
+            _ensure_path(python_path, "MuseTalk Python 解释器")
+            return [python_path]
+
+        conda_bin = settings.DIGITAL_HUMAN_MUSETALK_CONDA_BIN.strip() or "conda"
+        if os.path.sep in conda_bin:
+            _ensure_path(conda_bin, "Conda 可执行文件")
+        elif shutil.which(conda_bin) is None:
+            raise RuntimeError(
+                f"未检测到 Conda 命令，请检查：{settings.DIGITAL_HUMAN_MUSETALK_CONDA_BIN}"
+            )
+
+        conda_env = settings.DIGITAL_HUMAN_MUSETALK_CONDA_ENV.strip()
+        if not conda_env:
+            raise RuntimeError("DIGITAL_HUMAN_MUSETALK_CONDA_ENV 未配置")
+
+        return [conda_bin, "run", "--no-capture-output", "-n", conda_env, "python"]
+
+
+    def _prepare_musetalk_config(
+        *,
+        task_id: str,
+        avatar_source: Path,
+        audio_path: Path,
+        result_dir: Path,
+    ) -> Path:
+        template_path = Path(settings.DIGITAL_HUMAN_MUSETALK_TEMPLATE_CONFIG)
+        _ensure_path(str(template_path), "MuseTalk 推理配置模板")
+        with open(template_path, "r", encoding="utf-8") as file:
+            config_data = yaml.safe_load(file) or {}
+        if not isinstance(config_data, dict):
+            raise RuntimeError("MuseTalk 推理模板格式异常，请检查 YAML 内容")
+
+        if any(str(key).startswith("task_") for key in config_data):
+            task_key = next(
+                (str(key) for key in config_data if str(key).startswith("task_")),
+                "task_0",
+            )
+            task_config = config_data.get(task_key) or {}
+            if not isinstance(task_config, dict):
+                task_config = {}
+            task_config["video_path"] = str(avatar_source)
+            task_config["audio_path"] = str(audio_path)
+            task_config["result_name"] = f"{task_id}.mp4"
+            config_data = {task_key: task_config}
+        else:
+            config_data["video_path"] = str(avatar_source)
+            config_data["audio_path"] = str(audio_path)
+            config_data["result_name"] = f"{task_id}.mp4"
+
+        config_path = result_dir / f"{task_id}_inference.yaml"
+        with open(config_path, "w", encoding="utf-8") as file:
+            yaml.safe_dump(
+                config_data,
+                file,
+                allow_unicode=True,
+                sort_keys=False,
+            )
+        return config_path
+
+
+    def _build_musetalk_command(config_path: Path, result_dir: Path) -> list[str]:
+        cmd = _resolve_musetalk_python_command()
+        cmd.extend(
+            [
+                "-m",
+                "scripts.inference",
+                "--inference_config",
+                str(config_path),
+                "--result_dir",
+                str(result_dir),
+                "--unet_model_path",
+                settings.DIGITAL_HUMAN_MUSETALK_UNET_MODEL_PATH,
+                "--unet_config",
+                settings.DIGITAL_HUMAN_MUSETALK_UNET_CONFIG_PATH,
+                "--version",
+                settings.DIGITAL_HUMAN_MUSETALK_VERSION,
+            ]
+        )
+        ffmpeg_path = settings.DIGITAL_HUMAN_FFMPEG_PATH.strip()
+        if ffmpeg_path:
+            cmd.extend(["--ffmpeg_path", ffmpeg_path])
+        extra_args = settings.DIGITAL_HUMAN_MUSETALK_EXTRA_ARGS.strip()
+        if extra_args:
+            cmd.extend(shlex.split(extra_args))
+        return cmd
+
+
+    def _locate_generated_video(result_dir: Path) -> Path:
+        candidates = [path for path in result_dir.rglob("*.mp4") if path.is_file()]
+        if not candidates:
+            raise RuntimeError(
+                "MuseTalk 已执行，但未在结果目录中找到 mp4 文件："
+                f"{result_dir}"
+            )
+        return max(candidates, key=lambda path: (path.stat().st_mtime, path.stat().st_size))
+
+
+    def _subprocess_env() -> dict[str, str]:
+        env = os.environ.copy()
+        ffmpeg_path = settings.DIGITAL_HUMAN_FFMPEG_PATH.strip()
+        if ffmpeg_path:
+            env["FFMPEG_PATH"] = ffmpeg_path
+        return env
+
+
+    def _render_with_musetalk(task, *, task_id: str, audio_path: Path, video_path: Path) -> None:
+        _ensure_path(settings.DIGITAL_HUMAN_MUSETALK_DIR, "MuseTalk 目录")
+        _ensure_path(settings.DIGITAL_HUMAN_MUSETALK_UNET_MODEL_PATH, "MuseTalk v1.5 权重")
+        _ensure_path(
+            settings.DIGITAL_HUMAN_MUSETALK_UNET_CONFIG_PATH,
+            "MuseTalk UNet 配置",
+        )
+
+        avatar_source = _selected_avatar_source()
+        result_dir = Path(settings.DIGITAL_HUMAN_MUSETALK_RESULT_DIR) / task_id
+        result_dir.mkdir(parents=True, exist_ok=True)
+
+        _update_progress(
+            task,
+            progress=65,
+            message="正在准备 MuseTalk 推理参数",
+            stage="musetalk_prepare",
+        )
+        config_path = _prepare_musetalk_config(
+            task_id=task_id,
+            avatar_source=avatar_source,
+            audio_path=audio_path,
+            result_dir=result_dir,
+        )
+
+        _update_progress(
+            task,
+            progress=82,
+            message="正在进行数字人高保真渲染",
+            stage="musetalk",
+        )
+        musetalk_cmd = _build_musetalk_command(config_path, result_dir)
+        subprocess.run(
+            musetalk_cmd,
+            cwd=settings.DIGITAL_HUMAN_MUSETALK_DIR,
+            env=_subprocess_env(),
+            check=True,
+            timeout=settings.DIGITAL_HUMAN_RENDER_TIMEOUT_SECONDS,
+        )
+
+        generated_video = _locate_generated_video(result_dir)
+        shutil.copy2(generated_video, video_path)
+
+
+    def _render_with_wav2lip(*, audio_path: Path, video_path: Path) -> None:
+        _ensure_path(settings.DIGITAL_HUMAN_WAV2LIP_DIR, "Wav2Lip 目录")
+        _ensure_path(settings.DIGITAL_HUMAN_WAV2LIP_CHECKPOINT, "Wav2Lip 权重")
+        _ensure_path(settings.DIGITAL_HUMAN_FACE_IMAGE, "数字人底图")
+
+        wav2lip_cmd = [
+            sys.executable,
+            "inference.py",
+            "--checkpoint_path",
+            settings.DIGITAL_HUMAN_WAV2LIP_CHECKPOINT,
+            "--face",
+            settings.DIGITAL_HUMAN_FACE_IMAGE,
+            "--audio",
+            str(audio_path),
+            "--outfile",
+            str(video_path),
+        ]
+        subprocess.run(
+            wav2lip_cmd,
+            cwd=settings.DIGITAL_HUMAN_WAV2LIP_DIR,
+            check=True,
+            timeout=settings.DIGITAL_HUMAN_RENDER_TIMEOUT_SECONDS,
+        )
+
+
     @celery.task(bind=True, name="digital_human.generate_video")
     def generate_video_task(
         self,
@@ -61,10 +252,7 @@ if celery_enabled():
         audio_path = output_dir / f"{task_id}.wav"
         video_path = output_dir / f"{task_id}.mp4"
         selected_voice = (voice_id or settings.DIGITAL_HUMAN_EDGE_TTS_VOICE).strip()
-
-        _ensure_path(settings.DIGITAL_HUMAN_WAV2LIP_DIR, "Wav2Lip 目录")
-        _ensure_path(settings.DIGITAL_HUMAN_WAV2LIP_CHECKPOINT, "Wav2Lip 权重")
-        _ensure_path(settings.DIGITAL_HUMAN_FACE_IMAGE, "数字人底图")
+        engine = settings.DIGITAL_HUMAN_ENGINE.strip().lower()
 
         try:
             _update_progress(
@@ -78,7 +266,7 @@ if celery_enabled():
             _update_progress(
                 self,
                 progress=35,
-                message="正在生成语音",
+                message="正在合成讲解语音",
                 stage="tts",
             )
             tts_cmd = [
@@ -96,30 +284,25 @@ if celery_enabled():
                 timeout=settings.DIGITAL_HUMAN_RENDER_TIMEOUT_SECONDS,
             )
 
-            _update_progress(
-                self,
-                progress=75,
-                message="正在驱动数字人唇形",
-                stage="wav2lip",
-            )
-            wav2lip_cmd = [
-                sys.executable,
-                "inference.py",
-                "--checkpoint_path",
-                settings.DIGITAL_HUMAN_WAV2LIP_CHECKPOINT,
-                "--face",
-                settings.DIGITAL_HUMAN_FACE_IMAGE,
-                "--audio",
-                str(audio_path),
-                "--outfile",
-                str(video_path),
-            ]
-            subprocess.run(
-                wav2lip_cmd,
-                cwd=settings.DIGITAL_HUMAN_WAV2LIP_DIR,
-                check=True,
-                timeout=settings.DIGITAL_HUMAN_RENDER_TIMEOUT_SECONDS,
-            )
+            if engine == "musetalk":
+                _render_with_musetalk(
+                    self,
+                    task_id=task_id,
+                    audio_path=audio_path,
+                    video_path=video_path,
+                )
+            elif engine == "wav2lip":
+                _update_progress(
+                    self,
+                    progress=75,
+                    message="正在驱动数字人唇形",
+                    stage="wav2lip",
+                )
+                _render_with_wav2lip(audio_path=audio_path, video_path=video_path)
+            else:
+                raise RuntimeError(
+                    "DIGITAL_HUMAN_ENGINE 配置无效，请使用 musetalk 或 wav2lip。"
+                )
 
             if audio_path.exists():
                 audio_path.unlink()
