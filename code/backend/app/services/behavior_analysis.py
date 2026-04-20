@@ -17,8 +17,8 @@ class BehaviorAnalysisService:
     
     def __init__(self, yolo_host: Optional[str] = None, yolo_port: Optional[int] = None):
         """初始化行为分析服务"""
-        host = yolo_host or settings.YOLO_SERVICE_HOST
-        port = yolo_port or settings.YOLO_SERVICE_PORT
+        host = yolo_host or getattr(settings, "YOLO_SERVICE_HOST", "http://127.0.0.1")
+        port = yolo_port or getattr(settings, "YOLO_SERVICE_PORT", 8002)
         self.base_url = f"{host}:{port}"
         
         # 行为映射（与 yolo.py 中一致）

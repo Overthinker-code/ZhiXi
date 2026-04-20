@@ -154,6 +154,8 @@ class Settings(BaseSettings):
 
     REDIS_BROKER_URL: str = "redis://127.0.0.1:6379/0"
     REDIS_RESULT_BACKEND: str = "redis://127.0.0.1:6379/1"
+    YOLO_SERVICE_HOST: str = "http://127.0.0.1"
+    YOLO_SERVICE_PORT: int = 8002
 
     DIGITAL_HUMAN_INPUT_DIR: str = os.path.join(BASE_PATH, "digital_human_inputs")
     DIGITAL_HUMAN_OUTPUT_DIR: str = os.path.join(BASE_PATH, "digital_human_outputs")

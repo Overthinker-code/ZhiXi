@@ -64,7 +64,7 @@ def main() -> int:
 
     try:
         _run_once([sys.executable, "backend_pre_start.py"])
-        _run_once([sys.executable, "app/initial_data.py"])
+        _run_once([sys.executable, "initial_data.py"])
         children.append(_spawn(celery_cmd))
         time.sleep(2)
         children.append(_spawn(uvicorn_cmd))

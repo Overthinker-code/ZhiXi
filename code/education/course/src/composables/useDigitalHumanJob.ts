@@ -14,6 +14,9 @@ export function useDigitalHumanJob() {
   });
   const isPolling = ref(false);
   let timer: ReturnType<typeof window.setTimeout> | null = null;
+  let settle:
+    | ((value: DigitalHumanJobStatus) => void)
+    | null = null;
 
   const stopPolling = () => {
     isPolling.value = false;
@@ -29,6 +32,10 @@ export function useDigitalHumanJob() {
     status.value = data;
     if (data.status === 'success' || data.status === 'failed') {
       stopPolling();
+      if (settle) {
+        settle(data);
+        settle = null;
+      }
       return;
     }
     timer = window.setTimeout(() => {
@@ -46,7 +53,10 @@ export function useDigitalHumanJob() {
       message: '渲染排队中',
       stage: 'queued',
     };
-    await pollOnce();
+    return new Promise<DigitalHumanJobStatus>((resolve) => {
+      settle = resolve;
+      void pollOnce();
+    });
   };
 
   onBeforeUnmount(() => {

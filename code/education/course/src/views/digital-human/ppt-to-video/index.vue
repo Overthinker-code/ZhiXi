@@ -240,12 +240,12 @@
         voice_id: formData.voice,
         digital_human_id: formData.digitalHuman,
       });
-      await startPolling(job.task_id);
-      if (jobStatus.value.status === 'success' && jobStatus.value.video_url) {
-        videoUrl.value = jobStatus.value.video_url;
+      const finalStatus = await startPolling(job.task_id);
+      if (finalStatus.status === 'success' && finalStatus.video_url) {
+        videoUrl.value = finalStatus.video_url;
         Message.success('PPT 数字人视频渲染完成');
-      } else if (jobStatus.value.status === 'failed') {
-        Message.error(jobStatus.value.message || 'PPT 数字人渲染失败');
+      } else if (finalStatus.status === 'failed') {
+        Message.error(finalStatus.message || 'PPT 数字人渲染失败');
       }
     } catch (error: any) {
       Message.error(error?.message || '提交 PPT 数字人任务失败');

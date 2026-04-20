@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 def init() -> None:
-    engine = create_engine(settings.SQLALCHEMY_DATABASE_URI)
+    engine = create_engine(str(settings.SQLALCHEMY_DATABASE_URI))
     # Make sure all SQLModel models are imported before initializing the DB
     # otherwise, SQLModel might fail to initialize relationships properly
     from app.models import (
