@@ -32,6 +32,15 @@ def run_ffmpeg_command(cmd: list[str], description: str) -> None:
     print(f"{description}:", " ".join(cmd))
     subprocess.run(cmd, check=True)
 
+
+def emit_progress(stage: str, current: int, total: int, message: str = "") -> None:
+    safe_total = max(int(total), 1)
+    safe_current = min(max(int(current), 0), safe_total)
+    print(
+        f"DH_PROGRESS|{stage}|{safe_current}|{safe_total}|{message}",
+        flush=True,
+    )
+
 @torch.no_grad()
 def main(args):
     # Configure ffmpeg path
@@ -150,6 +159,7 @@ def main(args):
                 fps = args.fps
             else:
                 raise ValueError(f"{video_path} should be a video file, an image file or a directory of images")
+            emit_progress("extract_frames", 1, 1, "素材帧准备完成")
 
             # Extract audio features
             whisper_input_features, librosa_length = audio_processor.get_audio_feature(audio_path)
@@ -163,6 +173,7 @@ def main(args):
                 audio_padding_length_left=args.audio_padding_length_left,
                 audio_padding_length_right=args.audio_padding_length_right,
             )
+            emit_progress("audio_features", 1, 1, "音频特征提取完成")
             
             # Preprocess input images
             if os.path.exists(crop_coord_save_path) and args.use_saved_coord:
@@ -175,11 +186,14 @@ def main(args):
                 coord_list, frame_list = get_landmark_and_bbox(input_img_list, bbox_shift)
                 with open(crop_coord_save_path, 'wb') as f:
                     pickle.dump(coord_list, f)
+            emit_progress("landmarks", 1, 1, "口型区域定位完成")
             
             print(f"Number of frames: {len(frame_list)}")         
             
             # Process each frame
             input_latent_list = []
+            latent_total = sum(1 for bbox in coord_list if bbox != coord_placeholder)
+            latent_done = 0
             for bbox, frame in zip(coord_list, frame_list):
                 if bbox == coord_placeholder:
                     continue
@@ -191,6 +205,8 @@ def main(args):
                 crop_frame = cv2.resize(crop_frame, (256,256), interpolation=cv2.INTER_LANCZOS4)
                 latents = vae.get_latents_for_unet(crop_frame)
                 input_latent_list.append(latents)
+                latent_done += 1
+                emit_progress("latents", latent_done, latent_total, "正在编码驱动特征")
         
             # Smooth first and last frames
             frame_list_cycle = frame_list + frame_list[::-1]
@@ -221,6 +237,7 @@ def main(args):
                 recon = vae.decode_latents(pred_latents)
                 for res_frame in recon:
                     res_frame_list.append(res_frame)
+                emit_progress("inference", i + 1, total, "正在生成口型帧")
             
             # Pad generated images to original video size
             print("Padding generated images to original video size")
@@ -242,6 +259,7 @@ def main(args):
                 else:
                     combine_frame = get_image(ori_frame, res_frame, [x1, y1, x2, y2], fp=fp)
                 cv2.imwrite(f"{result_img_save_path}/{str(i).zfill(8)}.png", combine_frame)
+                emit_progress("compositing", i + 1, len(res_frame_list), "正在合成数字人画面")
 
             # Save prediction results
             temp_vid_path = f"{temp_dir}/temp_{input_basename}_{audio_basename}.mp4"
@@ -265,6 +283,7 @@ def main(args):
                 temp_vid_path,
             ]
             run_ffmpeg_command(cmd_img2video, "Video generation command")
+            emit_progress("encode_video", 1, 1, "视频编码完成")
             
             cmd_combine_audio = [
                 "ffmpeg",
@@ -278,6 +297,7 @@ def main(args):
                 output_vid_name,
             ]
             run_ffmpeg_command(cmd_combine_audio, "Audio combination command")
+            emit_progress("mux_audio", 1, 1, "音视频合成完成")
             
             # Clean up temporary files
             if os.path.exists(result_img_save_path):

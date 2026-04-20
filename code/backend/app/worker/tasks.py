@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import os
+import selectors
 import shlex
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +18,17 @@ from app.services.user_memory_profile_service import user_memory_profile_service
 from app.worker.celery_app import celery, celery_enabled
 
 if celery_enabled():
+    _MUSE_PROGRESS_PREFIX = "DH_PROGRESS|"
+    _MUSE_PROGRESS_RANGES: dict[str, tuple[int, int, str, str]] = {
+        "extract_frames": (68, 72, "正在拆分素材帧", "musetalk_extract_frames"),
+        "audio_features": (72, 76, "正在分析音频特征", "musetalk_audio_features"),
+        "landmarks": (76, 80, "正在定位口型区域", "musetalk_landmarks"),
+        "latents": (80, 86, "正在编码驱动特征", "musetalk_latents"),
+        "inference": (86, 93, "正在生成口型帧", "musetalk_inference"),
+        "compositing": (93, 98, "正在合成数字人画面", "musetalk_compositing"),
+        "encode_video": (98, 99, "正在封装视频", "musetalk_encode_video"),
+        "mux_audio": (99, 99, "正在合成音视频", "musetalk_mux_audio"),
+    }
 
     def _ensure_path(path: str, label: str) -> None:
         if not path or not os.path.exists(path):
@@ -38,11 +51,128 @@ if celery_enabled():
         return script[:6000]
 
 
+    def _normalize_progress(progress: int | float) -> int:
+        try:
+            value = int(float(progress))
+        except (TypeError, ValueError):
+            return 0
+        return max(0, min(value, 100))
+
+
     def _update_progress(task, *, progress: int, message: str, stage: str) -> None:
         task.update_state(
             state="PROGRESS",
-            meta={"progress": progress, "message": message, "stage": stage},
+            meta={
+                "progress": _normalize_progress(progress),
+                "message": message,
+                "stage": stage,
+            },
         )
+
+
+    def _map_musetalk_progress(
+        raw_stage: str,
+        current: str,
+        total: str,
+        detail: str,
+    ) -> tuple[int, str, str] | None:
+        stage_config = _MUSE_PROGRESS_RANGES.get(raw_stage)
+        if stage_config is None:
+            return None
+
+        start, end, fallback_message, mapped_stage = stage_config
+        try:
+            total_value = max(int(total), 1)
+        except (TypeError, ValueError):
+            total_value = 1
+        try:
+            current_value = max(0, min(int(current), total_value))
+        except (TypeError, ValueError):
+            current_value = 0
+
+        ratio = current_value / total_value
+        progress = start + round((end - start) * ratio)
+        message = detail.strip() or fallback_message
+        return _normalize_progress(progress), message, mapped_stage
+
+
+    def _stream_subprocess_with_progress(
+        task,
+        cmd: list[str],
+        *,
+        cwd: str,
+        env: dict[str, str],
+        timeout: int,
+    ) -> None:
+        process = subprocess.Popen(
+            cmd,
+            cwd=cwd,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        last_progress = -1
+        last_stage = ""
+        start_time = time.monotonic()
+
+        def handle_output_line(raw_line: str) -> None:
+            nonlocal last_progress, last_stage
+            line = raw_line.strip()
+            if not line:
+                return
+            if line.startswith(_MUSE_PROGRESS_PREFIX):
+                _, raw_stage, current, total, detail = line.split("|", 4)
+                mapped = _map_musetalk_progress(raw_stage, current, total, detail)
+                if mapped is None:
+                    return
+                progress, message, stage = mapped
+                if progress > last_progress or stage != last_stage:
+                    _update_progress(
+                        task,
+                        progress=progress,
+                        message=message,
+                        stage=stage,
+                    )
+                    last_progress = progress
+                    last_stage = stage
+                return
+            print(line)
+
+        try:
+            if process.stdout is not None:
+                selector = selectors.DefaultSelector()
+                selector.register(process.stdout, selectors.EVENT_READ)
+                try:
+                    while True:
+                        if time.monotonic() - start_time > timeout:
+                            raise subprocess.TimeoutExpired(cmd, timeout)
+
+                        if process.poll() is not None:
+                            break
+
+                        events = selector.select(timeout=1)
+                        for key, _ in events:
+                            raw_line = key.fileobj.readline()
+                            if raw_line:
+                                handle_output_line(raw_line)
+                finally:
+                    selector.close()
+
+                for raw_line in process.stdout:
+                    handle_output_line(raw_line)
+
+            return_code = process.wait()
+            if return_code != 0:
+                raise subprocess.CalledProcessError(return_code, cmd)
+        except subprocess.TimeoutExpired as exc:
+            process.kill()
+            process.wait()
+            raise exc
+        finally:
+            if process.stdout is not None:
+                process.stdout.close()
 
 
     def _selected_avatar_source() -> Path:
@@ -190,16 +320,16 @@ if celery_enabled():
 
         _update_progress(
             task,
-            progress=82,
-            message="正在进行数字人高保真渲染",
+            progress=68,
+            message="正在启动 MuseTalk 渲染引擎",
             stage="musetalk",
         )
         musetalk_cmd = _build_musetalk_command(config_path, result_dir)
-        subprocess.run(
+        _stream_subprocess_with_progress(
+            task,
             musetalk_cmd,
             cwd=settings.DIGITAL_HUMAN_MUSETALK_DIR,
             env=_subprocess_env(),
-            check=True,
             timeout=settings.DIGITAL_HUMAN_RENDER_TIMEOUT_SECONDS,
         )
 

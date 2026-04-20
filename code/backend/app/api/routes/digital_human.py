@@ -27,6 +27,22 @@ class TextToVideoRequest(BaseModel):
     title: str | None = None
 
 
+def _normalize_progress(raw: object, *, success: bool = False) -> int:
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return 100 if success else 0
+
+    if 0 < value <= 1:
+        value *= 100
+    elif value > 100 and value <= 10000 and value % 100 == 0:
+        value /= 100
+
+    if success:
+        return 100
+    return max(0, min(int(round(value)), 100))
+
+
 def _ensure_async_result():
     if AsyncResult is None or celery is None or not celery_enabled():
         raise HTTPException(
@@ -86,7 +102,7 @@ def get_digital_human_job_status(
         meta = task.info if isinstance(task.info, dict) else {}
         return {
             "status": "processing",
-            "progress": int(meta.get("progress") or 5),
+            "progress": _normalize_progress(meta.get("progress") or 5),
             "message": str(meta.get("message") or "渲染处理中"),
             "stage": str(meta.get("stage") or "processing"),
         }
@@ -102,7 +118,7 @@ def get_digital_human_job_status(
             }
         return {
             "status": "success",
-            "progress": int(result.get("progress") or 100),
+            "progress": _normalize_progress(result.get("progress") or 100, success=True),
             "message": result.get("message") or "渲染完成",
             "stage": result.get("stage") or "done",
             "video_url": result.get("video_url"),

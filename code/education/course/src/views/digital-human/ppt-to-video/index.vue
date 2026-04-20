@@ -1,6 +1,8 @@
 <template>
   <div class="container">
-    <Breadcrumb :items="['menu.digitalHuman', 'menu.digitalHuman.pptToVideo']" />
+    <Breadcrumb
+      :items="['menu.digitalHuman', 'menu.digitalHuman.pptToVideo']"
+    />
     <div class="content">
       <div class="header">
         <div class="back-btn" @click="goBack">
@@ -35,14 +37,18 @@
                   <icon-plus :size="36" />
                 </div>
                 <p class="upload-text">点击或拖拽文件到此处上传</p>
-                <p class="upload-hint">支持 .ppt .pptx .pdf，单文件不超过 20MB</p>
+                <p class="upload-hint"
+                  >支持 .ppt .pptx .pdf，单文件不超过 20MB</p
+                >
               </template>
               <template v-else>
                 <div class="file-preview">
                   <icon-file :size="30" />
                   <div>
                     <div class="file-name">{{ selectedFile.name }}</div>
-                    <div class="file-size">{{ formatFileSize(selectedFile.size) }}</div>
+                    <div class="file-size">{{
+                      formatFileSize(selectedFile.size)
+                    }}</div>
                   </div>
                 </div>
               </template>
@@ -53,15 +59,26 @@
             <h3 class="panel-title">视频设置</h3>
             <a-form :model="formData" layout="vertical">
               <a-form-item label="选择数字人">
-                <a-select v-model="formData.digitalHuman" placeholder="请选择数字人">
-                  <a-option v-for="dh in digitalHumanList" :key="dh.id" :value="dh.id">
+                <a-select
+                  v-model="formData.digitalHuman"
+                  placeholder="请选择数字人"
+                >
+                  <a-option
+                    v-for="dh in digitalHumanList"
+                    :key="dh.id"
+                    :value="dh.id"
+                  >
                     {{ dh.name }}
                   </a-option>
                 </a-select>
               </a-form-item>
               <a-form-item label="配音音色">
                 <a-select v-model="formData.voice" placeholder="请选择配音">
-                  <a-option v-for="voice in voiceList" :key="voice.id" :value="voice.id">
+                  <a-option
+                    v-for="voice in voiceList"
+                    :key="voice.id"
+                    :value="voice.id"
+                  >
                     {{ voice.name }}
                   </a-option>
                 </a-select>
@@ -87,11 +104,17 @@
                 <template v-if="videoUrl && jobStatus.status === 'success'">
                   <video :src="videoUrl" class="studio-cover" controls />
                 </template>
-                <template v-else-if="jobStatus.status === 'processing' || activeTaskId">
+                <template
+                  v-else-if="jobStatus.status === 'processing' || activeTaskId"
+                >
                   <div class="canvas-progress">
                     <div class="canvas-progress-title">{{ jobMessage }}</div>
                     <div class="canvas-progress-value">{{ jobProgress }}%</div>
-                    <a-progress :percent="jobProgress" :show-text="false" :animation="true" />
+                    <a-progress
+                      :percent="jobProgress"
+                      :show-text="false"
+                      :animation="true"
+                    />
                     <div class="canvas-progress-sub">
                       任务 ID：{{ activeTaskId || '等待创建' }}
                     </div>
@@ -135,7 +158,7 @@
     IconPlayCircle,
   } from '@arco-design/web-vue/es/icon';
   import { createPptToVideoJob } from '@/api/digital-human';
-  import { useDigitalHumanJob } from '@/composables/useDigitalHumanJob';
+  import useDigitalHumanJob from '@/composables/useDigitalHumanJob';
   import { resolveMediaUrl } from '@/utils/mediaUrl';
 
   const router = useRouter();
@@ -145,7 +168,11 @@
   const isGenerating = ref(false);
   const isStudioRendering = ref(false);
   const videoUrl = ref('');
-  const { activeTaskId, status: jobStatus, startPolling } = useDigitalHumanJob();
+  const {
+    activeTaskId,
+    status: jobStatus,
+    startPolling,
+  } = useDigitalHumanJob();
 
   const formData = reactive({
     digitalHuman: '',
@@ -196,7 +223,7 @@
   };
   const handleFileChange = (e: Event) => {
     const target = e.target as HTMLInputElement;
-    const files = target.files;
+    const { files } = target;
     if (files?.length) validateAndSetFile(files[0]);
   };
 
@@ -369,8 +396,11 @@
   }
   .studio-preview-bg {
     flex: 1;
-    background:
-      radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.18), transparent 35%),
+    background: radial-gradient(
+        circle at 20% 20%,
+        rgba(59, 130, 246, 0.18),
+        transparent 35%
+      ),
       linear-gradient(180deg, #0f172a 0%, #111827 100%);
     border-radius: 18px;
     padding: 18px;
@@ -466,8 +496,12 @@
     }
   }
   @keyframes laser-scan {
-    0% { top: 0; }
-    100% { top: calc(100% - 2px); }
+    0% {
+      top: 0;
+    }
+    100% {
+      top: calc(100% - 2px);
+    }
   }
   @media (max-width: @screen-lg) {
     .studio-workbench {
