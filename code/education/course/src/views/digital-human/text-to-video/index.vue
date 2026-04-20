@@ -100,6 +100,7 @@ import { Message } from '@arco-design/web-vue';
 import studioCover from '@/assets/digital-human/studio-cover.png';
 import { createTextToVideoJob } from '@/api/digital-human';
 import { useDigitalHumanJob } from '@/composables/useDigitalHumanJob';
+import { resolveMediaUrl } from '@/utils/mediaUrl';
 
 const router = useRouter();
 const scriptContent = ref('');
@@ -151,7 +152,7 @@ const generateVideo = async () => {
     });
     const finalStatus = await startPolling(job.task_id);
     if (finalStatus.status === 'success' && finalStatus.video_url) {
-      videoUrl.value = finalStatus.video_url;
+      videoUrl.value = resolveMediaUrl(finalStatus.video_url);
       Message.success('数字人视频渲染完成');
     } else if (finalStatus.status === 'failed') {
       Message.error(finalStatus.message || '数字人渲染失败');
