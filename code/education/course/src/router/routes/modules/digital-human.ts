@@ -6,7 +6,7 @@ const DIGITAL_HUMAN: AppRouteRecordRaw = {
   name: 'digitalHuman',
   component: DEFAULT_LAYOUT,
   meta: {
-    locale: 'menu.digitalHuman',
+    locale: '数字人创作舱',
     requiresAuth: true,
     icon: 'icon-robot',
     order: 2,

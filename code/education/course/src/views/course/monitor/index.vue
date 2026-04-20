@@ -67,6 +67,13 @@
             </a-dropdown>
           </div>
 
+          <div class="hud-metrics">
+            <div class="hud-metric" v-for="item in hudMetrics" :key="item.label">
+              <span class="hud-label">{{ item.label }}</span>
+              <span class="hud-value">{{ item.value }}</span>
+            </div>
+          </div>
+
           <button type="button" class="course-drawer-trigger" @click="courseDrawerOpen = true">
             📚 课程选择
           </button>
@@ -329,6 +336,15 @@
     if (activePanel.value === 'setting') return '直播设置';
     return '功能面板';
   });
+
+  const hudMetrics = computed(() => [
+    { label: '在线学生', value: `${currentResult.value?.persons?.length || 42} 人` },
+    {
+      label: '专注指数',
+      value: `${Math.max(0, Math.min(100, Math.round((currentResult.value?.overall_score || 0.76) * 100)))}%`,
+    },
+    { label: '智屿预警', value: detectionStatus.value === 'running' ? '实时开启' : '待机中' },
+  ]);
 
   const onDockClick = async (item: typeof dockItems.value[number]) => {
     if (item.key === 'video') {
@@ -635,8 +651,11 @@
     height: calc(100vh - 150px);
     border-radius: 18px;
     overflow: hidden;
-    border: 1px solid rgba(148, 163, 184, 0.2);
+    border: 1px solid rgba(56, 189, 248, 0.24);
     background: #0f172a;
+    box-shadow:
+      0 20px 45px rgba(2, 6, 23, 0.65),
+      inset 0 0 0 1px rgba(99, 102, 241, 0.08);
   }
 
   .monitor-stage-main {
@@ -657,6 +676,16 @@
     justify-content: center;
     align-items: center;
     overflow: hidden;
+    &::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(circle at 14% 8%, rgba(56, 189, 248, 0.18), transparent 34%),
+        radial-gradient(circle at 88% 16%, rgba(99, 102, 241, 0.2), transparent 32%);
+      z-index: 1;
+    }
   }
 
   .stage-poster {
@@ -728,7 +757,42 @@
     border-radius: 999px;
     padding: 8px 12px;
     backdrop-filter: blur(8px);
-    z-index: 4;
+    z-index: 6;
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.45);
+  }
+
+  .hud-metrics {
+    position: absolute;
+    top: 64px;
+    right: 18px;
+    z-index: 6;
+    display: flex;
+    gap: 10px;
+  }
+
+  .hud-metric {
+    min-width: 112px;
+    padding: 8px 10px;
+    border-radius: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.24);
+    background: rgba(2, 6, 23, 0.56);
+    backdrop-filter: blur(10px);
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    box-shadow: 0 8px 24px rgba(2, 6, 23, 0.45);
+  }
+
+  .hud-label {
+    font-size: 11px;
+    color: #94a3b8;
+    letter-spacing: 0.04em;
+  }
+
+  .hud-value {
+    font-size: 14px;
+    color: #e2e8f0;
+    font-weight: 700;
   }
 
   .status-main {
@@ -808,9 +872,12 @@
     align-items: center;
     gap: 8px;
     backdrop-filter: blur(15px);
-    background: rgba(15, 23, 42, 0.6);
-    border: 1px solid rgba(148, 163, 184, 0.25);
+    background: rgba(2, 6, 23, 0.62);
+    border: 1px solid rgba(56, 189, 248, 0.32);
     z-index: 5;
+    box-shadow:
+      0 20px 40px rgba(2, 6, 23, 0.58),
+      inset 0 0 28px rgba(56, 189, 248, 0.08);
   }
 
   .dock-item {
@@ -859,8 +926,8 @@
   .monitor-side-panel {
     width: 0;
     flex-shrink: 0;
-    background: #ffffff;
-    border-left: 1px solid rgba(15, 23, 42, 0.08);
+    background: linear-gradient(180deg, #0b1220 0%, #0f172a 100%);
+    border-left: 1px solid rgba(56, 189, 248, 0.26);
     overflow: hidden;
     transition: width 0.3s ease;
     display: flex;
@@ -876,13 +943,13 @@
     align-items: center;
     justify-content: space-between;
     padding: 0 14px;
-    border-bottom: 1px solid #e2e8f0;
+    border-bottom: 1px solid rgba(56, 189, 248, 0.2);
   }
 
   .side-title {
     margin: 0;
     font-size: 14px;
-    color: #0f172a;
+    color: #e2e8f0;
   }
 
   .close-btn {
@@ -892,9 +959,10 @@
     height: 28px;
     border-radius: 8px;
     cursor: pointer;
-    color: #475569;
+    color: #94a3b8;
     &:hover {
-      background: #f1f5f9;
+      background: rgba(99, 102, 241, 0.18);
+      color: #fff;
     }
   }
 
@@ -902,7 +970,7 @@
     flex: 1;
     min-height: 0;
     padding: 10px;
-    background: #f8fafc;
+    background: transparent;
     overflow: auto;
     :deep(.general-card) {
       margin: 0;
@@ -923,12 +991,12 @@
 
   .settings-group {
     border-radius: 10px;
-    background: #fff;
-    border: 1px solid #e2e8f0;
+    background: rgba(15, 23, 42, 0.55);
+    border: 1px solid rgba(56, 189, 248, 0.2);
     padding: 10px 12px;
     h4 {
       margin: 0 0 8px;
-      color: #0f172a;
+      color: #e2e8f0;
       font-size: 13px;
     }
   }
@@ -938,7 +1006,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #64748b;
+    color: #94a3b8;
     font-size: 13px;
   }
 
@@ -952,8 +1020,8 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    border: 1px solid #e2e8f0;
-    background: #fff;
+    border: 1px solid rgba(56, 189, 248, 0.2);
+    background: rgba(15, 23, 42, 0.45);
     border-radius: 10px;
     padding: 8px;
     text-align: left;
@@ -980,14 +1048,20 @@
 
   .course-name {
     font-size: 13px;
-    color: #0f172a;
+    color: #e2e8f0;
     font-weight: 600;
   }
 
   .course-sub {
     margin-top: 4px;
     font-size: 12px;
-    color: #64748b;
+    color: #94a3b8;
+  }
+
+  @media (max-width: 1280px) {
+    .hud-metrics {
+      display: none;
+    }
   }
 
   .source-select {

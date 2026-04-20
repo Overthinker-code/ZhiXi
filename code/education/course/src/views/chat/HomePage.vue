@@ -1,5 +1,6 @@
 <script setup>
-  import { ref, onMounted, onUnmounted } from 'vue';
+  import { ref, onMounted, onUnmounted, computed } from 'vue';
+  import { useUserStore } from '@/store';
   import { Search } from '@element-plus/icons-vue';
   import SearchDialog from './components/SearchDialog.vue';
   import WaveDivider from '@/components/WaveDivider.vue';
@@ -7,6 +8,20 @@
   const searchText = ref('');
   const showSearchDialog = ref(false);
   const isHeaderScrolled = ref(false);
+  const userStore = useUserStore();
+  const isTeacher = computed(() => userStore.role === 'teacher');
+  const primaryAction = computed(() =>
+    isTeacher.value ? '/dashboard/workplace' : '/student-tutor'
+  );
+  const primaryText = computed(() =>
+    isTeacher.value ? '进入教学 →' : '进入伴学 →'
+  );
+  const secondaryAction = computed(() =>
+    isTeacher.value ? '/course/monitor' : '/course/list'
+  );
+  const secondaryText = computed(() =>
+    isTeacher.value ? '实时课堂' : '我的课程'
+  );
 
   // Header 滚动变色
   const handleHeaderScroll = () => {
@@ -130,11 +145,11 @@
 
           <!-- 4. 按钮组 -->
           <div class="hero-actions">
-            <router-link to="/course/list" class="btn-primary">
-              开始学习 →
+            <router-link :to="primaryAction" class="btn-primary">
+              {{ primaryText }}
             </router-link>
-            <router-link to="/chat" class="btn-outline">
-              智能问答
+            <router-link :to="secondaryAction" class="btn-outline">
+              {{ secondaryText }}
             </router-link>
           </div>
 

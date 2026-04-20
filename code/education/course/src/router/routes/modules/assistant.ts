@@ -4,21 +4,21 @@ import { AppRouteRecordRaw } from '../types';
 /** 独立「AI助理」菜单，与「个人中心」分离 */
 const ASSISTANT: AppRouteRecordRaw = {
   path: '/assistant',
-  name: 'assistant',
+  name: 'assistantHall',
   component: DEFAULT_LAYOUT,
   meta: {
-    locale: 'menu.assistant',
+    locale: '伴学大厅',
     requiresAuth: true,
     icon: 'icon-robot',
-    order: 2.75,
+    order: 1.8,
   },
   children: [
     {
       path: '',
-      name: 'AssistantChat',
-      component: () => import('@/views/chat/ChatView.vue'),
+      name: 'AssistantHome',
+      component: () => import('@/views/chat/HomePage.vue'),
       meta: {
-        locale: 'menu.assistant.chat',
+        locale: '伴学大厅',
         requiresAuth: true,
         roles: ['*'],
       },

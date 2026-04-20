@@ -6,7 +6,7 @@ const PROFILE: AppRouteRecordRaw = {
   name: 'profile',
   component: DEFAULT_LAYOUT,
   meta: {
-    locale: 'menu.profile',
+    locale: '个人中心',
     requiresAuth: true,
     icon: 'icon-user',
     order: 3,
@@ -21,7 +21,7 @@ const PROFILE: AppRouteRecordRaw = {
       name: 'ProfileUserInfo',
       component: () => import('@/views/profile/user-info/index.vue'),
       meta: {
-        locale: 'menu.profile.userInfo',
+        locale: '个人中心',
         requiresAuth: true,
         roles: ['*'],
       },
@@ -31,7 +31,7 @@ const PROFILE: AppRouteRecordRaw = {
       name: 'ProfileLearningData',
       component: () => import('@/views/profile/learning-data/index.vue'),
       meta: {
-        locale: 'menu.profile.learningData',
+        locale: '学情档案',
         requiresAuth: true,
         roles: ['*'],
       },

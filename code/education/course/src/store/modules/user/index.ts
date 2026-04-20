@@ -11,6 +11,16 @@ import useAppStore from '../app';
 
 const TOKEN_KEY = 'token';
 
+function normalizeRole(data: Record<string, any>): UserState['role'] {
+  const explicitRole = String(data?.role || '').toLowerCase();
+  if (explicitRole === 'teacher' || explicitRole === 'student') {
+    return explicitRole;
+  }
+  if (explicitRole === 'admin') return 'teacher';
+  if (explicitRole === 'user') return 'student';
+  return data?.is_superuser ? 'teacher' : 'student';
+}
+
 function formatDate(input?: string) {
   if (!input) return '-';
   const date = new Date(input);
@@ -49,7 +59,7 @@ const useUserStore = defineStore('user', {
   actions: {
     switchRoles() {
       return new Promise((resolve) => {
-        this.role = this.role === 'user' ? 'admin' : 'user';
+        this.role = this.role === 'teacher' ? 'student' : 'teacher';
         resolve(this.role);
       });
     },
@@ -105,7 +115,7 @@ const useUserStore = defineStore('user', {
         registrationDate: data.registrationDate || formatDate(data.created_at),
         certification: data.certification ?? 1,
         phone: data.phone || '-',
-        role: data?.is_superuser ? 'admin' : 'user',
+        role: normalizeRole(data),
         profileHydrated: true,
       });
     },

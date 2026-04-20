@@ -33,7 +33,7 @@ export default function setupUserLoginInfoGuard(router: Router) {
           }
           // 网络抖动、5xx 等：不清理 token，避免误踢回登录；兜底角色供权限路由使用
           userStore.setInfo({
-            role: (userStore.role || 'user') as RoleType,
+            role: (userStore.role || 'student') as RoleType,
             profileHydrated: true,
           });
           next();

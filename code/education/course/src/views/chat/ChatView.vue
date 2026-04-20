@@ -22,7 +22,7 @@
     { label: '用户文件', value: 'personal' },
   ];
   const userStore = useUserStore();
-  const isAdmin = computed(() => userStore.role === 'admin');
+  const isAdmin = computed(() => userStore.role === 'teacher');
 
   const formatBytes = (size: number) => {
     if (!size) return '0 B';

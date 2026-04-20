@@ -1,48 +1,58 @@
 <template>
-  <div class="container">
+  <div class="studio-page">
     <Breadcrumb :items="['menu.digitalHuman', 'menu.digitalHuman.tools']" />
-    <div class="content">
-      <div class="header">
-        <h1 class="title">数字人工具台</h1>
-        <p class="subtitle">利用 AI 技术快速生成数字人视频内容</p>
-      </div>
+    <div class="studio-shell">
+      <header class="studio-header">
+        <div>
+          <h1>数字人创作舱</h1>
+          <p>围绕课程内容生成、数字人演绎与作品沉淀，打造一体化教学创作流程</p>
+        </div>
+        <a-space>
+          <a-tag color="arcoblue">智屿 Studio</a-tag>
+          <a-tag color="purple">多模态生成链路</a-tag>
+        </a-space>
+      </header>
 
-      <div class="tools-grid">
-        <a class="tool-card" href="/digital-human/text-to-video">
-          <div class="tool-icon">📝</div>
-          <div class="tool-info">
-            <h3 class="tool-name">文本生成视频</h3>
-            <p class="tool-desc">输入脚本，生成数字人口播视频</p>
-          </div>
-          <div class="tool-arrow"><icon-right /></div>
-        </a>
+      <div class="studio-layout">
+        <section class="studio-nav">
+          <router-link
+            v-for="tool in tools"
+            :key="tool.name"
+            :to="tool.to"
+            class="tool-card"
+          >
+            <div class="tool-head">
+              <span class="tool-icon">{{ tool.icon }}</span>
+              <icon-right class="tool-arrow" />
+            </div>
+            <h3>{{ tool.name }}</h3>
+            <p>{{ tool.desc }}</p>
+          </router-link>
+        </section>
 
-        <router-link class="tool-card" :to="{ name: 'PptToVideo' }">
-          <div class="tool-icon ppt">📊</div>
-          <div class="tool-info">
-            <h3 class="tool-name">PPT生成视频</h3>
-            <p class="tool-desc">上传PPT，数字人自动进行讲解</p>
+        <section class="studio-workbench">
+          <h3>创作流程导引</h3>
+          <div class="workflow-list">
+            <div class="workflow-item" v-for="(step, idx) in workflow" :key="step.title">
+              <span class="step-index">{{ idx + 1 }}</span>
+              <div>
+                <p class="step-title">{{ step.title }}</p>
+                <p class="step-desc">{{ step.desc }}</p>
+              </div>
+            </div>
           </div>
-          <div class="tool-arrow"><icon-right /></div>
-        </router-link>
+        </section>
 
-        <router-link class="tool-card" :to="{ name: 'DigitalHumanClone' }">
-          <div class="tool-icon clone">🧬</div>
-          <div class="tool-info">
-            <h3 class="tool-name">数字人克隆</h3>
-            <p class="tool-desc">上传照片，即刻克隆专属数字人</p>
+        <section class="studio-preview">
+          <div class="preview-screen">
+            <img :src="studioCover" alt="数字人实时预览" />
+            <div class="preview-glow" />
+            <div class="preview-badge">LIVE PREVIEW</div>
           </div>
-          <div class="tool-arrow"><icon-right /></div>
-        </router-link>
-
-        <router-link class="tool-card" :to="{ name: 'MyDigitalHumans' }">
-          <div class="tool-icon my">🎬</div>
-          <div class="tool-info">
-            <h3 class="tool-name">我的数字人</h3>
-            <p class="tool-desc">管理已创建的数字人和视频作品</p>
-          </div>
-          <div class="tool-arrow"><icon-right /></div>
-        </router-link>
+          <p class="preview-caption">
+            生成完成后在此区域展示数字人实机画面，可用于课堂讲解与课程宣传。
+          </p>
+        </section>
       </div>
     </div>
   </div>
@@ -50,6 +60,40 @@
 
 <script lang="ts" setup>
   import { IconRight } from '@arco-design/web-vue/es/icon';
+  import studioCover from '@/assets/digital-human/studio-cover.png';
+
+  const tools = [
+    {
+      name: '文本生成视频',
+      icon: '📝',
+      desc: '输入脚本内容，快速生成数字人口播视频',
+      to: '/digital-human/text-to-video',
+    },
+    {
+      name: 'PPT 生成视频',
+      icon: '📊',
+      desc: '上传教学 PPT，自动生成分段讲解视频',
+      to: { name: 'PptToVideo' },
+    },
+    {
+      name: '数字人克隆',
+      icon: '🧬',
+      desc: '基于照片和声音样本，创建个性化数字人',
+      to: { name: 'DigitalHumanClone' },
+    },
+    {
+      name: '我的数字人',
+      icon: '🎬',
+      desc: '统一管理数字人素材、成片与模板',
+      to: { name: 'MyDigitalHumans' },
+    },
+  ];
+
+  const workflow = [
+    { title: '课程脚本准备', desc: '输入课程目标与讲解内容，智屿自动优化表达结构' },
+    { title: '数字人形象选择', desc: '选择教师形象、音色和镜头风格，统一课堂品牌形象' },
+    { title: '视频渲染输出', desc: '生成讲解成片并支持后续章节扩写与批量导出' },
+  ];
 </script>
 
 <script lang="ts">
@@ -59,126 +103,226 @@
 </script>
 
 <style scoped lang="less">
-  .container {
+  .studio-page {
     padding: 0 20px 24px;
     min-height: 100%;
     background:
-      radial-gradient(circle at 8% -10%, rgba(99, 102, 241, 0.16), transparent 42%),
-      radial-gradient(circle at 95% 8%, rgba(14, 165, 233, 0.16), transparent 38%),
-      linear-gradient(180deg, #f8fbff 0%, #f4f7ff 100%);
+      radial-gradient(circle at 12% -10%, rgba(99, 102, 241, 0.2), transparent 42%),
+      radial-gradient(circle at 92% 8%, rgba(14, 165, 233, 0.18), transparent 40%),
+      linear-gradient(180deg, #f8fbff 0%, #eef4ff 100%);
   }
-  .content {
-    max-width: 1200px;
+
+  .studio-shell {
+    max-width: 1320px;
     margin: 0 auto;
-    padding: 18px 18px 22px;
+    padding: 18px;
     border-radius: 18px;
-    background: rgba(255, 255, 255, 0.6);
-    border: 1px solid rgba(255, 255, 255, 0.72);
-    backdrop-filter: blur(6px);
+    background: rgba(255, 255, 255, 0.62);
+    border: 1px solid rgba(255, 255, 255, 0.75);
+    backdrop-filter: blur(10px);
   }
-  .header {
-    text-align: center;
-    margin-bottom: 22px;
-    padding-top: 18px;
-    .title {
+
+  .studio-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 14px;
+    margin-bottom: 16px;
+    h1 {
+      margin: 0;
       font-size: 30px;
       font-weight: 700;
-      color: var(--color-text-1);
-      margin-bottom: 10px;
+      color: #0f172a;
     }
-    .subtitle {
-      font-size: 15px;
-      color: var(--color-text-3);
+    p {
+      margin: 8px 0 0;
+      color: #64748b;
     }
   }
-  .tools-grid {
+
+  .studio-layout {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 24px;
+    grid-template-columns: 28% 32% 40%;
+    gap: 14px;
   }
+
+  .studio-nav,
+  .studio-workbench,
+  .studio-preview {
+    min-height: 560px;
+    border-radius: 16px;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    background: rgba(255, 255, 255, 0.75);
+    box-shadow: 0 14px 36px rgba(15, 23, 42, 0.1);
+  }
+
+  .studio-nav {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    padding: 12px;
+  }
+
   .tool-card {
-    display: flex;
-    align-items: center;
-    padding: 24px 24px 22px;
-    min-height: 154px;
-    background: rgba(255, 255, 255, 0.7);
-    backdrop-filter: blur(12px);
+    padding: 16px;
+    min-height: 122px;
+    background: rgba(255, 255, 255, 0.75);
     border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.5);
-    cursor: pointer;
-    transition: all 0.3s ease;
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    transition: transform 0.26s ease, box-shadow 0.26s ease;
     text-align: left;
     text-decoration: none;
     color: inherit;
     &:hover {
-      transform: translateY(-7px);
-      border-color: color-mix(in srgb, var(--zy-color-brand, #6366f1) 45%, #fff 55%);
+      transform: translateY(-4px);
+      border-color: rgba(99, 102, 241, 0.4);
       box-shadow:
-        0 20px 44px rgba(15, 23, 42, 0.14),
-        0 0 55px color-mix(in srgb, var(--zy-color-brand, #6366f1) 26%, transparent);
+        0 18px 36px rgba(15, 23, 42, 0.14),
+        0 0 55px rgba(99, 102, 241, 0.2);
+      .tool-arrow {
+        transform: translateX(4px);
+      }
     }
-  }
-  .tool-icon {
-    width: 56px;
-    height: 56px;
-    border-radius: 14px;
-    background: linear-gradient(132deg, rgb(var(--primary-3)), rgb(var(--primary-5)));
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #fff;
-    margin-right: 18px;
-    flex-shrink: 0;
-    font-size: 24px;
-    box-shadow:
-      inset 0 1px 2px rgba(255, 255, 255, 0.35),
-      0 10px 22px rgba(15, 23, 42, 0.2);
-    &.ppt {
-      background: linear-gradient(132deg, #ff6b6b, #ee5a5a);
+    h3 {
+      margin: 10px 0 6px;
+      font-size: 18px;
+      color: #0f172a;
     }
-    &.clone {
-      background: linear-gradient(132deg, #14b8a6, #0ea5e9);
+    p {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.5;
+      color: #64748b;
     }
-    &.my {
-      background: linear-gradient(132deg, #6366f1, #8b5cf6);
-    }
-  }
-  .tool-info {
-    flex: 1;
-    min-height: 56px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-  }
-  .tool-name {
-    font-size: 19px;
-    font-weight: 600;
-    color: var(--color-text-1);
-    margin: 0 0 6px;
-  }
-  .tool-desc {
-    margin: 0;
-    font-size: 14px;
-    color: var(--color-text-3);
-    line-height: 1.5;
-    min-height: 3em;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-  .tool-arrow {
-    color: var(--color-text-4);
-    transition: transform 0.22s ease;
   }
 
-  .tool-card:hover .tool-arrow {
-    transform: translateX(4px);
+  .tool-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .tool-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+  }
+
+  .tool-arrow {
+    color: #64748b;
+    transition: transform 0.2s ease;
+  }
+
+  .studio-workbench {
+    padding: 16px;
+    h3 {
+      margin: 0 0 12px;
+      font-size: 20px;
+      color: #0f172a;
+    }
+  }
+
+  .workflow-list {
+    display: grid;
+    gap: 10px;
+  }
+
+  .workflow-item {
+    display: flex;
+    gap: 10px;
+    border-radius: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    background: rgba(255, 255, 255, 0.76);
+    padding: 12px;
+  }
+
+  .step-index {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #4f46e5, #0ea5e9);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .step-title {
+    margin: 0;
+    color: #0f172a;
+    font-weight: 600;
+  }
+
+  .step-desc {
+    margin: 5px 0 0;
+    color: #64748b;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .studio-preview {
+    padding: 16px;
+    background: #0b1220;
+    border-color: rgba(56, 189, 248, 0.32);
+  }
+
+  .preview-screen {
+    position: relative;
+    border-radius: 14px;
+    overflow: hidden;
+    border: 1px solid rgba(56, 189, 248, 0.4);
+    aspect-ratio: 16 / 9;
+    img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+  }
+
+  .preview-glow {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(circle at 50% 120%, rgba(56, 189, 248, 0.3), transparent 52%);
+  }
+
+  .preview-badge {
+    position: absolute;
+    right: 12px;
+    top: 10px;
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: #fff;
+    background: rgba(2, 6, 23, 0.55);
+    border: 1px solid rgba(56, 189, 248, 0.48);
+  }
+
+  .preview-caption {
+    margin: 12px 0 0;
+    color: #cbd5e1;
+    line-height: 1.6;
+    font-size: 13px;
   }
 
   @media (max-width: @screen-md) {
-    .tools-grid {
+    .studio-layout {
       grid-template-columns: 1fr;
+    }
+    .studio-nav,
+    .studio-workbench,
+    .studio-preview {
+      min-height: auto;
     }
   }
 </style>

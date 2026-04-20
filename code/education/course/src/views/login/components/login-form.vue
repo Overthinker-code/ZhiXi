@@ -217,8 +217,10 @@
           return;
         }
         const { redirect, ...othersQuery } = router.currentRoute.value.query;
+        const roleDefaultRoute =
+          userStore.role === 'teacher' ? 'Workplace' : 'AssistantHome';
         router.push({
-          name: (redirect as string) || 'Workplace',
+          name: (redirect as string) || roleDefaultRoute,
           query: { ...othersQuery },
         });
         Message.success(t('login.form.login.success'));

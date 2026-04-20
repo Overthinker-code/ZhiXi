@@ -6,7 +6,7 @@ const COURSE: AppRouteRecordRaw = {
   name: 'course',
   component: DEFAULT_LAYOUT,
   meta: {
-    locale: 'menu.course',
+    locale: '课程资源管理',
     requiresAuth: true,
     icon: 'icon-link',
     order: 2,
@@ -17,7 +17,7 @@ const COURSE: AppRouteRecordRaw = {
       name: 'Monitor',
       component: () => import('@/views/course/monitor/index.vue'),
       meta: {
-        locale: 'menu.dashboard.monitor',
+        locale: '实时学情监控',
         requiresAuth: true,
         roles: ['*'],  // 允许所有角色访问
       },
