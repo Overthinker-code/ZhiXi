@@ -1,12 +1,19 @@
 from typing import Any, Optional
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, WebSocket, WebSocketDisconnect, Query
 from app import models
 from app.api import deps
 from app.services.behavior_analysis import behavior_service
+from app.services.behavior_ws import behavior_ws_service, FrameMessage
 from pydantic import BaseModel
 from datetime import datetime
 from uuid import UUID
 import base64
+import json
+from app.core import security
+from app.core.config import settings
+from app.models import TokenPayload
+from sqlmodel import Session
+from app.core.db import engine
 
 router = APIRouter()
 
@@ -269,3 +276,99 @@ async def get_behavior_definitions(
     获取支持的行为类型定义（从 YOLO 服务转发，确保前后端定义一致）
     """
     return await behavior_service.get_behavior_definitions()
+
+
+# ---------------------------------------------------------------------------
+# WebSocket 实时行为检测接口
+# 后端2 —— 张伟杰
+# 路径: WS /api/v1/behavior/ws/realtime?course_id=<uuid>&token=<jwt>
+# ---------------------------------------------------------------------------
+
+async def _verify_ws_token(token: str) -> Optional[models.User]:
+    """验证 WebSocket 连接中的 JWT Token"""
+    payload = security.decode_access_token(token)
+    if not payload:
+        return None
+    try:
+        token_data = TokenPayload(**payload)
+    except Exception:
+        return None
+    with Session(engine) as session:
+        user = session.get(models.User, token_data.sub)
+        if user and user.is_active:
+            return user
+    return None
+
+
+@router.websocket("/ws/realtime")
+async def behavior_realtime_ws(
+    websocket: WebSocket,
+    course_id: Optional[str] = Query(None),
+    token: Optional[str] = Query(None),
+):
+    """
+    WebSocket 实时行为分析通道。
+
+    前端发送：
+    {
+        "type": "frame",
+        "frame_id": 101,
+        "timestamp": 1713580000,
+        "image_base64": "data:image/jpeg;base64,..."
+    }
+
+    后端返回：
+    {
+        "type": "analysis",
+        "frame_id": 101,
+        "timestamp": 1713580000,
+        "persons": [
+            {
+                "track_id": "person_1",
+                "bbox": [120, 80, 260, 320],
+                "status": "focused",
+                "score": 0.92
+            }
+        ],
+        "summary": {
+            "focused_count": 18,
+            "unfocused_count": 4,
+            "absent_count": 2
+        }
+    }
+    """
+    # Token 校验（可选，若未传 token 则允许连接但记录日志）
+    user = None
+    if token:
+        user = await _verify_ws_token(token)
+
+    await websocket.accept()
+
+    try:
+        while True:
+            raw_msg = await websocket.receive_text()
+            try:
+                msg_dict = json.loads(raw_msg)
+                frame_msg = FrameMessage.model_validate(msg_dict)
+            except (json.JSONDecodeError, Exception) as e:
+                await websocket.send_json(
+                    {"type": "error", "detail": f"Invalid frame message: {str(e)}"}
+                )
+                continue
+
+            # 调用本地 CV 检测服务
+            result = behavior_ws_service.analyze_frame(
+                frame_msg.image_base64, frame_msg.frame_id
+            )
+            await websocket.send_json(result.model_dump())
+
+    except WebSocketDisconnect:
+        # 正常断开，无需处理
+        pass
+    except Exception as e:
+        # 连接异常时尝试发送错误信息后关闭
+        try:
+            await websocket.send_json({"type": "error", "detail": str(e)})
+            await websocket.close()
+        except Exception:
+            pass
