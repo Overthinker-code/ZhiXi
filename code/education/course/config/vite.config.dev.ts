@@ -25,6 +25,8 @@ export default defineConfig(({ mode }) => {
           '/api': {
             target: proxyTarget,
             changeOrigin: true,
+            ws: true,
+            // 将 /api 映射到后端的 /api/v1
             rewrite: (path) => path.replace(/^\/api/, '/api/v1'),
           },
         },

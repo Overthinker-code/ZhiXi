@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Optional
 
 import jwt
 from passlib.context import CryptContext
@@ -12,6 +12,14 @@ pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 
 ALGORITHM = "HS256"
+
+
+def decode_access_token(token: str) -> Optional[dict]:
+    """Decode JWT token and return payload dict, or None if invalid/expired."""
+    try:
+        return jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
+    except jwt.PyJWTError:
+        return None
 
 
 def create_access_token(subject: str | Any, expires_delta: timedelta) -> str:

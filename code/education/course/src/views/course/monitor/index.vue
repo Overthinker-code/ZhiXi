@@ -27,22 +27,26 @@
 
           <!-- 主舞台检测框 Canvas -->
           <canvas
-            v-if="detectionStatus === 'running' && currentResult?.persons?.length > 0"
+            v-if="wsState.isDetecting && wsState.persons.length > 0"
             ref="mainCanvas"
             class="stage-detection-canvas"
           ></canvas>
 
+          <!-- WebSocket 错误提示 -->
+          <div v-if="wsState.errorMessage" class="stage-error-toast">
+            <span class="error-icon">⚠️</span>
+            <span class="error-text">{{ wsState.errorMessage }}</span>
+          </div>
+
           <!-- 主舞台评分浮层 -->
-          <div v-if="detectionStatus === 'running' && currentResult" class="stage-score-overlay">
-            <div
-              class="stage-score-badge"
-              :style="{ backgroundColor: getScoreColor(currentResult.overall_score) }"
-            >
-              {{ currentResult.learning_status }}
+          <div v-if="wsState.isDetecting" class="stage-score-overlay">
+            <div class="stage-score-badge" style="background-color: #52c41a">
+              实时检测中
             </div>
             <div class="stage-score-detail">
-              综合评分: {{ currentResult.overall_score?.toFixed(2) || '0.00' }} ·
-              检测人数: {{ currentResult.persons?.length || 0 }}
+              专注: {{ wsState.focusedCount }} ·
+              不专注: {{ wsState.unfocusedCount }} ·
+              缺席: {{ wsState.absentCount }}
             </div>
           </div>
 
@@ -106,7 +110,7 @@
           <ChatPanel v-if="activePanel === 'chat'" />
           <AttendanceGrid v-else-if="activePanel === 'signin'" />
           <div
-            v-if="activePanel === 'ai' || detectionStatus === 'running'"
+            v-if="activePanel === 'ai' || wsState.isDetecting"
             v-show="activePanel === 'ai'"
             class="ai-panel-wrap"
           >
@@ -220,8 +224,9 @@
   import DatabaseImg from '@/assets/images/数据库图片.png';
   import DatastructureImg from '@/assets/images/数据结构.jpg';
   import EcoImg from '@/assets/images/宏观经济学.jpg';
-  import type { ImageAnalysisResult } from '@/api/behavior-analysis';
   import { getClassroomCameras, getBehaviorDefinitions } from '@/api/behavior-analysis';
+  import { useBehaviorWebSocket } from '@/composables/useBehaviorWebSocket';
+  import type { BehaviorStatus } from '@/api/behavior-analysis-ws';
 
   type PanelKey = 'chat' | 'signin' | 'ai' | 'setting' | null;
 
@@ -230,11 +235,13 @@
   const courseDrawerOpen = ref(false);
   let timer: ReturnType<typeof setInterval> | null = null;
 
-  // AI 行为检测全局状态
-  const detectionStatus = ref<'idle' | 'running'>('idle');
-  const currentResult = ref<ImageAnalysisResult | null>(null);
   const mainVideo = ref<HTMLVideoElement | null>(null);
   const mainCanvas = ref<HTMLCanvasElement | null>(null);
+  const captureCanvas = document.createElement('canvas');
+
+  // WebSocket 实时检测（由主舞台直接管理，侧边栏只负责上传分析）
+  const ws = useBehaviorWebSocket();
+  const { state: wsState, getStatusColor } = ws;
 
   // 视频源弹窗
   const videoSourceModalVisible = ref(false);
@@ -244,8 +251,7 @@
   const videoEnabled = ref(false);
   const mediaStream = ref<MediaStream | null>(null);
 
-  // 主舞台定时分析器
-  let mainStageInterval: ReturnType<typeof setInterval> | null = null;
+
 
   // ===========================================================================
   // 【课堂列表配置区】仅配置前端展示用的课堂信息，远程摄像头 URL 不再在前端硬编码
@@ -338,12 +344,14 @@
   });
 
   const hudMetrics = computed(() => [
-    { label: '在线学生', value: `${currentResult.value?.persons?.length || 42} 人` },
+    { label: '在线学生', value: `${wsState.value.persons.length || 0} 人` },
     {
       label: '专注指数',
-      value: `${Math.max(0, Math.min(100, Math.round((currentResult.value?.overall_score || 0.76) * 100)))}%`,
+      value: `${wsState.value.persons.length > 0
+        ? Math.round((wsState.value.focusedCount / wsState.value.persons.length) * 100)
+        : 0}%`,
     },
-    { label: '智屿预警', value: detectionStatus.value === 'running' ? '实时开启' : '待机中' },
+    { label: '智屿预警', value: wsState.value.isDetecting ? '实时开启' : '待机中' },
   ]);
 
   const onDockClick = async (item: typeof dockItems.value[number]) => {
@@ -394,7 +402,7 @@
         try {
           await mainVideo.value.play();
           Message.success(`已连接到《${currentCourse.value.name}》教室摄像头，自动开始行为分析`);
-          startMainStageAnalysis();
+          ws.startDetection(currentCourse.value.id, getMainStageFrame, 500);
         } catch (e: any) {
           Message.error('教室摄像头连接失败，请检查地址是否可播放');
           videoEnabled.value = false;
@@ -418,7 +426,7 @@
         try { await mainVideo.value.play(); } catch (e) { /* ignore */ }
       }
       Message.success('本地摄像头已开启，自动开始行为分析');
-      startMainStageAnalysis();
+      ws.startDetection(currentCourse.value.id, getMainStageFrame, 500);
     } catch (error: any) {
       if (error.name === 'NotAllowedError') {
         Message.error('摄像头权限被拒绝');
@@ -433,7 +441,8 @@
   // 关闭摄像头
   const stopCamera = () => {
     videoEnabled.value = false;
-    stopMainStageAnalysis();
+    // 显式停止 WebSocket 检测，确保关闭视频时大屏检测同步停止
+    ws.stopDetection();
     if (mediaStream.value) {
       mediaStream.value.getTracks().forEach((track) => track.stop());
       mediaStream.value = null;
@@ -445,87 +454,33 @@
     }
   };
 
-  // 视频加载完成回调（教室流用）
-  const onMainVideoLoaded = () => {
-    if (detectionStatus.value === 'running') {
-      captureMainStageAndAnalyze();
-    }
-  };
-
-
-
-  // 启动主舞台实时分析
-  const startMainStageAnalysis = () => {
-    if (mainStageInterval) return; // 已在运行
-    detectionStatus.value = 'running';
-    // 1 秒后首次分析，然后每 3 秒一次
-    setTimeout(() => captureMainStageAndAnalyze(), 1000);
-    mainStageInterval = setInterval(() => {
-      captureMainStageAndAnalyze();
-    }, 3000);
-  };
-
-  // 停止主舞台实时分析
-  const stopMainStageAnalysis = () => {
-    detectionStatus.value = 'idle';
-    if (mainStageInterval) {
-      clearInterval(mainStageInterval);
-      mainStageInterval = null;
-    }
-    currentResult.value = null;
-  };
-
-  // 截取主舞台画面并分析
-  const captureMainStageAndAnalyze = async () => {
-    if (!mainVideo.value || mainVideo.value.paused || mainVideo.value.ended) return;
-
+  // 从主舞台视频捕获当前帧并转为 base64（供 WebSocket 发送）
+  const getMainStageFrame = (): string | null => {
     const video = mainVideo.value;
-    const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth || 1280;
-    canvas.height = video.videoHeight || 720;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    if (!video || video.videoWidth === 0 || video.videoHeight === 0) return null;
 
-    canvas.toBlob(
-      async (blob) => {
-        if (!blob) return;
-        const file = new File([blob], 'classroom_frame.jpg', { type: 'image/jpeg' });
-        try {
-          const { analyzeImage } = await import('@/api/behavior-analysis');
-          const res = await analyzeImage(file);
-          if (res.data?.status === 'error') {
-            throw new Error(res.data?.error || '分析失败');
-          }
-          currentResult.value = res.data;
-          nextTick(() => drawMainStageBoxes());
-        } catch (err: any) {
-          console.error('主舞台分析失败:', err);
-        }
-      },
-      'image/jpeg',
-      0.85
-    );
+    captureCanvas.width = video.videoWidth;
+    captureCanvas.height = video.videoHeight;
+    const ctx = captureCanvas.getContext('2d');
+    if (!ctx) return null;
+
+    ctx.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
+    return captureCanvas.toDataURL('image/jpeg', 0.8);
   };
 
-  // 颜色映射（优先使用后端行为定义里的 score_ranges，未加载时走默认兜底）
-  const getScoreColor = (score: number): string => {
-    const ranges = behaviorDefinitions.value?.score_ranges || [];
-    for (const r of ranges) {
-      if (score >= r.min && score <= r.max) {
-        return r.color;
-      }
-    }
-    if (score >= 0.7) return '#52c41a';
-    if (score >= 0.3) return '#1890ff';
-    if (score >= -0.3) return '#faad14';
-    if (score >= -0.7) return '#fa541c';
-    return '#f5222d';
+  // 状态标签
+  const statusLabel = (status: BehaviorStatus) => {
+    const map: Record<BehaviorStatus, string> = {
+      focused: '专注',
+      unfocused: '不专注',
+      absent: '缺席',
+    };
+    return map[status] || status;
   };
 
-  // 在主舞台 Canvas 上绘制检测框
+  // 在主舞台 Canvas 上绘制检测框（适配 WebSocket 新格式）
   const drawMainStageBoxes = () => {
-    if (!mainCanvas.value || !mainVideo.value || !currentResult.value?.persons) return;
+    if (!mainCanvas.value || !mainVideo.value || wsState.value.persons.length === 0) return;
 
     const canvas = mainCanvas.value;
     const video = mainVideo.value;
@@ -544,12 +499,12 @@
     canvas.height = parentRect.height;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    const imgWidth = currentResult.value.image_width || video.videoWidth;
-    const imgHeight = currentResult.value.image_height || video.videoHeight;
+    const imgWidth = video.videoWidth;
+    const imgHeight = video.videoHeight;
     const scaleX = displayWidth / imgWidth;
     const scaleY = displayHeight / imgHeight;
 
-    currentResult.value.persons.forEach((person: any) => {
+    wsState.value.persons.forEach((person) => {
       const [x1, y1, x2, y2] = person.bbox;
       const sx1 = offsetX + x1 * scaleX;
       const sy1 = offsetY + y1 * scaleY;
@@ -558,26 +513,39 @@
       const width = sx2 - sx1;
       const height = sy2 - sy1;
 
-      ctx.strokeStyle = person.color || '#22d3ee';
+      const color = getStatusColor(person.status);
+
+      ctx.strokeStyle = color;
       ctx.lineWidth = 3;
       ctx.strokeRect(sx1, sy1, width, height);
 
-      const label = `${person.behavior} (${Math.round(person.confidence * 100)}%)`;
-      ctx.font = 'bold 16px Arial';
+      const label = `${person.track_id} ${statusLabel(person.status)} ${person.score.toFixed(2)}`;
+      ctx.font = 'bold 14px Arial';
       const textWidth = ctx.measureText(label).width;
-      const textHeight = 22;
+      const textHeight = 20;
 
-      ctx.fillStyle = person.color || '#22d3ee';
-      ctx.fillRect(sx1, sy1 - textHeight - 4, textWidth + 12, textHeight + 4);
+      ctx.fillStyle = color;
+      ctx.fillRect(sx1, sy1 - textHeight - 4, textWidth + 10, textHeight + 4);
 
       ctx.fillStyle = '#fff';
-      ctx.fillText(label, sx1 + 6, sy1 - 6);
+      ctx.fillText(label, sx1 + 5, sy1 - 4);
     });
   };
 
+  // 监听 persons 变化自动重绘
+  watch(
+    () => wsState.value.persons,
+    () => {
+      if (wsState.value.isDetecting) {
+        nextTick(() => drawMainStageBoxes());
+      }
+    },
+    { deep: true }
+  );
+
   // 窗口变化时重绘
   const onResize = () => {
-    if (detectionStatus.value === 'running') {
+    if (wsState.value.isDetecting) {
       drawMainStageBoxes();
     }
   };
@@ -710,6 +678,34 @@
     height: 100%;
     pointer-events: none;
     z-index: 3;
+  }
+
+  .stage-error-toast {
+    position: absolute;
+    top: 72px;
+    left: 16px;
+    z-index: 7;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(245, 34, 45, 0.85);
+    color: #fff;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    backdrop-filter: blur(4px);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+
+    .error-icon {
+      font-size: 14px;
+    }
+
+    .error-text {
+      max-width: 260px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
   }
 
   .stage-score-overlay {
@@ -986,18 +982,61 @@
   .settings-panel {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 16px;
+    padding: 4px 2px;
   }
 
   .settings-group {
-    border-radius: 10px;
-    background: rgba(15, 23, 42, 0.55);
-    border: 1px solid rgba(56, 189, 248, 0.2);
-    padding: 10px 12px;
+    border-radius: 12px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    padding: 14px 16px;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+    transition: all 0.3s ease;
+
+    &:hover {
+      border-color: #cbd5e1;
+      box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+    }
+
     h4 {
-      margin: 0 0 8px;
-      color: #e2e8f0;
+      margin: 0 0 12px;
+      color: #1e293b;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    :deep(.arco-checkbox) {
+      color: #334155;
       font-size: 13px;
+      margin-bottom: 8px;
+      transition: color 0.2s ease;
+
+      &:hover {
+        color: #0f172a;
+      }
+
+      .arco-checkbox-icon {
+        border-color: #94a3b8;
+      }
+
+      .arco-checkbox-text {
+        color: #334155;
+      }
+
+      &.arco-checkbox-checked {
+        color: #0f172a;
+
+        .arco-checkbox-icon {
+          background-color: #3b82f6;
+          border-color: #3b82f6;
+        }
+
+        .arco-checkbox-text {
+          color: #0f172a;
+        }
+      }
     }
   }
 
