@@ -13,6 +13,10 @@ export default defineConfig(({ mode }) => {
   const proxyTarget =
     env.VITE_DEV_API_PROXY_TARGET || 'http://127.0.0.1:8001';
 
+  console.log(
+    `[vite-dev] API proxy enabled: /api -> ${proxyTarget.replace(/\/$/, '')}/api/v1`
+  );
+
   return mergeConfig(
     {
       mode: 'development',
