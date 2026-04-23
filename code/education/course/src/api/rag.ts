@@ -618,7 +618,7 @@ export interface AiMetricsOverview {
 
 export function fetchLearningReport(refresh = false) {
   return axios
-    .get('/learning-report/me', {
+    .get('/api/learning-report/me', {
       params: { refresh },
       timeout: READ_TIMEOUT_MS,
     })
@@ -627,7 +627,7 @@ export function fetchLearningReport(refresh = false) {
 
 export function fetchAiMetricsOverview(days = 7) {
   return axios
-    .get('/ai-metrics/overview', {
+    .get('/api/ai-metrics/overview', {
       params: { days },
       timeout: READ_TIMEOUT_MS,
     })
@@ -636,7 +636,7 @@ export function fetchAiMetricsOverview(days = 7) {
 
 export function runLearningDiagnosis(refresh = true) {
   return axios
-    .post('/learning-report/actions/diagnose', null, {
+    .post('/api/learning-report/actions/diagnose', null, {
       params: { refresh },
       timeout: 0,
     })
@@ -645,7 +645,7 @@ export function runLearningDiagnosis(refresh = true) {
 
 export function generateReviewPlan(refresh = true) {
   return axios
-    .post('/learning-report/actions/review-plan', null, {
+    .post('/api/learning-report/actions/review-plan', null, {
       params: { refresh },
       timeout: 0,
     })
@@ -654,7 +654,7 @@ export function generateReviewPlan(refresh = true) {
 
 export function generateMistakeDigest(refresh = true) {
   return axios
-    .post('/learning-report/actions/mistake-digest', null, {
+    .post('/api/learning-report/actions/mistake-digest', null, {
       params: { refresh },
       timeout: 0,
     })
