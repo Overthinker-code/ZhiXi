@@ -3,6 +3,8 @@
 from app.models.base import Base
 from app.models.chat import Chat
 from app.models.chat_feedback import ChatFeedback
+from app.models.chat_artifact import ChatArtifact
+from app.models.ai_usage_log import AIUsageLog
 from app.models.item import Item
 from app.models.chat_thread import ChatThread
 from app.models.user import User
@@ -46,6 +48,8 @@ __all__ = [
     "Base",
     "Chat",
     "ChatFeedback",
+    "ChatArtifact",
+    "AIUsageLog",
     "ChatThread",
     "Item",
     "ItemCreate",

@@ -27,6 +27,11 @@ export interface ChatRecord {
   system_prompt?: string;
   response: string;
   created_at: string;
+  citations?: CitationItem[];
+  confidence?: 'high' | 'medium' | 'low' | string;
+  grounding_mode?: 'rag' | 'general' | 'tool' | 'mixed' | string;
+  suggestions?: string[];
+  metrics?: ChatMetrics;
 }
 
 export interface ChatThread {
@@ -57,6 +62,33 @@ export interface AssistantSettings {
     description: string;
   }>;
   default_active_tools?: string[];
+  developer_panel_enabled?: boolean;
+  demo_mode?: boolean;
+}
+
+export interface CitationItem {
+  citation_id: number;
+  source: string;
+  file_id?: string;
+  chunk_id?: number | string;
+  score?: number;
+  snippet: string;
+  reason?: string;
+  relevance_score?: number;
+}
+
+export interface ChatMetrics {
+  ttft_ms?: number;
+  latency_ms?: number;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  estimated_tokens?: boolean;
+  agent_hops?: number;
+  cache_hit?: boolean;
+  rag_hit_count?: number;
+  tool_calls_count?: number;
+  route_trace?: string[];
 }
 
 export function uploadReferenceFile(file: File) {
@@ -211,6 +243,9 @@ export function createAssistantChat(
         topK?: number;
         currentFileId?: string;
         fileName?: string;
+        forceAgent?: string;
+        forceCache?: boolean;
+        debugMode?: boolean;
       } = ''
 ) {
   const normalized =
@@ -233,6 +268,9 @@ export function createAssistantChat(
         top_k: normalized.topK,
         current_file_id: normalized.currentFileId,
         file_name: normalized.fileName,
+        force_agent: normalized.forceAgent,
+        force_cache: normalized.forceCache,
+        debug_mode: normalized.debugMode,
       },
       {
         timeout: 0,
@@ -253,6 +291,10 @@ export interface ChatStreamEvent {
   tool_calls?: any[];
   requires_confirmation?: boolean;
   pending_action_id?: string;
+  citations?: CitationItem[];
+  confidence?: 'high' | 'medium' | 'low' | string;
+  grounding_mode?: 'rag' | 'general' | 'tool' | 'mixed' | string;
+  metrics?: ChatMetrics;
 }
 
 export interface ChatAdvancedOptions {
@@ -271,6 +313,9 @@ export interface ChatAdvancedOptions {
   courseModule?: string;
   currentFileId?: string;
   fileName?: string;
+  forceAgent?: string;
+  forceCache?: boolean;
+  debugMode?: boolean;
 }
 
 async function consumeAssistantChatStream(
@@ -397,6 +442,9 @@ export function createAssistantChatStream(
     course_module: normalized.courseModule,
     current_file_id: normalized.currentFileId,
     file_name: normalized.fileName,
+    force_agent: normalized.forceAgent,
+    force_cache: normalized.forceCache,
+    debug_mode: normalized.debugMode,
   };
 
   /** fetch + ReadableStream：避免 XHR 在隧道/跨端口下长时间缓冲无输出 */
@@ -421,6 +469,9 @@ export function askSelectionQuery(
         course_module: normalized.courseModule,
         current_file_id: normalized.currentFileId,
         file_name: normalized.fileName,
+        force_agent: normalized.forceAgent,
+        force_cache: normalized.forceCache,
+        debug_mode: normalized.debugMode,
         thread_id: threadId,
         system_prompt: normalized.systemPrompt || '',
         rag_k: normalized.ragK,
@@ -501,6 +552,113 @@ export function fetchAssistantSettings() {
   return axios
     .get('/api/chat/settings', { timeout: READ_TIMEOUT_MS })
     .then((res: any) => res.data as AssistantSettings);
+}
+
+export interface LearningReportSection {
+  title: string;
+  content: string;
+}
+
+export interface LearningReport {
+  learner_id: string;
+  generated_at: string;
+  summary: string;
+  current_goal: string;
+  learning_style: string;
+  risk_level: string;
+  weak_points: string[];
+  strengths: string[];
+  recommended_actions: string[];
+  recommended_resources: string[];
+  follow_up_questions: string[];
+  sections: LearningReportSection[];
+}
+
+export interface ReviewPlanDay {
+  day_label: string;
+  focus: string;
+  tasks: string[];
+}
+
+export interface ReviewPlan {
+  learner_id: string;
+  generated_at: string;
+  summary: string;
+  focus_topics: string[];
+  daily_plan: ReviewPlanDay[];
+  checkpoints: string[];
+}
+
+export interface MistakeDigestItem {
+  title: string;
+  symptom: string;
+  evidence: string;
+  fix_strategy: string;
+}
+
+export interface MistakeDigest {
+  learner_id: string;
+  generated_at: string;
+  summary: string;
+  mistakes: MistakeDigestItem[];
+  flashcards: string[];
+}
+
+export interface AiMetricsOverview {
+  window_days: number;
+  requests: number;
+  avg_ttft_ms: number;
+  avg_latency_ms: number;
+  avg_agent_hops: number;
+  cache_hit_rate: number;
+  rag_grounded_rate: number;
+  total_tokens: number;
+  last_updated_at?: string;
+}
+
+export function fetchLearningReport(refresh = false) {
+  return axios
+    .get('/learning-report/me', {
+      params: { refresh },
+      timeout: READ_TIMEOUT_MS,
+    })
+    .then((res: any) => res.data as LearningReport);
+}
+
+export function fetchAiMetricsOverview(days = 7) {
+  return axios
+    .get('/ai-metrics/overview', {
+      params: { days },
+      timeout: READ_TIMEOUT_MS,
+    })
+    .then((res: any) => res.data as AiMetricsOverview);
+}
+
+export function runLearningDiagnosis(refresh = true) {
+  return axios
+    .post('/learning-report/actions/diagnose', null, {
+      params: { refresh },
+      timeout: 0,
+    })
+    .then((res: any) => res.data as LearningReport);
+}
+
+export function generateReviewPlan(refresh = true) {
+  return axios
+    .post('/learning-report/actions/review-plan', null, {
+      params: { refresh },
+      timeout: 0,
+    })
+    .then((res: any) => res.data as ReviewPlan);
+}
+
+export function generateMistakeDigest(refresh = true) {
+  return axios
+    .post('/learning-report/actions/mistake-digest', null, {
+      params: { refresh },
+      timeout: 0,
+    })
+    .then((res: any) => res.data as MistakeDigest);
 }
 
 export function fetchChatHistory(threadId = 'default') {

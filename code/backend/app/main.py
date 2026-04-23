@@ -11,6 +11,8 @@ from app.db.base_class import Base
 from app.models.chat_thread import ChatThread  # noqa: F401
 from app.models.chat import Chat  # noqa: F401
 from app.models.chat_feedback import ChatFeedback  # noqa: F401
+from app.models.chat_artifact import ChatArtifact  # noqa: F401
+from app.models.ai_usage_log import AIUsageLog  # noqa: F401
 from app.models.item import Item  # noqa: F401
 from app.models.message import Message  # noqa: F401
 from app.models.user import User  # noqa: F401

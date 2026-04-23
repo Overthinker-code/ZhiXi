@@ -37,6 +37,12 @@ class State(TypedDict):
     current_file_id: str | None
     current_file_name: str
     user_memory_context: str
+    rag_results: list[dict[str, Any]]
+    final_citations: list[dict[str, Any]]
+    final_confidence: str
+    final_grounding_mode: str
+    final_follow_ups: list[str]
+    agent_route_trace: Annotated[list[str], operator.add]
 
 
 class SupervisorDecision(BaseModel):
@@ -81,6 +87,8 @@ class ChatRequest(BaseModel):
     prior_turns: list[dict[str, str]] | None = None
     current_file_id: str | None = None
     file_name: str | None = None
+    force_cache: bool = False
+    debug_mode: bool = False
 
 
 class ChatResponse(BaseModel):
@@ -92,3 +100,8 @@ class ChatResponse(BaseModel):
     thoughts: List[str] = []
     requires_confirmation: bool = False
     pending_action_id: str | None = None
+    citations: List[Dict[str, Any]] = []
+    confidence: str = "medium"
+    grounding_mode: str = "general"
+    suggestions: List[str] = []
+    metrics: Dict[str, Any] = {}

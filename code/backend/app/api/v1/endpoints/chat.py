@@ -19,8 +19,11 @@ from app.schemas.chat import Chat, ChatCreate, ChatUpdate
 from app.schemas.chat_feedback import ChatFeedback, ChatFeedbackCreate
 from app.ai.chat_service import get_chat_runtime_settings, ChatRequest, resolve_system_prompt
 from app.ai.chat_engine import stream_chat_events, chat_service, resolve_stream_user_text_for_storage
+from app.ai.chat_runtime import AgentName
 from app.services.pending_actions import pending_action_store
 from app.services.realtime_event_bus import realtime_event_bus
+from app.services.ai_usage_logger import persist_ai_usage
+from app.services.chat_artifact_service import hydrate_chat_artifacts
 from app.services.chat_semantic_cache import chat_semantic_cache
 from app.services.chat_model_factory import ChatModelFactory
 from app.services.background_tasks import schedule_memory_profile_refresh
@@ -69,6 +72,43 @@ def _feedback_to_api(row: ChatFeedbackModel) -> ChatFeedback:
     return ChatFeedback.from_orm(row)
 
 
+def _persist_usage_from_payload(
+    db: Session,
+    *,
+    current_user: CurrentUser,
+    thread_id: str,
+    prompt_key: str,
+    payload: dict[str, Any],
+    status: str = "success",
+) -> None:
+    metrics = payload.get("metrics") or {}
+    persist_ai_usage(
+        db,
+        user_id=str(current_user.id) if current_user else None,
+        thread_id=thread_id,
+        prompt_key=prompt_key,
+        status=status,
+        cache_hit=bool(metrics.get("cache_hit")),
+        grounding_mode=str(payload.get("grounding_mode") or ""),
+        confidence=str(payload.get("confidence") or ""),
+        ttft_ms=metrics.get("ttft_ms"),
+        latency_ms=metrics.get("latency_ms"),
+        prompt_tokens=metrics.get("prompt_tokens"),
+        completion_tokens=metrics.get("completion_tokens"),
+        total_tokens=metrics.get("total_tokens"),
+        agent_hops=metrics.get("agent_hops"),
+        tool_calls_count=metrics.get("tool_calls_count"),
+        rag_hit_count=metrics.get("rag_hit_count"),
+        route_trace=metrics.get("route_trace") or [],
+        estimated=bool(metrics.get("estimated_tokens")),
+        extra={
+            "intent": payload.get("intent"),
+            "agent": payload.get("agent"),
+            "routing_reason": payload.get("routing_reason"),
+        },
+    )
+
+
 class ChatStreamRequest(BaseModel):
     user_input: str
     thread_id: str = "default"
@@ -87,6 +127,9 @@ class ChatStreamRequest(BaseModel):
     course_module: str | None = None
     current_file_id: str | None = None
     file_name: str | None = None
+    force_agent: AgentName | None = None
+    force_cache: bool = False
+    debug_mode: bool = False
 
 
 class ChatResumeRequest(BaseModel):
@@ -290,6 +333,22 @@ def create_chat(
         chat = chat_provider.create_with_ai_response(
             db, obj_in=chat_in, current_user=current_user
         )
+        metrics = getattr(chat, "metrics", None)
+        if isinstance(metrics, dict):
+            _persist_usage_from_payload(
+                db,
+                current_user=current_user,
+                thread_id=chat.thread_id,
+                prompt_key=chat_in.prompt_key or "tutor",
+                payload={
+                    "metrics": metrics,
+                    "grounding_mode": getattr(chat, "grounding_mode", ""),
+                    "confidence": getattr(chat, "confidence", ""),
+                    "intent": getattr(chat, "intent", ""),
+                    "agent": getattr(chat, "agent", ""),
+                    "routing_reason": getattr(chat, "routing_reason", ""),
+                },
+            )
         return _chat_to_api(chat)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -309,6 +368,7 @@ def stream_chat(
 
     def event_stream():
         final_text: str | None = None
+        final_payload: dict[str, Any] | None = None
         try:
             chat_request = ChatRequest(
                 user_input=request.user_input,
@@ -333,6 +393,9 @@ def stream_chat(
                 prior_turns=prior_turns or None,
                 current_file_id=request.current_file_id,
                 file_name=request.file_name,
+                force_agent=request.force_agent,
+                force_cache=bool(request.force_cache),
+                debug_mode=bool(request.debug_mode),
             )
             log_user = resolve_stream_user_text_for_storage(chat_request)
             for payload in stream_chat_events(chat_request):
@@ -340,6 +403,7 @@ def stream_chat(
                     c = payload.get("content")
                     if isinstance(c, str) and c.strip():
                         final_text = c
+                    final_payload = payload
                 yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
             if final_text and request.thread_id and user_id:
                 try:
@@ -355,6 +419,14 @@ def stream_chat(
                             system_prompt=resolve_system_prompt(
                                 request.prompt_key, request.system_prompt or ""
                             ),
+                            agent=str(final_payload.get("agent") or ""),
+                            intent=str(final_payload.get("intent") or ""),
+                            routing_reason=str(final_payload.get("routing_reason") or ""),
+                            citations=list(final_payload.get("citations") or []),
+                            confidence=str(final_payload.get("confidence") or ""),
+                            grounding_mode=str(final_payload.get("grounding_mode") or ""),
+                            suggestions=list(final_payload.get("suggestions") or []),
+                            metrics=final_payload.get("metrics") or {},
                         )
                         _maybe_autorename_thread(
                             db,
@@ -364,6 +436,14 @@ def stream_chat(
                             first_answer=final_text,
                         )
                         schedule_memory_profile_refresh(user_id)
+                        if isinstance(final_payload, dict):
+                            _persist_usage_from_payload(
+                                db,
+                                current_user=current_user,
+                                thread_id=request.thread_id,
+                                prompt_key=request.prompt_key,
+                                payload=final_payload,
+                            )
                 except Exception:
                     pass
         except Exception as exc:
@@ -408,6 +488,9 @@ def selection_query(
             prior_turns=prior_turns or None,
             current_file_id=request.current_file_id,
             file_name=request.file_name,
+            force_agent=request.force_agent,
+            force_cache=bool(request.force_cache),
+            debug_mode=bool(request.debug_mode),
         )
         out = chat_service(chat_request).model_dump()
         if user_id and request.thread_id and (out.get("response") or "").strip():
@@ -425,6 +508,14 @@ def selection_query(
                         system_prompt=resolve_system_prompt(
                             request.prompt_key, request.system_prompt or ""
                         ),
+                        agent=str(out.get("agent") or ""),
+                        intent=str(out.get("intent") or ""),
+                        routing_reason=str(out.get("routing_reason") or ""),
+                        citations=list(out.get("citations") or []),
+                        confidence=str(out.get("confidence") or ""),
+                        grounding_mode=str(out.get("grounding_mode") or ""),
+                        suggestions=list(out.get("suggestions") or []),
+                        metrics=out.get("metrics") or {},
                     )
                     _maybe_autorename_thread(
                         db,
@@ -434,6 +525,13 @@ def selection_query(
                         first_answer=str(out.get("response") or ""),
                     )
                     schedule_memory_profile_refresh(user_id)
+                    _persist_usage_from_payload(
+                        db,
+                        current_user=current_user,
+                        thread_id=request.thread_id,
+                        prompt_key=request.prompt_key,
+                        payload=out,
+                    )
             except Exception:
                 pass
         return out
@@ -535,6 +633,7 @@ def read_chat_history(
     chats = chat_provider.get_chat_history(
         db, thread_id=thread_id, skip=skip, limit=limit
     )
+    hydrate_chat_artifacts(db, chats)
     return [_chat_to_api(c) for c in chats]
 
 
@@ -564,6 +663,7 @@ def read_chat(
                 status_code=404,
                 detail="Chat not found or access denied"
             )
+    hydrate_chat_artifacts(db, [chat])
     return _chat_to_api(chat)
 
 

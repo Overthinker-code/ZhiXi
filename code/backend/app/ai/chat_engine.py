@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Any, cast
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -10,7 +11,15 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import ToolNode
 
 from app.ai.chat_models import ChatRequest, ChatResponse, State, SupervisorDecision
+from app.ai.demo_response import build_demo_chat_response
 from app.ai.chat_runtime import AGENT_CONFIG, resolve_system_prompt
+from app.ai.structured_output import (
+    StructuredAnswerPayload,
+    build_citation_candidates,
+    normalize_confidence,
+    normalize_grounding_mode,
+    parse_structured_payload,
+)
 from app.ai.chat_tools import (
     TOOL_KEYS_BY_AGENT,
     get_tools_for_agent,
@@ -23,6 +32,7 @@ from app.core.db import engine
 from app.services.chat_model_factory import ChatModelFactory
 from app.services.rag_service import RAGService
 from app.services.pending_actions import pending_action_store
+from app.services.ai_usage_logger import collect_usage_from_messages
 from app.services.chat_semantic_cache import chat_semantic_cache
 from app.services.user_memory_profile_service import user_memory_profile_service
 from sqlmodel import Session
@@ -566,7 +576,7 @@ def _contextual_suggestions_from_llm(
     ]
 
 
-def _rag_system_message(request: ChatRequest) -> SystemMessage:
+def _build_rag_context(request: ChatRequest) -> tuple[SystemMessage, list[dict[str, Any]]]:
     results = rag_service.query_knowledge_base(
         query=request.user_input,
         k=request.rag_k,
@@ -593,7 +603,12 @@ def _rag_system_message(request: ChatRequest) -> SystemMessage:
             "\n\n【严格模式】仅依据上述片段作答；关键结论须带 [citation:x]；"
             "证据不足则说明知识库证据不足。"
         )
-    return SystemMessage(content=body)
+    return SystemMessage(content=body), results
+
+
+def _rag_system_message(request: ChatRequest) -> SystemMessage:
+    message, _ = _build_rag_context(request)
+    return message
 
 
 def _invoke_supervisor_llm(state: State) -> tuple[SupervisorDecision, bool]:
@@ -680,6 +695,7 @@ def supervisor_node(state: State) -> dict[str, Any]:
             "supervisor_entries": entries,
             "force_agent_consumed": True,
             "supervisor_fallback_streak": 0,
+            "agent_route_trace": [fa],
         }
 
     ruled = _rule_based_route(state)
@@ -697,6 +713,7 @@ def supervisor_node(state: State) -> dict[str, Any]:
             ],
             "supervisor_entries": entries,
             "supervisor_fallback_streak": 0,
+            "agent_route_trace": [agent_name],
         }
 
     decision, used_fallback = _invoke_supervisor_llm(state)
@@ -735,6 +752,7 @@ def supervisor_node(state: State) -> dict[str, Any]:
         "intermediate_steps": [thought_super, step],
         "supervisor_entries": entries,
         "supervisor_fallback_streak": streak,
+        "agent_route_trace": [na] if na in _WORKERS else [],
     }
 
 
@@ -777,6 +795,8 @@ def finalize_node(state: State) -> dict[str, Any]:
         "【当前专员研究资料】（用于提炼，不要原样复读内部思考）\n"
         + (worker_mat or "（本轮暂无专员正文，请直接基于问题与上下文作答。）")
     )
+    citation_candidates = build_citation_candidates(state.get("rag_results") or [])
+    human_parts.append(f"【可引用证据候选】\n{citation_candidates}")
     human = HumanMessage(content="\n\n".join(human_parts))
 
     def _fallback_from_recent_worker_messages(all_msgs: list[Any]) -> str:
@@ -793,28 +813,72 @@ def finalize_node(state: State) -> dict[str, Any]:
             return t
         return ""
 
-    try:
-        raw_msg = llm.invoke([sys, human])
-        clean = _strip_think_blocks_from_text(_strict_ai_content_for_user(raw_msg))
-        if clean:
-            msg = AIMessage(content=clean, name="final_answer")
-        else:
-            fallback_text = _fallback_from_recent_worker_messages(msgs)
-            if fallback_text:
-                msg = AIMessage(content=fallback_text, name="final_answer")
-            else:
-                msg = AIMessage(
-                    content="当前轮次生成异常，请重试一次或换个问法，我会继续给出可见答复。",
-                    name="final_answer",
-                )
-    except Exception as e:
-        msg = AIMessage(
-            content=(
-                "汇总阶段暂时无法完成（常见于上下文过长或服务限制）。请尝试缩短问题或开启新对话。"
-                f"\n（详情：{str(e)[:400]}）"
-            ),
-            name="final_answer",
+    structured_prompt = SystemMessage(
+        content=(
+            "你必须输出结构化结果，字段包括 answer, confidence, grounding_mode, citations, follow_ups。\n"
+            "confidence 只能是 high / medium / low；grounding_mode 只能是 rag / general / tool / mixed。\n"
+            "如果使用知识库证据，citations 中必须引用上面候选里的 citation_id；"
+            "不要编造不存在的 citation_id。"
         )
+    )
+    citations: list[dict[str, Any]] = []
+    confidence = "medium"
+    grounding_mode = "general"
+    follow_ups: list[str] = []
+
+    try:
+        raw_msg = None
+        payload: StructuredAnswerPayload | None = None
+        try:
+            structured = llm.with_structured_output(StructuredAnswerPayload)
+            structured_result = structured.invoke([sys, structured_prompt, human])
+            if isinstance(structured_result, StructuredAnswerPayload):
+                payload = structured_result
+            elif isinstance(structured_result, dict):
+                payload = StructuredAnswerPayload.model_validate(structured_result)
+        except Exception:
+            payload = None
+        if payload is None:
+            raw_msg = llm.invoke([sys, structured_prompt, human])
+            payload = parse_structured_payload(_strict_ai_content_for_user(raw_msg))
+        if payload:
+            clean = _strip_think_blocks_from_text((payload.answer or "").strip())
+            citations = _normalize_structured_citations(
+                state.get("rag_results") or [],
+                [item.model_dump() if hasattr(item, "model_dump") else item for item in payload.citations],
+            )
+            confidence = normalize_confidence(payload.confidence)
+            grounding_mode = normalize_grounding_mode(
+                payload.grounding_mode,
+                has_citations=bool(citations),
+            )
+            follow_ups = [str(item).strip() for item in payload.follow_ups if str(item).strip()][:3]
+            if clean:
+                msg = AIMessage(content=clean, name="final_answer")
+            else:
+                raw_fallback = _strict_ai_content_for_user(raw_msg) if raw_msg is not None else ""
+                clean = _strip_think_blocks_from_text(raw_fallback)
+                if clean:
+                    msg = AIMessage(content=clean, name="final_answer")
+                else:
+                    raise ValueError("structured answer empty")
+        else:
+            raise ValueError("structured answer parse failed")
+    except Exception as e:
+        fallback_text = _fallback_from_recent_worker_messages(msgs)
+        if fallback_text:
+            msg = AIMessage(content=fallback_text, name="final_answer")
+        else:
+            msg = AIMessage(
+                content=(
+                    "汇总阶段暂时无法完成（常见于上下文过长或服务限制）。请尝试缩短问题或开启新对话。"
+                    f"\n（详情：{str(e)[:400]}）"
+                ),
+                name="final_answer",
+            )
+        confidence = "low"
+        grounding_mode = "general"
+        follow_ups = _default_suggestions(current_q)
     return {
         "messages": [msg],
         "selected_agent": "supervisor",
@@ -823,6 +887,10 @@ def finalize_node(state: State) -> dict[str, Any]:
         "intermediate_steps": [
             "【汇总生成】主管正在综合各专员发言，生成面向学生的最终答复。"
         ],
+        "final_citations": citations,
+        "final_confidence": confidence,
+        "final_grounding_mode": grounding_mode,
+        "final_follow_ups": follow_ups,
     }
 
 
@@ -1026,8 +1094,76 @@ def _tool_status_text(
     return enabled, disabled
 
 
+def _normalize_structured_citations(
+    rag_results: list[dict[str, Any]],
+    citations: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    by_id = {
+        int(item.get("citation_id") or 0): item
+        for item in rag_results or []
+        if int(item.get("citation_id") or 0) > 0
+    }
+    out: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for raw in citations or []:
+        citation_id = int(raw.get("citation_id") or 0)
+        if citation_id <= 0 or citation_id in seen:
+            continue
+        base = by_id.get(citation_id)
+        if not base:
+            continue
+        seen.add(citation_id)
+        out.append(
+            {
+                "citation_id": citation_id,
+                "source": str(base.get("source") or "unknown"),
+                "file_id": str((base.get("metadata") or {}).get("file_id") or ""),
+                "chunk_id": base.get("chunk_id"),
+                "score": float(base.get("score") or 0.0),
+                "snippet": str(raw.get("snippet") or base.get("content") or "")[:220],
+                "reason": str(raw.get("reason") or "").strip(),
+                "relevance_score": float(raw.get("relevance_score") or 0.0),
+            }
+        )
+    return out
+
+
+def _agent_hops_from_trace(trace: list[str], *, cache_hit: bool) -> int:
+    if cache_hit:
+        return 1
+    worker_hops = len([item for item in trace if item])
+    # supervisor 启动 + 专员流转 + 最终汇总
+    return max(2, worker_hops + 2)
+
+
+def _build_metrics(
+    *,
+    messages: list[Any],
+    route_trace: list[str],
+    cache_hit: bool,
+    rag_hit_count: int,
+    tool_calls_count: int,
+    ttft_ms: int | None = None,
+    latency_ms: int | None = None,
+) -> dict[str, Any]:
+    usage = collect_usage_from_messages(messages)
+    return {
+        "ttft_ms": ttft_ms,
+        "latency_ms": latency_ms,
+        "prompt_tokens": usage.get("prompt_tokens"),
+        "completion_tokens": usage.get("completion_tokens"),
+        "total_tokens": usage.get("total_tokens"),
+        "estimated_tokens": bool(usage.get("estimated")),
+        "agent_hops": _agent_hops_from_trace(route_trace, cache_hit=cache_hit),
+        "cache_hit": cache_hit,
+        "rag_hit_count": rag_hit_count,
+        "tool_calls_count": tool_calls_count,
+        "route_trace": route_trace,
+    }
+
+
 def _initial_state(request: ChatRequest, user_text: str) -> State:
-    rag_msg = _rag_system_message(request)
+    rag_msg, rag_results = _build_rag_context(request)
     preset = resolve_system_prompt(request.prompt_key, request.system_prompt)
     memory_context = _load_user_memory_context(request.user_id)
     messages: list = [rag_msg]
@@ -1068,6 +1204,12 @@ def _initial_state(request: ChatRequest, user_text: str) -> State:
             "current_file_id": request.current_file_id,
             "current_file_name": request.file_name or "",
             "user_memory_context": memory_context,
+            "rag_results": rag_results,
+            "final_citations": [],
+            "final_confidence": "medium",
+            "final_grounding_mode": "general",
+            "final_follow_ups": [],
+            "agent_route_trace": [],
         },
     )
 
@@ -1076,6 +1218,23 @@ def chat_service(request: ChatRequest) -> ChatResponse:
     request = _with_resolved_max_tokens(request)
     if request.selected_text:
         request.user_input = _build_selection_prompt(request)
+
+    if request.force_cache:
+        demo = build_demo_chat_response(request.user_input)
+        demo.metrics = {
+            "ttft_ms": 1,
+            "latency_ms": 1,
+            "prompt_tokens": None,
+            "completion_tokens": None,
+            "total_tokens": None,
+            "estimated_tokens": False,
+            "agent_hops": 1,
+            "cache_hit": True,
+            "rag_hit_count": 0,
+            "tool_calls_count": 0,
+            "route_trace": ["demo_mode"],
+        }
+        return demo
 
     cache_hit = (
         None
@@ -1090,6 +1249,22 @@ def chat_service(request: ChatRequest) -> ChatResponse:
             intent="semantic_cache",
             routing_reason=f"语义缓存命中（hit_count={cache_hit.hit_count}）",
             thoughts=["⚡ 语义缓存命中，直接返回历史高相似答案。"],
+            confidence="high",
+            grounding_mode="general",
+            suggestions=_default_suggestions(request.user_input),
+            metrics={
+                "ttft_ms": 0,
+                "latency_ms": 0,
+                "prompt_tokens": None,
+                "completion_tokens": None,
+                "total_tokens": None,
+                "estimated_tokens": False,
+                "agent_hops": 1,
+                "cache_hit": True,
+                "rag_hit_count": 0,
+                "tool_calls_count": 0,
+                "route_trace": ["semantic_cache"],
+            },
         )
 
     graph = _build_supervisor_graph(
@@ -1102,18 +1277,47 @@ def chat_service(request: ChatRequest) -> ChatResponse:
     )
     thread_config = {"configurable": {"thread_id": request.thread_id}}
     initial = _initial_state(request, request.user_input)
+    started_at = time.perf_counter()
 
     result = graph.invoke(initial, config=thread_config)
     final_text = _last_meaningful_assistant_text(result.get("messages") or [])
-    final_text, _ = _split_suggestions(final_text)
+    final_text, inline_suggestions = _split_suggestions(final_text)
     thoughts = list(result.get("intermediate_steps") or [])
+    tool_calls = collect_tool_calls(result.get("messages", []))
+    route_trace = list(result.get("agent_route_trace") or [])
+    suggestions = (
+        list(result.get("final_follow_ups") or [])
+        or inline_suggestions
+        or _contextual_suggestions_from_llm(
+            request.user_input, final_text, max_tokens=request.max_tokens
+        )
+        or _default_suggestions(request.user_input)
+    )
+    latency_ms = max(1, round((time.perf_counter() - started_at) * 1000))
+    citations = list(result.get("final_citations") or [])
     response = ChatResponse(
         response=final_text,
-        tool_calls=collect_tool_calls(result.get("messages", [])),
+        tool_calls=tool_calls,
         agent=result.get("selected_agent", "supervisor"),
         intent=result.get("intent", "collaborative_supervisor"),
         routing_reason=result.get("routing_reason", "") or "协作完成",
         thoughts=thoughts,
+        citations=citations,
+        confidence=normalize_confidence(result.get("final_confidence")),
+        grounding_mode=normalize_grounding_mode(
+            result.get("final_grounding_mode"),
+            has_citations=bool(citations),
+        ),
+        suggestions=suggestions[:3],
+        metrics=_build_metrics(
+            messages=result.get("messages") or [],
+            route_trace=route_trace,
+            cache_hit=False,
+            rag_hit_count=len(result.get("rag_results") or []),
+            tool_calls_count=len(tool_calls),
+            ttft_ms=latency_ms,
+            latency_ms=latency_ms,
+        ),
     )
     if _requires_hitl(
         response.intent,
@@ -1143,6 +1347,37 @@ def stream_chat_events(request: ChatRequest):
     if request.selected_text:
         user_input = _build_selection_prompt(request)
     req = request.model_copy(update={"user_input": user_input})
+    started_at = time.perf_counter()
+    first_token_at: float | None = None
+
+    if req.force_cache:
+        demo = build_demo_chat_response(req.user_input)
+        yield {
+            "type": "thought",
+            "content": "【演示模式】已启用稳定兜底回答。",
+            "stage": "demo_mode",
+        }
+        for i in range(0, len(demo.response), 24):
+            if first_token_at is None:
+                first_token_at = time.perf_counter()
+            yield {"type": "token", "content": demo.response[i : i + 24]}
+        yield {"type": "suggestions", "data": demo.suggestions}
+        yield {
+            "type": "final",
+            "content": demo.response,
+            "agent": demo.agent,
+            "intent": demo.intent,
+            "routing_reason": demo.routing_reason,
+            "tool_calls": demo.tool_calls,
+            "requires_confirmation": False,
+            "pending_action_id": None,
+            "citations": demo.citations,
+            "confidence": demo.confidence,
+            "grounding_mode": demo.grounding_mode,
+            "suggestions": demo.suggestions,
+            "metrics": demo.metrics,
+        }
+        return
 
     enabled_tools, disabled_tools = _tool_status_text(req.active_tools)
     yield {
@@ -1181,6 +1416,8 @@ def stream_chat_events(request: ChatRequest):
         }
         text = cache_hit.answer
         for i in range(0, len(text), 24):
+            if first_token_at is None:
+                first_token_at = time.perf_counter()
             yield {"type": "token", "content": text[i : i + 24]}
         sug = _contextual_suggestions_from_llm(
             req.user_input, text, max_tokens=req.max_tokens
@@ -1195,6 +1432,22 @@ def stream_chat_events(request: ChatRequest):
             "tool_calls": [],
             "requires_confirmation": False,
             "pending_action_id": None,
+            "citations": [],
+            "confidence": "high",
+            "grounding_mode": "general",
+            "metrics": {
+                "ttft_ms": 0,
+                "latency_ms": 0,
+                "prompt_tokens": None,
+                "completion_tokens": None,
+                "total_tokens": None,
+                "estimated_tokens": False,
+                "agent_hops": 1,
+                "cache_hit": True,
+                "rag_hit_count": 0,
+                "tool_calls_count": 0,
+                "route_trace": ["semantic_cache"],
+            },
         }
         return
 
@@ -1279,9 +1532,12 @@ def stream_chat_events(request: ChatRequest):
 
     chunk_size = 24
     for i in range(0, len(text), chunk_size):
+        if first_token_at is None:
+            first_token_at = time.perf_counter()
         yield {"type": "token", "content": text[i : i + chunk_size]}
     dynamic_suggestions = (
-        suggestions
+        list(final_state.get("final_follow_ups") or [])
+        or suggestions
         or _contextual_suggestions_from_llm(
             req.user_input, text, max_tokens=req.max_tokens
         )
@@ -1289,13 +1545,38 @@ def stream_chat_events(request: ChatRequest):
     )
     yield {"type": "suggestions", "data": dynamic_suggestions}
 
+    tool_calls = collect_tool_calls(final_state.get("messages", []))
+    citations = list(final_state.get("final_citations") or [])
+    route_trace = list(final_state.get("agent_route_trace") or [])
+    ttft_ms = (
+        max(1, round((first_token_at - started_at) * 1000))
+        if first_token_at is not None
+        else None
+    )
+    latency_ms = max(1, round((time.perf_counter() - started_at) * 1000))
     resp = ChatResponse(
         response=text,
-        tool_calls=collect_tool_calls(final_state.get("messages", [])),
+        tool_calls=tool_calls,
         agent=final_state.get("selected_agent", "supervisor"),
         intent=final_state.get("intent", "collaborative_supervisor"),
         routing_reason=final_state.get("routing_reason", "") or "协作完成",
         thoughts=list(final_state.get("intermediate_steps") or []),
+        citations=citations,
+        confidence=normalize_confidence(final_state.get("final_confidence")),
+        grounding_mode=normalize_grounding_mode(
+            final_state.get("final_grounding_mode"),
+            has_citations=bool(citations),
+        ),
+        suggestions=dynamic_suggestions[:3],
+        metrics=_build_metrics(
+            messages=final_state.get("messages") or [],
+            route_trace=route_trace,
+            cache_hit=False,
+            rag_hit_count=len(final_state.get("rag_results") or []),
+            tool_calls_count=len(tool_calls),
+            ttft_ms=ttft_ms,
+            latency_ms=latency_ms,
+        ),
     )
     if _requires_hitl(
         resp.intent,
@@ -1320,4 +1601,9 @@ def stream_chat_events(request: ChatRequest):
         "tool_calls": resp.tool_calls,
         "requires_confirmation": resp.requires_confirmation,
         "pending_action_id": resp.pending_action_id,
+        "citations": resp.citations,
+        "confidence": resp.confidence,
+        "grounding_mode": resp.grounding_mode,
+        "suggestions": resp.suggestions,
+        "metrics": resp.metrics,
     }
