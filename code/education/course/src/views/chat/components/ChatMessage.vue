@@ -15,6 +15,8 @@
   import regenerateIcon from '@/assets/photo/重新生成.png';
   import humanizeAgentReasoning from '@/utils/humanizeAgentReasoning';
   import AgentThoughtCard from '@/views/chat/components/AgentThoughtCard.vue';
+  import CitationArea from '@/views/chat/components/CitationArea.vue';
+  import FollowUpActions from '@/views/chat/components/FollowUpActions.vue';
 
   // 定义props
   const props = defineProps({
@@ -424,23 +426,18 @@
           aria-hidden="true"
         />
       </div>
-      <div
-        v-if="
-          message.role === 'assistant' &&
-          message.suggestions &&
-          message.suggestions.length > 0
-        "
-        class="suggestions-row"
-      >
-        <button
-          v-for="s in message.suggestions"
-          :key="s"
-          class="suggestion-pill"
-          @click="handleSuggestionClick(s)"
-        >
-          {{ s }}
-        </button>
-      </div>
+      <CitationArea
+        v-if="message.role === 'assistant'"
+        :citations="message.citations || []"
+        :confidence="message.confidence"
+        :grounding-mode="message.grounding_mode"
+        :metrics="message.metrics || {}"
+      />
+      <FollowUpActions
+        v-if="message.role === 'assistant'"
+        :suggestions="message.suggestions || []"
+        @pick="handleSuggestionClick"
+      />
       <div v-if="message.requires_confirmation" class="hitl-card">
         <p>系统生成了学习计划，是否确认写入你的学习日历？</p>
         <div class="hitl-actions">

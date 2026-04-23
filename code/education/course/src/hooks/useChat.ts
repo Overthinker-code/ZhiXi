@@ -127,6 +127,11 @@ export function useChat() {
           historyMessages.push({
             ...messageHandler.formatMessage('assistant', content, reasoning),
             timestamp: item.created_at,
+            citations: item.citations || [],
+            confidence: item.confidence || '',
+            grounding_mode: item.grounding_mode || '',
+            suggestions: item.suggestions || [],
+            metrics: item.metrics || {},
           });
         }
       });
@@ -150,6 +155,9 @@ export function useChat() {
       }
       if (settings?.tool_options?.length) {
         settingStore.toolOptions = settings.tool_options;
+      }
+      if (typeof settings?.developer_panel_enabled === 'boolean') {
+        settingStore.developerPanelEnabled = settings.developer_panel_enabled;
       }
       if (
         settings?.default_active_tools?.length &&
@@ -290,6 +298,9 @@ export function useChat() {
         temperature: settingStore.settings.temperature,
         topP: settingStore.settings.topP,
         topK: settingStore.settings.topK,
+        forceAgent: settingStore.settings.forceAgent || undefined,
+        forceCache: Boolean(settingStore.settings.forceCache),
+        debugMode: Boolean(settingStore.settings.debugMode),
       };
 
       const shouldStream = Boolean(settingStore.settings.stream);
@@ -301,6 +312,10 @@ export function useChat() {
         let streamError = '';
         let requiresConfirmation = false;
         let pendingActionId = '';
+        let citations: any[] = [];
+        let confidence = '';
+        let groundingMode = '';
+        let metrics: Record<string, any> = {};
         await createAssistantChatStream(
           messageContent.text,
           currentThreadId.value,
@@ -321,7 +336,11 @@ export function useChat() {
                 [...thoughts],
                 requiresConfirmation,
                 pendingActionId,
-                suggestions
+                suggestions,
+                citations,
+                confidence,
+                groundingMode,
+                metrics
               );
             } else if (event.type === 'token') {
               answer += event.content || '';
@@ -334,7 +353,11 @@ export function useChat() {
                 [...thoughts],
                 requiresConfirmation,
                 pendingActionId,
-                suggestions
+                suggestions,
+                citations,
+                confidence,
+                groundingMode,
+                metrics
               );
             } else if (event.type === 'suggestions') {
               suggestions = Array.isArray(event.data)
@@ -345,6 +368,10 @@ export function useChat() {
               const displayContent = sanitizeStreamingContent(answer);
               requiresConfirmation = Boolean(event.requires_confirmation);
               pendingActionId = event.pending_action_id || '';
+              citations = Array.isArray(event.citations) ? event.citations : [];
+              confidence = String(event.confidence || '');
+              groundingMode = String(event.grounding_mode || '');
+              metrics = event.metrics || {};
               chatStore.updateLastMessage(
                 displayContent,
                 thoughts.join('\n\n'),
@@ -353,7 +380,11 @@ export function useChat() {
                 [...thoughts],
                 requiresConfirmation,
                 pendingActionId,
-                suggestions
+                suggestions,
+                citations,
+                confidence,
+                groundingMode,
+                metrics
               );
             } else if (event.type === 'error') {
               streamError = event.content || 'Stream failed';
@@ -378,7 +409,20 @@ export function useChat() {
         const { content, reasoning } = parseAssistantResponse(
           response.response || ''
         );
-        chatStore.updateLastMessage(content, reasoning, 0, 0);
+        chatStore.updateLastMessage(
+          content,
+          reasoning,
+          0,
+          0,
+          [],
+          false,
+          '',
+          response.suggestions || [],
+          response.citations || [],
+          response.confidence || '',
+          response.grounding_mode || '',
+          response.metrics || {}
+        );
         roundSucceeded = true;
       }
     } catch (error: unknown) {
@@ -499,12 +543,28 @@ export function useChat() {
           courseModule: params.courseModule,
           currentFileId: mountedFile?.file_id,
           fileName: mountedFile?.file_name,
+          forceAgent: settingStore.settings.forceAgent || undefined,
+          forceCache: Boolean(settingStore.settings.forceCache),
+          debugMode: Boolean(settingStore.settings.debugMode),
         }
       );
       const { content, reasoning } = parseAssistantResponse(
         response.response || ''
       );
-      chatStore.updateLastMessage(content, reasoning, 0, 0);
+      chatStore.updateLastMessage(
+        content,
+        reasoning,
+        0,
+        0,
+        [],
+        false,
+        '',
+        response.suggestions || [],
+        response.citations || [],
+        response.confidence || '',
+        response.grounding_mode || '',
+        response.metrics || {}
+      );
     } catch (error) {
       chatStore.updateLastMessage(
         '当前提问人数较多，正在为您从缓存中检索，请稍后重试。'

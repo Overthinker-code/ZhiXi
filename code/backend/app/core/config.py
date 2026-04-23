@@ -199,6 +199,9 @@ class Settings(BaseSettings):
     MEMORY_PROFILE_AUTO_REFRESH: bool = True
     MEMORY_PROFILE_MAX_TURNS: int = 20
     MEMORY_PROFILE_MAX_CHARS: int = 12000
+    DEMO_MODE: bool = False
+    DEMO_FAKE_CHAT_CACHE: bool = False
+    DEVELOPER_PANEL_ENABLED: bool = True
 
 
 settings = Settings()  # type: ignore

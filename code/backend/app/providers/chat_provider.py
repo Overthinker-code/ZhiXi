@@ -13,6 +13,7 @@ from app.ai.chat_service import (
 from app.providers.chat_thread_provider import chat_thread_provider
 from app.schemas.chat_thread import ChatThreadCreate
 from app.services.background_tasks import schedule_memory_profile_refresh
+from app.services.chat_artifact_service import upsert_chat_artifact, attach_chat_artifact
 
 class ChatProvider(BaseProvider[Chat, ChatCreate, ChatUpdate]):
     def get_by_thread_id(self, db: Session, *, thread_id: str) -> List[Chat]:
@@ -51,6 +52,9 @@ class ChatProvider(BaseProvider[Chat, ChatCreate, ChatUpdate]):
             thread_id=thread_id,
             user_id=user_id,
             is_admin=bool(getattr(current_user, "is_superuser", False)) if current_user else False,
+            force_agent=obj_in.force_agent,
+            force_cache=bool(obj_in.force_cache),
+            debug_mode=bool(obj_in.debug_mode),
         )
         ai_response = ai_chat_service(ai_request)
         effective_system_prompt = resolve_system_prompt(
@@ -68,11 +72,21 @@ class ChatProvider(BaseProvider[Chat, ChatCreate, ChatUpdate]):
         db.commit()
         db.refresh(db_obj)
         schedule_memory_profile_refresh(user_id)
-        
+
         setattr(db_obj, "tool_calls", ai_response.tool_calls)
-        setattr(db_obj, "agent", ai_response.agent)
-        setattr(db_obj, "intent", ai_response.intent)
-        setattr(db_obj, "routing_reason", ai_response.routing_reason)
+        artifact = upsert_chat_artifact(
+            db,
+            chat_id=db_obj.id,
+            agent=ai_response.agent,
+            intent=ai_response.intent,
+            routing_reason=ai_response.routing_reason,
+            citations=ai_response.citations,
+            confidence=ai_response.confidence,
+            grounding_mode=ai_response.grounding_mode,
+            suggestions=ai_response.suggestions,
+            metrics=ai_response.metrics,
+        )
+        attach_chat_artifact(db_obj, artifact)
         return db_obj
     
     def get_chat_history(
@@ -96,6 +110,14 @@ class ChatProvider(BaseProvider[Chat, ChatCreate, ChatUpdate]):
         user_input: str,
         response: str,
         system_prompt: str | None = None,
+        agent: str | None = None,
+        intent: str | None = None,
+        routing_reason: str | None = None,
+        citations: list[dict] | None = None,
+        confidence: str | None = None,
+        grounding_mode: str | None = None,
+        suggestions: list[str] | None = None,
+        metrics: dict | None = None,
     ) -> Chat:
         """持久化一轮流式/非流式对话，供历史接口与 prior_turns 注入使用。"""
         chat_data = {
@@ -108,6 +130,32 @@ class ChatProvider(BaseProvider[Chat, ChatCreate, ChatUpdate]):
         db.add(db_obj)
         db.commit()
         db.refresh(db_obj)
+        if any(
+            value
+            for value in (
+                agent,
+                intent,
+                routing_reason,
+                citations,
+                confidence,
+                grounding_mode,
+                suggestions,
+                metrics,
+            )
+        ):
+            artifact = upsert_chat_artifact(
+                db,
+                chat_id=db_obj.id,
+                agent=agent,
+                intent=intent,
+                routing_reason=routing_reason,
+                citations=citations,
+                confidence=confidence,
+                grounding_mode=grounding_mode,
+                suggestions=suggestions,
+                metrics=metrics,
+            )
+            attach_chat_artifact(db_obj, artifact)
         try:
             thread = chat_thread_provider.get_by_thread_id(db, thread_id=thread_id)
             schedule_memory_profile_refresh(getattr(thread, "user_id", None))

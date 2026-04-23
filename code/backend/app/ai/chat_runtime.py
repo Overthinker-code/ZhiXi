@@ -160,6 +160,8 @@ def get_chat_runtime_settings() -> dict:
             },
         ],
         "default_active_tools": ["knowledge_base", "web_search", "code_sandbox"],
+        "developer_panel_enabled": bool(settings.DEVELOPER_PANEL_ENABLED),
+        "demo_mode": bool(settings.DEMO_MODE),
     }
 
 
