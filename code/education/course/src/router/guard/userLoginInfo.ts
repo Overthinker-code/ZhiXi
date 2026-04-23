@@ -6,6 +6,10 @@ import { restoreTokenFromStorage } from '@/utils/auth';
 import isSessionInvalidError from '@/utils/authError';
 import type { RoleType } from '@/store/modules/user/types';
 
+function resolveAuthedHome(role?: string) {
+  return { name: role === 'teacher' ? 'Workplace' : 'AssistantHome' };
+}
+
 export default function setupUserLoginInfoGuard(router: Router) {
   router.beforeEach(async (to, from, next) => {
     NProgress.start();
@@ -14,10 +18,18 @@ export default function setupUserLoginInfoGuard(router: Router) {
     const token = userStore.getToken();
     if (token) {
       if (userStore.profileHydrated) {
+        if (to.name === 'login') {
+          next(resolveAuthedHome(userStore.role));
+          return;
+        }
         next();
       } else {
         try {
           await userStore.info();
+          if (to.name === 'login') {
+            next(resolveAuthedHome(userStore.role));
+            return;
+          }
           next();
         } catch (error) {
           if (isSessionInvalidError(error)) {
