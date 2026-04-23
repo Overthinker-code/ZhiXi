@@ -143,9 +143,9 @@ axios.interceptors.response.use(
     }
     const rawMessage = detailStr || error?.message || 'Request Error';
     const friendlyChatMessage =
-      '无法连接后端 API。请确认：① SSH 隧道已建立且未断开；② 本机可 curl 通隧道端口；③ VITE_DEV_API_PROXY_TARGET 与隧道本地端口一致；④ 修改 .env.development 后已重启 npm run dev。';
+      '无法连接后端 API。请确认：① 服务器上的后端已启动；② 本机可直接 curl 通服务器 8001 端口；③ .env.development 里的 VITE_DEV_API_PROXY_TARGET 指向正确服务器地址；④ 修改后已重启 npm run dev。';
     const friendlyNetworkHint =
-      '无法连接后端 API，请确认后端已启动，且 .env 中 VITE_API_BASE_URL 指向可访问地址（如 http://127.0.0.1:8000/api/v1）';
+      '无法连接后端 API。你现在是本地前端 + 服务器后端直连模式，请优先检查：① 服务器后端是否已启动；② .env.development 里的 VITE_DEV_API_PROXY_TARGET 是否指向服务器 8001；③ 修改后是否已重启 npm run dev。';
     let message = rawMessage;
     if (isChat && isNetworkError) {
       message = friendlyChatMessage;
