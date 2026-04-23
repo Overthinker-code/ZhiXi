@@ -31,6 +31,7 @@ psycopg2-binary
 # LLM and RAG dependencies
 langchain
 langchain-community
+langchain-chroma
 langchain-openai
 langchain-ollama
 chromadb
@@ -47,6 +48,7 @@ typing-extensions
 # Video and image processing
 opencv-python
 numpy
+mediapipe
 
 # YOLO and deep learning for behavior detection
 ultralytics>=8.0.0
