@@ -192,6 +192,7 @@ class CourseBase(SQLModel):
     description: Optional[str] = None
     course_type: Optional[str] = Field(default=None, max_length=255)
     identifier: str = Field(max_length=255)
+    click_number: int = Field(default=0)  # 点击次数，用于热门课程统计
 
 
 class CourseCreate(CourseBase):
@@ -204,6 +205,7 @@ class CourseUpdate(SQLModel):
     course_type: Optional[str] = Field(default=None, max_length=255)
     identifier: Optional[str] = Field(default=None, max_length=255)
     ud_id: Optional[UUID] = None
+    click_number: Optional[int] = None
 
 
 class Course(CourseBase, table=True):
@@ -213,6 +215,7 @@ class Course(CourseBase, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     tcs: List["TC"] = Relationship(back_populates="course")
+    resources: List["Resource"] = Relationship(back_populates="course")
 
 
 class CoursePublic(CourseBase):
@@ -220,6 +223,7 @@ class CoursePublic(CourseBase):
     ud_id: UUID
     created_at: datetime
     updated_at: datetime
+    click_number: int
 
 
 class CoursesPublic(SQLModel):
@@ -455,14 +459,43 @@ class Alert(SQLModel, table=True):
     student: "Student" = Relationship()
 
 
-class Resource(SQLModel, table=True):
-    id: UUID = Field(default_factory=uuid4, primary_key=True)
-    title: str
-    type: str  # pdf, video, ppt
-    upload_time: datetime = Field(default_factory=datetime.utcnow)
-    course_id: UUID = Field(foreign_key="course.id")
+class ResourceBase(SQLModel):
+    title: str = Field(max_length=255)
+    type: str = Field(max_length=50)  # pdf, ppt, pptx, doc, docx, image
+    file_name: str = Field(max_length=255)
+    file_path: str = Field(max_length=255)
+    file_size: int
+    content_type: str = Field(max_length=150)
+    course_id: UUID
 
-    course: "Course" = Relationship()
+
+class ResourceCreate(ResourceBase):
+    pass
+
+
+class ResourceUpdate(SQLModel):
+    title: Optional[str] = Field(default=None, max_length=255)
+    type: Optional[str] = Field(default=None, max_length=50)
+
+
+class Resource(ResourceBase, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    upload_time: datetime = Field(default_factory=datetime.utcnow)
+    uploader_id: UUID = Field(foreign_key="user.id")
+
+    course: "Course" = Relationship(back_populates="resources")
+    uploader: User = Relationship(back_populates="resources")
+
+
+class ResourcePublic(ResourceBase):
+    id: UUID
+    upload_time: datetime
+    uploader_id: UUID
+
+
+class ResourcesPublic(SQLModel):
+    data: List[ResourcePublic]
+    count: int
     
 
 UD.teachers = Relationship(back_populates="ud")
