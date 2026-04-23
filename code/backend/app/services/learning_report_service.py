@@ -66,12 +66,11 @@ class LearningReportService:
         return "\n".join(lines)
 
     def _normalized_topics(self, profile: dict[str, Any] | None, history: list[Chat]) -> list[str]:
-        weak_points = [
-            str(item).strip()
-            for item in (profile.get("weak_points") or []) if profile
-            for _ in [0]
-            if str(item).strip()
-        ]
+        weak_points = (
+            [str(item).strip() for item in (profile.get("weak_points") or []) if str(item).strip()]
+            if profile
+            else []
+        )
         if weak_points:
             return weak_points[:4]
         collected: list[str] = []
@@ -95,6 +94,18 @@ class LearningReportService:
                 "先看核心概念，再做 2-3 道由浅入深的练习题",
                 "对近期高频错误点建立个人速记卡片",
             ]
+        )
+        return _LearningReportPayload(
+            summary="近期学习提问较集中，建议围绕薄弱点做短周期复习与练习闭环。",
+            risk_level="medium" if weak_points else "low",
+            strengths=["具备主动提问习惯", "愿意围绕具体问题持续追问"],
+            recommended_actions=actions[:4],
+            recommended_resources=[f"{point} 相关课程资料" for point in weak_points[:3]],
+            follow_up_questions=[
+                "我本周最先复习哪个知识点最划算？",
+                "能给我 3 道递进练习题吗？",
+                "如何快速判断自己是否真正掌握了这个知识点？",
+            ],
         )
 
     def _fallback_review_plan(
@@ -152,18 +163,6 @@ class LearningReportService:
             flashcards=[
                 f"{topic}：一句话定义 + 一个典型例子 + 一个常见陷阱"
                 for topic in topics[:3]
-            ],
-        )
-        return _LearningReportPayload(
-            summary="近期学习提问较集中，建议围绕薄弱点做短周期复习与练习闭环。",
-            risk_level="medium" if weak_points else "low",
-            strengths=["具备主动提问习惯", "愿意围绕具体问题持续追问"],
-            recommended_actions=actions[:4],
-            recommended_resources=[f"{point} 相关课程资料" for point in weak_points[:3]],
-            follow_up_questions=[
-                "我本周最先复习哪个知识点最划算？",
-                "能给我 3 道递进练习题吗？",
-                "如何快速判断自己是否真正掌握了这个知识点？",
             ],
         )
 
