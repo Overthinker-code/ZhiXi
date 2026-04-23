@@ -10,9 +10,21 @@ import numpy as np
 from PIL import Image
 from pydantic import BaseModel, Field
 
-from mediapipe import Image as MPImage, ImageFormat
-from mediapipe.tasks.python.vision import FaceDetector, FaceDetectorOptions
-from mediapipe.tasks.python.core.base_options import BaseOptions
+try:
+    from mediapipe import Image as MPImage, ImageFormat
+    from mediapipe.tasks.python.vision import FaceDetector, FaceDetectorOptions
+    from mediapipe.tasks.python.core.base_options import BaseOptions
+
+    MEDIAPIPE_AVAILABLE = True
+    MEDIAPIPE_IMPORT_ERROR: Exception | None = None
+except Exception as exc:  # pragma: no cover - import guard for optional dependency
+    MPImage = None  # type: ignore[assignment]
+    ImageFormat = None  # type: ignore[assignment]
+    FaceDetector = None  # type: ignore[assignment]
+    FaceDetectorOptions = None  # type: ignore[assignment]
+    BaseOptions = None  # type: ignore[assignment]
+    MEDIAPIPE_AVAILABLE = False
+    MEDIAPIPE_IMPORT_ERROR = exc
 
 
 class FrameMessage(BaseModel):
@@ -69,6 +81,12 @@ class BehaviorWebSocketService:
 
     def __init__(self) -> None:
         self._detector = None
+        self._mediapipe_error = str(MEDIAPIPE_IMPORT_ERROR) if MEDIAPIPE_IMPORT_ERROR else ""
+        if not MEDIAPIPE_AVAILABLE:
+            print(
+                "[BehaviorWebSocketService] MediaPipe 未安装，实时行为分析 WebSocket 将以降级模式运行。"
+            )
+            return
         self._ensure_model()
         self._init_detector()
 
@@ -84,6 +102,8 @@ class BehaviorWebSocketService:
 
     def _init_detector(self) -> None:
         """初始化 MediaPipe FaceDetector"""
+        if not MEDIAPIPE_AVAILABLE:
+            return
         if not os.path.exists(self.MODEL_PATH):
             return
         try:
@@ -206,7 +226,11 @@ class BehaviorWebSocketService:
             return AnalysisMessage(
                 frame_id=frame_id,
                 timestamp=timestamp,
-                error="MediaPipe FaceDetector not available",
+                error=(
+                    "MediaPipe FaceDetector not available"
+                    if not self._mediapipe_error
+                    else f"MediaPipe unavailable: {self._mediapipe_error}"
+                ),
             )
 
         image = self._decode_frame(image_base64)
