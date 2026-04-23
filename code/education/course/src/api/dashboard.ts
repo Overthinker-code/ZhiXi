@@ -9,32 +9,34 @@ export interface ContentDataRecord {
 }
 
 export interface DashboardOverview {
-  total_classes: number;
-  total_teachers: number;
+  today_login_count: number;
+  total_courses: number;
   total_resources: number;
+  total_teaching_classes: number;
+  active_students: number;
 }
 
 export function queryDashboardOverview() {
-  return axios.get<DashboardOverview>('/dashboard/overview', {
+  return axios.get<DashboardOverview>('/api/v1/dashboard/teacher/stats', {
     timeout: READ_TIMEOUT_MS,
   });
 }
 
 export function queryContentData() {
-  return axios.get<ContentDataRecord[]>('/dashboard/visits-trend', {
+  return axios.get<ContentDataRecord[]>('/api/v1/dashboard/teacher/alerts-trend', {
     timeout: READ_TIMEOUT_MS,
   });
 }
 
 export interface PopularRecord {
   key: number;
-  clickNumber: string;
   title: string;
+  click_number: number;
   increases: number;
 }
 
 export function queryPopularList(params: { type: string }) {
-  return axios.get<TableData[]>('/dashboard/popular', {
+  return axios.get<PopularRecord[]>('/api/v1/dashboard/teacher/popular', {
     params,
     timeout: READ_TIMEOUT_MS,
   });
@@ -49,7 +51,7 @@ export interface ContentDistribution {
 }
 
 export function queryContentDistribution() {
-  return axios.get<ContentDistribution>('/dashboard/content-distribution', {
+  return axios.get<ContentDistribution>('/api/v1/dashboard/teacher/content-distribution', {
     timeout: READ_TIMEOUT_MS,
   });
 }

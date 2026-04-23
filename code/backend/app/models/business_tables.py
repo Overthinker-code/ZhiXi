@@ -41,3 +41,7 @@ LearningActivity = _mod.LearningActivity
 ChatLog = _mod.ChatLog
 Alert = _mod.Alert
 Resource = _mod.Resource
+ResourceCreate = _mod.ResourceCreate
+ResourceUpdate = _mod.ResourceUpdate
+ResourcePublic = _mod.ResourcePublic
+ResourcesPublic = _mod.ResourcesPublic
