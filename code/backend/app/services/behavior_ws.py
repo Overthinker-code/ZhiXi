@@ -3,7 +3,7 @@ import io
 import os
 import time
 import urllib.request
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -81,14 +81,19 @@ class BehaviorWebSocketService:
 
     def __init__(self) -> None:
         self._detector = None
+        self._haar_detector = None
+        self._detector_mode = "unavailable"
         self._mediapipe_error = str(MEDIAPIPE_IMPORT_ERROR) if MEDIAPIPE_IMPORT_ERROR else ""
         if not MEDIAPIPE_AVAILABLE:
             print(
                 "[BehaviorWebSocketService] MediaPipe 未安装，实时行为分析 WebSocket 将以降级模式运行。"
             )
+            self._init_haar_detector()
             return
         self._ensure_model()
         self._init_detector()
+        if self._detector is None:
+            self._init_haar_detector()
 
     def _ensure_model(self) -> None:
         """确保 MediaPipe 模型文件已下载到本地"""
@@ -112,8 +117,25 @@ class BehaviorWebSocketService:
                 min_detection_confidence=0.5,
             )
             self._detector = FaceDetector.create_from_options(options)
+            self._detector_mode = "mediapipe"
         except Exception as e:
             print(f"[BehaviorWebSocketService] FaceDetector 初始化失败: {e}")
+
+    def _init_haar_detector(self) -> None:
+        """初始化 OpenCV Haar 级联分类器，作为无额外系统依赖的降级路径"""
+        try:
+            cascade_path = os.path.join(
+                cv2.data.haarcascades,
+                "haarcascade_frontalface_default.xml",
+            )
+            detector = cv2.CascadeClassifier(cascade_path)
+            if detector.empty():
+                raise RuntimeError(f"failed to load cascade from {cascade_path}")
+            self._haar_detector = detector
+            self._detector_mode = "haar"
+            print("[BehaviorWebSocketService] 已启用 OpenCV Haar 级联降级检测。")
+        except Exception as e:
+            print(f"[BehaviorWebSocketService] Haar 检测器初始化失败: {e}")
 
     def _decode_frame(self, image_base64: str) -> Optional[np.ndarray]:
         """将 base64 字符串解码为 OpenCV BGR 图像"""
@@ -139,7 +161,16 @@ class BehaviorWebSocketService:
                            (left_ear_x, left_ear_y), (right_ear_x, right_ear_y)]
         """
         if self._detector is None:
-            return []
+            if self._haar_detector is None:
+                return []
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            boxes = self._haar_detector.detectMultiScale(
+                gray,
+                scaleFactor=1.1,
+                minNeighbors=5,
+                minSize=(36, 36),
+            )
+            return [(int(x), int(y), int(w), int(h), []) for x, y, w, h in boxes]
 
         mp_image = MPImage(
             image_format=ImageFormat.SRGB,
@@ -176,6 +207,13 @@ class BehaviorWebSocketService:
         - 正常 → focused
         """
         x, y, w, h, keypoints = face
+
+        if len(keypoints) < 4:
+            # Haar 降级模式下没有关键点，只能基于人脸尺寸做保守判断
+            face_area_ratio = (w * h) / (img_w * img_h)
+            if face_area_ratio < 0.01:
+                return self.STATUS_UNFOCUSED, 0.45
+            return self.STATUS_FOCUSED, 0.82
 
         left_eye = keypoints[0]
         right_eye = keypoints[1]
@@ -222,7 +260,7 @@ class BehaviorWebSocketService:
         timestamp = int(time.time())
         persons: List[PersonResult] = []
 
-        if self._detector is None:
+        if self._detector is None and self._haar_detector is None:
             return AnalysisMessage(
                 frame_id=frame_id,
                 timestamp=timestamp,
@@ -279,6 +317,11 @@ class BehaviorWebSocketService:
                 absent_count=absent_count,
             ),
         )
+
+    def analyze_image_bytes(self, image_data: bytes, frame_id: int = 1) -> AnalysisMessage:
+        """供 HTTP 上传分析复用的字节入口。"""
+        data_uri = f"data:image/jpeg;base64,{base64.b64encode(image_data).decode('utf-8')}"
+        return self.analyze_frame(data_uri, frame_id)
 
 
 # 全局单例（避免每次请求都重新加载模型）
