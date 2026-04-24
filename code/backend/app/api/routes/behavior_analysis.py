@@ -1,19 +1,19 @@
+import json
+from datetime import datetime
 from typing import Any, Optional
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, WebSocket, WebSocketDisconnect, Query
+from uuid import UUID, uuid4
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
+from sqlmodel import Session
+
 from app import models
 from app.api import deps
+from app.core import security
+from app.core.db import engine
 from app.services.behavior_analysis import behavior_service
 from app.services.behavior_ws import behavior_ws_service, FrameMessage
-from pydantic import BaseModel
-from datetime import datetime
-from uuid import UUID
-import base64
-import json
-from app.core import security
-from app.core.config import settings
 from app.models import TokenPayload
-from sqlmodel import Session
-from app.core.db import engine
 
 router = APIRouter()
 
@@ -76,10 +76,10 @@ async def analyze_image(
     try:
         image_data = await file.read()
         result = await behavior_service.analyze_image(image_data)
-        
+
         if result["status"] == "error":
             raise HTTPException(status_code=500, detail=result["error"])
-        
+
         return BehaviorAnalysisResult(
             status="success",
             behaviors=result["behaviors"],
@@ -90,6 +90,8 @@ async def analyze_image(
             image_width=result.get("image_width", 0),
             image_height=result.get("image_height", 0),
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"分析失败: {str(e)}")
 
@@ -111,24 +113,24 @@ async def analyze_video(
     try:
         video_data = await file.read()
         result = await behavior_service.analyze_video(video_data, sample_interval)
-        
+
         if result["status"] == "error":
             raise HTTPException(status_code=500, detail=result["error"])
-        
+
         # 保存分析记录
         if course_id and result.get("summary"):
             record = {
-                "id": str(UUID(int=len(analysis_records))),
+                "id": str(uuid4()),
                 "course_id": course_id,
                 "timestamp": datetime.now().isoformat(),
-                "duration": result["video_info"]["duration"],
-                "average_score": result["summary"]["average_score"],
-                "overall_status": result["summary"]["overall_status"],
-                "behavior_statistics": result["summary"]["behavior_statistics"],
+                "duration": result.get("video_info", {}).get("duration", 0),
+                "average_score": result.get("summary", {}).get("average_score", 0),
+                "overall_status": result.get("summary", {}).get("overall_status", "无法评估"),
+                "behavior_statistics": result.get("summary", {}).get("behavior_statistics", {}),
                 "key_moments": result["summary"].get("key_moments", []),
             }
             analysis_records.append(record)
-        
+
         return VideoAnalysisResult(
             status="success",
             frame_analyses=result.get("frame_analyses", []),
@@ -136,6 +138,8 @@ async def analyze_video(
             video_info=result.get("video_info", {}),
             persons=result.get("persons", []),
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"视频分析失败: {str(e)}")
 
@@ -337,10 +341,13 @@ async def behavior_realtime_ws(
         }
     }
     """
-    # Token 校验（可选，若未传 token 则允许连接但记录日志）
-    user = None
-    if token:
-        user = await _verify_ws_token(token)
+    if not token:
+        await websocket.close(code=4401, reason="Missing token")
+        return
+    user = await _verify_ws_token(token)
+    if user is None:
+        await websocket.close(code=4401, reason="Invalid token")
+        return
 
     await websocket.accept()
 

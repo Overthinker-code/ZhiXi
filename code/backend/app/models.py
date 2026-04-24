@@ -466,7 +466,7 @@ class ResourceBase(SQLModel):
     file_path: str = Field(max_length=255)
     file_size: int
     content_type: str = Field(max_length=150)
-    course_id: UUID
+    course_id: UUID = Field(foreign_key="course.id")
 
 
 class ResourceCreate(ResourceBase):

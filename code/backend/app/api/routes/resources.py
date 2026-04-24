@@ -49,13 +49,11 @@ def read_resources(
     query = query.offset(skip).limit(limit)
     resources = db.exec(query).all()
 
-    count_query = select(models.Resource)
+    total_query = select(func.count(models.Resource.id))
     if conditions:
-        count_query = count_query.where(and_(*conditions))
+        total_query = total_query.where(and_(*conditions))
 
-    total = db.exec(select(func.count(models.Resource.id)).where(
-        and_(*conditions) if conditions else None
-    )).one() or 0
+    total = db.exec(total_query).one() or 0
 
     return models.ResourcesPublic(data=resources, count=total)
 
