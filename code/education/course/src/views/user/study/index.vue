@@ -1,8 +1,7 @@
 <template>
   <div>
-    <a-container>
-      <a-container>
-        <a-main>
+    <div class="study-page">
+      <div class="study-main">
           <!-- <h1>学生学习情况</h1> -->
           <div class="left-column">
             <!-- 学生画像 -->
@@ -110,9 +109,8 @@
               ></div>
             </div>
           </div>
-        </a-main>
-      </a-container>
-    </a-container>
+      </div>
+    </div>
 
     <!-- AI 复习 -->
     <div style="padding: 24px; display: flex; flex-direction: column; gap: 24px;">
@@ -228,14 +226,14 @@
   }
 
   /* 页面布局 */
-  a-container {
+  .study-page {
     display: flex;
 
     /* flex-direction: column; */
     height: 100vh;
   }
 
-  a-main {
+  .study-main {
     display: grid;
     grid-template-columns: 6fr 4fr;
 
