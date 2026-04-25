@@ -3,6 +3,7 @@ import io
 import os
 import time
 import urllib.request
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
@@ -86,12 +87,24 @@ class BehaviorWebSocketService:
         "face_detector/blaze_face_short_range/float16/1/"
         "blaze_face_short_range.tflite"
     )
-    MODEL_PATH = "models/blaze_face_short_range.tflite"
-    MODEL_PATH_LANDMARKER = "models/face_landmarker.task"
+    LANDMARKER_MODEL_URL = (
+        "https://storage.googleapis.com/mediapipe-models/"
+        "face_landmarker/face_landmarker/float16/1/"
+        "face_landmarker.task"
+    )
+    YUNET_MODEL_URL = (
+        "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/"
+        "face_detection_yunet/face_detection_yunet_2023mar.onnx"
+    )
+    MODEL_DIR = Path(__file__).resolve().parents[2] / "models"
+    MODEL_PATH = str(MODEL_DIR / "blaze_face_short_range.tflite")
+    MODEL_PATH_LANDMARKER = str(MODEL_DIR / "face_landmarker.task")
+    MODEL_PATH_YUNET = str(MODEL_DIR / "face_detection_yunet_2023mar.onnx")
 
     def __init__(self) -> None:
         self._detector = None
         self._landmarker = None
+        self._yunet_detector = None
         self._haar_detector = None
         self._detector_mode = "unavailable"
         self._mediapipe_error = str(MEDIAPIPE_IMPORT_ERROR) if MEDIAPIPE_IMPORT_ERROR else ""
@@ -105,22 +118,30 @@ class BehaviorWebSocketService:
             )
             self._init_haar_detector()
             return
-        self._ensure_model()
+        self._ensure_models()
         self._init_landmarker()
         if self._landmarker is None:
             self._init_detector()
         if self._landmarker is None and self._detector is None:
+            self._init_yunet_detector()
+        if self._landmarker is None and self._detector is None and self._yunet_detector is None:
             self._init_haar_detector()
 
-    def _ensure_model(self) -> None:
-        """确保 MediaPipe 模型文件已下载到本地"""
-        if os.path.exists(self.MODEL_PATH):
-            return
-        try:
-            os.makedirs(os.path.dirname(self.MODEL_PATH), exist_ok=True)
-            urllib.request.urlretrieve(self.MODEL_URL, self.MODEL_PATH)
-        except Exception as e:
-            print(f"[BehaviorWebSocketService] 模型下载失败: {e}")
+    def _ensure_models(self) -> None:
+        """确保 MediaPipe 模型文件已下载到本地。"""
+        assets = [
+            (self.MODEL_PATH, self.MODEL_URL, "FaceDetector"),
+            (self.MODEL_PATH_LANDMARKER, self.LANDMARKER_MODEL_URL, "FaceLandmarker"),
+            (self.MODEL_PATH_YUNET, self.YUNET_MODEL_URL, "YuNet"),
+        ]
+        for path, url, asset_name in assets:
+            if os.path.exists(path):
+                continue
+            try:
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                urllib.request.urlretrieve(url, path)
+            except Exception as e:
+                print(f"[BehaviorWebSocketService] {asset_name} 模型下载失败: {e}")
 
     def _init_landmarker(self) -> None:
         """初始化 MediaPipe FaceLandmarker（精细面部检测，支持闭眼/头部姿态）"""
@@ -176,6 +197,24 @@ class BehaviorWebSocketService:
         except Exception as e:
             print(f"[BehaviorWebSocketService] Haar 检测器初始化失败: {e}")
 
+    def _init_yunet_detector(self) -> None:
+        """初始化 OpenCV YuNet 人脸检测器（纯 CPU 路径）。"""
+        if not os.path.exists(self.MODEL_PATH_YUNET):
+            return
+        try:
+            self._yunet_detector = cv2.FaceDetectorYN.create(
+                self.MODEL_PATH_YUNET,
+                "",
+                (320, 320),
+                0.65,
+                0.3,
+                20,
+            )
+            self._detector_mode = "yunet"
+            print("[BehaviorWebSocketService] OpenCV YuNet detector initialized")
+        except Exception as e:
+            print(f"[BehaviorWebSocketService] YuNet 初始化失败: {e}")
+
     def _decode_frame(self, image_base64: str) -> Optional[np.ndarray]:
         """将 base64 字符串解码为 OpenCV BGR 图像"""
         try:
@@ -195,6 +234,8 @@ class BehaviorWebSocketService:
             return self._detect_faces_landmarker(image)
         if self._detector is not None:
             return self._detect_faces_detector(image)
+        if self._yunet_detector is not None:
+            return self._detect_faces_yunet(image)
         if self._haar_detector is not None:
             return self._detect_faces_haar(image)
         return []
@@ -258,6 +299,46 @@ class BehaviorWebSocketService:
             minSize=(36, 36),
         )
         return [(int(x), int(y), int(w), int(h), [], {}) for x, y, w, h in boxes]
+
+    def _detect_faces_yunet(
+        self, image: np.ndarray
+    ) -> List[Tuple[int, int, int, int, List[Any], Optional[Dict[str, float]]]]:
+        """OpenCV YuNet：CPU 可用的人脸检测与关键点定位。"""
+        if self._yunet_detector is None:
+            return []
+
+        img_h, img_w = image.shape[:2]
+        self._yunet_detector.setInputSize((img_w, img_h))
+        _, detections = self._yunet_detector.detect(image)
+        if detections is None:
+            return []
+
+        faces = []
+        for det in detections:
+            x, y, w, h = det[:4]
+            pts = det[4:14].reshape(5, 2)
+            eye_points = sorted(pts[:2], key=lambda p: p[0])
+            left_eye = (float(eye_points[0][0] / img_w), float(eye_points[0][1] / img_h))
+            right_eye = (float(eye_points[1][0] / img_w), float(eye_points[1][1] / img_h))
+            nose = (float(pts[2][0] / img_w), float(pts[2][1] / img_h))
+            mouth_right = pts[3]
+            mouth_left = pts[4]
+            mouth = (
+                float((mouth_left[0] + mouth_right[0]) / 2 / img_w),
+                float((mouth_left[1] + mouth_right[1]) / 2 / img_h),
+            )
+            faces.append(
+                (
+                    int(x),
+                    int(y),
+                    int(w),
+                    int(h),
+                    [left_eye, right_eye, nose, mouth],
+                    {},
+                )
+            )
+
+        return faces
 
     def _estimate_pose(
         self,
@@ -326,7 +407,7 @@ class BehaviorWebSocketService:
 
             is_head_down = nose_offset_y > 0.20
             is_turning = eye_height_diff > 0.030
-            is_small = face_area_ratio < 0.005
+            is_small = face_area_ratio < 0.0035
 
             if is_eye_closed or is_head_down or is_turning or is_turning_yaw or is_small:
                 score = max(
@@ -360,7 +441,7 @@ class BehaviorWebSocketService:
 
             is_head_down = nose_offset_y > 0.22
             is_turning = eye_height_diff > 0.035
-            is_small = face_area_ratio < 0.005
+            is_small = face_area_ratio < 0.0035
 
             if is_head_down or is_turning or is_turning_horizontal or is_small:
                 score = max(
@@ -373,9 +454,22 @@ class BehaviorWebSocketService:
             return self.STATUS_FOCUSED, round(score, 2)
 
         # ============= Haar 降级模式 =============
-        if face_area_ratio < 0.01:
-            return self.STATUS_UNFOCUSED, 0.45
-        return self.STATUS_FOCUSED, 0.82
+        def _clamp(value: float, minimum: float, maximum: float) -> float:
+            return max(minimum, min(maximum, value))
+
+        center_x = (x + w / 2) / img_w if img_w else 0.5
+        center_y = (y + h / 2) / img_h if img_h else 0.5
+        edge_penalty = 0.08 if (
+            center_x < 0.12 or center_x > 0.88 or center_y < 0.1 or center_y > 0.9
+        ) else 0.0
+        if face_area_ratio < 0.004:
+            score = _clamp(0.34 + face_area_ratio * 34 - edge_penalty, 0.28, 0.58)
+            return self.STATUS_UNFOCUSED, round(score, 2)
+
+        score = _clamp(0.64 + face_area_ratio * 10 - edge_penalty, 0.46, 0.93)
+        if score < 0.63:
+            return self.STATUS_UNFOCUSED, round(score, 2)
+        return self.STATUS_FOCUSED, round(score, 2)
 
     def analyze_frame(
         self, image_base64: str, frame_id: int
@@ -388,7 +482,12 @@ class BehaviorWebSocketService:
         timestamp = int(time.time())
         persons: List[PersonResult] = []
 
-        if self._landmarker is None and self._detector is None and self._haar_detector is None:
+        if (
+            self._landmarker is None
+            and self._detector is None
+            and self._yunet_detector is None
+            and self._haar_detector is None
+        ):
             return AnalysisMessage(
                 frame_id=frame_id,
                 timestamp=timestamp,

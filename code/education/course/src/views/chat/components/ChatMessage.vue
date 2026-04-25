@@ -369,31 +369,6 @@
         />
         <span>正在生成回答...</span>
       </div>
-      <!-- content -->
-      <div
-        v-if="showMessageBubble"
-        class="bubble-row"
-        :class="{ 'bubble-row--user': message.role === 'user' }"
-      >
-        <div class="bubble markdown-body" v-html="renderedContent" />
-        <span
-          v-if="message.role === 'assistant' && message.loading"
-          class="stream-tail-caret"
-          aria-hidden="true"
-        />
-      </div>
-      <CitationArea
-        v-if="message.role === 'assistant'"
-        :citations="message.citations || []"
-        :confidence="message.confidence"
-        :grounding-mode="message.grounding_mode"
-        :metrics="message.metrics || {}"
-      />
-      <FollowUpActions
-        v-if="message.role === 'assistant'"
-        :suggestions="message.suggestions || []"
-        @pick="handleSuggestionClick"
-      />
       <!-- 多智能体流水线（与「深度思考」分离，随 SSE thought 实时追加） -->
       <div
         v-if="showAgentPipeline"
@@ -456,6 +431,31 @@
         </div>
         <div v-else-if="renderedReasoning" v-html="renderedReasoning"></div>
       </div>
+      <!-- content -->
+      <div
+        v-if="showMessageBubble"
+        class="bubble-row"
+        :class="{ 'bubble-row--user': message.role === 'user' }"
+      >
+        <div class="bubble markdown-body" v-html="renderedContent" />
+        <span
+          v-if="message.role === 'assistant' && message.loading"
+          class="stream-tail-caret"
+          aria-hidden="true"
+        />
+      </div>
+      <CitationArea
+        v-if="message.role === 'assistant'"
+        :citations="message.citations || []"
+        :confidence="message.confidence"
+        :grounding-mode="message.grounding_mode"
+        :metrics="message.metrics || {}"
+      />
+      <FollowUpActions
+        v-if="message.role === 'assistant'"
+        :suggestions="message.suggestions || []"
+        @pick="handleSuggestionClick"
+      />
       <div v-if="message.requires_confirmation" class="hitl-card">
         <p>系统生成了学习计划，是否确认写入你的学习日历？</p>
         <div class="hitl-actions">

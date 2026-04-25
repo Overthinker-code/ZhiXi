@@ -4,8 +4,10 @@ import type { TableData } from '@arco-design/web-vue/es/table/interface';
 const READ_TIMEOUT_MS = 8000;
 
 export interface ContentDataRecord {
-  x: string;
-  y: number;
+  x?: string;
+  y?: number;
+  date?: string;
+  alert_count?: number;
 }
 
 export interface DashboardOverview {
@@ -14,6 +16,8 @@ export interface DashboardOverview {
   total_resources: number;
   total_teaching_classes: number;
   active_students: number;
+  total_teachers?: number;
+  total_classes?: number;
 }
 
 export function queryDashboardOverview() {
