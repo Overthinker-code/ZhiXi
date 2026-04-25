@@ -99,6 +99,26 @@ class BehaviorAnalysisService:
             return "学习状态较差"
         return "学习状态极差"
 
+    def _stabilize_local_confidence(
+        self,
+        status: str,
+        raw_score: float,
+        bbox: List[int],
+        image_width: int,
+        image_height: int,
+    ) -> float:
+        x1, y1, x2, y2 = bbox
+        bbox_area = max(0, x2 - x1) * max(0, y2 - y1)
+        image_area = max(1, image_width * image_height)
+        area_ratio = bbox_area / image_area
+        size_bonus = min(0.12, area_ratio * 4.5)
+
+        if status == "focused":
+            return round(min(0.98, max(raw_score, 0.68) + size_bonus), 2)
+        if status == "unfocused":
+            return round(min(0.9, max(raw_score, 0.36) + size_bonus / 2), 2)
+        return round(max(raw_score, 0.2), 2)
+
     def _build_local_behavior_definitions(self) -> Dict[str, Any]:
         return {
             "behaviors": [
@@ -138,7 +158,13 @@ class BehaviorAnalysisService:
         for idx, person in enumerate(analysis.persons):
             behavior_name = self._status_to_behavior_name(person.status)
             meta = self.local_behavior_rules[behavior_name]
-            confidence = max(person.score, 0.55 if person.status == "focused" else 0.45)
+            confidence = self._stabilize_local_confidence(
+                person.status,
+                float(person.score),
+                person.bbox,
+                image_width,
+                image_height,
+            )
             persons.append(
                 {
                     "id": idx + 1,

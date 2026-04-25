@@ -317,6 +317,8 @@ const useChatStore = defineStore(
       currentConversation,
       currentMessages,
       isLoading,
+      _messagesMap,
+      _mountedFileMap,
       addMessage,
       setConversationMessages,
       setCurrentConversationMessages,
@@ -338,7 +340,12 @@ const useChatStore = defineStore(
   },
   {
     persist: {
-      pick: ['conversations', 'currentConversationId'],
+      pick: [
+        'conversations',
+        'currentConversationId',
+        '_messagesMap',
+        '_mountedFileMap',
+      ],
     },
   }
 );
