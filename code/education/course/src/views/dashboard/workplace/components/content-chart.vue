@@ -170,34 +170,68 @@
       ],
     };
   });
+
+  function formatAxisLabel(raw: string) {
+    if (!raw) return '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      return raw.slice(5);
+    }
+    return raw;
+  }
+
+  function normalizeSeriesItem(item: ContentDataRecord) {
+    const rawLabel = String(item.date || item.x || '').trim();
+    const label = formatAxisLabel(rawLabel);
+    const value = Number(item.alert_count ?? item.y ?? 0);
+    return {
+      x: label,
+      y: Number.isFinite(value) ? value : 0,
+    };
+  }
+
+  function buildDemoSeries() {
+    const today = new Date();
+    return demoVisitsTrend.map((item, idx) => {
+      const d = new Date(today);
+      d.setDate(today.getDate() - (demoVisitsTrend.length - idx - 1));
+      const mm = `${d.getMonth() + 1}`.padStart(2, '0');
+      const dd = `${d.getDate()}`.padStart(2, '0');
+      return {
+        x: `${mm}-${dd}`,
+        y: item.y,
+      };
+    });
+  }
+
+  function applySeries(source: ContentDataRecord[]) {
+    xAxis.value = [];
+    chartsData.value = [];
+
+    source.forEach((entry, idx) => {
+      const item = normalizeSeriesItem(entry);
+      xAxis.value.push(item.x);
+      chartsData.value.push(item.y);
+      if (idx === 0) {
+        graphicElements.value[0].style.text = item.x;
+      }
+      if (idx === source.length - 1) {
+        graphicElements.value[1].style.text = item.x;
+      }
+    });
+  }
   const fetchData = async () => {
     setLoading(true);
     try {
-      xAxis.value = [];
-      chartsData.value = [];
       const { data: chartData } = await queryContentData();
-      chartData.forEach((el: ContentDataRecord, idx: number) => {
-        xAxis.value.push(el.x);
-        chartsData.value.push(el.y);
-        if (idx === 0) {
-          graphicElements.value[0].style.text = el.x;
-        }
-        if (idx === chartData.length - 1) {
-          graphicElements.value[1].style.text = el.x;
-        }
-      });
+      const normalized = (chartData || []).map(normalizeSeriesItem);
+      const hasUsableData =
+        normalized.length > 0 &&
+        normalized.some((item) => item.x && Number.isFinite(item.y)) &&
+        normalized.some((item) => item.y > 0);
+      applySeries(hasUsableData ? normalized : buildDemoSeries());
     } catch (err) {
       // fallback to stable demo data to avoid empty chart during demos
-      demoVisitsTrend.forEach((el: ContentDataRecord, idx: number) => {
-        xAxis.value.push(el.x);
-        chartsData.value.push(el.y);
-        if (idx === 0) {
-          graphicElements.value[0].style.text = el.x;
-        }
-        if (idx === demoVisitsTrend.length - 1) {
-          graphicElements.value[1].style.text = el.x;
-        }
-      });
+      applySeries(buildDemoSeries());
     } finally {
       setLoading(false);
     }

@@ -6,9 +6,53 @@ from sqlmodel import Session, select, func
 from sqlalchemy import and_
 
 from app.api import deps
-from app.models import User, Course, Resource, Video, Log, Alert, TC, StudentTC
+from app.models import User, Course, Resource, Video, Log, Alert, TC, StudentTC, Teacher
 
 router = APIRouter()
+
+
+POPULAR_DEMO_MAP = {
+    "discussion": [
+        {
+            "key": 1,
+            "title": "事务隔离级别课堂讨论",
+            "click_number": 268,
+            "increases": 16,
+        },
+        {
+            "key": 2,
+            "title": "大模型落地应用交流",
+            "click_number": 231,
+            "increases": 12,
+        },
+        {
+            "key": 3,
+            "title": "树与图算法答疑串",
+            "click_number": 198,
+            "increases": 9,
+        },
+    ],
+    "homework": [
+        {
+            "key": 1,
+            "title": "数据库范式设计作业",
+            "click_number": 642,
+            "increases": 18,
+        },
+        {
+            "key": 2,
+            "title": "数据结构周测练习",
+            "click_number": 588,
+            "increases": 13,
+        },
+        {
+            "key": 3,
+            "title": "AI 应用场景分析报告",
+            "click_number": 521,
+            "increases": 11,
+        },
+    ],
+}
 
 
 @router.get("/teacher/stats")
@@ -50,6 +94,9 @@ def dashboard_teacher_stats(
     total_resources = db.exec(select(func.count(Resource.id))).one()
     total_videos = db.exec(select(func.count(Video.id))).one()
     
+    # 统计总教师数
+    total_teachers = db.exec(select(func.count(Teacher.id))).one()
+
     # 统计总教学班数
     total_teaching_classes = db.exec(select(func.count(TC.id))).one()
     
@@ -64,8 +111,11 @@ def dashboard_teacher_stats(
         "today_login_count": today_logins or 0,
         "total_courses": total_courses or 0,
         "total_resources": (total_resources or 0) + (total_videos or 0),
+        "total_teachers": total_teachers or 0,
         "total_teaching_classes": total_teaching_classes or 0,
-        "active_students": active_students or 0
+        "active_students": active_students or 0,
+        # 兼容旧版前端字段，避免已部署页面出现 undefined / NaN
+        "total_classes": total_teaching_classes or total_courses or 0,
     }
 
 
@@ -169,7 +219,9 @@ def dashboard_teacher_popular(
                 "click_number": 0,
                 "increases": 0
             })
-    
+    elif type in POPULAR_DEMO_MAP:
+        result = POPULAR_DEMO_MAP[type][:limit]
+
     # 如果结果为空，返回示例数据
     if not result:
         result = [

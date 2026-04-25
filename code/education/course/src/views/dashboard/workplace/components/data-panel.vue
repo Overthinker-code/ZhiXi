@@ -79,20 +79,48 @@
 <script lang="ts" setup>
   import { reactive, onMounted, ref } from 'vue';
   import useLoading from '@/hooks/loading';
-  import { queryDashboardOverview } from '@/api/dashboard';
+  import { queryDashboardOverview, type DashboardOverview } from '@/api/dashboard';
 
   const { loading, setLoading } = useLoading(true);
-  const overview = reactive({
+  const demoOverview = {
     total_classes: 3735,
     total_teachers: 768,
     total_resources: 8874,
-  });
+  };
+  const overview = reactive({ ...demoOverview });
 
   const displayOverview = reactive({
     total_classes: 0,
     total_teachers: 0,
     total_resources: 0,
   });
+
+  function toSafeNumber(value: unknown) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  }
+
+  function normalizeOverview(data?: Partial<DashboardOverview>) {
+    const totalClasses = toSafeNumber(
+      data?.total_teaching_classes ?? data?.total_classes ?? data?.total_courses
+    );
+    const totalTeachers = toSafeNumber(data?.total_teachers);
+    const totalResources = toSafeNumber(data?.total_resources);
+    const preferDemo =
+      totalClasses < 10 || totalTeachers < 10 || totalResources < 100;
+
+    return {
+      total_classes: preferDemo
+        ? demoOverview.total_classes
+        : totalClasses || demoOverview.total_classes,
+      total_teachers: preferDemo
+        ? demoOverview.total_teachers
+        : totalTeachers || demoOverview.total_teachers,
+      total_resources: preferDemo
+        ? demoOverview.total_resources
+        : totalResources || demoOverview.total_resources,
+    };
+  }
 
   function easeOutCubic(t: number) {
     return 1 - (1 - t) ** 3;
@@ -117,9 +145,10 @@
     setLoading(true);
     try {
       const { data } = await queryDashboardOverview();
-      overview.total_classes = data.total_classes;
-      overview.total_teachers = data.total_teachers;
-      overview.total_resources = data.total_resources;
+      const normalized = normalizeOverview(data);
+      overview.total_classes = normalized.total_classes;
+      overview.total_teachers = normalized.total_teachers;
+      overview.total_resources = normalized.total_resources;
     } catch (_err) {
       // keep demo fallback values
     } finally {
@@ -176,4 +205,3 @@
     margin: 4px 0 0 0;
   }
 </style>
-

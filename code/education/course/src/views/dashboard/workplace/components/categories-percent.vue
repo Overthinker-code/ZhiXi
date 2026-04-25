@@ -80,6 +80,26 @@
     setLoading(true);
     try {
       const { data } = await queryContentDistribution();
+      const preferDemo =
+        Number(data.total || 0) < 100 ||
+        (data.items || []).every((item) => Number(item.value || 0) === 0);
+      if (preferDemo) {
+        total.value = demoResourceDistribution.total;
+        distribution.value.resources =
+          demoResourceDistribution.items.find((x) => x.name === 'resources')
+            ?.value || distribution.value.resources;
+        distribution.value.courses =
+          demoResourceDistribution.items.find((x) => x.name === 'courses')
+            ?.value || distribution.value.courses;
+        distribution.value.homework =
+          demoResourceDistribution.items.find((x) => x.name === 'homework')
+            ?.value || distribution.value.homework;
+        distribution.value.discussions =
+          demoResourceDistribution.items.find((x) => x.name === 'discussions')
+            ?.value || distribution.value.discussions;
+        return;
+      }
+
       total.value = data.total;
       data.items.forEach((item) => {
         if (item.name === 'resources') distribution.value.resources = item.value;
