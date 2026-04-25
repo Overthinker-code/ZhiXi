@@ -13,6 +13,28 @@ export interface Person {
   score: number;
   color: string;
   reason: string;
+  track_id?: string;
+  raw_behavior?: string;
+  detection_confidence?: number;
+  behavior_confidence?: number;
+  pose_quality?: number;
+  bbox_quality?: number;
+  temporal_stability?: number;
+  temporal_volatility?: number;
+}
+
+export interface ClassroomMetrics {
+  attention_score: number;
+  learning_status?: string;
+  focus_rate?: number;
+  distraction_rate?: number;
+  severe_behavior_rate?: number;
+  average_confidence?: number;
+  stability_index?: number;
+  volatility_index?: number;
+  behavior_score?: number;
+  behavior_distribution?: Record<string, number>;
+  formula?: string;
 }
 
 /**
@@ -37,6 +59,7 @@ export interface ImageAnalysisResult {
   timestamp: string;
   image_width?: number;
   image_height?: number;
+  classroom_metrics?: ClassroomMetrics;
 }
 
 /**
@@ -75,6 +98,7 @@ export interface VideoSummary {
   average_score: number;
   overall_status: string;
   behavior_statistics: Record<string, BehaviorStatistics>;
+  classroom_metrics?: ClassroomMetrics;
   key_moments: Array<{
     timestamp: number;
     behaviors: string[];
@@ -91,6 +115,7 @@ export interface VideoAnalysisResult {
   summary: VideoSummary;
   video_info: VideoInfo;
   persons: Person[];  // 第一帧检测到的人员数据（用于预览）
+  classroom_metrics?: ClassroomMetrics;
 }
 
 /**

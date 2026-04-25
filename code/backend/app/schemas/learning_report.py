@@ -16,6 +16,9 @@ class LearningReport(BaseModel):
     learning_style: str = ""
     risk_level: str = "medium"
     weak_points: list[str] = Field(default_factory=list)
+    mastery_map: dict[str, float] = Field(default_factory=dict)
+    mastery_insights: list[str] = Field(default_factory=list)
+    mastery_formula: str = ""
     strengths: list[str] = Field(default_factory=list)
     recommended_actions: list[str] = Field(default_factory=list)
     recommended_resources: list[str] = Field(default_factory=list)

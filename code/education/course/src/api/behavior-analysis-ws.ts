@@ -16,6 +16,10 @@ export interface WsSummaryResult {
   focused_count: number;
   unfocused_count: number;
   absent_count: number;
+  overall_score?: number;
+  attention_score?: number;
+  focus_rate?: number;
+  stability_index?: number;
 }
 
 export interface WsAnalysisMessage {

@@ -567,6 +567,9 @@ export interface LearningReport {
   learning_style: string;
   risk_level: string;
   weak_points: string[];
+  mastery_map?: Record<string, number>;
+  mastery_insights?: string[];
+  mastery_formula?: string;
   strengths: string[];
   recommended_actions: string[];
   recommended_resources: string[];

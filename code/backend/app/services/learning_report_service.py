@@ -166,6 +166,32 @@ class LearningReportService:
             ],
         )
 
+    def _mastery_insights(self, profile: dict[str, Any]) -> list[str]:
+        mastery_map = profile.get("mastery_map") or {}
+        if not isinstance(mastery_map, dict) or not mastery_map:
+            return []
+        normalized = []
+        for topic, score in mastery_map.items():
+            try:
+                normalized.append((str(topic), float(score)))
+            except (TypeError, ValueError):
+                continue
+        if not normalized:
+            return []
+        low = sorted(normalized, key=lambda item: item[1])[:3]
+        high = sorted(normalized, key=lambda item: item[1], reverse=True)[:2]
+        insights = [
+            f"{topic} 掌握度约 {round(score * 100)}%，建议优先补齐概念与例题闭环。"
+            for topic, score in low
+            if score < 0.65
+        ]
+        insights.extend(
+            f"{topic} 掌握度约 {round(score * 100)}%，可作为迁移练习或讲解输出的优势点。"
+            for topic, score in high
+            if score >= 0.72
+        )
+        return insights[:4]
+
     def _infer_payload(
         self,
         *,
@@ -265,6 +291,12 @@ class LearningReportService:
         digest = self._history_digest(history)
         payload = self._infer_payload(profile=profile, history_digest=digest)
         weak_points = [str(item).strip() for item in profile.get("weak_points") or [] if str(item).strip()]
+        mastery_map = {
+            str(topic): round(float(score), 4)
+            for topic, score in (profile.get("mastery_map") or {}).items()
+            if str(topic).strip()
+        }
+        mastery_update = profile.get("mastery_update") or {}
         sections = [
             LearningReportSection(title="近期学习概览", content=payload.summary or "暂无总结"),
             LearningReportSection(
@@ -272,6 +304,16 @@ class LearningReportService:
                 content="\n".join(f"- {item}" for item in payload.recommended_actions) or "暂无建议",
             ),
         ]
+        if mastery_map:
+            sections.append(
+                LearningReportSection(
+                    title="知识掌握度更新",
+                    content="\n".join(
+                        f"- {topic}: {round(score * 100)}%"
+                        for topic, score in sorted(mastery_map.items(), key=lambda item: item[1])
+                    ),
+                )
+            )
         return LearningReport(
             learner_id=user_id,
             generated_at=datetime.utcnow().isoformat(),
@@ -280,6 +322,9 @@ class LearningReportService:
             learning_style=str(profile.get("learning_style") or "").strip(),
             risk_level=payload.risk_level,
             weak_points=weak_points,
+            mastery_map=mastery_map,
+            mastery_insights=self._mastery_insights(profile),
+            mastery_formula=str(mastery_update.get("formula") or ""),
             strengths=payload.strengths,
             recommended_actions=payload.recommended_actions,
             recommended_resources=payload.recommended_resources,
