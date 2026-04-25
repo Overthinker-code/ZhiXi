@@ -40,7 +40,9 @@ def collect_usage_from_messages(messages: list[Any]) -> dict[str, Any]:
             continue
         usage = getattr(message, "usage_metadata", None) or {}
         response_meta = getattr(message, "response_metadata", None) or {}
-        token_usage = response_meta.get("token_usage") if isinstance(response_meta, dict) else {}
+        token_usage = (
+            response_meta.get("token_usage") if isinstance(response_meta, dict) else {}
+        ) or {}
 
         in_tokens = (
             usage.get("input_tokens")

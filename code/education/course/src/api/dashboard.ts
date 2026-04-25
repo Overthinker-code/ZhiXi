@@ -17,13 +17,13 @@ export interface DashboardOverview {
 }
 
 export function queryDashboardOverview() {
-  return axios.get<DashboardOverview>('/api/v1/dashboard/teacher/stats', {
+  return axios.get<DashboardOverview>('/api/dashboard/teacher/stats', {
     timeout: READ_TIMEOUT_MS,
   });
 }
 
 export function queryContentData() {
-  return axios.get<ContentDataRecord[]>('/api/v1/dashboard/teacher/alerts-trend', {
+  return axios.get<ContentDataRecord[]>('/api/dashboard/teacher/alerts-trend', {
     timeout: READ_TIMEOUT_MS,
   });
 }
@@ -36,7 +36,7 @@ export interface PopularRecord {
 }
 
 export function queryPopularList(params: { type: string }) {
-  return axios.get<PopularRecord[]>('/api/v1/dashboard/teacher/popular', {
+  return axios.get<PopularRecord[]>('/api/dashboard/teacher/popular', {
     params,
     timeout: READ_TIMEOUT_MS,
   });
@@ -51,7 +51,10 @@ export interface ContentDistribution {
 }
 
 export function queryContentDistribution() {
-  return axios.get<ContentDistribution>('/api/v1/dashboard/teacher/content-distribution', {
-    timeout: READ_TIMEOUT_MS,
-  });
+  return axios.get<ContentDistribution>(
+    '/api/dashboard/teacher/content-distribution',
+    {
+      timeout: READ_TIMEOUT_MS,
+    }
+  );
 }

@@ -620,7 +620,7 @@ export function fetchLearningReport(refresh = false) {
   return axios
     .get('/api/learning-report/me', {
       params: { refresh },
-      timeout: READ_TIMEOUT_MS,
+      timeout: 0,
     })
     .then((res: any) => res.data as LearningReport);
 }
