@@ -24,6 +24,7 @@ from typing import List, Dict, Any, Optional
 import tempfile
 from collections import deque
 from datetime import datetime
+import time
 import torch
 
 app = FastAPI(title="课堂行为检测服务 - 规则-Based版本")
@@ -39,6 +40,9 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 DETECTOR_PATH = os.getenv("DETECTOR_MODEL_PATH", "../model/yolo11m.pt")
 DETECTOR_CONF = float(os.getenv("DETECTOR_CONF", "0.35"))   # yolo11 系列建议 0.35-0.4
 POSE_CONF = float(os.getenv("POSE_CONF", "0.3"))           # 姿态估计置信度阈值
+TEMPORAL_WINDOW = int(os.getenv("YOLO_TEMPORAL_WINDOW", "6"))
+TEMPORAL_DECAY = float(os.getenv("YOLO_TEMPORAL_DECAY", "0.72"))
+TEMPORAL_RESET_SECONDS = float(os.getenv("YOLO_TEMPORAL_RESET_SECONDS", "3.0"))
 
 print(f"🖥️  使用设备: {DEVICE}")
 print(f"📊 序列长度: {SEQUENCE_LENGTH} 帧")
@@ -93,6 +97,256 @@ BEHAVIOR_LABELS = {
     3: {"name": "睡觉", "score": 0.05, "impact": 0.95, "description": "未在学习", "color": "#f5222d"},
     4: {"name": "离开座位", "score": 0.15, "impact": 0.55, "description": "未在学习区域", "color": "#eb2f96"},
 }
+
+
+def clamp01(value: float) -> float:
+    return float(max(0.0, min(1.0, value)))
+
+
+def bbox_iou(box_a: List[float], box_b: List[float]) -> float:
+    ax1, ay1, ax2, ay2 = box_a
+    bx1, by1, bx2, by2 = box_b
+    inter_x1 = max(ax1, bx1)
+    inter_y1 = max(ay1, by1)
+    inter_x2 = min(ax2, bx2)
+    inter_y2 = min(ay2, by2)
+    inter_area = max(0.0, inter_x2 - inter_x1) * max(0.0, inter_y2 - inter_y1)
+    area_a = max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
+    area_b = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
+    union = area_a + area_b - inter_area
+    return float(inter_area / union) if union > 0 else 0.0
+
+
+def bbox_center_distance_ratio(
+    box_a: List[float],
+    box_b: List[float],
+    image_width: int,
+    image_height: int,
+) -> float:
+    ax = (box_a[0] + box_a[2]) / 2
+    ay = (box_a[1] + box_a[3]) / 2
+    bx = (box_b[0] + box_b[2]) / 2
+    by = (box_b[1] + box_b[3]) / 2
+    diagonal = max(1.0, float((image_width ** 2 + image_height ** 2) ** 0.5))
+    return float(((ax - bx) ** 2 + (ay - by) ** 2) ** 0.5 / diagonal)
+
+
+def estimate_pose_quality(keypoints: np.ndarray) -> float:
+    """根据关键点完整度和头肩关键点可见性估计姿态可靠度。"""
+    valid_mask = np.linalg.norm(keypoints, axis=1) > 0.001
+    valid_ratio = float(np.mean(valid_mask))
+    core_indices = [
+        KEYPOINT_DICT["nose"],
+        KEYPOINT_DICT["left_shoulder"],
+        KEYPOINT_DICT["right_shoulder"],
+        KEYPOINT_DICT["left_hip"],
+        KEYPOINT_DICT["right_hip"],
+    ]
+    core_ratio = float(np.mean(valid_mask[core_indices]))
+    return round(clamp01(valid_ratio * 0.55 + core_ratio * 0.45), 4)
+
+
+def estimate_bbox_quality(bbox: List[float], image_width: int, image_height: int) -> float:
+    """用目标尺寸、长宽比和边界截断情况估计检测框质量。"""
+    x1, y1, x2, y2 = bbox
+    width = max(1.0, float(x2 - x1))
+    height = max(1.0, float(y2 - y1))
+    image_area = max(1.0, float(image_width * image_height))
+    area_ratio = (width * height) / image_area
+    size_score = clamp01((area_ratio - 0.01) / 0.16)
+    aspect = width / height
+    aspect_score = clamp01(1.0 - abs(aspect - 0.45) / 0.9)
+    clipped_edges = sum(
+        [
+            x1 <= 1,
+            y1 <= 1,
+            x2 >= image_width - 1,
+            y2 >= image_height - 1,
+        ]
+    )
+    edge_penalty = clipped_edges * 0.08
+    return round(clamp01(size_score * 0.45 + aspect_score * 0.45 + 0.18 - edge_penalty), 4)
+
+
+def fuse_confidence(
+    detector_confidence: float,
+    behavior_confidence: float,
+    pose_quality: float,
+    bbox_quality: float,
+) -> float:
+    """
+    多源置信度融合。
+
+    不再简单相乘，避免检测器略低置信度时把规则分类结果整体压得过低。
+    公式：
+    C = 0.34*C_behavior + 0.28*C_detector + 0.22*Q_pose + 0.16*Q_bbox
+    再与几何均值融合，兼顾任一信号过低时的抑制作用。
+    """
+    detector_confidence = clamp01(float(detector_confidence))
+    behavior_confidence = clamp01(float(behavior_confidence))
+    pose_quality = clamp01(float(pose_quality))
+    bbox_quality = clamp01(float(bbox_quality))
+    weighted = (
+        behavior_confidence * 0.34
+        + detector_confidence * 0.28
+        + pose_quality * 0.22
+        + bbox_quality * 0.16
+    )
+    geometric = (max(0.001, detector_confidence * behavior_confidence * pose_quality)) ** (1 / 3)
+    return round(clamp01(weighted * 0.68 + geometric * 0.32), 4)
+
+
+class TemporalBehaviorSmoother:
+    """轨迹级时序平滑器，用衰减投票降低课堂实时检测的单帧抖动。"""
+
+    def __init__(
+        self,
+        window_size: int = TEMPORAL_WINDOW,
+        decay: float = TEMPORAL_DECAY,
+        reset_seconds: float = TEMPORAL_RESET_SECONDS,
+    ) -> None:
+        self.window_size = max(2, window_size)
+        self.decay = clamp01(decay) or 0.72
+        self.reset_seconds = max(1.0, reset_seconds)
+        self.tracks: Dict[int, Dict[str, Any]] = {}
+        self.next_track_id = 1
+        self.last_update = time.monotonic()
+
+    def _maybe_reset(self, image_width: int, image_height: int) -> None:
+        now = time.monotonic()
+        previous_shape = getattr(self, "_last_shape", None)
+        shape = (int(image_width), int(image_height))
+        if now - self.last_update > self.reset_seconds or (
+            previous_shape is not None and previous_shape != shape
+        ):
+            self.tracks.clear()
+            self.next_track_id = 1
+        self._last_shape = shape
+        self.last_update = now
+
+    def _match_track(
+        self,
+        bbox: List[float],
+        image_width: int,
+        image_height: int,
+        used_tracks: set[int],
+    ) -> Optional[int]:
+        best_track_id = None
+        best_score = -1.0
+        for track_id, state in self.tracks.items():
+            if track_id in used_tracks:
+                continue
+            prev_bbox = state.get("bbox")
+            if not prev_bbox:
+                continue
+            iou = bbox_iou(bbox, prev_bbox)
+            distance = bbox_center_distance_ratio(bbox, prev_bbox, image_width, image_height)
+            if iou < 0.08 and distance > 0.18:
+                continue
+            score = iou * 0.7 + (1.0 - min(1.0, distance / 0.18)) * 0.3
+            if score > best_score:
+                best_score = score
+                best_track_id = track_id
+        return best_track_id
+
+    def _create_track(self, bbox: List[float]) -> int:
+        track_id = self.next_track_id
+        self.next_track_id += 1
+        self.tracks[track_id] = {
+            "bbox": bbox,
+            "history": deque(maxlen=self.window_size),
+            "stable_class_id": None,
+            "last_seen": time.monotonic(),
+        }
+        return track_id
+
+    def _stable_vote(self, state: Dict[str, Any]) -> tuple[int, float, float, float]:
+        history = list(state["history"])
+        if not history:
+            return 0, 0.0, 0.0, 1.0
+
+        votes: Dict[int, float] = {}
+        confidence_votes: Dict[int, List[float]] = {}
+        for age, item in enumerate(reversed(history)):
+            weight = (self.decay ** age) * float(item.get("confidence", 0.0))
+            class_id = int(item.get("class_id", 0))
+            votes[class_id] = votes.get(class_id, 0.0) + weight
+            confidence_votes.setdefault(class_id, []).append(float(item.get("confidence", 0.0)))
+
+        dominant = max(votes, key=votes.get)
+        previous = state.get("stable_class_id")
+        if previous is not None and previous != dominant:
+            previous_vote = votes.get(previous, 0.0)
+            dominant_vote = votes.get(dominant, 0.0)
+            recent_ids = [int(item.get("class_id", 0)) for item in history[-3:]]
+            repeated = recent_ids.count(dominant) >= 2
+            required_margin = 0.16 if previous == 0 and dominant != 0 else 0.08
+            if (not repeated) or (dominant_vote - previous_vote < required_margin):
+                dominant = int(previous)
+
+        state["stable_class_id"] = dominant
+        consistency = sum(
+            1 for item in history if int(item.get("class_id", 0)) == dominant
+        ) / len(history)
+        avg_confidence = float(np.mean(confidence_votes.get(dominant, [0.0])))
+        stable_confidence = clamp01(avg_confidence * 0.78 + consistency * 0.22)
+        volatility = 1.0 - consistency
+        return dominant, round(stable_confidence, 4), round(consistency, 4), round(volatility, 4)
+
+    def smooth(
+        self,
+        persons: List[Dict[str, Any]],
+        image_width: int,
+        image_height: int,
+    ) -> List[Dict[str, Any]]:
+        self._maybe_reset(image_width, image_height)
+        now = time.monotonic()
+        used_tracks: set[int] = set()
+        smoothed: List[Dict[str, Any]] = []
+
+        for person in persons:
+            bbox = [float(v) for v in person.get("bbox", [0, 0, 0, 0])]
+            track_id = self._match_track(bbox, image_width, image_height, used_tracks)
+            if track_id is None:
+                track_id = self._create_track(bbox)
+            used_tracks.add(track_id)
+
+            state = self.tracks[track_id]
+            state["bbox"] = bbox
+            state["last_seen"] = now
+            state["history"].append(
+                {
+                    "class_id": int(person.get("class_id", 0)),
+                    "confidence": float(person.get("confidence", 0.0)),
+                }
+            )
+            stable_class_id, stable_conf, stability, volatility = self._stable_vote(state)
+            stable_info = BEHAVIOR_LABELS[stable_class_id]
+
+            updated = dict(person)
+            raw_behavior = updated.get("behavior")
+            if stable_class_id != int(person.get("class_id", 0)):
+                updated["raw_behavior"] = raw_behavior
+                updated["reason"] = f"时序平滑稳定为{stable_info['name']}；单帧判断：{person.get('reason', '')}"
+            updated["id"] = track_id
+            updated["track_id"] = f"person_{track_id}"
+            updated["class_id"] = stable_class_id
+            updated["behavior"] = stable_info["name"]
+            updated["confidence"] = stable_conf
+            updated["score"] = float(stable_info["score"])
+            updated["color"] = stable_info["color"]
+            updated["temporal_stability"] = stability
+            updated["temporal_volatility"] = volatility
+            smoothed.append(updated)
+
+        stale_ids = [
+            track_id
+            for track_id, state in self.tracks.items()
+            if now - float(state.get("last_seen", now)) > self.reset_seconds
+        ]
+        for track_id in stale_ids:
+            self.tracks.pop(track_id, None)
+        return smoothed
 
 
 def calculate_classroom_score(persons):
@@ -192,6 +446,98 @@ def calculate_classroom_score(persons):
     
     final_score = float(round(float(final_score), 2))
     return final_score, get_learning_status(final_score)
+
+
+def calculate_classroom_metrics(persons: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    面向课堂场景的综合指标公式。
+
+    Attention = 0.44 * 专注率
+              + 0.24 * 置信度加权行为得分
+              + 0.16 * 平均置信度
+              + 0.16 * 时序稳定度
+              - 0.18 * 严重行为率
+              - 0.10 * 分心率
+
+    其中严重行为包含睡觉、离开座位，分心行为包含看手机、交谈。
+    """
+    if not persons:
+        return {
+            "attention_score": 0.0,
+            "learning_status": "未检测到人体",
+            "focus_rate": 0.0,
+            "distraction_rate": 0.0,
+            "severe_behavior_rate": 0.0,
+            "average_confidence": 0.0,
+            "stability_index": 0.0,
+            "volatility_index": 1.0,
+            "behavior_score": 0.0,
+            "formula": "0.44*专注率 + 0.24*行为得分 + 0.16*平均置信度 + 0.16*时序稳定度 - 0.18*严重行为率 - 0.10*分心率",
+        }
+
+    total = len(persons)
+    focus_count = 0
+    distraction_count = 0
+    severe_count = 0
+    confidence_sum = 0.0
+    stability_sum = 0.0
+    volatility_sum = 0.0
+    weighted_behavior_score = 0.0
+    confidence_weight = 0.0
+    distribution: Dict[str, int] = {}
+
+    score_ceiling = max(info["score"] for info in BEHAVIOR_LABELS.values())
+    for person in persons:
+        behavior = str(person.get("behavior", "专注学习"))
+        confidence = clamp01(float(person.get("confidence", 0.65)))
+        stability = clamp01(float(person.get("temporal_stability", 0.72)))
+        volatility = clamp01(float(person.get("temporal_volatility", 1.0 - stability)))
+        raw_score = clamp01(float(person.get("score", 0.5)) / score_ceiling)
+
+        distribution[behavior] = distribution.get(behavior, 0) + 1
+        confidence_sum += confidence
+        stability_sum += stability
+        volatility_sum += volatility
+        weighted_behavior_score += raw_score * max(0.25, confidence)
+        confidence_weight += max(0.25, confidence)
+
+        if behavior == "专注学习":
+            focus_count += 1
+        elif behavior in {"睡觉", "离开座位"}:
+            severe_count += 1
+        else:
+            distraction_count += 1
+
+    focus_rate = focus_count / total
+    distraction_rate = distraction_count / total
+    severe_behavior_rate = severe_count / total
+    average_confidence = confidence_sum / total
+    stability_index = stability_sum / total
+    volatility_index = volatility_sum / total
+    behavior_score = weighted_behavior_score / confidence_weight if confidence_weight else 0.0
+    attention_score = (
+        focus_rate * 0.44
+        + behavior_score * 0.24
+        + average_confidence * 0.16
+        + stability_index * 0.16
+        - severe_behavior_rate * 0.18
+        - distraction_rate * 0.10
+    )
+    attention_score = round(clamp01(attention_score), 2)
+
+    return {
+        "attention_score": attention_score,
+        "learning_status": get_learning_status(attention_score),
+        "focus_rate": round(focus_rate, 4),
+        "distraction_rate": round(distraction_rate, 4),
+        "severe_behavior_rate": round(severe_behavior_rate, 4),
+        "average_confidence": round(average_confidence, 4),
+        "stability_index": round(stability_index, 4),
+        "volatility_index": round(volatility_index, 4),
+        "behavior_score": round(behavior_score, 4),
+        "behavior_distribution": distribution,
+        "formula": "0.44*专注率 + 0.24*行为得分 + 0.16*平均置信度 + 0.16*时序稳定度 - 0.18*严重行为率 - 0.10*分心率",
+    }
 
 # COCO关键点索引
 KEYPOINT_DICT = {
@@ -410,6 +756,7 @@ class RuleBasedBehaviorClassifier:
 
 # 创建分类器实例
 classifier = RuleBasedBehaviorClassifier()
+temporal_smoother = TemporalBehaviorSmoother()
 
 # ==================== 工具函数 ====================
 
@@ -610,13 +957,15 @@ async def root():
     """服务信息"""
     return {
         "service": "课堂行为检测服务 - 规则-Based版本",
-        "version": "2.1.0-rule-based",
+        "version": "2.2.0-temporal-fusion",
         "device": str(DEVICE),
         "sequence_length": SEQUENCE_LENGTH,
-        "method": "rule_based",
+        "method": "rule_based_temporal_fusion",
+        "temporal_window": TEMPORAL_WINDOW,
+        "confidence_fusion": "behavior/detector/pose/bbox weighted fusion",
         "detection_mode": "dual_stage" if USE_DUAL_STAGE else "single_stage",
-        "note": "基于几何规则判断，无需训练数据，立即可用！",
-        "accuracy": "约60-75%，适合演示和应急使用",
+        "note": "基于几何规则 + 时序平滑 + 多源置信度融合，无需训练数据，立即可用！",
+        "accuracy": "课堂场景下比单帧规则更稳定，适合实时监测与比赛演示",
         "endpoints": [
             "/analyze/frame - POST 分析单帧姿态",
             "/analyze/video - POST 分析视频行为",
@@ -635,7 +984,9 @@ async def health_check():
         "pose_model_loaded": pose_model is not None,
         "detector_loaded": detector_model is not None,
         "dual_stage_enabled": USE_DUAL_STAGE,
-        "classifier": "rule_based",
+        "classifier": "rule_based_temporal_fusion",
+        "temporal_window": TEMPORAL_WINDOW,
+        "confidence_fusion": True,
         "note": "无需LSTM权重，立即可用"
     }
 
@@ -646,6 +997,11 @@ async def get_behavior_definitions():
     return {
         "behaviors": list(BEHAVIOR_LABELS.values()),
         "method": "rule_based",
+        "algorithm": {
+            "temporal_smoothing": f"最近{TEMPORAL_WINDOW}帧轨迹级衰减投票",
+            "confidence_fusion": "0.34*规则置信度 + 0.28*检测置信度 + 0.22*姿态完整度 + 0.16*框质量，并融合几何均值",
+            "attention_formula": "0.44*专注率 + 0.24*行为得分 + 0.16*平均置信度 + 0.16*时序稳定度 - 0.18*严重行为率 - 0.10*分心率",
+        },
         "rules": {
             "看手机": "手腕靠近面部（距离<0.15）且头部低下",
             "睡觉": "头部低于肩部（低头）或后仰",
@@ -689,6 +1045,7 @@ async def analyze_frame(file: UploadFile = File(...)):
                 "persons": [],
                 "overall_score": 0,
                 "learning_status": "未检测到人体",
+                "classroom_metrics": calculate_classroom_metrics([]),
                 "image_width": w,
                 "image_height": h,
                 "debug": "未检测到人体，请确保画面中有人"
@@ -704,30 +1061,45 @@ async def analyze_frame(file: UploadFile = File(...)):
             behavior_id, behavior_conf, reason = classifier.classify_single_frame(keypoints_norm)
             behavior_info = BEHAVIOR_LABELS[behavior_id]
             
-            # 综合置信度：检测器置信度 * 行为分类置信度
+            # 综合置信度：检测器、规则分类、姿态完整度、框质量融合
             detector_conf = person.get("confidence", 0.75)
-            final_conf = float(round(float(detector_conf) * float(behavior_conf), 4))
+            pose_quality = estimate_pose_quality(keypoints_norm)
+            bbox_quality = estimate_bbox_quality(person["bbox"], w, h)
+            final_conf = fuse_confidence(
+                detector_confidence=float(detector_conf),
+                behavior_confidence=float(behavior_conf),
+                pose_quality=pose_quality,
+                bbox_quality=bbox_quality,
+            )
             
             analyzed_persons.append({
                 "id": person["id"],
                 "bbox": person["bbox"],  # [x1, y1, x2, y2]
+                "class_id": behavior_id,
                 "behavior": behavior_info["name"],
                 "confidence": final_conf,
+                "detection_confidence": round(float(detector_conf), 4),
+                "behavior_confidence": round(float(behavior_conf), 4),
+                "pose_quality": pose_quality,
+                "bbox_quality": bbox_quality,
                 "score": float(behavior_info["score"]),
                 "color": behavior_info["color"],
                 "reason": reason
             })
         
-        # 使用科学的课堂评分算法计算整体评分
-        overall_score, learning_status = calculate_classroom_score(analyzed_persons)
+        analyzed_persons = temporal_smoother.smooth(analyzed_persons, w, h)
+        classroom_metrics = calculate_classroom_metrics(analyzed_persons)
+        overall_score = classroom_metrics["attention_score"]
+        learning_status = classroom_metrics["learning_status"]
         
         return {
             "status": "success",
-            "method": "rule_based",
+            "method": "rule_based_temporal_fusion",
             "person_count": len(analyzed_persons),
             "persons": analyzed_persons,
             "overall_score": overall_score,
             "learning_status": learning_status,
+            "classroom_metrics": classroom_metrics,
             "image_width": w,
             "image_height": h
         }
@@ -847,15 +1219,26 @@ async def analyze_video(file: UploadFile = File(...), sample_interval: int = 1):
                 
                 dominant_class = max(class_counts, key=class_counts.get)
                 dominant_behavior = BEHAVIOR_LABELS[dominant_class]
+                dominant_ratio = class_counts[dominant_class] / max(1, len(predictions))
                 
-                # 计算平均得分
-                avg_score = sum(p["score"] for p in predictions) / len(predictions)
+                metrics_persons = [
+                    {
+                        "behavior": p["behavior"],
+                        "confidence": p["confidence"],
+                        "score": p["score"],
+                        "temporal_stability": dominant_ratio,
+                    }
+                    for p in predictions
+                ]
+                classroom_metrics = calculate_classroom_metrics(metrics_persons)
+                avg_score = classroom_metrics["attention_score"]
                 
                 # 构建汇总信息
                 summary = {
                     "average_score": float(round(float(avg_score), 2)),
-                    "overall_status": get_learning_status(avg_score),
+                    "overall_status": classroom_metrics["learning_status"],
                     "dominant_behavior": dominant_behavior["name"],
+                    "classroom_metrics": classroom_metrics,
                     "behavior_statistics": {
                         BEHAVIOR_LABELS[cid]["name"]: {
                             "count": count,
@@ -882,7 +1265,7 @@ async def analyze_video(file: UploadFile = File(...), sample_interval: int = 1):
                 # 返回与后端匹配的数据结构
                 return {
                     "status": "success",
-                    "method": "rule_based",
+                    "method": "rule_based_temporal_fusion",
                     "frame_analyses": predictions,  #  renamed from predictions
                     "summary": summary,
                     "persons": persons_for_display,  # 添加人员检测数据
@@ -936,18 +1319,27 @@ async def analyze_stream(frames: List[List[float]]):
         # 规则分类
         behavior_id, confidence, reason = classifier.classify_sequence(keypoints_seq)
         behavior_info = BEHAVIOR_LABELS[behavior_id]
+        metrics = calculate_classroom_metrics([
+            {
+                "behavior": behavior_info["name"],
+                "confidence": confidence,
+                "score": behavior_info["score"],
+                "temporal_stability": 0.85,
+            }
+        ])
         
         return {
             "status": "success",
-            "method": "rule_based",
+            "method": "rule_based_temporal_fusion",
             "class_id": behavior_id,
             "behavior": behavior_info["name"],
             "confidence": float(round(float(confidence), 4)),
-            "score": float(behavior_info["score"]),
-            "learning_status": get_learning_status(float(behavior_info["score"])),
+            "score": metrics["attention_score"],
+            "learning_status": metrics["learning_status"],
             "description": behavior_info["description"],
             "color": behavior_info["color"],
-            "reason": reason
+            "reason": reason,
+            "classroom_metrics": metrics,
         }
         
     except Exception as e:

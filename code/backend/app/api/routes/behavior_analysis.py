@@ -26,6 +26,15 @@ class PersonResult(BaseModel):
     confidence: float
     score: float
     color: str
+    reason: str | None = None
+    track_id: str | None = None
+    raw_behavior: str | None = None
+    detection_confidence: float | None = None
+    behavior_confidence: float | None = None
+    pose_quality: float | None = None
+    bbox_quality: float | None = None
+    temporal_stability: float | None = None
+    temporal_volatility: float | None = None
 
 
 class BehaviorAnalysisResult(BaseModel):
@@ -38,6 +47,7 @@ class BehaviorAnalysisResult(BaseModel):
     timestamp: str
     image_width: int = 0
     image_height: int = 0
+    classroom_metrics: dict = {}
 
 
 class VideoAnalysisResult(BaseModel):
@@ -47,6 +57,7 @@ class VideoAnalysisResult(BaseModel):
     summary: dict = {}
     video_info: dict = {}
     persons: list[PersonResult] = []  # 添加人员检测数据
+    classroom_metrics: dict = {}
 
 
 class CourseAnalysisRecord(BaseModel):
@@ -89,6 +100,7 @@ async def analyze_image(
             timestamp=datetime.now().isoformat(),
             image_width=result.get("image_width", 0),
             image_height=result.get("image_height", 0),
+            classroom_metrics=result.get("classroom_metrics", {}),
         )
     except HTTPException:
         raise
@@ -137,6 +149,7 @@ async def analyze_video(
             summary=result.get("summary", {}),
             video_info=result.get("video_info", {}),
             persons=result.get("persons", []),
+            classroom_metrics=result.get("classroom_metrics", {}),
         )
     except HTTPException:
         raise

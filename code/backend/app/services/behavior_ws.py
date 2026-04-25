@@ -58,6 +58,10 @@ class SummaryResult(BaseModel):
     focused_count: int = Field(0, description="专注人数")
     unfocused_count: int = Field(0, description="不专注人数")
     absent_count: int = Field(0, description="缺席人数")
+    overall_score: Optional[float] = Field(None, ge=0.0, le=1.0, description="综合课堂状态得分")
+    attention_score: Optional[float] = Field(None, ge=0.0, le=1.0, description="专注度指标公式得分")
+    focus_rate: Optional[float] = Field(None, ge=0.0, le=1.0, description="专注率")
+    stability_index: Optional[float] = Field(None, ge=0.0, le=1.0, description="时序稳定度")
 
 
 class AnalysisMessage(BaseModel):

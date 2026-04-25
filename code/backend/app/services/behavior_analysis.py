@@ -203,6 +203,7 @@ class BehaviorAnalysisService:
 
         if not persons:
             absent_count = 1
+        classroom_metrics = result.get("classroom_metrics") or {}
 
         return AnalysisMessage(
             frame_id=frame_id,
@@ -212,6 +213,16 @@ class BehaviorAnalysisService:
                 focused_count=focused_count,
                 unfocused_count=unfocused_count,
                 absent_count=absent_count,
+                overall_score=self._clamp_score(result.get("overall_score"), 0.0),
+                attention_score=self._clamp_score(
+                    classroom_metrics.get("attention_score", result.get("overall_score")),
+                    0.0,
+                ),
+                focus_rate=self._clamp_score(classroom_metrics.get("focus_rate"), 0.0),
+                stability_index=self._clamp_score(
+                    classroom_metrics.get("stability_index"),
+                    0.0,
+                ),
             ),
         )
 
@@ -321,6 +332,22 @@ class BehaviorAnalysisService:
             "persons": persons,
             "overall_score": overall_score,
             "learning_status": self._score_to_learning_status(overall_score),
+            "classroom_metrics": {
+                "attention_score": overall_score,
+                "learning_status": self._score_to_learning_status(overall_score),
+                "focus_rate": round(
+                    sum(1 for person in persons if person["behavior"] == "专注学习")
+                    / max(1, len(persons)),
+                    4,
+                ),
+                "average_confidence": round(
+                    sum(float(person["confidence"]) for person in persons)
+                    / max(1, len(persons)),
+                    4,
+                ),
+                "stability_index": 0.65,
+                "formula": "本地降级：平均行为得分 + 人脸尺寸置信度校正",
+            },
             "timestamp": timestamp or datetime.now().isoformat(),
             "image_width": image_width,
             "image_height": image_height,
@@ -487,6 +514,7 @@ class BehaviorAnalysisService:
                 "summary": result.get("summary", summary),
                 "video_info": result.get("video_info", {}),
                 "persons": result.get("persons", []),
+                "classroom_metrics": result.get("summary", {}).get("classroom_metrics", {}),
             }
         except httpx.RequestError as exc:
             fallback = await self._analyze_video_locally(video_data, sample_interval)
@@ -645,6 +673,7 @@ class BehaviorAnalysisService:
                 "persons": persons,
                 "overall_score": result.get("overall_score", 0),
                 "learning_status": result.get("learning_status", "无法评估"),
+                "classroom_metrics": result.get("classroom_metrics", {}),
                 "image_width": result.get("image_width", 0),
                 "image_height": result.get("image_height", 0),
             }
