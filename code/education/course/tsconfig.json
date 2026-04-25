@@ -4,7 +4,7 @@
     "noEmit": true,
     "target": "ES2020",
     "module": "ES2020",
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "strict": true,
     "jsxFactory": "h",
     "jsx": "preserve",
@@ -12,9 +12,8 @@
     "sourceMap": true,
     "resolveJsonModule": true,
     "esModuleInterop": true,
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"]
     },
     "lib": ["es2020", "dom", "dom.iterable"],
     "skipLibCheck": true,

@@ -8,15 +8,24 @@ try:
 except Exception:  # pragma: no cover - optional dependency
     pdfplumber = None
 from pptx import Presentation
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_core.documents import Document
 
 from app.core.config import settings
+
+# 尝试导入 langchain，失败时提供备用方案
+try:
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+    LANGCHAIN_AVAILABLE = True
+except Exception:
+    LANGCHAIN_AVAILABLE = False
+    RecursiveCharacterTextSplitter = None
+
+from langchain_core.documents import Document
 
 
 class DocumentProcessor:
     def __init__(self):
-        self.text_splitter = RecursiveCharacterTextSplitter(
+        if LANGCHAIN_AVAILABLE and RecursiveCharacterTextSplitter:
+            self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=settings.RAG_CHUNK_SIZE,
             chunk_overlap=settings.RAG_CHUNK_OVERLAP,
             length_function=len,

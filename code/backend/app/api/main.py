@@ -14,8 +14,11 @@ from app.api.v1.endpoints import (
     rag,
     chat_threads,
     dashboard_mock,
+    dashboard,
     user_center_mock,
     health,
+    learning_report,
+    ai_metrics,
 )
 from app.core.config import settings
 
@@ -30,7 +33,10 @@ api_router.include_router(
     digital_human.router, prefix="/digital-human", tags=["digital-human"]
 )
 api_router.include_router(dashboard_mock.router, tags=["dashboard"])
+api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 api_router.include_router(user_center_mock.router, tags=["user-center"])
+api_router.include_router(learning_report.router, prefix="/learning-report", tags=["learning-report"])
+api_router.include_router(ai_metrics.router, prefix="/ai-metrics", tags=["ai-metrics"])
 api_router.include_router(health.router, tags=["ops"])
 api_router.include_router(behavior_analysis.router, prefix="/behavior", tags=["behavior-analysis"])
 # api_router.include_router(utils.router)

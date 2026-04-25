@@ -164,15 +164,9 @@
 
   const loginConfig = useStorage('login-config', {
     rememberPassword: true,
-    username: 'admin@example.com',
-    password: 'admin123456',
+    username: '',
+    password: '',
   });
-  if (
-    loginConfig.value.username === 'admin@example.com' &&
-    loginConfig.value.password === 'admin123'
-  ) {
-    loginConfig.value.password = 'admin123456';
-  }
 
   const loginForm = reactive({
     username: loginConfig.value.username,

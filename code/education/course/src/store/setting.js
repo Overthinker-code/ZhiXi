@@ -4,6 +4,7 @@ import { ref } from 'vue';
 export const useSettingStore = defineStore(
   'llm-setting',
   () => {
+    const developerPanelEnabled = ref(true);
     const settings = ref({
       model: 'deepseek-chat',
       apiKey: import.meta.env.VITE_API_BASE_URL,
@@ -18,6 +19,10 @@ export const useSettingStore = defineStore(
       strictMode: false,
       promptKey: 'tutor',
       customSystemPrompt: '',
+      debugMode: false,
+      forceCache: false,
+      forceAgent: '',
+      simulateDigitalHumanSuccess: false,
     });
     const promptOptions = ref([
       {
@@ -63,6 +68,7 @@ export const useSettingStore = defineStore(
       settings,
       promptOptions,
       toolOptions,
+      developerPanelEnabled,
     };
   },
   {

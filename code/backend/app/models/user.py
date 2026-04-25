@@ -25,3 +25,5 @@ class User(Base, table=True):
     items: List["Item"] = Relationship(back_populates="owner")
     # Video 定义在根目录 app/models.py，此处用前向引用参与 back_populates
     videos: List["Video"] = Relationship(back_populates="uploader")
+    # Resource 定义在根目录 app/models.py，此处用前向引用参与 back_populates
+    resources: List["Resource"] = Relationship(back_populates="uploader")

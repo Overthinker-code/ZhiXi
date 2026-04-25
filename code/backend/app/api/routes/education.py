@@ -7,6 +7,7 @@ from app.api.routes.tc import router as tc_router
 from app.api.routes.course_plans import router as course_plans_router
 from app.api.routes.students import router as students_router
 from app.api.routes.videos import router as videos_router
+from app.api.routes.resources import router as resources_router
 
 router = APIRouter()
 
@@ -20,3 +21,4 @@ router.include_router(
 )
 router.include_router(students_router, prefix="/students", tags=["students"])
 router.include_router(videos_router, prefix="/videos", tags=["videos"])
+router.include_router(resources_router, prefix="/resources", tags=["resources"])

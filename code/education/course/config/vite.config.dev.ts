@@ -13,11 +13,15 @@ export default defineConfig(({ mode }) => {
   const proxyTarget =
     env.VITE_DEV_API_PROXY_TARGET || 'http://127.0.0.1:8001';
 
+  console.log(
+    `[vite-dev] API proxy enabled: /api -> ${proxyTarget.replace(/\/$/, '')}/api/v1`
+  );
+
   return mergeConfig(
     {
       mode: 'development',
       server: {
-        open: true,
+        open: false,
         fs: {
           strict: true,
         },
@@ -25,6 +29,8 @@ export default defineConfig(({ mode }) => {
           '/api': {
             target: proxyTarget,
             changeOrigin: true,
+            ws: true,
+            // 将 /api 映射到后端的 /api/v1
             rewrite: (path) => path.replace(/^\/api/, '/api/v1'),
           },
         },

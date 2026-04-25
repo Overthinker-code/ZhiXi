@@ -1,6 +1,14 @@
-from langchain_community.vectorstores import Chroma
-
 from app.core.config import settings
+
+try:
+    from langchain_chroma import Chroma as LangchainChroma
+except Exception:
+    LangchainChroma = None
+
+try:
+    from langchain_community.vectorstores import Chroma as CommunityChroma
+except Exception:
+    CommunityChroma = None
 
 
 class VectorStoreFactory:
@@ -9,7 +17,13 @@ class VectorStoreFactory:
         vector_store_type = settings.VECTOR_STORE_TYPE.lower()
 
         if vector_store_type == "chroma":
-            return Chroma(
+            chroma_cls = LangchainChroma or CommunityChroma
+            if chroma_cls is None:
+                raise ImportError(
+                    "Chroma vector store backend is unavailable. "
+                    "Install `langchain-chroma` or ensure `langchain-community` is available."
+                )
+            return chroma_cls(
                 persist_directory=persist_directory,
                 embedding_function=embedding_function,
             )
