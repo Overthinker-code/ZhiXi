@@ -2,8 +2,6 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
 import asyncio
 
-# sk-9b57b709bc8843b798537cc32546169e
-
 # from langchain_openai import ChatOpenAI
 from langchain_deepseek import ChatDeepSeek
 
