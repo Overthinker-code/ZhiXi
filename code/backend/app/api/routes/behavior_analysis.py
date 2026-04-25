@@ -1,12 +1,19 @@
+import json
+from datetime import datetime
 from typing import Any, Optional
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from uuid import UUID, uuid4
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
+from sqlmodel import Session
+
 from app import models
 from app.api import deps
+from app.core import security
+from app.core.db import engine
 from app.services.behavior_analysis import behavior_service
-from pydantic import BaseModel
-from datetime import datetime
-from uuid import UUID
-import base64
+from app.services.behavior_ws import behavior_ws_service, FrameMessage
+from app.models import TokenPayload
 
 router = APIRouter()
 
@@ -69,10 +76,10 @@ async def analyze_image(
     try:
         image_data = await file.read()
         result = await behavior_service.analyze_image(image_data)
-        
+
         if result["status"] == "error":
             raise HTTPException(status_code=500, detail=result["error"])
-        
+
         return BehaviorAnalysisResult(
             status="success",
             behaviors=result["behaviors"],
@@ -83,6 +90,8 @@ async def analyze_image(
             image_width=result.get("image_width", 0),
             image_height=result.get("image_height", 0),
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"分析失败: {str(e)}")
 
@@ -104,24 +113,24 @@ async def analyze_video(
     try:
         video_data = await file.read()
         result = await behavior_service.analyze_video(video_data, sample_interval)
-        
+
         if result["status"] == "error":
             raise HTTPException(status_code=500, detail=result["error"])
-        
+
         # 保存分析记录
         if course_id and result.get("summary"):
             record = {
-                "id": str(UUID(int=len(analysis_records))),
+                "id": str(uuid4()),
                 "course_id": course_id,
                 "timestamp": datetime.now().isoformat(),
-                "duration": result["video_info"]["duration"],
-                "average_score": result["summary"]["average_score"],
-                "overall_status": result["summary"]["overall_status"],
-                "behavior_statistics": result["summary"]["behavior_statistics"],
+                "duration": result.get("video_info", {}).get("duration", 0),
+                "average_score": result.get("summary", {}).get("average_score", 0),
+                "overall_status": result.get("summary", {}).get("overall_status", "无法评估"),
+                "behavior_statistics": result.get("summary", {}).get("behavior_statistics", {}),
                 "key_moments": result["summary"].get("key_moments", []),
             }
             analysis_records.append(record)
-        
+
         return VideoAnalysisResult(
             status="success",
             frame_analyses=result.get("frame_analyses", []),
@@ -129,6 +138,8 @@ async def analyze_video(
             video_info=result.get("video_info", {}),
             persons=result.get("persons", []),
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"视频分析失败: {str(e)}")
 
@@ -269,3 +280,102 @@ async def get_behavior_definitions(
     获取支持的行为类型定义（从 YOLO 服务转发，确保前后端定义一致）
     """
     return await behavior_service.get_behavior_definitions()
+
+
+# ---------------------------------------------------------------------------
+# WebSocket 实时行为检测接口
+# 后端2 —— 张伟杰
+# 路径: WS /api/v1/behavior/ws/realtime?course_id=<uuid>&token=<jwt>
+# ---------------------------------------------------------------------------
+
+async def _verify_ws_token(token: str) -> Optional[models.User]:
+    """验证 WebSocket 连接中的 JWT Token"""
+    payload = security.decode_access_token(token)
+    if not payload:
+        return None
+    try:
+        token_data = TokenPayload(**payload)
+    except Exception:
+        return None
+    with Session(engine) as session:
+        user = session.get(models.User, token_data.sub)
+        if user and user.is_active:
+            return user
+    return None
+
+
+@router.websocket("/ws/realtime")
+async def behavior_realtime_ws(
+    websocket: WebSocket,
+    course_id: Optional[str] = Query(None),
+    token: Optional[str] = Query(None),
+):
+    """
+    WebSocket 实时行为分析通道。
+
+    前端发送：
+    {
+        "type": "frame",
+        "frame_id": 101,
+        "timestamp": 1713580000,
+        "image_base64": "data:image/jpeg;base64,..."
+    }
+
+    后端返回：
+    {
+        "type": "analysis",
+        "frame_id": 101,
+        "timestamp": 1713580000,
+        "persons": [
+            {
+                "track_id": "person_1",
+                "bbox": [120, 80, 260, 320],
+                "status": "focused",
+                "score": 0.92
+            }
+        ],
+        "summary": {
+            "focused_count": 18,
+            "unfocused_count": 4,
+            "absent_count": 2
+        }
+    }
+    """
+    if not token:
+        await websocket.close(code=4401, reason="Missing token")
+        return
+    user = await _verify_ws_token(token)
+    if user is None:
+        await websocket.close(code=4401, reason="Invalid token")
+        return
+
+    await websocket.accept()
+
+    try:
+        while True:
+            raw_msg = await websocket.receive_text()
+            try:
+                msg_dict = json.loads(raw_msg)
+                frame_msg = FrameMessage.model_validate(msg_dict)
+            except (json.JSONDecodeError, Exception) as e:
+                await websocket.send_json(
+                    {"type": "error", "detail": f"Invalid frame message: {str(e)}"}
+                )
+                continue
+
+            # 调用本地 CV 检测服务
+            result = behavior_ws_service.analyze_frame(
+                frame_msg.image_base64, frame_msg.frame_id
+            )
+            await websocket.send_json(result.model_dump())
+
+    except WebSocketDisconnect:
+        # 正常断开，无需处理
+        pass
+    except Exception as e:
+        # 连接异常时尝试发送错误信息后关闭
+        try:
+            await websocket.send_json({"type": "error", "detail": str(e)})
+            await websocket.close()
+        except Exception:
+            pass

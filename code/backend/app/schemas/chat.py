@@ -15,6 +15,9 @@ class ChatBase(BaseModel):
     temperature: Optional[float] = None
     top_p: Optional[float] = None
     top_k: Optional[int] = None
+    force_agent: Optional[str] = None
+    force_cache: Optional[bool] = False
+    debug_mode: Optional[bool] = False
 
 class ChatCreate(ChatBase):
     pass
@@ -41,6 +44,11 @@ class Chat(ChatInDBBase):
     agent: Optional[str] = None
     intent: Optional[str] = None
     routing_reason: Optional[str] = None
+    citations: List[Dict[str, Any]] = []
+    confidence: Optional[str] = None
+    grounding_mode: Optional[str] = None
+    suggestions: List[str] = []
+    metrics: Dict[str, Any] = {}
 
 class ChatInDB(ChatInDBBase):
     pass

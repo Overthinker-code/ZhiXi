@@ -3,6 +3,8 @@
 from app.models.base import Base
 from app.models.chat import Chat
 from app.models.chat_feedback import ChatFeedback
+from app.models.chat_artifact import ChatArtifact
+from app.models.ai_usage_log import AIUsageLog
 from app.models.item import Item
 from app.models.chat_thread import ChatThread
 from app.models.user import User
@@ -33,6 +35,10 @@ from app.models.business_tables import (
     LearningActivity,
     Log,
     Resource,
+    ResourceCreate,
+    ResourceUpdate,
+    ResourcePublic,
+    ResourcesPublic,
     Student,
     StudentTC,
     Submission,
@@ -46,6 +52,8 @@ __all__ = [
     "Base",
     "Chat",
     "ChatFeedback",
+    "ChatArtifact",
+    "AIUsageLog",
     "ChatThread",
     "Item",
     "ItemCreate",
@@ -61,4 +69,24 @@ __all__ = [
     "Message",
     "NewPassword",
     "UserPublic",
-] 
+    "Alert",
+    "Assignment",
+    "ChatLog",
+    "Course",
+    "CoursePlan",
+    "HelpDocument",
+    "LearningActivity",
+    "Log",
+    "Resource",
+    "ResourceCreate",
+    "ResourceUpdate",
+    "ResourcePublic",
+    "ResourcesPublic",
+    "Student",
+    "StudentTC",
+    "Submission",
+    "TC",
+    "Teacher",
+    "UD",
+    "Video",
+]

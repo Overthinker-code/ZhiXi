@@ -167,6 +167,11 @@ const useChatStore = defineStore(
         thoughts: [],
         requires_confirmation: false,
         pending_action_id: '',
+        citations: [],
+        confidence: '',
+        grounding_mode: '',
+        suggestions: [],
+        metrics: {},
         ...message,
       });
     };
@@ -200,7 +205,11 @@ const useChatStore = defineStore(
       thoughts = [],
       requiresConfirmation = false,
       pendingActionId = '',
-      suggestions = []
+      suggestions = [],
+      citations = [],
+      confidence = '',
+      groundingMode = '',
+      metrics = {}
     ) => {
       const key = activeConvKey();
       const msgs = _messagesMap.value[key];
@@ -214,6 +223,10 @@ const useChatStore = defineStore(
         lastMessage.requires_confirmation = requiresConfirmation;
         lastMessage.pending_action_id = pendingActionId;
         lastMessage.suggestions = suggestions;
+        lastMessage.citations = citations;
+        lastMessage.confidence = confidence;
+        lastMessage.grounding_mode = groundingMode;
+        lastMessage.metrics = metrics;
       }
     };
 

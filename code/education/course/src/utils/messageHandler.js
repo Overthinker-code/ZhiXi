@@ -9,6 +9,11 @@ export const messageHandler = {
       completion_tokens: 0,
       speed: 0,
       loading: false,
+      citations: [],
+      confidence: '',
+      grounding_mode: '',
+      suggestions: [],
+      metrics: {},
     };
   },
 

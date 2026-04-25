@@ -13,7 +13,12 @@ logger = logging.getLogger(__name__)
 
 
 def init() -> None:
-    engine = create_engine(str(settings.SQLALCHEMY_DATABASE_URI))
+    # 支持 SQLite 和 PostgreSQL
+    db_uri = str(settings.SQLALCHEMY_DATABASE_URI)
+    connect_args = {}
+    if db_uri.startswith("sqlite"):
+        connect_args = {"check_same_thread": False}
+    engine = create_engine(db_uri, connect_args=connect_args)
     # Make sure all SQLModel models are imported before initializing the DB
     # otherwise, SQLModel might fail to initialize relationships properly
     from app.models import (

@@ -1,11 +1,11 @@
-# 知书 (ZhiXi)
+# 智屿
 
 智能教学辅助系统 - 基于 AI 的教育平台
 
 ## 项目结构
 
 ```
-zhiXi/
+ZhiYu/
 ├── code/
 │   ├── backend/                 # 后端服务 (FastAPI + Python)
 │   │   ├── app/

@@ -2,7 +2,7 @@
   <div class="container">
     <Breadcrumb :items="['menu.profile', 'menu.profile.learningData']" />
     <a-row :gutter="16">
-      <a-col :xs="24" :lg="10">
+      <a-col :xs="24" :lg="8">
         <a-card title="学生画像" class="card-block">
           <div class="profile-row">
             <a-avatar :size="72">
@@ -23,6 +23,7 @@
             <li v-for="c in enrolled" :key="c">《{{ c }}》</li>
           </ul>
         </a-card>
+
         <a-card title="日历提醒" class="card-block">
           <a-calendar v-model="calValue" mode="month" class="mini-cal" />
           <a-divider style="margin: 12px 0" />
@@ -34,7 +35,40 @@
           </div>
         </a-card>
       </a-col>
-      <a-col :xs="24" :lg="14">
+
+      <a-col :xs="24" :lg="16">
+        <a-card class="card-block action-block" title="AI 学情助手">
+          <div class="action-copy">
+            <h3>个性化学情诊断与学习建议</h3>
+            <p>
+              结合近期学习表现、课堂互动与练习情况，为你生成阶段诊断、错题复盘与复习安排，帮助你更清晰地把握当前进度与提升方向。
+            </p>
+          </div>
+          <div class="action-row">
+            <a-button
+              type="primary"
+              :loading="loadingDiagnosis"
+              @click="handleRunDiagnosis"
+            >
+              一键诊断学情
+            </a-button>
+            <a-button
+              status="success"
+              :loading="loadingMistakes"
+              @click="handleGenerateMistakes"
+            >
+              一键整理错题
+            </a-button>
+            <a-button
+              status="warning"
+              :loading="loadingPlan"
+              @click="handleGeneratePlan"
+            >
+              一键生成复习计划
+            </a-button>
+          </div>
+        </a-card>
+
         <a-card title="学情概况" class="card-block">
           <a-row :gutter="12">
             <a-col v-for="s in stats" :key="s.label" :span="8">
@@ -45,6 +79,119 @@
             </a-col>
           </a-row>
         </a-card>
+
+        <a-card title="AI 诊断结果" class="card-block">
+          <a-spin :loading="loadingDiagnosis" style="width: 100%">
+            <template v-if="diagnosis">
+              <div class="report-summary">{{ diagnosis.summary }}</div>
+              <div class="meta-line">
+                <span class="meta-pill">{{ riskLabel(diagnosis.risk_level) }}</span>
+                <span v-if="diagnosis.current_goal" class="meta-pill meta-pill--soft">
+                  当前目标：{{ diagnosis.current_goal }}
+                </span>
+                <span
+                  v-if="diagnosis.learning_style"
+                  class="meta-pill meta-pill--soft"
+                >
+                  学习偏好：{{ diagnosis.learning_style }}
+                </span>
+              </div>
+              <div v-if="diagnosis.weak_points.length" class="tag-row">
+                <span
+                  v-for="item in diagnosis.weak_points"
+                  :key="item"
+                  class="info-tag"
+                >
+                  {{ item }}
+                </span>
+              </div>
+              <div class="dual-grid">
+                <div class="insight-box">
+                  <div class="box-title">优势表现</div>
+                  <ul class="plain-list">
+                    <li v-for="item in diagnosis.strengths" :key="item">{{ item }}</li>
+                  </ul>
+                </div>
+                <div class="insight-box">
+                  <div class="box-title">建议动作</div>
+                  <ul class="plain-list">
+                    <li v-for="item in diagnosis.recommended_actions" :key="item">
+                      {{ item }}
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </template>
+            <a-empty v-else description="点击上方按钮生成最新学情诊断" />
+          </a-spin>
+        </a-card>
+
+        <a-card title="错题整理与复盘建议" class="card-block">
+          <a-spin :loading="loadingMistakes" style="width: 100%">
+            <template v-if="mistakeDigest">
+              <div class="report-summary">{{ mistakeDigest.summary }}</div>
+              <div class="mistake-list">
+                <div
+                  v-for="item in mistakeDigest.mistakes"
+                  :key="item.title"
+                  class="mistake-card"
+                >
+                  <div class="mistake-title">{{ item.title }}</div>
+                  <div class="mistake-line">
+                    <strong>表现：</strong>{{ item.symptom }}
+                  </div>
+                  <div class="mistake-line">
+                    <strong>依据：</strong>{{ item.evidence }}
+                  </div>
+                  <div class="mistake-line">
+                    <strong>修正：</strong>{{ item.fix_strategy }}
+                  </div>
+                </div>
+              </div>
+              <div v-if="mistakeDigest.flashcards.length" class="flashcard-box">
+                <div class="box-title">速记卡片</div>
+                <ul class="plain-list">
+                  <li v-for="item in mistakeDigest.flashcards" :key="item">{{ item }}</li>
+                </ul>
+              </div>
+            </template>
+            <a-empty v-else description="点击“一键整理错题”生成复盘清单" />
+          </a-spin>
+        </a-card>
+
+        <a-card title="三天复习计划" class="card-block">
+          <a-spin :loading="loadingPlan" style="width: 100%">
+            <template v-if="reviewPlan">
+              <div class="report-summary">{{ reviewPlan.summary }}</div>
+              <div v-if="reviewPlan.focus_topics.length" class="tag-row">
+                <span
+                  v-for="item in reviewPlan.focus_topics"
+                  :key="item"
+                  class="info-tag info-tag--warm"
+                >
+                  {{ item }}
+                </span>
+              </div>
+              <div class="plan-grid">
+                <div v-for="item in reviewPlan.daily_plan" :key="item.day_label" class="plan-card">
+                  <div class="plan-day">{{ item.day_label }}</div>
+                  <div class="plan-focus">{{ item.focus }}</div>
+                  <ul class="plain-list">
+                    <li v-for="task in item.tasks" :key="task">{{ task }}</li>
+                  </ul>
+                </div>
+              </div>
+              <div v-if="reviewPlan.checkpoints.length" class="flashcard-box">
+                <div class="box-title">复习检查点</div>
+                <ul class="plain-list">
+                  <li v-for="item in reviewPlan.checkpoints" :key="item">{{ item }}</li>
+                </ul>
+              </div>
+            </template>
+            <a-empty v-else description="点击“一键生成复习计划”安排接下来三天的学习闭环" />
+          </a-spin>
+        </a-card>
+
         <a-card title="学情预警" class="card-block">
           <a-list :bordered="false" size="small">
             <a-list-item v-for="(w, i) in warnings" :key="i">
@@ -53,6 +200,7 @@
             </a-list-item>
           </a-list>
         </a-card>
+
         <a-card title="学习时长占比" class="card-block">
           <div class="donut-wrap">
             <div class="donut" :style="donutStyle" />
@@ -70,11 +218,28 @@
 </template>
 
 <script lang="ts" setup>
-  import { computed, ref } from 'vue';
+  import { computed, onMounted, ref } from 'vue';
+  import { Message } from '@arco-design/web-vue';
   import { useUserStore } from '@/store';
+  import {
+    fetchLearningReport,
+    generateMistakeDigest,
+    generateReviewPlan,
+    runLearningDiagnosis,
+    type LearningReport,
+    type MistakeDigest,
+    type ReviewPlan,
+  } from '@/api/rag';
 
   const userStore = useUserStore();
   const displayName = computed(() => userStore.name || '同学');
+
+  const diagnosis = ref<LearningReport | null>(null);
+  const reviewPlan = ref<ReviewPlan | null>(null);
+  const mistakeDigest = ref<MistakeDigest | null>(null);
+  const loadingDiagnosis = ref(false);
+  const loadingPlan = ref(false);
+  const loadingMistakes = ref(false);
 
   const enrolled = [
     '计算机组成原理',
@@ -111,21 +276,75 @@
   const pieParts = [
     { name: '计算机组成原理', pct: 29.66, color: '#6366f1' },
     { name: '计算机网络', pct: 26.27, color: '#1677FF' },
-    { name: '操作系统', pct: 22.88, color: '#722ED1' },
-    { name: '算法设计与分析', pct: 21.19, color: '#FA8C16' },
+    { name: '操作系统', pct: 22.88, color: '#2563eb' },
+    { name: '算法设计与分析', pct: 21.19, color: '#0ea5e9' },
   ];
 
   const donutStyle = computed(() => {
     let start = 0;
     const segs = pieParts.map((p) => {
       const deg = (p.pct / 100) * 360;
-      const s = start;
+      const current = `${p.color} ${start}deg ${start + deg}deg`;
       start += deg;
-      return `${p.color} ${s}deg ${start}deg`;
+      return current;
     });
     return {
       background: `conic-gradient(${segs.join(', ')})`,
     };
+  });
+
+  const riskLabel = (value: string) => {
+    if (value === 'high') return '高风险';
+    if (value === 'low') return '低风险';
+    return '中风险';
+  };
+
+  async function loadInitialDiagnosis() {
+    try {
+      diagnosis.value = await fetchLearningReport(false);
+    } catch {
+      // keep page available even if backend has not synced yet
+    }
+  }
+
+  async function handleRunDiagnosis() {
+    loadingDiagnosis.value = true;
+    try {
+      diagnosis.value = await runLearningDiagnosis(true);
+      Message.success('已生成最新学情诊断');
+    } catch (error: any) {
+      Message.error(error?.message || '生成学情诊断失败');
+    } finally {
+      loadingDiagnosis.value = false;
+    }
+  }
+
+  async function handleGeneratePlan() {
+    loadingPlan.value = true;
+    try {
+      reviewPlan.value = await generateReviewPlan(true);
+      Message.success('复习计划已生成');
+    } catch (error: any) {
+      Message.error(error?.message || '生成复习计划失败');
+    } finally {
+      loadingPlan.value = false;
+    }
+  }
+
+  async function handleGenerateMistakes() {
+    loadingMistakes.value = true;
+    try {
+      mistakeDigest.value = await generateMistakeDigest(true);
+      Message.success('错题整理已完成');
+    } catch (error: any) {
+      Message.error(error?.message || '整理错题失败');
+    } finally {
+      loadingMistakes.value = false;
+    }
+  }
+
+  onMounted(() => {
+    void loadInitialDiagnosis();
   });
 </script>
 
@@ -136,7 +355,7 @@
 
   .card-block {
     margin-bottom: 16px;
-    border-radius: 12px;
+    border-radius: 14px;
   }
 
   .profile-row {
@@ -150,9 +369,10 @@
     font-size: 14px;
   }
 
-  .section-title {
-    font-weight: 600;
+  .section-title,
+  .box-title {
     margin-bottom: 8px;
+    font-weight: 600;
   }
 
   .course-ul {
@@ -185,30 +405,147 @@
     white-space: nowrap;
   }
 
+  .action-block {
+    background:
+      radial-gradient(circle at top left, rgba(99, 102, 241, 0.12), transparent 38%),
+      linear-gradient(180deg, #f8fbff, #fff);
+  }
+
+  .action-copy h3 {
+    margin: 0 0 6px;
+    color: #0f172a;
+    font-size: 18px;
+  }
+
+  .action-copy p {
+    margin: 0;
+    color: #64748b;
+    line-height: 1.7;
+  }
+
+  .action-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 16px;
+  }
+
   .stat-box {
-    text-align: center;
-    padding: 12px 8px;
-    border-radius: 10px;
-    background: linear-gradient(180deg, #f5f3ff, #fff);
-    border: 1px solid rgba(99, 102, 241, 0.12);
     margin-bottom: 8px;
+    padding: 12px 8px;
+    border: 1px solid rgba(37, 99, 235, 0.12);
+    border-radius: 12px;
+    background: linear-gradient(180deg, #eff6ff, #fff);
+    text-align: center;
   }
 
   .stat-num {
-    font-size: 22px;
+    color: #2563eb;
     font-weight: 700;
-    color: #6366f1;
+    font-size: 22px;
   }
 
   .stat-label {
-    font-size: 12px;
-    color: var(--color-text-3);
     margin-top: 4px;
+    color: var(--color-text-3);
+    font-size: 12px;
+  }
+
+  .report-summary {
+    color: #1e293b;
+    line-height: 1.8;
+  }
+
+  .meta-line,
+  .tag-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .meta-pill,
+  .info-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(37, 99, 235, 0.1);
+    color: #1d4ed8;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .meta-pill--soft {
+    background: rgba(15, 23, 42, 0.06);
+    color: #475569;
+  }
+
+  .info-tag--warm {
+    background: rgba(245, 158, 11, 0.12);
+    color: #b45309;
+  }
+
+  .dual-grid,
+  .plan-grid {
+    display: grid;
+    gap: 12px;
+    margin-top: 14px;
+  }
+
+  .dual-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .plan-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .insight-box,
+  .flashcard-box,
+  .mistake-card,
+  .plan-card {
+    padding: 14px;
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    border-radius: 12px;
+    background: #fff;
+  }
+
+  .plain-list {
+    margin: 0;
+    padding-left: 18px;
+    color: #475569;
+    line-height: 1.8;
+  }
+
+  .mistake-list {
+    display: grid;
+    gap: 12px;
+    margin-top: 14px;
+  }
+
+  .mistake-title,
+  .plan-day {
+    color: #0f172a;
+    font-weight: 700;
+    font-size: 15px;
+  }
+
+  .mistake-line {
+    margin-top: 8px;
+    color: #475569;
+    line-height: 1.7;
+  }
+
+  .plan-focus {
+    margin: 6px 0 10px;
+    color: #2563eb;
+    font-weight: 600;
   }
 
   .w-date {
-    color: var(--color-text-3);
     margin-right: 8px;
+    color: var(--color-text-3);
     white-space: nowrap;
   }
 
@@ -232,9 +569,9 @@
   }
 
   .legend {
-    list-style: none;
-    padding: 0;
     margin: 0;
+    padding: 0;
+    list-style: none;
     font-size: 13px;
     line-height: 2;
   }
@@ -245,5 +582,12 @@
     height: 8px;
     border-radius: 50%;
     margin-right: 6px;
+  }
+
+  @media (max-width: 991px) {
+    .dual-grid,
+    .plan-grid {
+      grid-template-columns: 1fr;
+    }
   }
 </style>

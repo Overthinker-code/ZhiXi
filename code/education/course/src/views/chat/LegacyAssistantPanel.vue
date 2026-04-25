@@ -13,8 +13,11 @@
   import DialogEdit from './components/DialogEdit.vue';
   import PopupMenu from './components/PopupMenu.vue';
   import SettingsPanel from './components/SettingsPanel.vue';
+  import DeveloperPanel from './components/DeveloperPanel.vue';
+  import { useSettingStore } from '@/store/setting';
 
   const chatStore = useChatStore();
+  const settingStore = useSettingStore();
   const {
     currentMessages,
     isLoading,
@@ -124,6 +127,7 @@
 
   const settingDrawer = ref(null);
   const popupMenu = ref(null);
+  const developerPanelVisible = ref(false);
 
   const handleNewChat = async () => {
     await createNewChat();
@@ -204,10 +208,19 @@
     if (!target.closest('.selection-menu')) hideSelectionMenu();
   };
 
+  const handleDeveloperShortcut = (event) => {
+    if (!settingStore.developerPanelEnabled) return;
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'd') {
+      event.preventDefault();
+      developerPanelVisible.value = !developerPanelVisible.value;
+    }
+  };
+
   onMounted(() => {
     document.addEventListener('mouseup', handleMouseUp);
     document.addEventListener('scroll', hideSelectionMenu, true);
     document.addEventListener('click', handleDocumentClick);
+    document.addEventListener('keydown', handleDeveloperShortcut);
     streamInterventionEvents((event) => {
       if (event.type !== 'intervention') return;
       chatStore.addMessage({
@@ -225,6 +238,7 @@
     document.removeEventListener('mouseup', handleMouseUp);
     document.removeEventListener('scroll', hideSelectionMenu, true);
     document.removeEventListener('click', handleDocumentClick);
+    document.removeEventListener('keydown', handleDeveloperShortcut);
   });
 </script>
 
@@ -308,6 +322,10 @@
 
     <SettingsPanel ref="settingDrawer" />
     <DialogEdit ref="dialogEdit" />
+    <DeveloperPanel
+      :visible="developerPanelVisible"
+      @update:visible="(value) => (developerPanelVisible = value)"
+    />
   </div>
 </template>
 
