@@ -106,8 +106,8 @@
   };
 
   // 添加展开/折叠状态控制
-  const isReasoningExpanded = ref(true);
-  const isPipelineExpanded = ref(true);
+  const isReasoningExpanded = ref(false);
+  const isPipelineExpanded = ref(false);
 
   // 切换展开/折叠状态
   const toggleReasoning = () => {
@@ -279,8 +279,16 @@
     return renderMarkdown(raw);
   });
 
+  const hasAgentThoughts = computed(
+    () =>
+      props.message.role === 'assistant' &&
+      Array.isArray(props.message.thoughts) &&
+      props.message.thoughts.length > 0
+  );
+
   /** 仅模型侧链式推理；多智能体流水线单独用 AgentThoughtCard（message.thoughts） */
   const effectiveReasoning = computed(() => {
+    if (hasAgentThoughts.value) return '';
     const r = props.message.reasoning_content;
     if (r && String(r).trim()) return String(r);
     return '';
@@ -313,8 +321,14 @@
   const showReasoningToggle = computed(
     () =>
       props.message.role === 'assistant' &&
+      !hasAgentThoughts.value &&
       (effectiveReasoningTrimmed.value.length > 0 || props.message.loading)
   );
+
+  const showMessageBubble = computed(() => {
+    if (props.message.role === 'user') return true;
+    return Boolean((props.message.content || '').trim());
+  });
 </script>
 
 <template>
@@ -339,6 +353,47 @@
         </div>
       </div>
 
+      <!-- 消息内容 -->
+      <div
+        v-if="
+          message.loading &&
+          message.role === 'assistant' &&
+          !showMessageBubble
+        "
+        class="thinking-text"
+      >
+        <img
+          src="@/assets/photo/加载中.png"
+          alt="loading"
+          class="loading-icon"
+        />
+        <span>正在生成回答...</span>
+      </div>
+      <!-- content -->
+      <div
+        v-if="showMessageBubble"
+        class="bubble-row"
+        :class="{ 'bubble-row--user': message.role === 'user' }"
+      >
+        <div class="bubble markdown-body" v-html="renderedContent" />
+        <span
+          v-if="message.role === 'assistant' && message.loading"
+          class="stream-tail-caret"
+          aria-hidden="true"
+        />
+      </div>
+      <CitationArea
+        v-if="message.role === 'assistant'"
+        :citations="message.citations || []"
+        :confidence="message.confidence"
+        :grounding-mode="message.grounding_mode"
+        :metrics="message.metrics || {}"
+      />
+      <FollowUpActions
+        v-if="message.role === 'assistant'"
+        :suggestions="message.suggestions || []"
+        @pick="handleSuggestionClick"
+      />
       <!-- 多智能体流水线（与「深度思考」分离，随 SSE thought 实时追加） -->
       <div
         v-if="showAgentPipeline"
@@ -347,7 +402,7 @@
       >
         <span class="pipeline-dot" />
         <span>{{
-          message.loading ? '多智能体协作进行中' : '多智能体协作过程'
+          message.loading ? '正在整合回答' : '回答生成过程'
         }}</span>
         <el-icon
           class="toggle-icon"
@@ -362,19 +417,6 @@
         :streaming="!!message.loading"
         :collapsed="!isPipelineExpanded"
       />
-
-      <!-- 消息内容 -->
-      <div
-        v-if="message.loading && message.role === 'assistant'"
-        class="thinking-text"
-      >
-        <img
-          src="@/assets/photo/加载中.png"
-          alt="loading"
-          class="loading-icon"
-        />
-        <span>内容生成中...</span>
-      </div>
       <!-- 仅保留「深度思考」：与技术向思维链卡片合并，避免重复 -->
       <div
         v-if="showReasoningToggle"
@@ -389,8 +431,8 @@
         <img v-else :src="thinkingIcon" alt="" />
         <span>{{
           message.loading && !effectiveReasoningTrimmed
-            ? '正在梳理答案思路…'
-            : '我的思考过程'
+            ? '正在梳理回答…'
+            : '回答整理思路'
         }}</span>
         <el-icon
           class="toggle-icon"
@@ -414,30 +456,6 @@
         </div>
         <div v-else-if="renderedReasoning" v-html="renderedReasoning"></div>
       </div>
-      <!-- content -->
-      <div
-        class="bubble-row"
-        :class="{ 'bubble-row--user': message.role === 'user' }"
-      >
-        <div class="bubble markdown-body" v-html="renderedContent" />
-        <span
-          v-if="message.role === 'assistant' && message.loading"
-          class="stream-tail-caret"
-          aria-hidden="true"
-        />
-      </div>
-      <CitationArea
-        v-if="message.role === 'assistant'"
-        :citations="message.citations || []"
-        :confidence="message.confidence"
-        :grounding-mode="message.grounding_mode"
-        :metrics="message.metrics || {}"
-      />
-      <FollowUpActions
-        v-if="message.role === 'assistant'"
-        :suggestions="message.suggestions || []"
-        @pick="handleSuggestionClick"
-      />
       <div v-if="message.requires_confirmation" class="hitl-card">
         <p>系统生成了学习计划，是否确认写入你的学习日历？</p>
         <div class="hitl-actions">
@@ -543,7 +561,7 @@
         align-items: center;
         gap: 0.35rem;
         padding: 0.28rem 0.56rem;
-        margin: 0 0 0.5rem 0.5rem;
+        margin: 0.45rem 0 0.5rem 0.5rem;
         border-radius: 999px;
         /* 品牌绿 toggle */
         border: 1px solid rgba(99, 102, 241, 0.25);
@@ -587,7 +605,7 @@
         align-items: center;
         gap: 0.35rem;
         padding: 0.28rem 0.56rem;
-        margin: 0 0 0.45rem 0.5rem;
+        margin: 0.45rem 0 0.45rem 0.5rem;
         border-radius: 999px;
         border: 1px solid rgba(51, 65, 85, 0.2);
         background: rgba(241, 245, 249, 0.9);

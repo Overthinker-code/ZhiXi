@@ -25,9 +25,9 @@
   );
 
   const nodes = [
-    { key: 'supervisor', label: '主管', sub: '拆解与调度' },
-    { key: 'tutor', label: '知识讲师', sub: 'RAG / 工具' },
-    { key: 'final', label: '汇总', sub: '合成答案' },
+    { key: 'supervisor', label: '主管', sub: '问题拆解' },
+    { key: 'tutor', label: '知识讲师', sub: '资料整合' },
+    { key: 'final', label: '汇总', sub: '生成答复' },
   ] as const;
 
   function tagBucket(tag: string): 'supervisor' | 'tutor' | 'final' {
@@ -87,7 +87,7 @@
 
   const terminalTarget = computed(() => {
     const lines: string[] = [];
-    lines.push(`${ts(0)}  [BOOT] multi-agent pipeline online`);
+    lines.push(`${ts(0)}  [INIT] 回答流程已启动`);
     parsed.value.forEach((p, i) => {
       lines.push(`${ts(i)}  ${linePrefix(p.tag)} ${p.tag}`);
       const chunks = p.detail.split(/\n+/).filter(Boolean);
@@ -96,7 +96,7 @@
       });
     });
     if (props.streaming && !parsed.value.length) {
-      lines.push(`${ts(0)}  [WAIT] connecting to orchestrator…`);
+      lines.push(`${ts(0)}  [WAIT] 正在连接分析节点…`);
     }
     return lines.join('\n');
   });
@@ -136,15 +136,19 @@
   <div v-if="parsed.length || streaming" class="atc-root">
     <!-- 收起：流光胶囊 -->
     <div
-      v-if="collapsed && !streaming"
+      v-if="collapsed"
       class="atc-capsule"
       @mouseenter="capsuleHover = true"
       @mouseleave="capsuleHover = false"
     >
       <span class="atc-capsule-shimmer" aria-hidden="true" />
       <span class="atc-capsule-dot" />
-      <span class="atc-capsule-text">协作思考已完成 · {{ parsed.length }} 步</span>
-      <span class="atc-capsule-hint">悬停展开算力日志</span>
+      <span class="atc-capsule-text">
+        {{ streaming ? '正在整合回答…' : `回答推理已完成 · ${parsed.length} 步` }}
+      </span>
+      <span class="atc-capsule-hint">
+        {{ streaming ? '悬停查看当前进度' : '悬停查看分析过程' }}
+      </span>
       <transition name="atc-pop">
         <div v-show="capsuleHover" class="atc-capsule-pop">
           <pre ref="capsuleTerminalEl" class="atc-terminal atc-terminal--pop">{{ shownTerminal }}\n</pre>
@@ -158,8 +162,8 @@
       <div class="atc-inner">
         <div class="atc-head">
           <span class="atc-pulse-dot" />
-          <span class="atc-title">多 Agent 神经元流转</span>
-          <span v-if="streaming" class="atc-live">LIVE</span>
+          <span class="atc-title">多智能体分析过程</span>
+          <span v-if="streaming" class="atc-live">处理中</span>
         </div>
 
         <div class="atc-neuron-row">
@@ -185,7 +189,7 @@
         <div class="atc-terminal-wrap">
           <div class="atc-terminal-bar">
             <span class="dot r" /><span class="dot y" /><span class="dot g" />
-            <span class="atc-terminal-title">THOUGHT_STREAM // tty-neuron</span>
+            <span class="atc-terminal-title">ANALYSIS_LOG // 回答生成记录</span>
           </div>
           <pre ref="terminalEl" class="atc-terminal">{{ shownTerminal }}<span v-if="streaming" class="atc-caret">▍</span></pre>
         </div>

@@ -1,4 +1,7 @@
 <script setup lang="ts">
+  import { computed } from 'vue';
+  import { useSettingStore } from '@/store/setting';
+
   const props = defineProps<{
     citations?: Array<{
       citation_id: number;
@@ -11,6 +14,11 @@
     groundingMode?: string;
     metrics?: Record<string, any>;
   }>();
+
+  const settingStore = useSettingStore();
+  const showDiagnostics = computed(
+    () => Boolean(settingStore.settings.debugMode)
+  );
 
   const confidenceLabel = (value?: string) => {
     const normalized = String(value || '').toLowerCase();
@@ -34,7 +42,7 @@
       (citations && citations.length > 0) ||
       confidence ||
       groundingMode ||
-      metrics?.agent_hops
+      (showDiagnostics && metrics?.agent_hops)
     "
     class="citation-area"
   >
@@ -45,10 +53,16 @@
       <span v-if="confidence" class="meta-pill">
         {{ confidenceLabel(confidence) }}
       </span>
-      <span v-if="metrics?.agent_hops" class="meta-pill meta-pill--soft">
+      <span
+        v-if="showDiagnostics && metrics?.agent_hops"
+        class="meta-pill meta-pill--soft"
+      >
         {{ metrics.agent_hops }} 跳协作
       </span>
-      <span v-if="metrics?.ttft_ms" class="meta-pill meta-pill--soft">
+      <span
+        v-if="showDiagnostics && metrics?.ttft_ms"
+        class="meta-pill meta-pill--soft"
+      >
         TTFT {{ metrics.ttft_ms }}ms
       </span>
     </div>
