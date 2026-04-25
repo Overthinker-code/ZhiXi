@@ -113,6 +113,14 @@
         </a-main>
       </a-container>
     </a-container>
+
+    <!-- AI 复习 -->
+    <div style="padding: 24px; display: flex; flex-direction: column; gap: 24px;">
+      <h2 style="font-size: 20px; font-weight: 600; margin: 0; color: rgb(var(--gray-9));">AI 复习</h2>
+      <ReviewPlanCard />
+      <WrongQuestionList />
+      <LearningArchiveCard />
+    </div>
   </div>
 </template>
 
@@ -123,10 +131,13 @@
   import * as echarts from 'echarts';
   import { ref } from 'vue';
   import { chartOption1 } from './chartsConfig/chartsConfig'; // 引入数据和配置
+  import ReviewPlanCard from './components/ReviewPlanCard.vue';
+  import WrongQuestionList from './components/WrongQuestionList.vue';
+  import LearningArchiveCard from './components/LearningArchiveCard.vue';
 
   export default {
     name: 'HomePage',
-    components: { Calendar },
+    components: { Calendar, ReviewPlanCard, WrongQuestionList, LearningArchiveCard },
     setup() {
       const value = ref(dayjs());
       return {

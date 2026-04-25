@@ -4,7 +4,11 @@
       <div class="zy-skeleton zy-skeleton--radar zy-bar" style="height: 72px" />
       <div class="zy-skeleton zy-skeleton--radar zy-bar" style="height: 120px" />
     </div>
-    <a-grid v-show="!loading" :cols="18" :row-gap="16" class="panel">
+    <div v-else-if="error" class="data-panel-error">
+      <span>{{ $t('workplace.loadFailedTip') }}</span>
+      <a-button type="primary" size="small" @click="fetchData">{{ $t('workplace.retry') }}</a-button>
+    </div>
+    <a-grid v-else-if="data" :cols="18" :row-gap="16" class="panel">
       <a-grid-item
         class="panel-col"
         :span="{ xs: 12, sm: 12, md: 12, lg: 12, xl: 12, xxl: 6 }"
@@ -14,8 +18,8 @@
             <icon-storage />
           </a-avatar>
           <a-statistic
-            :title="$t('workplace.onlineContent')"
-            :value="displayOverview.total_classes"
+            :title="$t('workplace.totalCourses')"
+            :value="displayOverview.total_courses"
             :precision="0"
             :value-from="0"
             animation
@@ -36,8 +40,9 @@
             <icon-user />
           </a-avatar>
           <a-statistic
-            :title="$t('workplace.putIn')"
-            :value="displayOverview.total_teachers"
+            :title="$t('workplace.activeStudents')"
+            :value="displayOverview.active_students"
+            :precision="0"
             :value-from="0"
             animation
             show-group-separator
@@ -78,19 +83,15 @@
 
 <script lang="ts" setup>
   import { reactive, onMounted, ref } from 'vue';
-  import useLoading from '@/hooks/loading';
-  import { queryDashboardOverview } from '@/api/dashboard';
+  import { getTeacherStats, type TeacherStats } from '@/api/dashboard';
 
-  const { loading, setLoading } = useLoading(true);
-  const overview = reactive({
-    total_classes: 3735,
-    total_teachers: 768,
-    total_resources: 8874,
-  });
+  const loading = ref(true);
+  const error = ref<string | null>(null);
+  const data = ref<TeacherStats | null>(null);
 
   const displayOverview = reactive({
-    total_classes: 0,
-    total_teachers: 0,
+    total_courses: 0,
+    active_students: 0,
     total_resources: 0,
   });
 
@@ -99,7 +100,7 @@
   }
 
   function runCountUp(
-    key: 'total_classes' | 'total_teachers' | 'total_resources',
+    key: 'total_courses' | 'active_students' | 'total_resources',
     target: number,
     durationMs: number
   ) {
@@ -114,16 +115,15 @@
   }
 
   const fetchData = async () => {
-    setLoading(true);
+    loading.value = true;
+    error.value = null;
     try {
-      const { data } = await queryDashboardOverview();
-      overview.total_classes = data.total_classes;
-      overview.total_teachers = data.total_teachers;
-      overview.total_resources = data.total_resources;
-    } catch (_err) {
-      // keep demo fallback values
+      data.value = await getTeacherStats();
+    } catch (err) {
+      console.error('[data-panel] fetchData failed:', err);
+      error.value = 'failed';
     } finally {
-      setLoading(false);
+      loading.value = false;
     }
   };
 
@@ -131,12 +131,12 @@
 
   onMounted(async () => {
     await fetchData();
-    if (animatedOnce.value) return;
+    if (!data.value || animatedOnce.value) return;
     animatedOnce.value = true;
     const d = 1100;
-    runCountUp('total_classes', overview.total_classes, d);
-    runCountUp('total_teachers', overview.total_teachers, d);
-    runCountUp('total_resources', overview.total_resources, d);
+    runCountUp('total_courses', data.value.total_courses, d);
+    runCountUp('active_students', data.value.active_students, d);
+    runCountUp('total_resources', data.value.total_resources, d);
   });
 </script>
 
@@ -175,5 +175,15 @@
   :deep(.panel-border) {
     margin: 4px 0 0 0;
   }
-</style>
 
+  .data-panel-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 48px 20px;
+    color: rgb(var(--gray-6));
+    font-size: 14px;
+  }
+</style>

@@ -9,8 +9,8 @@ export default {
   'workplace.balance': '\u9884\u7b97\u989d\u5ea6\uff08\u5143\uff09',
   'workplace.order.pending': '\u5f85\u5904\u7406',
   'workplace.order.pendingRenewal': '\u5f85\u7eed\u8d39\u8ba2\u5355',
-  'workplace.onlineContent': '\u8bfe\u5802\u603b\u6570',
-  'workplace.putIn': '\u6559\u5e08\u4eba\u6570',
+  'workplace.totalCourses': '\u8bfe\u7a0b\u603b\u6570',
+  'workplace.activeStudents': '\u6d3b\u8dc3\u5b66\u751f',
   'workplace.newDay': '\u5e73\u53f0\u8d44\u6e90\u6570',
   'workplace.newFromYesterday': '\u8f83\u6628\u65e5\u589e\u957f',
   'workplace.minute': '\u5206\u949f',
@@ -51,4 +51,7 @@ export default {
   'workplace.categories.total': '\u5185\u5bb9\u603b\u91cf',
   'workplace.pecs': '\u4e2a',
   'workplace.personpecs': '\u4eba',
+  'workplace.retry': '\u91cd\u8bd5',
+  'workplace.loadFailedTip': '\u6570\u636e\u52a0\u8f7d\u5931\u8d25\uff0c\u70b9\u51fb\u91cd\u8bd5',
+  'workplace.alertsTrend': '\u8fd1 7 \u5929\u544a\u8b66\u8d8b\u52bf',
 };

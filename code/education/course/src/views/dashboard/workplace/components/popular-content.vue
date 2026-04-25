@@ -4,8 +4,12 @@
       <div class="zy-skeleton zy-skeleton--radar zy-bar" style="height: 48px" />
       <div class="zy-skeleton zy-skeleton--radar zy-bar" style="height: 300px; margin-top: 12px" />
     </div>
+    <div v-else-if="error" class="popular-content-error">
+      <span>{{ $t('workplace.loadFailedTip') }}</span>
+      <a-button type="primary" size="small" @click="() => fetchData(type)">{{ $t('workplace.retry') }}</a-button>
+    </div>
     <a-card
-      v-show="!loading"
+      v-else
       class="general-card"
       :header-style="{ paddingBottom: '0' }"
       :body-style="{ padding: '17px 20px 21px 20px' }"
@@ -27,12 +31,6 @@
           </a-radio>
           <a-radio value="resource">
             {{ $t('workplace.popularContent.image') }}
-          </a-radio>
-          <a-radio value="discussion">
-            {{ $t('workplace.popularContent.video') }}
-          </a-radio>
-          <a-radio value="homework">
-            {{ $t('workplace.popularContent.homework') }}
           </a-radio>
         </a-radio-group>
         <a-table
@@ -62,7 +60,7 @@
             </a-table-column>
             <a-table-column
               :title="$t('workplace.popular.table.click')"
-              data-index="clickNumber"
+              data-index="click_number"
             />
             <a-table-column
               :title="$t('workplace.popular.table.increase')"
@@ -90,25 +88,25 @@
 
 <script lang="ts" setup>
   import { ref } from 'vue';
-  import useLoading from '@/hooks/loading';
-  import { queryPopularList } from '@/api/dashboard';
-  import type { TableData } from '@arco-design/web-vue/es/table/interface';
+  import { getTeacherPopular, type PopularItem } from '@/api/dashboard';
 
-  const type = ref('course');
-  const { loading, setLoading } = useLoading();
-  const renderList = ref<TableData[]>();
-  const fetchData = async (contentType: string) => {
+  const type = ref<'course' | 'resource'>('course');
+  const loading = ref(true);
+  const error = ref<string | null>(null);
+  const renderList = ref<PopularItem[]>([]);
+  const fetchData = async (contentType: 'course' | 'resource') => {
+    loading.value = true;
+    error.value = null;
     try {
-      setLoading(true);
-      const { data } = await queryPopularList({ type: contentType });
-      renderList.value = data;
+      renderList.value = await getTeacherPopular(contentType);
     } catch (err) {
-      // you can report use errorHandler or other
+      console.error('[popular-content] fetchData failed:', err);
+      error.value = 'failed';
     } finally {
-      setLoading(false);
+      loading.value = false;
     }
   };
-  const typeChange = (contentType: string) => {
+  const typeChange = (contentType: 'course' | 'resource') => {
     fetchData(contentType);
   };
   fetchData('course');
@@ -142,5 +140,16 @@
     span {
       margin-right: 4px;
     }
+  }
+
+  .popular-content-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    min-height: 348px;
+    color: rgb(var(--gray-6));
+    font-size: 14px;
   }
 </style>
