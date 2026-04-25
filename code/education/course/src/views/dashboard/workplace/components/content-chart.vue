@@ -3,14 +3,18 @@
     <div v-if="loading" class="zy-panel-skeleton" aria-busy="true">
       <div class="zy-skeleton zy-skeleton--radar zy-bar" style="height: 289px" />
     </div>
+    <div v-else-if="error" class="chart-panel-error">
+      <span>{{ $t('workplace.loadFailedTip') }}</span>
+      <a-button type="primary" size="small" @click="fetchData">{{ $t('workplace.retry') }}</a-button>
+    </div>
     <a-card
-      v-show="!loading"
+      v-else
       class="general-card"
       :header-style="{ paddingBottom: 0 }"
       :body-style="{
         paddingTop: '20px',
       }"
-      :title="$t('workplace.contentData')"
+      :title="$t('workplace.alertsTrend')"
     >
       <template #extra>
         <a-link>{{ $t('workplace.viewMore') }}</a-link>
@@ -24,9 +28,7 @@
   import { ref } from 'vue';
   import { graphic } from 'echarts';
   import { useI18n } from 'vue-i18n';
-  import useLoading from '@/hooks/loading';
-  import { queryContentData, ContentDataRecord } from '@/api/dashboard';
-  import { demoVisitsTrend } from '@/mock/demoData';
+  import { getTeacherAlertsTrend, type AlertsTrendItem } from '@/api/dashboard';
   import useChartOption from '@/hooks/chart-option';
   import { ToolTipFormatterParams } from '@/types/echarts';
   import { AnyObject } from '@/types/global';
@@ -44,7 +46,8 @@
       },
     };
   }
-  const { loading, setLoading } = useLoading(true);
+  const loading = ref(true);
+  const error = ref<string | null>(null);
   const { t } = useI18n();
   const xAxis = ref<string[]>([]);
   const chartsData = ref<number[]>([]);
@@ -171,35 +174,27 @@
     };
   });
   const fetchData = async () => {
-    setLoading(true);
+    loading.value = true;
+    error.value = null;
+    xAxis.value = [];
+    chartsData.value = [];
     try {
-      xAxis.value = [];
-      chartsData.value = [];
-      const { data: chartData } = await queryContentData();
-      chartData.forEach((el: ContentDataRecord, idx: number) => {
-        xAxis.value.push(el.x);
-        chartsData.value.push(el.y);
+      const list: AlertsTrendItem[] = await getTeacherAlertsTrend(7);
+      list.forEach((el, idx) => {
+        xAxis.value.push(el.date);
+        chartsData.value.push(el.alert_count);
         if (idx === 0) {
-          graphicElements.value[0].style.text = el.x;
+          graphicElements.value[0].style.text = el.date;
         }
-        if (idx === chartData.length - 1) {
-          graphicElements.value[1].style.text = el.x;
+        if (idx === list.length - 1) {
+          graphicElements.value[1].style.text = el.date;
         }
       });
     } catch (err) {
-      // fallback to stable demo data to avoid empty chart during demos
-      demoVisitsTrend.forEach((el: ContentDataRecord, idx: number) => {
-        xAxis.value.push(el.x);
-        chartsData.value.push(el.y);
-        if (idx === 0) {
-          graphicElements.value[0].style.text = el.x;
-        }
-        if (idx === demoVisitsTrend.length - 1) {
-          graphicElements.value[1].style.text = el.x;
-        }
-      });
+      console.error('[content-chart] fetchData failed:', err);
+      error.value = 'failed';
     } finally {
-      setLoading(false);
+      loading.value = false;
     }
   };
   fetchData();
@@ -208,5 +203,16 @@
 <style scoped lang="less">
   .chart-panel-root {
     width: 100%;
+  }
+
+  .chart-panel-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    height: 289px;
+    color: rgb(var(--gray-6));
+    font-size: 14px;
   }
 </style>

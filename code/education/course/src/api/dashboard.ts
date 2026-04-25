@@ -1,14 +1,6 @@
 import axios from 'axios';
-import type { TableData } from '@arco-design/web-vue/es/table/interface';
 
-const READ_TIMEOUT_MS = 8000;
-
-export interface ContentDataRecord {
-  x: string;
-  y: number;
-}
-
-export interface DashboardOverview {
+export interface TeacherStats {
   today_login_count: number;
   total_courses: number;
   total_resources: number;
@@ -16,45 +8,51 @@ export interface DashboardOverview {
   active_students: number;
 }
 
-export function queryDashboardOverview() {
-  return axios.get<DashboardOverview>('/api/dashboard/teacher/stats', {
-    timeout: READ_TIMEOUT_MS,
-  });
+export function getTeacherStats(): Promise<TeacherStats> {
+  return axios
+    .get<TeacherStats>('/api/dashboard/teacher/stats')
+    .then((res) => res.data);
 }
 
-export function queryContentData() {
-  return axios.get<ContentDataRecord[]>('/api/dashboard/teacher/alerts-trend', {
-    timeout: READ_TIMEOUT_MS,
-  });
+export interface AlertsTrendItem {
+  date: string;
+  alert_count: number;
 }
 
-export interface PopularRecord {
+export function getTeacherAlertsTrend(days = 7): Promise<AlertsTrendItem[]> {
+  return axios
+    .get<AlertsTrendItem[]>('/api/dashboard/teacher/alerts-trend', {
+      params: { days },
+    })
+    .then((res) => res.data);
+}
+
+export interface PopularItem {
   key: number;
   title: string;
   click_number: number;
   increases: number;
 }
 
-export function queryPopularList(params: { type: string }) {
-  return axios.get<PopularRecord[]>('/api/dashboard/teacher/popular', {
-    params,
-    timeout: READ_TIMEOUT_MS,
-  });
+export function getTeacherPopular(
+  type: 'course' | 'resource'
+): Promise<PopularItem[]> {
+  return axios
+    .get<PopularItem[]>('/api/dashboard/teacher/popular', {
+      params: { type },
+    })
+    .then((res) => res.data);
 }
 
-export interface ContentDistribution {
+export interface TeacherContentDistribution {
   total: number;
-  items: Array<{
-    name: 'resources' | 'courses' | 'homework' | 'discussions';
-    value: number;
-  }>;
+  items: { name: string; value: number }[];
 }
 
-export function queryContentDistribution() {
-  return axios.get<ContentDistribution>(
-    '/api/dashboard/teacher/content-distribution',
-    {
-      timeout: READ_TIMEOUT_MS,
-    }
-  );
+export function getTeacherContentDistribution(): Promise<TeacherContentDistribution> {
+  return axios
+    .get<TeacherContentDistribution>(
+      '/api/dashboard/teacher/content-distribution'
+    )
+    .then((res) => res.data);
 }

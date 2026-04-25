@@ -3,8 +3,12 @@
     <div v-if="loading" class="zy-panel-skeleton" aria-busy="true">
       <div class="zy-skeleton zy-skeleton--radar zy-bar" style="height: 310px" />
     </div>
+    <div v-else-if="error" class="categories-percent-error">
+      <span>{{ $t('workplace.loadFailedTip') }}</span>
+      <a-button type="primary" size="small" @click="fetchDistribution">{{ $t('workplace.retry') }}</a-button>
+    </div>
     <a-card
-      v-show="!loading"
+      v-else
       class="general-card"
       :header-style="{ paddingBottom: '0' }"
       :body-style="{
@@ -22,27 +26,18 @@
 <script lang="ts" setup>
   import { ref, computed, onMounted } from 'vue';
   import { useI18n } from 'vue-i18n';
-  import useLoading from '@/hooks/loading';
   import useChartOption from '@/hooks/chart-option';
-  import { queryContentDistribution } from '@/api/dashboard';
-  import { demoResourceDistribution } from '@/mock/demoData';
+  import { getTeacherContentDistribution, type TeacherContentDistribution } from '@/api/dashboard';
 
-  const { loading, setLoading } = useLoading(true);
+  const loading = ref(true);
+  const error = ref<string | null>(null);
   const { t } = useI18n();
-  const total = ref(demoResourceDistribution.total);
+  const total = ref(0);
   const distribution = ref({
-    resources:
-      demoResourceDistribution.items.find((x) => x.name === 'resources')?.value ||
-      5179,
-    courses:
-      demoResourceDistribution.items.find((x) => x.name === 'courses')?.value ||
-      2301,
-    homework:
-      demoResourceDistribution.items.find((x) => x.name === 'homework')?.value ||
-      1116,
-    discussions:
-      demoResourceDistribution.items.find((x) => x.name === 'discussions')
-        ?.value || 689,
+    resources: 0,
+    courses: 0,
+    homework: 0,
+    discussions: 0,
   });
 
   const chartItems = computed(() => [
@@ -77,21 +72,22 @@
   ]);
 
   const fetchDistribution = async () => {
-    setLoading(true);
+    loading.value = true;
+    error.value = null;
     try {
-      const { data } = await queryContentDistribution();
-      total.value = data.total;
-      data.items.forEach((item) => {
+      const result: TeacherContentDistribution = await getTeacherContentDistribution();
+      total.value = result.total;
+      result.items.forEach((item) => {
         if (item.name === 'resources') distribution.value.resources = item.value;
-        if (item.name === 'courses') distribution.value.courses = item.value;
-        if (item.name === 'homework') distribution.value.homework = item.value;
-        if (item.name === 'discussions')
-          distribution.value.discussions = item.value;
+        else if (item.name === 'courses') distribution.value.courses = item.value;
+        else if (item.name === 'homework') distribution.value.homework = item.value;
+        else if (item.name === 'discussions') distribution.value.discussions = item.value;
       });
     } catch (err) {
-      // keep demo fallback values
+      console.error('[categories-percent] fetchDistribution failed:', err);
+      error.value = 'failed';
     } finally {
-      setLoading(false);
+      loading.value = false;
     }
   };
 
@@ -174,5 +170,16 @@
 <style scoped lang="less">
   .chart-panel-root {
     width: 100%;
+  }
+
+  .categories-percent-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    height: 310px;
+    color: rgb(var(--gray-6));
+    font-size: 14px;
   }
 </style>

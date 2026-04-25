@@ -9,8 +9,8 @@ export default {
   'workplace.balance': 'Budget (CNY)',
   'workplace.order.pending': 'Pending',
   'workplace.order.pendingRenewal': 'Renewal Order',
-  'workplace.onlineContent': 'Total Classes',
-  'workplace.putIn': 'Total Teachers',
+  'workplace.totalCourses': 'Total Courses',
+  'workplace.activeStudents': 'Active Students',
   'workplace.newDay': 'Platform Resources',
   'workplace.newFromYesterday': 'Day-over-day Growth',
   'workplace.minute': 'Min',
@@ -51,4 +51,7 @@ export default {
   'workplace.categories.total': 'Content Total',
   'workplace.pecs': 'items',
   'workplace.personpecs': 'students',
+  'workplace.retry': 'Retry',
+  'workplace.loadFailedTip': 'Failed to load data, click to retry',
+  'workplace.alertsTrend': 'Alerts Trend (7 Days)',
 };
