@@ -190,7 +190,8 @@ def calculate_classroom_score(persons):
     # 确保在0-1范围内，但允许接近1
     final_score = max(0.0, min(1.0, final_score))
     
-    return round(final_score, 2), get_learning_status(final_score)
+    final_score = float(round(float(final_score), 2))
+    return final_score, get_learning_status(final_score)
 
 # COCO关键点索引
 KEYPOINT_DICT = {
@@ -218,34 +219,43 @@ class RuleBasedBehaviorClassifier:
     def check_phone_usage(self, keypoints):
         """
         检查是否在看手机
-        规则：手腕靠近面部（鼻子/眼睛），且头部低下
+        规则：手腕非常靠近面部，并结合人体尺度与手腕高度过滤读写姿态。
         """
         nose = self.get_keypoint(keypoints, 'nose')
         left_wrist = self.get_keypoint(keypoints, 'left_wrist')
         right_wrist = self.get_keypoint(keypoints, 'right_wrist')
         left_shoulder = self.get_keypoint(keypoints, 'left_shoulder')
         right_shoulder = self.get_keypoint(keypoints, 'right_shoulder')
+        left_hip = self.get_keypoint(keypoints, 'left_hip')
+        right_hip = self.get_keypoint(keypoints, 'right_hip')
         
         # 计算手腕到鼻子的距离
         left_dist = np.linalg.norm(left_wrist - nose)
         right_dist = np.linalg.norm(right_wrist - nose)
         min_dist = min(left_dist, right_dist)
+        nearest_wrist = left_wrist if left_dist <= right_dist else right_wrist
         
-        # 计算肩部中心
+        # 用人体自身尺度归一化，避免远景课堂中正常读写被固定阈值误判为看手机
         shoulder_center = (left_shoulder + right_shoulder) / 2
+        hip_center = (left_hip + right_hip) / 2
+        shoulder_width = np.linalg.norm(left_shoulder - right_shoulder)
+        torso_height = np.linalg.norm(shoulder_center - hip_center)
+        body_scale = max(shoulder_width, torso_height * 0.65, 0.045)
+        relative_dist = min_dist / body_scale
         
-        # 头部是否低下（有助于区分看手机vs举手）
-        head_low = nose[1] > shoulder_center[1] + 0.05
+        # 头部是否低下（有助于区分看手机 vs 举手/听课）
+        head_low = nose[1] > shoulder_center[1] + body_scale * 0.18
+        # 手腕必须真的抬到胸口以上；否则大量读写/敲键盘动作会被误判为手机
+        wrist_near_head_height = nearest_wrist[1] < shoulder_center[1] + body_scale * 0.35
         
         # 判断逻辑
-        if min_dist < 0.15 and head_low:  # 手腕离面部很近 + 低头
-            return True, min_dist, 0.95
-        elif min_dist < 0.12:  # 手腕非常靠近面部
-            return True, min_dist, 0.9
-        elif min_dist < 0.20 and head_low:  # 手腕较近 + 低头
-            return True, min_dist, 0.75
-        else:
-            return False, min_dist, 0.0
+        if relative_dist < 0.24 and wrist_near_head_height:
+            confidence = 0.82 + max(0.0, 0.24 - relative_dist) * 0.5
+            return True, float(relative_dist), float(min(0.92, confidence))
+        if relative_dist < 0.34 and head_low and wrist_near_head_height:
+            confidence = 0.72 + max(0.0, 0.34 - relative_dist) * 0.45
+            return True, float(relative_dist), float(min(0.86, confidence))
+        return False, float(relative_dist), 0.0
     
     def check_sleeping(self, keypoints):
         """
@@ -301,7 +311,7 @@ class RuleBasedBehaviorClassifier:
         # 综合判断
         if ear_height_diff > 0.06 or head_turn_x > 0.04 or shoulder_slope > 0.05:
             confidence = min(0.9, 0.5 + ear_height_diff * 3 + head_turn_x * 5)
-            return True, confidence
+            return True, float(confidence)
         else:
             return False, 0.0
     
@@ -389,7 +399,7 @@ class RuleBasedBehaviorClassifier:
         
         # 选择得分最高的行为
         dominant_behavior = max(behavior_avg_scores, key=behavior_avg_scores.get)
-        avg_confidence = np.mean(behavior_scores[dominant_behavior])
+        avg_confidence = float(np.mean(behavior_scores[dominant_behavior]))
         
         # 获取该行为的主要理由
         reasons = [r for bid, _, r in frame_results if bid == dominant_behavior]
@@ -696,14 +706,14 @@ async def analyze_frame(file: UploadFile = File(...)):
             
             # 综合置信度：检测器置信度 * 行为分类置信度
             detector_conf = person.get("confidence", 0.75)
-            final_conf = round(detector_conf * behavior_conf, 4)
+            final_conf = float(round(float(detector_conf) * float(behavior_conf), 4))
             
             analyzed_persons.append({
                 "id": person["id"],
                 "bbox": person["bbox"],  # [x1, y1, x2, y2]
                 "behavior": behavior_info["name"],
                 "confidence": final_conf,
-                "score": behavior_info["score"],
+                "score": float(behavior_info["score"]),
                 "color": behavior_info["color"],
                 "reason": reason
             })
@@ -820,8 +830,8 @@ async def analyze_video(file: UploadFile = File(...), sample_interval: int = 1):
                 predictions.append({
                     "class_id": behavior_id,
                     "behavior": behavior_info["name"],
-                    "confidence": round(confidence, 4),
-                    "score": behavior_info["score"],
+                    "confidence": float(round(float(confidence), 4)),
+                    "score": float(behavior_info["score"]),
                     "timestamp": round(timestamp, 2),
                     "frame_range": [start, end],
                     "reason": reason
@@ -843,7 +853,7 @@ async def analyze_video(file: UploadFile = File(...), sample_interval: int = 1):
                 
                 # 构建汇总信息
                 summary = {
-                    "average_score": round(avg_score, 2),
+                    "average_score": float(round(float(avg_score), 2)),
                     "overall_status": get_learning_status(avg_score),
                     "dominant_behavior": dominant_behavior["name"],
                     "behavior_statistics": {
@@ -865,7 +875,7 @@ async def analyze_video(file: UploadFile = File(...), sample_interval: int = 1):
                             "bbox": person["bbox"],
                             "behavior": dominant_behavior["name"],
                             "confidence": 0.85,
-                            "score": BEHAVIOR_LABELS[dominant_class]["score"],
+                            "score": float(BEHAVIOR_LABELS[dominant_class]["score"]),
                             "color": BEHAVIOR_LABELS[dominant_class]["color"]
                         })
                 
@@ -932,9 +942,9 @@ async def analyze_stream(frames: List[List[float]]):
             "method": "rule_based",
             "class_id": behavior_id,
             "behavior": behavior_info["name"],
-            "confidence": round(confidence, 4),
-            "score": behavior_info["score"],
-            "learning_status": get_learning_status(behavior_info["score"]),
+            "confidence": float(round(float(confidence), 4)),
+            "score": float(behavior_info["score"]),
+            "learning_status": get_learning_status(float(behavior_info["score"])),
             "description": behavior_info["description"],
             "color": behavior_info["color"],
             "reason": reason

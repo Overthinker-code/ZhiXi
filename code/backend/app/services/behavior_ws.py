@@ -46,6 +46,11 @@ class PersonResult(BaseModel):
     bbox: List[int] = Field(..., description="人脸边界框 [x1, y1, x2, y2]")
     status: str = Field(..., description="状态：focused / unfocused / absent")
     score: float = Field(..., ge=0.0, le=1.0, description="专注度分数")
+    behavior: Optional[str] = Field(None, description="YOLO 行为标签，如专注学习/查看手机")
+    confidence: Optional[float] = Field(None, ge=0.0, le=1.0, description="行为识别置信度")
+    color: Optional[str] = Field(None, description="行为标签颜色")
+    reason: Optional[str] = Field(None, description="行为判断原因")
+    method: Optional[str] = Field(None, description="检测方法：yolo / fallback")
 
 
 class SummaryResult(BaseModel):

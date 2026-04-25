@@ -363,10 +363,15 @@ async def behavior_realtime_ws(
                 )
                 continue
 
-            # 调用本地 CV 检测服务
-            result = behavior_ws_service.analyze_frame(
-                frame_msg.image_base64, frame_msg.frame_id
+            # 实时课堂优先调用 YOLO 姿态检测服务；不可用时保留原本地 CV 降级链路。
+            result = await behavior_service.analyze_realtime_frame(
+                frame_msg.image_base64,
+                frame_msg.frame_id,
             )
+            if result is None:
+                result = behavior_ws_service.analyze_frame(
+                    frame_msg.image_base64, frame_msg.frame_id
+                )
             await websocket.send_json(result.model_dump())
 
     except WebSocketDisconnect:

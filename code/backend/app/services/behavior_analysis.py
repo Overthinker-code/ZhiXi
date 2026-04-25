@@ -1,3 +1,4 @@
+import base64
 import os
 import tempfile
 from datetime import datetime
@@ -8,7 +9,12 @@ import httpx
 import numpy as np
 
 from app.core.config import settings
-from app.services.behavior_ws import behavior_ws_service
+from app.services.behavior_ws import (
+    AnalysisMessage,
+    PersonResult,
+    SummaryResult,
+    behavior_ws_service,
+)
 
 
 class BehaviorAnalysisService:
@@ -98,6 +104,116 @@ class BehaviorAnalysisService:
         if score >= 0.15:
             return "学习状态较差"
         return "学习状态极差"
+
+    def _decode_base64_image(self, image_base64: str) -> Optional[bytes]:
+        try:
+            if "," in image_base64:
+                image_base64 = image_base64.split(",", 1)[1]
+            return base64.b64decode(image_base64)
+        except Exception:
+            return None
+
+    def _yolo_behavior_to_status(self, behavior: str) -> str:
+        if behavior == "专注学习":
+            return "focused"
+        if behavior in {"离开座位", "缺席/未检测到", "未检测到人体"}:
+            return "absent"
+        return "unfocused"
+
+    def _clamp_score(self, value: Any, default: float = 0.5) -> float:
+        try:
+            score = float(value)
+        except (TypeError, ValueError):
+            score = default
+        return round(max(0.0, min(1.0, score)), 2)
+
+    async def analyze_realtime_frame(
+        self,
+        image_base64: str,
+        frame_id: int,
+    ) -> Optional[AnalysisMessage]:
+        """
+        实时课堂帧优先走独立 YOLO 服务。
+
+        返回 None 表示 YOLO 服务不可用，由 WebSocket 原有本地检测链路兜底。
+        """
+        image_data = self._decode_base64_image(image_base64)
+        if image_data is None:
+            return AnalysisMessage(
+                frame_id=frame_id,
+                timestamp=int(datetime.now().timestamp()),
+                error="Failed to decode image",
+            )
+
+        try:
+            files = {"file": ("frame.jpg", image_data, "image/jpeg")}
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.base_url}/analyze/frame",
+                    files=files,
+                    timeout=15.0,
+                )
+                response.raise_for_status()
+                result = response.json()
+        except (httpx.RequestError, httpx.HTTPStatusError):
+            return None
+        except Exception:
+            return None
+
+        if result.get("status") != "success":
+            return None
+
+        persons: List[PersonResult] = []
+        focused_count = 0
+        unfocused_count = 0
+        absent_count = 0
+
+        for index, person in enumerate(result.get("persons", [])):
+            behavior = person.get("behavior", "未知")
+            status = self._yolo_behavior_to_status(behavior)
+            if status == "focused":
+                focused_count += 1
+            elif status == "absent":
+                absent_count += 1
+            else:
+                unfocused_count += 1
+
+            bbox = person.get("bbox") or [0, 0, 0, 0]
+            if len(bbox) != 4:
+                bbox = [0, 0, 0, 0]
+            score = self._clamp_score(person.get("score"), 0.5)
+            confidence = self._clamp_score(person.get("confidence"), score)
+            try:
+                person_index = int(person.get("id", index)) + 1
+            except (TypeError, ValueError):
+                person_index = index + 1
+            persons.append(
+                PersonResult(
+                    track_id=f"person_{person_index}",
+                    bbox=[int(float(v)) for v in bbox],
+                    status=status,
+                    score=score,
+                    behavior=behavior,
+                    confidence=confidence,
+                    color=person.get("color"),
+                    reason=person.get("reason"),
+                    method="yolo",
+                )
+            )
+
+        if not persons:
+            absent_count = 1
+
+        return AnalysisMessage(
+            frame_id=frame_id,
+            timestamp=int(datetime.now().timestamp()),
+            persons=persons,
+            summary=SummaryResult(
+                focused_count=focused_count,
+                unfocused_count=unfocused_count,
+                absent_count=absent_count,
+            ),
+        )
 
     def _stabilize_local_confidence(
         self,

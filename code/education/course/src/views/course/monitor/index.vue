@@ -651,17 +651,19 @@
       const width = sx2 - sx1;
       const height = sy2 - sy1;
 
-      const color = getStatusColor(person.status);
+      const color = person.color || getStatusColor(person.status);
       const displayId = person.track_id.startsWith('person_')
         ? `学生${person.track_id.replace('person_', '')}`
         : person.track_id;
-      const confidenceLabel = `${Math.round(person.score * 100)}%`;
+      const confidenceValue = person.confidence ?? person.score;
+      const confidenceLabel = `${Math.round(confidenceValue * 100)}%`;
+      const behaviorLabel = person.behavior || statusLabel(person.status);
 
       ctx.strokeStyle = color;
       ctx.lineWidth = 3;
       ctx.strokeRect(sx1, sy1, width, height);
 
-      const label = `${displayId} ${statusLabel(person.status)} ${confidenceLabel}`;
+      const label = `${displayId} ${behaviorLabel} ${confidenceLabel}`;
       ctx.font = 'bold 14px Arial';
       const textWidth = ctx.measureText(label).width;
       const textHeight = 20;

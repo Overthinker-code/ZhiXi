@@ -5,6 +5,11 @@ export interface WsPersonResult {
   bbox: [number, number, number, number];
   status: BehaviorStatus;
   score: number;
+  behavior?: string;
+  confidence?: number;
+  color?: string;
+  reason?: string;
+  method?: 'yolo' | 'fallback' | string;
 }
 
 export interface WsSummaryResult {
