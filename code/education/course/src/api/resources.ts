@@ -27,20 +27,20 @@ export function queryResources(params?: {
   skip?: number;
   limit?: number;
 }) {
-  return axios.get<ResourcesResponse>('/api/v1/education/resources', {
+  return axios.get<ResourcesResponse>('/api/education/resources', {
     params,
     timeout: READ_TIMEOUT_MS,
   });
 }
 
 export function getResource(resourceId: string) {
-  return axios.get<ResourceRecord>(`/api/v1/education/resources/${resourceId}`, {
+  return axios.get<ResourceRecord>(`/api/education/resources/${resourceId}`, {
     timeout: READ_TIMEOUT_MS,
   });
 }
 
 export function createResource(formData: FormData) {
-  return axios.post<ResourceRecord>('/api/v1/education/resources', formData, {
+  return axios.post<ResourceRecord>('/api/education/resources', formData, {
     headers: {
       'Content-Type': 'multipart/form-data',
     },
@@ -49,19 +49,23 @@ export function createResource(formData: FormData) {
 }
 
 export function updateResource(resourceId: string, data: { title?: string; type?: string }) {
-  return axios.put<ResourceRecord>(`/api/v1/education/resources/${resourceId}`, data, {
-    timeout: READ_TIMEOUT_MS,
-  });
+  return axios.put<ResourceRecord>(
+    `/api/education/resources/${resourceId}`,
+    data,
+    {
+      timeout: READ_TIMEOUT_MS,
+    }
+  );
 }
 
 export function deleteResource(resourceId: string) {
-  return axios.delete(`/api/v1/education/resources/${resourceId}`, {
+  return axios.delete(`/api/education/resources/${resourceId}`, {
     timeout: READ_TIMEOUT_MS,
   });
 }
 
 export function downloadResource(resourceId: string) {
-  return axios.get(`/api/v1/education/resources/${resourceId}/download`, {
+  return axios.get(`/api/education/resources/${resourceId}/download`, {
     responseType: 'blob',
     timeout: READ_TIMEOUT_MS,
   });

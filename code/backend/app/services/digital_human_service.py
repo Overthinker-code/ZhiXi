@@ -10,6 +10,7 @@ from fastapi import UploadFile
 from sqlalchemy.exc import OperationalError
 
 from app.core.config import settings
+from app.services.digital_human_tts import ensure_edge_tts_available
 from app.worker.celery_app import celery, celery_enabled
 
 
@@ -76,8 +77,7 @@ class DigitalHumanService:
             raise RuntimeError(
                 "Celery/Redis 未启用，请先安装 celery、redis 并启动队列服务。"
             )
-        if shutil.which("edge-tts") is None:
-            raise RuntimeError("未检测到 edge-tts 命令，请先安装 edge-tts。")
+        ensure_edge_tts_available()
         engine = settings.DIGITAL_HUMAN_ENGINE.strip().lower()
         if engine == "musetalk":
             self._ensure_musetalk_ready()
