@@ -1,16 +1,16 @@
 <template>
   <div class="kg-outer">
-    <svg class="kg-svg" viewBox="0 0 940 360" xmlns="http://www.w3.org/2000/svg">
+    <svg class="kg-svg" viewBox="0 0 960 372" xmlns="http://www.w3.org/2000/svg">
       <defs>
         <marker
           id="kg-ar"
-          markerWidth="7"
-          markerHeight="7"
-          refX="5"
-          refY="3.5"
+          markerWidth="8"
+          markerHeight="8"
+          refX="6"
+          refY="4"
           orient="auto"
         >
-          <path d="M0,0 L7,3.5 L0,7 Z" fill="#64748b" />
+          <path d="M0,0 L8,4 L0,8 Z" fill="#64748b" />
         </marker>
       </defs>
 
@@ -19,7 +19,9 @@
         :key="e.k"
         fill="none"
         stroke="#475569"
-        stroke-width="1.15"
+        stroke-width="1.3"
+        stroke-linecap="round"
+        stroke-linejoin="round"
         marker-end="url(#kg-ar)"
       >
         <path
@@ -85,7 +87,7 @@
 
   /** 分层排布，折线连接，边标签偏离线段中点以减少遮挡 */
   const nodes = [
-    { k: 'r', s: 1, x: 408, y: 12, w: 124, h: 28, t: '数据库原理' },
+    { k: 'r', s: 1, x: 418, y: 18, w: 124, h: 30, t: '数据库原理' },
     { k: 'a', s: 2, x: 16, y: 68, w: 118, h: 26, t: '数据库系统结构' },
     { k: 'b', s: 2, x: 146, y: 68, w: 82, h: 26, t: '数据模型' },
     { k: 'c', s: 2, x: 238, y: 68, w: 90, h: 26, t: '数据库语言' },
@@ -111,12 +113,12 @@
   ];
 
   const edges = [
-    { k: 'e1', s: 2, d: 'M 470 40 L 75 68' },
-    { k: 'e2', s: 2, d: 'M 470 40 L 187 68' },
-    { k: 'e3', s: 2, d: 'M 470 40 L 283 68' },
-    { k: 'e4', s: 2, d: 'M 470 40 L 383 68' },
-    { k: 'e5', s: 2, d: 'M 470 40 L 495 68' },
-    { k: 'e6', s: 2, d: 'M 470 40 L 609 68' },
+    { k: 'e1', s: 2, d: 'M 480 48 Q 342 54 75 68' },
+    { k: 'e2', s: 2, d: 'M 480 48 Q 388 54 187 68' },
+    { k: 'e3', s: 2, d: 'M 480 48 Q 430 54 283 68' },
+    { k: 'e4', s: 2, d: 'M 480 48 Q 456 56 383 68' },
+    { k: 'e5', s: 2, d: 'M 480 48 Q 506 56 495 68' },
+    { k: 'e6', s: 2, d: 'M 480 48 Q 560 54 609 68' },
     { k: 'e7', s: 3, d: 'M 78 94 L 78 128' },
     { k: 'e8', s: 3, d: 'M 167 94 L 167 128' },
     { k: 'e9', s: 4, d: 'M 78 152 L 54 188' },
@@ -195,10 +197,10 @@
 
   .kg-svg {
     display: block;
-    min-width: 920px;
+    min-width: 940px;
     width: 100%;
     height: auto;
-    min-height: 340px;
+    min-height: 352px;
 
     :deep(text) {
       user-select: text;
