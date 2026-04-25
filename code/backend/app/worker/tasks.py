@@ -14,6 +14,7 @@ import yaml
 
 from app.core.config import settings
 from app.services.document_processor import DocumentProcessor
+from app.services.digital_human_tts import ensure_edge_tts_available
 from app.services.user_memory_profile_service import user_memory_profile_service
 from app.worker.celery_app import celery, celery_enabled
 
@@ -400,7 +401,7 @@ if celery_enabled():
                 stage="tts",
             )
             tts_cmd = [
-                "edge-tts",
+                *ensure_edge_tts_available(),
                 "--text",
                 script_text,
                 "--voice",

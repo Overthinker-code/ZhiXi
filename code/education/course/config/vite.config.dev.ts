@@ -21,7 +21,7 @@ export default defineConfig(({ mode }) => {
     {
       mode: 'development',
       server: {
-        open: true,
+        open: false,
         fs: {
           strict: true,
         },

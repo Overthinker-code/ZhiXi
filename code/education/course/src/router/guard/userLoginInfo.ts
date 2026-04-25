@@ -16,7 +16,12 @@ export default function setupUserLoginInfoGuard(router: Router) {
     restoreTokenFromStorage();
     const userStore = useUserStore();
     const token = userStore.getToken();
+    const forceLogin = to.name === 'login' && String(to.query.force || '') === '1';
     if (token) {
+      if (forceLogin) {
+        next();
+        return;
+      }
       if (userStore.profileHydrated) {
         if (to.name === 'login') {
           next(resolveAuthedHome(userStore.role));

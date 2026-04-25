@@ -116,6 +116,8 @@ axios.interceptors.response.use(
     const isDashboard = url.includes('/dashboard/');
     const isEducationRead =
       url.includes('/education/courses') || url.includes('/education/tc');
+    const isLearningReport =
+      url.includes('/learning-report/') || url.includes('/ai-metrics/');
     /** 课程中心接口失败由页面兜底，勿整站登出（避免隧道/权限抖动误踢） */
     const isEducationApi = url.includes('/education/');
     /** 登录/注册等：错误由页面内文案展示，避免与全局 Message 叠在一起 */
@@ -186,6 +188,7 @@ axios.interceptors.response.use(
       isFeedback ||
       (isChat && isNetworkError) ||
       (isDashboard && isNetworkError) ||
+      (isLearningReport && isTimeout) ||
       (isEducationRead && isNetworkError) ||
       isAuthFormRequest ||
       (url.includes('/users/me') && isNetworkError);
