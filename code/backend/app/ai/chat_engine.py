@@ -594,10 +594,10 @@ def _clean_followup_question(text: str) -> str:
     s = re.sub(r"^(问题\s*\d+[:：.\-、]?\s*)", "", s, flags=re.IGNORECASE)
     s = re.sub(r"^(\d+[:：.\-、]\s*)", "", s)
     s = s.strip(" -\t\r\n\"'“”‘’")
+    s = re.sub(r"[。.!！?？]+$", "", s).strip()
     if not s:
         return ""
-    if not s.endswith(("?", "？")):
-        s = f"{s}？"
+    s = f"{s}？"
     return s[:80]
 
 
