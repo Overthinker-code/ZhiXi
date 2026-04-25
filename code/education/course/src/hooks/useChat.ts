@@ -84,6 +84,13 @@ function sanitizeStreamingContent(raw: string) {
   return cleaned;
 }
 
+function needsFreshWebSearch(text: string) {
+  const normalized = String(text || '').toLowerCase();
+  return /最新|最近|当前|今天|本周|本月|今年|新闻|政策|发布|价格|行情|比分|排名|天气|版本|官网|current|latest|today|news|price|weather|version/.test(
+    normalized
+  );
+}
+
 /**
  * Composable for managing AI chat interactions.
  * Extracts conversation logic from LegacyAssistantPanel into a reusable hook.
@@ -288,14 +295,34 @@ export function useChat() {
       const lastMessage = chatStore.getLastMessage();
       if (lastMessage) lastMessage.loading = true;
 
+      const rawTemperature = Number(settingStore.settings.temperature);
+      const activeTools = [...(settingStore.settings.activeTools || [])];
+      if (
+        settingStore.settings.promptKey === 'tutor' &&
+        activeTools.includes('knowledge_base') &&
+        activeTools.includes('web_search') &&
+        !needsFreshWebSearch(messageContent.text)
+      ) {
+        const webSearchIndex = activeTools.indexOf('web_search');
+        if (webSearchIndex >= 0) {
+          activeTools.splice(webSearchIndex, 1);
+        }
+      }
+
       const commonOptions = {
         systemPrompt: settingStore.settings.customSystemPrompt || '',
         ragK: settingStore.settings.ragK as 3 | 4 | 5,
         promptKey: settingStore.settings.promptKey,
         strictMode: settingStore.settings.strictMode,
-        activeTools: settingStore.settings.activeTools || [],
+        activeTools,
         maxTokens: Math.max(Number(settingStore.settings.maxTokens) || 0, 16384),
-        temperature: settingStore.settings.temperature,
+        temperature:
+          settingStore.settings.promptKey === 'tutor'
+            ? Math.min(
+                Number.isFinite(rawTemperature) ? rawTemperature : 0.45,
+                0.45
+              )
+            : settingStore.settings.temperature,
         topP: settingStore.settings.topP,
         topK: settingStore.settings.topK,
         forceAgent: settingStore.settings.forceAgent || undefined,
