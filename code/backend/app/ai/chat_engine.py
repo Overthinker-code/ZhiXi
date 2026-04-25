@@ -448,11 +448,15 @@ def _rule_based_route(state: State) -> tuple[str, str] | None:
 def _default_suggestions(user_q: str) -> list[str]:
     q = (user_q or "").strip()
     if not q:
-        return ["这一步哪里最容易出错？", "能给我一个最小练习题吗？", "下一步我该怎么学？"]
+        return [
+            "我这一步最容易在哪里出错？",
+            "能给我一个最小练习题吗？",
+            "我下一步应该怎么学？",
+        ]
     return [
-        "基于这个问题，最核心的知识点是什么？",
-        "给我一道由浅入深的练习题。",
-        "如果答错了，我该如何快速纠正？",
+        "我需要先掌握哪个核心知识点？",
+        "能给我一道由浅入深的练习题吗？",
+        "如果我答错了，应该怎么快速纠正？",
     ]
 
 
@@ -553,9 +557,9 @@ def _contextual_suggestions_from_llm(
     _ = max_tokens
     if intent == "practice":
         return [
-            f"先从 {topic} 的哪三类题型开始练最提分？",
-            f"基于 {topic} 给我一道阶梯练习题，并先只给第 1 步提示？",
-            f"做 {topic} 题时最常见的失分点有哪些？",
+            f"我应该先练 {topic} 的哪三类题型最提分？",
+            f"能基于 {topic} 给我一道阶梯练习题，并先只给第 1 步提示吗？",
+            f"我做 {topic} 题时最常见的失分点有哪些？",
         ]
     if intent == "fix":
         return [
@@ -565,15 +569,71 @@ def _contextual_suggestions_from_llm(
         ]
     if intent == "summary":
         return [
-            f"把 {topic} 再压缩成 5 条考前速记卡片可以吗？",
-            f"{topic} 中最容易混淆的概念对照表能给我吗？",
-            f"按考试频率，{topic} 的复习优先级该怎么排？",
+            f"能帮我把 {topic} 压缩成 5 条考前速记卡片吗？",
+            f"能给我一张 {topic} 中易混概念的对照表吗？",
+            f"我复习 {topic} 时应该按什么优先级安排？",
         ]
     return [
-        f"{topic} 最容易混淆的概念有哪些？",
+        f"我最容易混淆 {topic} 里的哪些概念？",
         f"能围绕 {topic} 给我一题由浅入深的练习吗？",
         f"如果我在 {topic} 上做错题，应该怎么快速纠正？",
     ]
+
+
+_FOLLOWUP_FORBIDDEN_VIEWPOINT_RE = re.compile(
+    r"(您|你是否|是否需要|请问你|请问您)"
+)
+_FOLLOWUP_QUESTION_HINT_RE = re.compile(
+    r"(吗|么|如何|为什么|怎么|是否|能否|能不能|可以|应该|哪些|哪个|\?|？)"
+)
+_FOLLOWUP_FIRST_PERSON_RE = re.compile(r"(我|帮我|给我|带我)")
+
+
+def _clean_followup_question(text: str) -> str:
+    s = re.sub(r"\s+", " ", str(text or "")).strip()
+    s = re.sub(r"^(问题\s*\d+[:：.\-、]?\s*)", "", s, flags=re.IGNORECASE)
+    s = re.sub(r"^(\d+[:：.\-、]\s*)", "", s)
+    s = s.strip(" -\t\r\n\"'“”‘’")
+    if not s:
+        return ""
+    if not s.endswith(("?", "？")):
+        s = f"{s}？"
+    return s[:80]
+
+
+def _normalize_followups(
+    user_q: str, answer: str, candidates: list[str] | None
+) -> list[str]:
+    normalized: list[str] = []
+    for raw in candidates or []:
+        item = _clean_followup_question(raw)
+        if len(item) < 4:
+            continue
+        if _FOLLOWUP_FORBIDDEN_VIEWPOINT_RE.search(item):
+            continue
+        if not _FOLLOWUP_QUESTION_HINT_RE.search(item):
+            continue
+        if not _FOLLOWUP_FIRST_PERSON_RE.search(item):
+            continue
+        if item not in normalized:
+            normalized.append(item)
+        if len(normalized) >= 3:
+            return normalized[:3]
+
+    for raw in _contextual_suggestions_from_llm(user_q, answer):
+        item = _clean_followup_question(raw)
+        if item and item not in normalized:
+            normalized.append(item)
+        if len(normalized) >= 3:
+            return normalized[:3]
+
+    for raw in _default_suggestions(user_q):
+        item = _clean_followup_question(raw)
+        if item and item not in normalized:
+            normalized.append(item)
+        if len(normalized) >= 3:
+            break
+    return normalized[:3]
 
 
 def _build_rag_context(request: ChatRequest) -> tuple[SystemMessage, list[dict[str, Any]]]:
@@ -818,7 +878,9 @@ def finalize_node(state: State) -> dict[str, Any]:
             "你必须输出结构化结果，字段包括 answer, confidence, grounding_mode, citations, follow_ups。\n"
             "confidence 只能是 high / medium / low；grounding_mode 只能是 rag / general / tool / mixed。\n"
             "如果使用知识库证据，citations 中必须引用上面候选里的 citation_id；"
-            "不要编造不存在的 citation_id。"
+            "不要编造不存在的 citation_id。\n"
+            "follow_ups 必须正好 3 条，必须是学生会点击后直接发给你的下一轮问题；"
+            "每条都要用学生第一人称表达，包含“我/帮我/给我”等表达，不要写成“请问您是否需要...”这类面向用户的提示。"
         )
     )
     citations: list[dict[str, Any]] = []
@@ -845,20 +907,32 @@ def finalize_node(state: State) -> dict[str, Any]:
             clean = _strip_think_blocks_from_text((payload.answer or "").strip())
             citations = _normalize_structured_citations(
                 state.get("rag_results") or [],
-                [item.model_dump() if hasattr(item, "model_dump") else item for item in payload.citations],
+                [
+                    item.model_dump() if hasattr(item, "model_dump") else item
+                    for item in payload.citations
+                ],
             )
             confidence = normalize_confidence(payload.confidence)
             grounding_mode = normalize_grounding_mode(
                 payload.grounding_mode,
                 has_citations=bool(citations),
             )
-            follow_ups = [str(item).strip() for item in payload.follow_ups if str(item).strip()][:3]
             if clean:
+                follow_ups = _normalize_followups(
+                    current_q, clean, payload.follow_ups
+                )
                 msg = AIMessage(content=clean, name="final_answer")
             else:
-                raw_fallback = _strict_ai_content_for_user(raw_msg) if raw_msg is not None else ""
+                raw_fallback = (
+                    _strict_ai_content_for_user(raw_msg)
+                    if raw_msg is not None
+                    else ""
+                )
                 clean = _strip_think_blocks_from_text(raw_fallback)
                 if clean:
+                    follow_ups = _normalize_followups(
+                        current_q, clean, payload.follow_ups
+                    )
                     msg = AIMessage(content=clean, name="final_answer")
                 else:
                     raise ValueError("structured answer empty")
@@ -878,7 +952,9 @@ def finalize_node(state: State) -> dict[str, Any]:
             )
         confidence = "low"
         grounding_mode = "general"
-        follow_ups = _default_suggestions(current_q)
+        follow_ups = _normalize_followups(
+            current_q, msg.content, _default_suggestions(current_q)
+        )
     return {
         "messages": [msg],
         "selected_agent": "supervisor",
@@ -1285,13 +1361,10 @@ def chat_service(request: ChatRequest) -> ChatResponse:
     thoughts = list(result.get("intermediate_steps") or [])
     tool_calls = collect_tool_calls(result.get("messages", []))
     route_trace = list(result.get("agent_route_trace") or [])
-    suggestions = (
-        list(result.get("final_follow_ups") or [])
-        or inline_suggestions
-        or _contextual_suggestions_from_llm(
-            request.user_input, final_text, max_tokens=request.max_tokens
-        )
-        or _default_suggestions(request.user_input)
+    suggestions = _normalize_followups(
+        request.user_input,
+        final_text,
+        list(result.get("final_follow_ups") or []) or inline_suggestions,
     )
     latency_ms = max(1, round((time.perf_counter() - started_at) * 1000))
     citations = list(result.get("final_citations") or [])
@@ -1308,7 +1381,7 @@ def chat_service(request: ChatRequest) -> ChatResponse:
             result.get("final_grounding_mode"),
             has_citations=bool(citations),
         ),
-        suggestions=suggestions[:3],
+        suggestions=suggestions,
         metrics=_build_metrics(
             messages=result.get("messages") or [],
             route_trace=route_trace,
@@ -1419,9 +1492,7 @@ def stream_chat_events(request: ChatRequest):
             if first_token_at is None:
                 first_token_at = time.perf_counter()
             yield {"type": "token", "content": text[i : i + 24]}
-        sug = _contextual_suggestions_from_llm(
-            req.user_input, text, max_tokens=req.max_tokens
-        ) or _default_suggestions(req.user_input)
+        sug = _normalize_followups(req.user_input, text, [])
         yield {"type": "suggestions", "data": sug}
         yield {
             "type": "final",
@@ -1535,13 +1606,10 @@ def stream_chat_events(request: ChatRequest):
         if first_token_at is None:
             first_token_at = time.perf_counter()
         yield {"type": "token", "content": text[i : i + chunk_size]}
-    dynamic_suggestions = (
-        list(final_state.get("final_follow_ups") or [])
-        or suggestions
-        or _contextual_suggestions_from_llm(
-            req.user_input, text, max_tokens=req.max_tokens
-        )
-        or _default_suggestions(req.user_input)
+    dynamic_suggestions = _normalize_followups(
+        req.user_input,
+        text,
+        list(final_state.get("final_follow_ups") or []) or suggestions,
     )
     yield {"type": "suggestions", "data": dynamic_suggestions}
 
