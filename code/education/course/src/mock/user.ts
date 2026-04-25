@@ -11,8 +11,8 @@ setupMock({
   setup() {
     // Mock.XHR.prototype.withCredentials = true;
 
-    // 用户信息
-    Mock.mock(new RegExp('/api/users/me'), () => {
+    // 用户信息 - 同时支持 /api/users/me 和 /api/v1/api/users/me
+    const userMeHandler = () => {
       if (isLogin()) {
         const role = window.localStorage.getItem('userRole') || 'admin';
         return successResponseWrap({
@@ -36,7 +36,9 @@ setupMock({
         });
       }
       return failResponseWrap(null, '未登录', 50008);
-    });
+    };
+    Mock.mock(new RegExp('/api/users/me'), userMeHandler);
+    Mock.mock(new RegExp('/api/v1/api/users/me'), userMeHandler);
 
     // 登录
     Mock.mock(new RegExp('/api/login/access-token'), (params: MockParams) => {

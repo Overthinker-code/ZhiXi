@@ -80,6 +80,7 @@ class BehaviorWebSocketService:
     UNFOCUSED_THRESHOLD = 2   # 连续低头/转头 N 帧才判定为 unfocused
     FOCUSED_THRESHOLD = 2     # 连续正常 N 帧才恢复为 focused
     MAX_TRACK_DISTANCE_RATIO = 0.15  # 关联上一帧人脸的最大距离（相对于图像宽高）
+    LOST_TRACK_THRESHOLD = 3  # 人脸追踪丢失 N 帧后才真正移除（低头/转头导致暂时检测不到）
 
     # MediaPipe 模型下载地址
     MODEL_URL = (
@@ -409,6 +410,15 @@ class BehaviorWebSocketService:
             is_turning = eye_height_diff > 0.030
             is_small = face_area_ratio < 0.0035
 
+            # 3. 区分"低头看书"与"低头走神"：
+            # 利用 blendshapes 的眼睛注视方向 —— 低头时眼睛明显向下看 + 睁开，大概率在看书/写字
+            is_reading = False
+            if blendshapes and is_head_down and not is_eye_closed:
+                eye_look_down = (blendshapes.get('eyeLookDownLeft', 0) + blendshapes.get('eyeLookDownRight', 0)) / 2
+                if eye_look_down > 0.25:
+                    is_reading = True
+                    is_head_down = False  # 不判定为低头走神
+
             if is_eye_closed or is_head_down or is_turning or is_turning_yaw or is_small:
                 score = max(
                     0.0,
@@ -513,109 +523,138 @@ class BehaviorWebSocketService:
         unfocused_count = 0
         absent_count = 0
 
-        if faces:
-            # 1. 计算每帧原始检测结果
-            current_raw: List[Dict[str, Any]] = []
-            for (x, y, w, h, keypoints, blendshapes) in faces:
-                raw_status, raw_score = self._estimate_pose((x, y, w, h, keypoints, blendshapes), img_h, img_w)
-                current_raw.append({
-                    "bbox": (x, y, w, h),
-                    "center": (x + w / 2, y + h / 2),
-                    "raw_status": raw_status,
-                    "raw_score": raw_score,
+        # 1. 计算当前帧检测到的人脸
+        current_raw: List[Dict[str, Any]] = []
+        for (x, y, w, h, keypoints, blendshapes) in faces:
+            raw_status, raw_score = self._estimate_pose((x, y, w, h, keypoints, blendshapes), img_h, img_w)
+            current_raw.append({
+                "bbox": (x, y, w, h),
+                "center": (x + w / 2, y + h / 2),
+                "raw_status": raw_status,
+                "raw_score": raw_score,
+            })
+
+        # 2. 与上一帧按人脸中心点距离做最近邻匹配
+        max_track_dist = max(img_w, img_h) * self.MAX_TRACK_DISTANCE_RATIO
+        current_persons: List[Dict[str, Any]] = []
+        used_last_indices: set[int] = set()
+
+        for curr in current_raw:
+            best_idx = -1
+            best_dist = float("inf")
+            for idx, last in enumerate(self._last_persons):
+                if idx in used_last_indices:
+                    continue
+                dx = curr["center"][0] - last["center"][0]
+                dy = curr["center"][1] - last["center"][1]
+                dist = (dx * dx + dy * dy) ** 0.5
+                if dist < best_dist and dist < max_track_dist:
+                    best_dist = dist
+                    best_idx = idx
+
+            if best_idx != -1:
+                track_id = self._last_persons[best_idx]["track_id"]
+                used_last_indices.add(best_idx)
+            else:
+                track_id = f"person_{self._next_track_seq}"
+                self._next_track_seq += 1
+
+            current_persons.append({**curr, "track_id": track_id})
+
+        # 3. 处理上一帧中未匹配到的人脸（可能是低头/转头导致暂时检测不到）
+        # 在丢失追踪的宽限期内保留这些人，避免低头被误判为缺席
+        for idx, last in enumerate(self._last_persons):
+            if idx in used_last_indices:
+                continue
+            tid = last["track_id"]
+            state = self._person_states.get(tid)
+            if state is None:
+                continue
+
+            state["lost_frames"] = state.get("lost_frames", 0) + 1
+            if state["lost_frames"] <= self.LOST_TRACK_THRESHOLD:
+                # 宽限期内：保留追踪，状态降级为 unfocused（低头/转头通常是不专注的表现）
+                current_persons.append({
+                    "track_id": tid,
+                    "bbox": last["bbox"],
+                    "center": last["center"],
+                    "raw_status": self.STATUS_UNFOCUSED,
+                    "raw_score": 0.5,
+                    "final_status": self.STATUS_UNFOCUSED,
+                    "final_score": 0.5,
+                    "_is_lost_track": True,
                 })
 
-            # 2. 与上一帧按人脸中心点距离做最近邻匹配（课堂场景人脸位移小，足够稳定）
-            max_track_dist = max(img_w, img_h) * self.MAX_TRACK_DISTANCE_RATIO
-            current_persons: List[Dict[str, Any]] = []
-            used_last_indices: set[int] = set()
+        # 4. 更新帧间状态缓冲区并做阈值平滑
+        active_track_ids: set[str] = set()
+        for person in current_persons:
+            tid = person["track_id"]
+            active_track_ids.add(tid)
+            raw_status = person.get("raw_status", self.STATUS_UNFOCUSED)
 
-            for curr in current_raw:
-                best_idx = -1
-                best_dist = float("inf")
-                for idx, last in enumerate(self._last_persons):
-                    if idx in used_last_indices:
-                        continue
-                    dx = curr["center"][0] - last["center"][0]
-                    dy = curr["center"][1] - last["center"][1]
-                    dist = (dx * dx + dy * dy) ** 0.5
-                    if dist < best_dist and dist < max_track_dist:
-                        best_dist = dist
-                        best_idx = idx
+            if tid not in self._person_states:
+                self._person_states[tid] = {
+                    "consecutive_unfocused": 0,
+                    "consecutive_focused": 0,
+                    "final_status": raw_status,
+                    "lost_frames": 0,
+                }
 
-                if best_idx != -1:
-                    track_id = self._last_persons[best_idx]["track_id"]
-                    used_last_indices.add(best_idx)
-                else:
-                    track_id = f"person_{self._next_track_seq}"
-                    self._next_track_seq += 1
+            state = self._person_states[tid]
+            if not person.get("_is_lost_track"):
+                state["lost_frames"] = 0  # 当前帧真正检测到了，才重置丢失计数
 
-                current_persons.append({**curr, "track_id": track_id})
+            if raw_status == self.STATUS_UNFOCUSED:
+                state["consecutive_unfocused"] += 1
+                state["consecutive_focused"] = 0
+            else:  # focused
+                state["consecutive_focused"] += 1
+                state["consecutive_unfocused"] = 0
 
-            # 3. 更新帧间状态缓冲区并做阈值平滑
-            active_track_ids: set[str] = set()
-            for person in current_persons:
-                tid = person["track_id"]
-                active_track_ids.add(tid)
-                raw_status = person["raw_status"]
+            # 应用阈值切换最终状态
+            if state["consecutive_unfocused"] >= self.UNFOCUSED_THRESHOLD:
+                state["final_status"] = self.STATUS_UNFOCUSED
+            elif state["consecutive_focused"] >= self.FOCUSED_THRESHOLD:
+                state["final_status"] = self.STATUS_FOCUSED
 
-                if tid not in self._person_states:
-                    self._person_states[tid] = {
-                        "consecutive_unfocused": 0,
-                        "consecutive_focused": 0,
-                        "final_status": raw_status,
-                    }
-
-                state = self._person_states[tid]
-                if raw_status == self.STATUS_UNFOCUSED:
-                    state["consecutive_unfocused"] += 1
-                    state["consecutive_focused"] = 0
-                else:  # focused
-                    state["consecutive_focused"] += 1
-                    state["consecutive_unfocused"] = 0
-
-                # 应用阈值切换最终状态，避免单帧抖动
-                if state["consecutive_unfocused"] >= self.UNFOCUSED_THRESHOLD:
-                    state["final_status"] = self.STATUS_UNFOCUSED
-                elif state["consecutive_focused"] >= self.FOCUSED_THRESHOLD:
-                    state["final_status"] = self.STATUS_FOCUSED
-                # 否则保持上一帧 final_status 不变
-
+            if "final_status" not in person:
                 person["final_status"] = state["final_status"]
-                person["final_score"] = person["raw_score"]
+                person["final_score"] = person.get("raw_score", 0.5)
 
-            # 4. 清理已消失人员的状态（避免内存无限增长）
-            for tid in list(self._person_states.keys()):
-                if tid not in active_track_ids:
-                    del self._person_states[tid]
+        # 5. 清理已消失人员的状态（超过宽限期才真正移除）
+        for tid in list(self._person_states.keys()):
+            if tid not in active_track_ids:
+                del self._person_states[tid]
 
-            self._last_persons = current_persons
+        self._last_persons = [
+            {"track_id": p["track_id"], "bbox": p["bbox"], "center": p["center"],
+             "raw_status": p.get("raw_status"), "raw_score": p.get("raw_score")}
+            for p in current_persons
+        ]
 
-            # 5. 构建返回结果
-            for person in current_persons:
-                x, y, w, h = person["bbox"]
-                final_status = person["final_status"]
-                final_score = person["final_score"]
+        # 6. 构建返回结果
+        for person in current_persons:
+            x, y, w, h = person["bbox"]
+            final_status = person["final_status"]
+            final_score = person["final_score"]
 
-                persons.append(
-                    PersonResult(
-                        track_id=person["track_id"],
-                        bbox=[int(x), int(y), int(x + w), int(y + h)],
-                        status=final_status,
-                        score=final_score,
-                    )
+            persons.append(
+                PersonResult(
+                    track_id=person["track_id"],
+                    bbox=[int(x), int(y), int(x + w), int(y + h)],
+                    status=final_status,
+                    score=final_score,
                 )
+            )
 
-                if final_status == self.STATUS_FOCUSED:
-                    focused_count += 1
-                elif final_status == self.STATUS_UNFOCUSED:
-                    unfocused_count += 1
-        else:
-            # 画面中没有检测到人脸，视为缺席
+            if final_status == self.STATUS_FOCUSED:
+                focused_count += 1
+            elif final_status == self.STATUS_UNFOCUSED:
+                unfocused_count += 1
+
+        # 7. 如果当前帧一个人都没有（包括追踪中的），才判定为缺席
+        if not persons:
             absent_count = 1
-            # 画面无人时重置追踪状态
-            self._last_persons.clear()
-            self._person_states.clear()
 
         return AnalysisMessage(
             frame_id=frame_id,

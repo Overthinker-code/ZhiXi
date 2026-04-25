@@ -1,6 +1,9 @@
 import Mock from 'mockjs';
 
 import './message-box';
+import './user';
+import './course';
+import './chat';
 
 import '@/views/dashboard/workplace/mock';
 
