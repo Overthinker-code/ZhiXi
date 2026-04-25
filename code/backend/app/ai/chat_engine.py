@@ -189,8 +189,10 @@ def _normalize_graph_stream_event(event: Any) -> tuple[str | None, Any]:
 # 用变量拼接标签名，避免工具/脱敏把字面量 `think` 改坏
 _TK = "think"
 _MODEL_THINK_STRIP = (
-    re.compile(rf"`</{_TK}>[\s\S]*?`</{_TK}>`", re.IGNORECASE | re.DOTALL),
-    re.compile(r"<analysis>[\s\S]*?</analysis>", re.IGNORECASE),
+    re.compile(rf"<{_TK}>[\s\S]*?</{_TK}>", re.IGNORECASE | re.DOTALL),
+    re.compile(r"<analysis>[\s\S]*?</analysis>", re.IGNORECASE | re.DOTALL),
+    re.compile(rf"</?{_TK}>", re.IGNORECASE),
+    re.compile(r"</?analysis>", re.IGNORECASE),
 )
 
 

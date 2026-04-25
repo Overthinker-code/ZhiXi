@@ -40,6 +40,7 @@ export function parseAssistantResponse(rawResponse: string) {
     const afterThink = rawResponse
       .replace(/<think>[\s\S]*?<\/think>/i, '')
       .replace(/<analysis>[\s\S]*?<\/analysis>/i, '')
+      .replace(/<\/?(think|analysis)>/gi, '')
       .trim();
     return {
       reasoning,
@@ -79,6 +80,7 @@ function sanitizeStreamingContent(raw: string) {
   const cleaned = (content || raw || '')
     .replace(/<think>[\s\S]*?<\/think>/gi, '')
     .replace(/<analysis>[\s\S]*?<\/analysis>/gi, '')
+    .replace(/<\/?(think|analysis)>/gi, '')
     .replace(/<\/?final>/gi, '')
     .trim();
   return cleaned;
