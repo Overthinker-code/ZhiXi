@@ -452,7 +452,7 @@
         :metrics="message.metrics || {}"
       />
       <FollowUpActions
-        v-if="message.role === 'assistant'"
+        v-if="message.role === 'assistant' && message.loading === false"
         :suggestions="message.suggestions || []"
         @pick="handleSuggestionClick"
       />

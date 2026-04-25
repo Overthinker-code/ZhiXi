@@ -1,4 +1,6 @@
 <script setup lang="ts">
+  import { computed } from 'vue';
+
   const props = defineProps<{
     suggestions?: string[];
   }>();
@@ -6,12 +8,32 @@
   const emit = defineEmits<{
     (e: 'pick', value: string): void;
   }>();
+
+  const fallbackSuggestions = [
+    '我需要先掌握哪个核心知识点？',
+    '能给我一道由浅入深的练习题吗？',
+    '如果我答错了，应该怎么快速纠正？',
+  ];
+
+  const displaySuggestions = computed(() => {
+    const seen = new Set<string>();
+    const normalized = [...(props.suggestions || []), ...fallbackSuggestions]
+      .map((item) => String(item || '').trim())
+      .filter((item) => {
+        if (/您|你是否|是否需要|请问你|请问您/.test(item)) return false;
+        if (!/(我|帮我|给我|带我)/.test(item)) return false;
+        if (!item || seen.has(item)) return false;
+        seen.add(item);
+        return true;
+      });
+    return normalized.slice(0, 3);
+  });
 </script>
 
 <template>
-  <div v-if="suggestions && suggestions.length > 0" class="follow-up-row">
+  <div v-if="displaySuggestions.length === 3" class="follow-up-row">
     <button
-      v-for="item in suggestions"
+      v-for="item in displaySuggestions"
       :key="item"
       type="button"
       class="follow-up-pill"

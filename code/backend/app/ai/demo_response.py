@@ -25,8 +25,8 @@ def build_demo_chat_response(user_input: str) -> ChatResponse:
         confidence="medium",
         grounding_mode="general",
         suggestions=[
-            f"围绕 {topic} 给我一个更贴近课堂的例子。",
-            f"基于 {topic} 给我 3 道递进练习题。",
-            f"把 {topic} 总结成考前速记卡片。",
+            f"能围绕 {topic} 给我一个更贴近课堂的例子吗？",
+            f"能基于 {topic} 给我 3 道递进练习题吗？",
+            f"能帮我把 {topic} 总结成考前速记卡片吗？",
         ],
     )
