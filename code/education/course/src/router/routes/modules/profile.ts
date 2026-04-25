@@ -16,6 +16,7 @@ const PROFILE: AppRouteRecordRaw = {
       path: '',
       redirect: '/profile/user-info',
       meta: {
+        requiresAuth: true,
         hideInMenu: true,
       },
     },

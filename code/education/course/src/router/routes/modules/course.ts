@@ -56,7 +56,7 @@ const COURSE: AppRouteRecordRaw = {
     {
       path: 'course-list',
       name: 'CourseListAlias',
-      redirect: { name: 'CourseList' },
+      redirect: '/course/list',
       meta: {
         locale: '课程总览',
         requiresAuth: true,

@@ -33,6 +33,7 @@ wheels/
 .installed.cfg
 *.egg
 .venv/
+code/.venv/
 venv/
 ENV/
 env/
@@ -65,6 +66,12 @@ yarn-error.log*
 # Database
 *.db
 *.sqlite3
+code/backend/vector_db/
+code/backend/digital_human_inputs/
+code/backend/digital_human_outputs/
+code/backend/digital_human_assets/
+code/backend/models/
+code/backend/MuseTalk/configs/inference/test_local.yaml
 
 # Secrets
 *.pem
