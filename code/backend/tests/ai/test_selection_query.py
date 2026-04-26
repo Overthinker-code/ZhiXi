@@ -1,4 +1,9 @@
-from app.ai.chat_engine import _build_selection_prompt, _should_use_semantic_cache
+from app.ai.chat_engine import (
+    AIMessage,
+    _build_selection_prompt,
+    _expand_selection_answer_if_needed,
+    _should_use_semantic_cache,
+)
 from app.ai.chat_models import ChatRequest
 
 
@@ -48,3 +53,53 @@ def test_selection_query_bypasses_semantic_cache() -> None:
     assert not _should_use_semantic_cache(selection_request)
     assert _should_use_semantic_cache(normal_request)
     assert not _should_use_semantic_cache(history_request)
+
+
+def test_short_selection_answer_is_expanded() -> None:
+    class FakeLLM:
+        called = False
+
+        def invoke(self, _messages):
+            self.called = True
+            return AIMessage(
+                content=(
+                    "### 概念定位\n"
+                    + "B树索引用多路平衡树组织键值，让数据库能少读磁盘页。"
+                    * 30
+                )
+            )
+
+    llm = FakeLLM()
+    current_q = "学生在学习《数据库》时选中了“B树索引”。\n上下文片段：索引用于提升查询性能。"
+    expanded = _expand_selection_answer_if_needed(
+        llm,
+        current_q=current_q,
+        answer="B树索引用于加速查询。",
+        rag_excerpt="",
+        worker_material="",
+    )
+
+    assert llm.called
+    assert len(expanded) > 420
+    assert "概念定位" in expanded
+
+
+def test_non_selection_answer_does_not_expand() -> None:
+    class FakeLLM:
+        called = False
+
+        def invoke(self, _messages):
+            self.called = True
+            return AIMessage(content="不应调用")
+
+    llm = FakeLLM()
+    answer = _expand_selection_answer_if_needed(
+        llm,
+        current_q="普通提问：什么是索引？",
+        answer="索引用于加速查询。",
+        rag_excerpt="",
+        worker_material="",
+    )
+
+    assert answer == "索引用于加速查询。"
+    assert not llm.called
