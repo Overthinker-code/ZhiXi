@@ -1125,6 +1125,7 @@ def _build_selection_prompt(request: ChatRequest) -> str:
     context = (request.surrounding_context or "").strip()
     module = (request.course_module or "当前课程").strip()
     video_time = (request.video_time or "").strip()
+    action_hint = (request.system_prompt or "").strip()
     if not selected:
         return request.user_input
 
@@ -1134,11 +1135,34 @@ def _build_selection_prompt(request: ChatRequest) -> str:
     )
     if video_time:
         prompt += f"当前视频时间点：{video_time}\n"
+    if action_hint:
+        prompt += f"学生点击的划词操作要求：{action_hint}\n"
+
+    is_summary_mode = bool(re.search(r"(总结|概括|要点)", action_hint))
+    if is_summary_mode:
+        prompt += (
+            "请按课堂笔记复盘的方式回答：先给一句总览，再给 4-6 条要点；"
+            "每条要点都补充必要解释和学习提醒，避免只输出一句短答。"
+        )
+    else:
+        prompt += (
+            "请按课堂讲解模式输出较完整的一段答复，建议 450-800 字。"
+            "必须覆盖：1）概念定位；2）核心机制或原理；3）贴近课堂的例子；"
+            "4）常见误区或实践价值；5）学生下一步如何理解。"
+            "可以用 Markdown 小标题或列表组织，但不要只给一小段概括，"
+            "也不要以“是否还需要我继续解释”作为正文结尾。"
+        )
     prompt += (
-        "请用引导式、教学友好的口吻回答。"
-        "如果适合，请补充一个简短示例帮助理解。"
+        "请用引导式、教学友好的口吻回答，直接给学生可阅读的内容。"
     )
     return prompt
+
+
+def _should_use_semantic_cache(request: ChatRequest) -> bool:
+    """划词问答不走语义缓存，避免旧模板/旧长度的答案被复用。"""
+    if request.selected_text:
+        return False
+    return not bool(request.prior_turns or [])
 
 
 def resolve_stream_user_text_for_storage(request: ChatRequest) -> str:
@@ -1315,9 +1339,9 @@ def chat_service(request: ChatRequest) -> ChatResponse:
         return demo
 
     cache_hit = (
-        None
-        if (request.prior_turns or [])
-        else chat_semantic_cache.get(request.user_input)
+        chat_semantic_cache.get(request.user_input)
+        if _should_use_semantic_cache(request)
+        else None
     )
     if cache_hit:
         return ChatResponse(
@@ -1412,7 +1436,8 @@ def chat_service(request: ChatRequest) -> ChatResponse:
             "⏸ 已触发 HITL，请用户确认后写入日历。",
         ]
 
-    chat_semantic_cache.put(request.user_input, response.response)
+    if _should_use_semantic_cache(request):
+        chat_semantic_cache.put(request.user_input, response.response)
     return response
 
 
@@ -1479,9 +1504,9 @@ def stream_chat_events(request: ChatRequest):
             }
 
     cache_hit = (
-        None
-        if (req.prior_turns or [])
-        else chat_semantic_cache.get(req.user_input)
+        chat_semantic_cache.get(req.user_input)
+        if _should_use_semantic_cache(req)
+        else None
     )
     if cache_hit:
         yield {
@@ -1601,7 +1626,8 @@ def stream_chat_events(request: ChatRequest):
         }
         return
 
-    chat_semantic_cache.put(req.user_input, text)
+    if _should_use_semantic_cache(req):
+        chat_semantic_cache.put(req.user_input, text)
 
     chunk_size = 24
     for i in range(0, len(text), chunk_size):
