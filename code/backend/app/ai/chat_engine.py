@@ -370,6 +370,7 @@ def _expand_selection_answer_if_needed(
             "你需要把已有短答扩写成完整、耐心、可直接展示的课堂讲解。"
             "硬性要求：正文控制在 500-800 个中文字符；使用 3-5 个 Markdown 小标题；"
             "必须覆盖概念定位、核心机制、课堂例子、常见误区或实践价值、下一步学习建议；"
+            "如果涉及数据库索引，请准确区分 B 树/B+ 树这类多路平衡搜索树与二叉搜索树；"
             "不要输出内部思考，不要提及模型、路由、工具或 JSON。"
         )
     )
@@ -896,7 +897,8 @@ def finalize_node(state: State) -> dict[str, Any]:
         sys_chunks.append(
             "【划词唤醒回答要求】本次是学生在课堂内容中划词后的即时解答。"
             "最终 answer 正文必须是完整课堂讲解，不能压缩成一段短答；"
-            "除非学生明确要求总结，否则至少覆盖概念、机制、例子、易错点和学习建议。"
+            "除非学生明确要求总结，否则至少覆盖概念、机制、例子、易错点和学习建议；"
+            "若涉及数据库索引，须保证术语严谨，避免把 B 树/B+ 树误写成二叉搜索树。"
         )
     rr = (state.get("routing_reason") or "").strip()
     if rr and ("强制" in rr or "解析失败" in rr or "连续" in rr):
@@ -944,7 +946,8 @@ def finalize_node(state: State) -> dict[str, Any]:
     if is_selection_query:
         structured_prompt_text += (
             "\n本次是划词唤醒场景，answer 字段必须优先满足课堂讲解长度："
-            "建议 500-800 个中文字符，使用小标题或列表，不要只输出简短定义。"
+            "建议 500-800 个中文字符，使用小标题或列表，不要只输出简短定义；"
+            "数据库索引相关内容必须区分多路平衡树与二叉搜索树。"
         )
     structured_prompt = SystemMessage(content=structured_prompt_text)
     citations: list[dict[str, Any]] = []
@@ -1234,6 +1237,8 @@ def _build_selection_prompt(request: ChatRequest) -> str:
             "4）常见误区或实践价值；5）学生下一步如何理解。"
             "可以用 Markdown 小标题或列表组织，但不要只给一小段概括，"
             "也不要以“是否还需要我继续解释”作为正文结尾。"
+            "如果涉及数据库索引，请准确区分 B 树/B+ 树这类多路平衡搜索树与二叉搜索树，"
+            "不要把 B 树说成 BST。"
         )
     prompt += (
         "请用引导式、教学友好的口吻回答，直接给学生可阅读的内容。"

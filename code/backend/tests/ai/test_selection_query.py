@@ -22,6 +22,7 @@ def test_selection_prompt_requests_long_form_teaching_answer() -> None:
     assert "概念定位" in prompt
     assert "核心机制或原理" in prompt
     assert "不要只给一小段概括" in prompt
+    assert "不要把 B 树说成 BST" in prompt
     assert "简短示例" not in prompt
 
 
