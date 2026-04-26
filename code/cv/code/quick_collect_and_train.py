@@ -32,6 +32,7 @@ from tqdm import tqdm
 from datetime import datetime
 import random
 import argparse
+from pathlib import Path
 
 # ==================== 配置 ====================
 BEHAVIOR_NAMES = {
@@ -304,6 +305,9 @@ class QuickTrainer:
         )
     
     def train_epoch(self, train_loader):
+        if len(train_loader) == 0:
+            return 0.0, 0.0
+        
         self.model.train()
         total_loss = 0
         all_preds = []
@@ -331,6 +335,9 @@ class QuickTrainer:
         return avg_loss, accuracy
     
     def validate(self, val_loader):
+        if len(val_loader) == 0:
+            return 0.0, 0.0, [], []
+        
         self.model.eval()
         total_loss = 0
         all_preds = []

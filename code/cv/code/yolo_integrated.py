@@ -51,6 +51,7 @@ print(f"📊 序列长度: {SEQUENCE_LENGTH}")
 # ==================== 加载模型 ====================
 
 # 1. 姿态估计模型（必须）
+pose_model = None
 try:
     pose_model = YOLO(POSE_MODEL_PATH)
     print(f"✅ 姿态估计模型加载成功: {POSE_MODEL_PATH}")
@@ -274,7 +275,11 @@ def recognize_behavior(keypoints: np.ndarray) -> Dict[str, Any]:
         try:
             import torch
             # 单帧输入，复制成序列
-            seq = np.tile(keypoints.flatten(), (SEQUENCE_LENGTH, 1))
+            flat = keypoints.flatten()
+            # 维度校验：必须是 17×2=34 维
+            if flat.shape[0] != 34:
+                raise ValueError(f"关键点维度异常: {flat.shape[0]}，期望34")
+            seq = np.tile(flat, (SEQUENCE_LENGTH, 1))
             input_tensor = torch.FloatTensor(seq).unsqueeze(0).to(DEVICE)
             
             with torch.no_grad():
@@ -399,6 +404,11 @@ async def analyze_classroom(file: UploadFile = File(...)):
     分析整个教室场景
     返回: 每个人的位置 + 行为 + 整体统计
     """
+    if pose_model is None:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "姿态估计模型未加载，服务不可用", "status": "error"}
+        )
     try:
         # 读取图片
         contents = await file.read()
@@ -476,12 +486,12 @@ async def analyze_classroom(file: UploadFile = File(...)):
         
     except Exception as e:
         import traceback
+        print(f"Error in analyze_classroom: {traceback.format_exc()}")
         return JSONResponse(
             status_code=500,
             content={
                 "status": "error",
-                "error": str(e),
-                "traceback": traceback.format_exc()
+                "error": "教室分析失败，请检查图像格式或稍后重试"
             }
         )
 
@@ -491,6 +501,11 @@ async def analyze_person(file: UploadFile = File(...)):
     """
     分析单个人（已裁剪的图片）
     """
+    if pose_model is None:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "姿态估计模型未加载，服务不可用", "status": "error"}
+        )
     try:
         contents = await file.read()
         image = Image.open(io.BytesIO(contents)).convert("RGB")
@@ -525,9 +540,11 @@ async def analyze_person(file: UploadFile = File(...)):
         }
         
     except Exception as e:
+        import traceback
+        print(f"Error in analyze_person: {traceback.format_exc()}")
         return JSONResponse(
             status_code=500,
-            content={"status": "error", "error": str(e)}
+            content={"status": "error", "error": "分析失败，请检查图像格式或稍后重试"}
         )
 
 

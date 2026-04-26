@@ -49,13 +49,20 @@ print(f"📊 序列长度: {SEQUENCE_LENGTH} 帧")
 print(f"✅ 规则-Based版本，无需训练，立即可用！")
 
 # ==================== 加载YOLOv8-Pose模型 ====================
+pose_model = None
 try:
     pose_model = YOLO(MODEL_PATH)
     print(f"✅ 姿态估计模型加载成功: {MODEL_PATH}")
 except Exception as e:
     print(f"⚠️ 模型加载失败: {e}")
     print("尝试下载默认模型...")
-    pose_model = YOLO("yolov8n-pose.pt")
+    try:
+        pose_model = YOLO("yolov8n-pose.pt")
+        print("✅ 默认模型加载成功")
+    except Exception as e2:
+        print(f"❌ 默认模型也加载失败: {e2}")
+        print("   服务将以降级模式运行，行为分析功能不可用")
+        pose_model = None
 
 # 是否使用双阶段模式（检测器 + Pose）
 # 需要检测模型（如 yolov8n.pt / yolo11m.pt / yolo11l.pt），网络不通时设为 false 回退到单阶段
@@ -754,9 +761,9 @@ class RuleBasedBehaviorClassifier:
         return dominant_behavior, avg_confidence, main_reason
 
 
-# 创建分类器实例
+# 创建分类器实例（无状态，可全局复用）
 classifier = RuleBasedBehaviorClassifier()
-temporal_smoother = TemporalBehaviorSmoother()
+# temporal_smoother 不再作为全局单例，改为每个请求独立创建，避免并发状态污染
 
 # ==================== 工具函数 ====================
 
@@ -1025,6 +1032,11 @@ async def analyze_frame(file: UploadFile = File(...)):
     分析单帧图像的姿态和行为
     返回所有人的检测框和行为
     """
+    if pose_model is None:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "姿态估计模型未加载，服务不可用", "status": "error"}
+        )
     try:
         contents = await file.read()
         image = Image.open(io.BytesIO(contents)).convert("RGB")
@@ -1087,7 +1099,9 @@ async def analyze_frame(file: UploadFile = File(...)):
                 "reason": reason
             })
         
-        analyzed_persons = temporal_smoother.smooth(analyzed_persons, w, h)
+        # 使用独立的 temporal_smoother 实例，避免并发请求间状态污染
+        local_smoother = TemporalBehaviorSmoother()
+        analyzed_persons = local_smoother.smooth(analyzed_persons, w, h)
         classroom_metrics = calculate_classroom_metrics(analyzed_persons)
         overall_score = classroom_metrics["attention_score"]
         learning_status = classroom_metrics["learning_status"]
@@ -1109,16 +1123,23 @@ async def analyze_frame(file: UploadFile = File(...)):
         print(f"Error in analyze_frame: {traceback.format_exc()}")
         return JSONResponse(
             status_code=500,
-            content={"error": f"分析失败: {str(e)}", "status": "error"}
+            content={"error": "图像分析失败，请检查输入格式或稍后重试", "status": "error"}
         )
 
 
 @app.post("/analyze/video")
 async def analyze_video(file: UploadFile = File(...), sample_interval: int = 1):
+    # 参数校验
+    if sample_interval < 1:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "sample_interval必须大于等于1", "status": "error"}
+        )
     """
     分析视频文件的行为
     使用滑动窗口对视频进行分段分析
     """
+    video_path = None
     try:
         contents = await file.read()
         
@@ -1127,173 +1148,177 @@ async def analyze_video(file: UploadFile = File(...), sample_interval: int = 1):
             temp_video.write(contents)
             video_path = temp_video.name
         
-        try:
-            cap = cv2.VideoCapture(video_path)
-            if not cap.isOpened():
-                raise ValueError("无法打开视频文件")
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            return JSONResponse(
+                status_code=400,
+                content={"error": "无法打开视频文件，请检查格式", "status": "error"}
+            )
+        
+        fps = int(cap.get(cv2.CAP_PROP_FPS))
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        duration = total_frames / fps if fps > 0 else 0
+        
+        # 收集关键点序列和人员检测数据
+        keypoints_sequence = []
+        frame_count = 0
+        valid_frames = 0
+        
+        # 保存第一帧有人员的图像用于预览
+        first_frame_with_persons = None
+        first_frame_persons = []
+        first_frame_shape = None
+        
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
             
-            fps = int(cap.get(cv2.CAP_PROP_FPS))
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            duration = total_frames / fps if fps > 0 else 0
-            
-            # 收集关键点序列和人员检测数据
-            keypoints_sequence = []
-            frame_count = 0
-            valid_frames = 0
-            
-            # 保存第一帧有人员的图像用于预览
-            first_frame_with_persons = None
-            first_frame_persons = []
-            first_frame_shape = None
-            
-            while cap.isOpened():
-                ret, frame = cap.read()
-                if not ret:
-                    break
+            if frame_count % sample_interval == 0:
+                keypoints = extract_pose_keypoints(frame)
                 
-                if frame_count % sample_interval == 0:
-                    keypoints = extract_pose_keypoints(frame)
+                if keypoints is not None:
+                    h, w = frame.shape[:2]
+                    kp_norm = normalize_keypoints(keypoints, w, h)
+                    keypoints_sequence.append(kp_norm)
+                    valid_frames += 1
                     
-                    if keypoints is not None:
-                        h, w = frame.shape[:2]
-                        kp_norm = normalize_keypoints(keypoints, w, h)
-                        keypoints_sequence.append(kp_norm)
-                        valid_frames += 1
-                        
-                        # 保存第一帧有人员的数据用于后续显示
-                        if first_frame_with_persons is None:
-                            first_frame_with_persons = frame.copy()
-                            first_frame_shape = (h, w)
-                            # 提取所有人员信息
-                            persons_data = extract_all_persons(frame)
-                            if persons_data:
-                                first_frame_persons = persons_data
-                
-                frame_count += 1
+                    # 保存第一帧有人员的数据用于后续显示
+                    if first_frame_with_persons is None:
+                        first_frame_with_persons = frame.copy()
+                        first_frame_shape = (h, w)
+                        # 提取所有人员信息
+                        persons_data = extract_all_persons(frame)
+                        if persons_data:
+                            first_frame_persons = persons_data
             
-            cap.release()
-            
-            if len(keypoints_sequence) < SEQUENCE_LENGTH:
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        "error": f"视频有效帧数不足，需要至少{SEQUENCE_LENGTH}帧检测到人体，实际只有{len(keypoints_sequence)}帧",
-                        "status": "error"
-                    }
-                )
-            
-            # 使用滑动窗口分析视频
-            window_size = SEQUENCE_LENGTH
-            stride = window_size // 2  # 50% 重叠
-            
-            predictions = []
-            
-            for start in range(0, len(keypoints_sequence) - window_size + 1, stride):
-                end = start + window_size
-                window = keypoints_sequence[start:end]
-                
-                # 规则分类
-                behavior_id, confidence, reason = classifier.classify_sequence(window)
-                behavior_info = BEHAVIOR_LABELS[behavior_id]
-                
-                # 计算时间戳
-                timestamp = (start + window_size // 2) / fps if fps > 0 else 0
-                
-                predictions.append({
-                    "class_id": behavior_id,
-                    "behavior": behavior_info["name"],
-                    "confidence": float(round(float(confidence), 4)),
-                    "score": float(behavior_info["score"]),
-                    "timestamp": round(timestamp, 2),
-                    "frame_range": [start, end],
-                    "reason": reason
-                })
-            
-            # 汇总结果
-            if predictions:
-                # 多数投票确定整体行为
-                class_counts = {}
-                for p in predictions:
-                    cid = p["class_id"]
-                    class_counts[cid] = class_counts.get(cid, 0) + 1
-                
-                dominant_class = max(class_counts, key=class_counts.get)
-                dominant_behavior = BEHAVIOR_LABELS[dominant_class]
-                dominant_ratio = class_counts[dominant_class] / max(1, len(predictions))
-                
-                metrics_persons = [
-                    {
-                        "behavior": p["behavior"],
-                        "confidence": p["confidence"],
-                        "score": p["score"],
-                        "temporal_stability": dominant_ratio,
-                    }
-                    for p in predictions
-                ]
-                classroom_metrics = calculate_classroom_metrics(metrics_persons)
-                avg_score = classroom_metrics["attention_score"]
-                
-                # 构建汇总信息
-                summary = {
-                    "average_score": float(round(float(avg_score), 2)),
-                    "overall_status": classroom_metrics["learning_status"],
-                    "dominant_behavior": dominant_behavior["name"],
-                    "classroom_metrics": classroom_metrics,
-                    "behavior_statistics": {
-                        BEHAVIOR_LABELS[cid]["name"]: {
-                            "count": count,
-                            "percentage": round(count / len(predictions) * 100, 1)
-                        }
-                        for cid, count in class_counts.items()
-                    }
+            frame_count += 1
+        
+        cap.release()
+        
+        if len(keypoints_sequence) < SEQUENCE_LENGTH:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": f"视频有效帧数不足，需要至少{SEQUENCE_LENGTH}帧检测到人体，实际只有{len(keypoints_sequence)}帧",
+                    "status": "error"
                 }
-                
-                # 对第一帧的人员进行行为分类（用于前端显示检测框）
-                # 默认所有人为主要行为类型
-                persons_for_display = []
-                if first_frame_persons:
-                    for i, person in enumerate(first_frame_persons):
-                        persons_for_display.append({
-                            "id": i,
-                            "bbox": person["bbox"],
-                            "behavior": dominant_behavior["name"],
-                            "confidence": 0.85,
-                            "score": float(BEHAVIOR_LABELS[dominant_class]["score"]),
-                            "color": BEHAVIOR_LABELS[dominant_class]["color"]
-                        })
-                
-                # 返回与后端匹配的数据结构
-                return {
-                    "status": "success",
-                    "method": "rule_based_temporal_fusion",
-                    "frame_analyses": predictions,  #  renamed from predictions
-                    "summary": summary,
-                    "persons": persons_for_display,  # 添加人员检测数据
-                    "video_info": {
-                        "total_frames": total_frames,
-                        "valid_frames": valid_frames,
-                        "fps": fps,
-                        "duration": round(duration, 2),
-                        "frames_analyzed": len(predictions),
-                        "image_width": first_frame_shape[1] if first_frame_shape else 0,
-                        "image_height": first_frame_shape[0] if first_frame_shape else 0
-                    }
+            )
+            
+        # 使用滑动窗口分析视频
+        window_size = SEQUENCE_LENGTH
+        stride = window_size // 2  # 50% 重叠
+        
+        predictions = []
+        
+        for start in range(0, len(keypoints_sequence) - window_size + 1, stride):
+            end = start + window_size
+            window = keypoints_sequence[start:end]
+            
+            # 规则分类
+            behavior_id, confidence, reason = classifier.classify_sequence(window)
+            behavior_info = BEHAVIOR_LABELS[behavior_id]
+            
+            # 计算时间戳
+            timestamp = (start + window_size // 2) / fps if fps > 0 else 0
+            
+            predictions.append({
+                "class_id": behavior_id,
+                "behavior": behavior_info["name"],
+                "confidence": float(round(float(confidence), 4)),
+                "score": float(behavior_info["score"]),
+                "timestamp": round(timestamp, 2),
+                "frame_range": [start, end],
+                "reason": reason
+            })
+        
+        # 汇总结果
+        if predictions:
+            # 多数投票确定整体行为
+            class_counts = {}
+            for p in predictions:
+                cid = p["class_id"]
+                class_counts[cid] = class_counts.get(cid, 0) + 1
+            
+            dominant_class = max(class_counts, key=class_counts.get)
+            dominant_behavior = BEHAVIOR_LABELS[dominant_class]
+            dominant_ratio = class_counts[dominant_class] / max(1, len(predictions))
+            
+            metrics_persons = [
+                {
+                    "behavior": p["behavior"],
+                    "confidence": p["confidence"],
+                    "score": p["score"],
+                    "temporal_stability": dominant_ratio,
                 }
-            else:
-                return JSONResponse(
-                    status_code=500,
-                    content={"error": "视频分析失败，无法生成预测结果", "status": "error"}
-                )
-                
-        finally:
-            if os.path.exists(video_path):
-                os.unlink(video_path)
+                for p in predictions
+            ]
+            classroom_metrics = calculate_classroom_metrics(metrics_persons)
+            avg_score = classroom_metrics["attention_score"]
+            
+            # 构建汇总信息
+            summary = {
+                "average_score": float(round(float(avg_score), 2)),
+                "overall_status": classroom_metrics["learning_status"],
+                "dominant_behavior": dominant_behavior["name"],
+                "classroom_metrics": classroom_metrics,
+                "behavior_statistics": {
+                    BEHAVIOR_LABELS[cid]["name"]: {
+                        "count": count,
+                        "percentage": round(count / len(predictions) * 100, 1)
+                    }
+                    for cid, count in class_counts.items()
+                }
+            }
+            
+            # 对第一帧的人员进行行为分类（用于前端显示检测框）
+            # 默认所有人为主要行为类型
+            persons_for_display = []
+            if first_frame_persons:
+                for i, person in enumerate(first_frame_persons):
+                    persons_for_display.append({
+                        "id": i,
+                        "bbox": person["bbox"],
+                        "behavior": dominant_behavior["name"],
+                        "confidence": 0.85,
+                        "score": float(BEHAVIOR_LABELS[dominant_class]["score"]),
+                        "color": BEHAVIOR_LABELS[dominant_class]["color"]
+                    })
+            
+            # 返回与后端匹配的数据结构
+            return {
+                "status": "success",
+                "method": "rule_based_temporal_fusion",
+                "frame_analyses": predictions,  #  renamed from predictions
+                "summary": summary,
+                "persons": persons_for_display,  # 添加人员检测数据
+                "video_info": {
+                    "total_frames": total_frames,
+                    "valid_frames": valid_frames,
+                    "fps": fps,
+                    "duration": round(duration, 2),
+                    "frames_analyzed": len(predictions),
+                    "image_width": first_frame_shape[1] if first_frame_shape else 0,
+                    "image_height": first_frame_shape[0] if first_frame_shape else 0
+                }
+            }
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={"error": "视频分析失败，无法生成预测结果", "status": "error"}
+            )
                 
     except Exception as e:
+        import traceback
+        print(f"Error in analyze_video: {traceback.format_exc()}")
         return JSONResponse(
             status_code=500,
-            content={"error": f"视频分析失败: {str(e)}", "status": "error"}
+            content={"error": "视频分析失败，请检查输入格式或稍后重试", "status": "error"}
         )
+    finally:
+        # 确保任何情况下都清理临时文件
+        if video_path and os.path.exists(video_path):
+            os.unlink(video_path)
 
 
 @app.post("/analyze/stream")
@@ -1302,6 +1327,11 @@ async def analyze_stream(frames: List[List[float]]):
     分析连续帧序列（用于实时流）
     输入: 连续16帧的关键点序列，每帧34个值（17个关键点 × 2坐标）
     """
+    if pose_model is None:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "姿态估计模型未加载，服务不可用", "status": "error"}
+        )
     try:
         if len(frames) < SEQUENCE_LENGTH:
             return JSONResponse(
@@ -1316,8 +1346,9 @@ async def analyze_stream(frames: List[List[float]]):
         recent_frames = frames[-SEQUENCE_LENGTH:]
         keypoints_seq = np.array(recent_frames)
         
-        # 规则分类
-        behavior_id, confidence, reason = classifier.classify_sequence(keypoints_seq)
+        # 规则分类（使用独立实例，避免并发状态污染）
+        local_classifier = RuleBasedBehaviorClassifier()
+        behavior_id, confidence, reason = local_classifier.classify_sequence(keypoints_seq)
         behavior_info = BEHAVIOR_LABELS[behavior_id]
         metrics = calculate_classroom_metrics([
             {
@@ -1343,9 +1374,11 @@ async def analyze_stream(frames: List[List[float]]):
         }
         
     except Exception as e:
+        import traceback
+        print(f"Error in analyze_stream: {traceback.format_exc()}")
         return JSONResponse(
             status_code=500,
-            content={"error": f"分析失败: {str(e)}", "status": "error"}
+            content={"error": "分析失败，请检查输入数据或稍后重试", "status": "error"}
         )
 
 
