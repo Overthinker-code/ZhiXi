@@ -73,6 +73,7 @@ _QUIZ_HINT = re.compile(
 
 # 防止异常超大请求；实际需要更长可在 .env 提高 CHAT_DEFAULT_MAX_TOKENS
 _MAX_OUTPUT_CAP = 131072
+_SELECTION_MIN_ANSWER_CHARS = 420
 
 
 def _supervisor_fallback_decision() -> SupervisorDecision:
@@ -341,6 +342,56 @@ def _collect_worker_outputs_for_finalize(messages: list, max_total: int = 14000)
     if len(merged) <= max_total:
         return merged
     return merged[-max_total:] + "\n…[较早专员输出已截断，保留较近内容]"
+
+
+def _is_selection_query_text(text: str) -> bool:
+    blob = text or ""
+    return "选中了" in blob and "上下文片段" in blob
+
+
+def _expand_selection_answer_if_needed(
+    llm: Any,
+    *,
+    current_q: str,
+    answer: str,
+    rag_excerpt: str,
+    worker_material: str,
+) -> str:
+    clean_answer = (answer or "").strip()
+    if (
+        not _is_selection_query_text(current_q)
+        or len(clean_answer) >= _SELECTION_MIN_ANSWER_CHARS
+    ):
+        return clean_answer
+
+    expand_sys = SystemMessage(
+        content=(
+            "你是知曦课堂划词唤醒的最终解答老师。学生选中了课堂内容中的一个概念，"
+            "你需要把已有短答扩写成完整、耐心、可直接展示的课堂讲解。"
+            "硬性要求：正文控制在 500-800 个中文字符；使用 3-5 个 Markdown 小标题；"
+            "必须覆盖概念定位、核心机制、课堂例子、常见误区或实践价值、下一步学习建议；"
+            "不要输出内部思考，不要提及模型、路由、工具或 JSON。"
+        )
+    )
+    expand_human = HumanMessage(
+        content=(
+            f"【划词问题】\n{current_q}\n\n"
+            f"【已有短答】\n{clean_answer or '（无）'}\n\n"
+            f"【知识库摘要】\n{rag_excerpt or '（无）'}\n\n"
+            "【专员材料】\n"
+            f"{worker_material or '（无）'}"
+        )
+    )
+    try:
+        expanded_msg = llm.invoke([expand_sys, expand_human])
+        expanded = _strip_think_blocks_from_text(
+            _strict_ai_content_for_user(expanded_msg)
+        ).strip()
+        if len(expanded) > len(clean_answer):
+            return expanded
+    except Exception:
+        pass
+    return clean_answer
 
 
 def _clip_messages_for_llm(messages: list) -> list:
@@ -827,6 +878,7 @@ def finalize_node(state: State) -> dict[str, Any]:
     current_q = _latest_human_question(msgs).strip()
     if not current_q:
         current_q = "（未解析到当前学生问题，请根据历史与材料尽量作答。）"
+    is_selection_query = _is_selection_query_text(current_q)
 
     history_lines = _recent_public_history(msgs, max_turns=4)
     recent_history = "\n".join(history_lines) if history_lines else "（暂无历史对话）"
@@ -840,6 +892,12 @@ def finalize_node(state: State) -> dict[str, Any]:
     memory_context = (state.get("user_memory_context") or "").strip()
     if memory_context:
         sys_chunks.append(memory_context)
+    if is_selection_query:
+        sys_chunks.append(
+            "【划词唤醒回答要求】本次是学生在课堂内容中划词后的即时解答。"
+            "最终 answer 正文必须是完整课堂讲解，不能压缩成一段短答；"
+            "除非学生明确要求总结，否则至少覆盖概念、机制、例子、易错点和学习建议。"
+        )
     rr = (state.get("routing_reason") or "").strip()
     if rr and ("强制" in rr or "解析失败" in rr or "连续" in rr):
         sys_chunks.append(
@@ -875,16 +933,20 @@ def finalize_node(state: State) -> dict[str, Any]:
             return t
         return ""
 
-    structured_prompt = SystemMessage(
-        content=(
-            "你必须输出结构化结果，字段包括 answer, confidence, grounding_mode, citations, follow_ups。\n"
-            "confidence 只能是 high / medium / low；grounding_mode 只能是 rag / general / tool / mixed。\n"
-            "如果使用知识库证据，citations 中必须引用上面候选里的 citation_id；"
-            "不要编造不存在的 citation_id。\n"
-            "follow_ups 必须正好 3 条，必须是学生会点击后直接发给你的下一轮问题；"
-            "每条都要用学生第一人称表达，包含“我/帮我/给我”等表达，不要写成“请问您是否需要...”这类面向用户的提示。"
-        )
+    structured_prompt_text = (
+        "你必须输出结构化结果，字段包括 answer, confidence, grounding_mode, citations, follow_ups。\n"
+        "confidence 只能是 high / medium / low；grounding_mode 只能是 rag / general / tool / mixed。\n"
+        "如果使用知识库证据，citations 中必须引用上面候选里的 citation_id；"
+        "不要编造不存在的 citation_id。\n"
+        "follow_ups 必须正好 3 条，必须是学生会点击后直接发给你的下一轮问题；"
+        "每条都要用学生第一人称表达，包含“我/帮我/给我”等表达，不要写成“请问您是否需要...”这类面向用户的提示。"
     )
+    if is_selection_query:
+        structured_prompt_text += (
+            "\n本次是划词唤醒场景，answer 字段必须优先满足课堂讲解长度："
+            "建议 500-800 个中文字符，使用小标题或列表，不要只输出简短定义。"
+        )
+    structured_prompt = SystemMessage(content=structured_prompt_text)
     citations: list[dict[str, Any]] = []
     confidence = "medium"
     grounding_mode = "general"
@@ -907,6 +969,13 @@ def finalize_node(state: State) -> dict[str, Any]:
             payload = parse_structured_payload(_strict_ai_content_for_user(raw_msg))
         if payload:
             clean = _strip_think_blocks_from_text((payload.answer or "").strip())
+            clean = _expand_selection_answer_if_needed(
+                llm,
+                current_q=current_q,
+                answer=clean,
+                rag_excerpt=rag_ex,
+                worker_material=worker_mat,
+            )
             citations = _normalize_structured_citations(
                 state.get("rag_results") or [],
                 [
@@ -931,6 +1000,13 @@ def finalize_node(state: State) -> dict[str, Any]:
                     else ""
                 )
                 clean = _strip_think_blocks_from_text(raw_fallback)
+                clean = _expand_selection_answer_if_needed(
+                    llm,
+                    current_q=current_q,
+                    answer=clean,
+                    rag_excerpt=rag_ex,
+                    worker_material=worker_mat,
+                )
                 if clean:
                     follow_ups = _normalize_followups(
                         current_q, clean, payload.follow_ups
@@ -943,6 +1019,13 @@ def finalize_node(state: State) -> dict[str, Any]:
     except Exception as e:
         fallback_text = _fallback_from_recent_worker_messages(msgs)
         if fallback_text:
+            fallback_text = _expand_selection_answer_if_needed(
+                llm,
+                current_q=current_q,
+                answer=fallback_text,
+                rag_excerpt=rag_ex,
+                worker_material=worker_mat,
+            )
             msg = AIMessage(content=fallback_text, name="final_answer")
         else:
             msg = AIMessage(
