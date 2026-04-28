@@ -250,9 +250,15 @@ class RuleBasedClassifier:
         if min_dist < 0.15 and head_low:
             return 1, 0.9, f"手腕靠近面部(距离{min_dist:.3f})"
         
-        # 检查睡觉
-        if nose[1] > shoulder_center[1] + 0.12:
-            return 3, 0.85, "头部低下"
+        # 检查睡觉（提高阈值，避免近景自拍/正常看屏幕误判）
+        # 同时校验眼睛可见性：眼睛可见时大概率不是真在睡觉
+        left_eye = keypoints[1]
+        right_eye = keypoints[2]
+        eyes_visible = np.linalg.norm(left_eye) > 0.001 and np.linalg.norm(right_eye) > 0.001
+        
+        if nose[1] > shoulder_center[1] + 0.22:
+            conf = 0.6 if eyes_visible else 0.85
+            return 3, conf, "头部低下"
         
         # 检查交谈
         left_ear = keypoints[3]

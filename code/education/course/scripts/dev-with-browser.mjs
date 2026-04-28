@@ -33,6 +33,7 @@ const child = spawn(npmCmd, ['exec', '--', ...viteArgs], {
   stdio: 'inherit',
   cwd: process.cwd(),
   env: process.env,
+  shell: true,
 });
 
 child.on('spawn', () => {

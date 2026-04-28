@@ -20,6 +20,13 @@ from app.schemas.learning_report import (
 from app.services.chat_model_factory import ChatModelFactory
 from app.services.user_memory_profile_service import user_memory_profile_service
 
+# 教育学参数联动导入
+try:
+    from app.models import BehaviorSummaryRecord
+    BEHAVIOR_MODEL_AVAILABLE = True
+except ImportError:
+    BEHAVIOR_MODEL_AVAILABLE = False
+
 
 class _LearningReportPayload(BaseModel):
     summary: str = ""
@@ -41,6 +48,17 @@ class _MistakeDigestPayload(BaseModel):
     summary: str = ""
     mistakes: list[dict[str, Any]] = Field(default_factory=list)
     flashcards: list[str] = Field(default_factory=list)
+
+
+# ==================== 教育学参数联动：课堂行为上下文 ====================
+
+class _ClassroomBehaviorSummary(BaseModel):
+    """课堂行为摘要，附加到学情诊断报告中"""
+    recent_avg_lei: float = 0.0
+    dominant_cognitive_state: str = ""
+    mind_wandering_rate: float = 0.0
+    bloom_distribution: dict[str, float] = Field(default_factory=dict)
+    teacher_note: str = ""
 
 
 class LearningReportService:
@@ -192,25 +210,93 @@ class LearningReportService:
         )
         return insights[:4]
 
+    def _get_recent_behavior_context(self, session: Session, user_id: str) -> str:
+        """获取学生最近3节课的课堂行为数据（教育学参数联动1）"""
+        if not BEHAVIOR_MODEL_AVAILABLE:
+            return ""
+        try:
+            from uuid import UUID
+            from sqlalchemy import desc, or_
+            try:
+                uid = UUID(user_id) if isinstance(user_id, str) else user_id
+            except ValueError:
+                uid = None
+            # 优先查询该学生的个人记录；若无，则查询课堂整体记录（student_id=NULL）
+            query = (
+                session.query(BehaviorSummaryRecord)
+                .filter(
+                    or_(
+                        BehaviorSummaryRecord.student_id == uid,
+                        BehaviorSummaryRecord.student_id.is_(None),
+                    )
+                )
+                .order_by(desc(BehaviorSummaryRecord.session_date))
+                .limit(3)
+            )
+            records = query.all()
+            if not records:
+                return ""
+            
+            lines = ["【学生课堂表现数据（最近3节课）】"]
+            for i, r in enumerate(records, 1):
+                lines.append(f"第{i}节课 ({r.session_date.strftime('%m-%d')}):")
+                lines.append(f"  - 学习投入指数(LEI): {r.avg_lei:.2f}")
+                lines.append(f"  - 认知深度: {r.avg_cognitive_depth:.2f}")
+                lines.append(f"  - 走神率: {r.mind_wandering_rate:.1%}")
+                lines.append(f"  - 目标行为率: {r.on_task_rate:.1%}")
+                if r.bloom_distribution:
+                    import json
+                    try:
+                        bd = json.loads(r.bloom_distribution)
+                        bd_str = ", ".join(f"{k}:{float(v):.0%}" for k, v in bd.items())
+                        lines.append(f"  - 布鲁姆分布: {bd_str}")
+                    except Exception:
+                        pass
+            
+            # 生成教师备注
+            avg_lei = sum(r.avg_lei for r in records) / len(records)
+            avg_mw = sum(r.mind_wandering_rate for r in records) / len(records)
+            if avg_lei < 0.4:
+                note = "该生课堂投入度极低，诊断时应优先考虑注意力管理问题而非知识漏洞。"
+            elif avg_lei < 0.6:
+                note = "该生课堂投入度偏低，建议诊断中兼顾知识掌握与学习习惯。"
+            elif avg_mw > 0.3:
+                note = "该生课堂走神率较高，但投入度尚可，可能存在特定知识点听不懂导致的注意力漂移。"
+            else:
+                note = "该生课堂表现良好，诊断可聚焦于知识深度与拓展。"
+            lines.append(f"\n[课堂行为综合判断] {note}")
+            
+            return "\n".join(lines)
+        except Exception:
+            return ""
+
     def _infer_payload(
         self,
         *,
         profile: dict[str, Any] | None,
         history_digest: str,
+        behavior_context: str = "",
     ) -> _LearningReportPayload:
         current_goal = str(profile.get("current_goal") or "").strip() if profile else ""
-        weak_points = profile.get("weak_points") or [] if profile else []
+        weak_points = (profile.get("weak_points") or []) if profile else []
         learning_style = str(profile.get("learning_style") or "").strip() if profile else ""
+        behavior_section = f"\n{behavior_context}\n" if behavior_context else ""
+        
         prompt = (
-            "你是一名学情诊断助手。请根据学生长期画像与近期问答，"
+            "你是一名学情诊断助手。请根据学生长期画像、近期问答以及课堂行为数据，"
             "输出严格 JSON，字段包括：summary, risk_level, strengths, "
             "recommended_actions, recommended_resources, follow_up_questions。\n"
             "risk_level 只能是 low / medium / high。\n"
             "每个数组给 2-4 条，尽量简洁可执行。\n\n"
+            "【重要】如果提供了课堂行为数据，请将其作为诊断的重要依据：\n"
+            "- 课堂LEI<0.4且走神率高 → 风险等级应上调，建议优先解决注意力问题\n"
+            "- 课堂LEI>0.7且认知深度高 → 风险等级应下调，可建议拓展性学习\n"
+            "- 布鲁姆分布停留在remembering/understanding → 建议增加高阶思维训练\n\n"
             f"【当前目标】{current_goal or '暂无明确目标'}\n"
             f"【薄弱点】{'、'.join(weak_points) if weak_points else '暂无明确薄弱点'}\n"
             f"【学习偏好】{learning_style or '暂无明显偏好'}\n"
             f"【近期问答】\n{history_digest}"
+            f"{behavior_section}"
         )
         try:
             llm = ChatModelFactory.create(temperature=0.2, max_tokens=900)
@@ -224,21 +310,99 @@ class LearningReportService:
             pass
         return self._fallback_payload(profile)
 
+    def _get_behavior_for_review_plan(self, session: Session, user_id: str) -> str:
+        """获取用于复习计划生成的课堂行为数据（教育学参数联动2）"""
+        if not BEHAVIOR_MODEL_AVAILABLE:
+            return ""
+        try:
+            from uuid import UUID
+            from sqlalchemy import desc, or_
+            try:
+                uid = UUID(user_id) if isinstance(user_id, str) else user_id
+            except ValueError:
+                uid = None
+            # 优先查询该学生的个人记录；若无，则查询课堂整体记录
+            query = (
+                session.query(BehaviorSummaryRecord)
+                .filter(
+                    or_(
+                        BehaviorSummaryRecord.student_id == uid,
+                        BehaviorSummaryRecord.student_id.is_(None),
+                    )
+                )
+                .order_by(desc(BehaviorSummaryRecord.session_date))
+                .limit(3)
+            )
+            records = query.all()
+            if not records:
+                return ""
+            
+            lines = ["【学生课堂认知特征】"]
+            import json
+            avg_bloom: dict[str, float] = {}
+            avg_depth = 0.0
+            avg_mw = 0.0
+            for r in records:
+                avg_depth += r.avg_cognitive_depth
+                avg_mw += r.mind_wandering_rate
+                if r.bloom_distribution:
+                    try:
+                        bd = json.loads(r.bloom_distribution)
+                        for k, v in bd.items():
+                            avg_bloom[k] = avg_bloom.get(k, 0.0) + float(v)
+                    except Exception:
+                        pass
+            
+            n = len(records)
+            avg_depth /= n
+            avg_mw /= n
+            for k in avg_bloom:
+                avg_bloom[k] /= n
+            
+            bloom_str = ", ".join(f"{k}:{float(v):.0%}" for k, v in sorted(avg_bloom.items(), key=lambda x: -x[1]))
+            lines.append(f"- 布鲁姆认知层次分布: {bloom_str}")
+            lines.append(f"- 认知深度得分: {avg_depth:.2f}")
+            lines.append(f"- 课堂走神率: {avg_mw:.1%}")
+            
+            # 生成规划约束
+            constraints = []
+            if avg_depth < 0.55:
+                constraints.append("该生认知层次以低阶思维为主，复习计划中必须包含应用/分析类任务，禁止只做记忆性背诵。")
+            if avg_depth > 0.80:
+                constraints.append("该生认知深度较高，复习计划应加入挑战性题目和拓展阅读。")
+            if avg_mw > 0.3:
+                constraints.append("该生走神率较高，每日任务应拆分为25分钟以内的短模块（番茄工作法），并在每个模块后设置即时反馈。")
+            if not constraints:
+                constraints.append("该生课堂表现正常，按标准难度制定复习计划。")
+            
+            lines.append("\n【复习计划约束】")
+            for c in constraints:
+                lines.append(f"- {c}")
+            
+            return "\n".join(lines)
+        except Exception:
+            return ""
+
     def _infer_review_plan(
         self,
         *,
         profile: dict[str, Any] | None,
         history: list[Chat],
         history_digest: str,
+        behavior_context: str = "",
     ) -> _ReviewPlanPayload:
         topics = self._normalized_topics(profile, history)
+        behavior_section = f"\n{behavior_context}\n" if behavior_context else ""
+        
         prompt = (
-            "你是一名学习规划助手。请根据学生画像与近期问答，输出严格 JSON。"
+            "你是一名学习规划助手。请根据学生画像、近期问答以及课堂认知特征，输出严格 JSON。"
             "字段包括：summary, focus_topics, daily_plan, checkpoints。\n"
             "其中 daily_plan 为数组，每项包含 day_label, focus, tasks。"
             "请输出 3 天复习计划，每天 2-4 条任务，简洁可执行。\n\n"
+            "【重要】如果有课堂认知特征数据，请严格遵循其约束条件调整任务类型和难度。\n"
             f"【薄弱点】{'、'.join(topics)}\n"
             f"【近期问答】\n{history_digest}"
+            f"{behavior_section}"
         )
         try:
             llm = ChatModelFactory.create(temperature=0.2, max_tokens=900)
@@ -252,21 +416,78 @@ class LearningReportService:
             pass
         return self._fallback_review_plan(profile, history)
 
+    def _get_attention_context_for_mistakes(self, session: Session, user_id: str, topics: list[str]) -> str:
+        """获取错题注意力归因数据（教育学参数联动7）"""
+        if not BEHAVIOR_MODEL_AVAILABLE or not topics:
+            return ""
+        try:
+            from uuid import UUID
+            from sqlalchemy import desc, or_
+            try:
+                uid = UUID(user_id) if isinstance(user_id, str) else user_id
+            except ValueError:
+                uid = None
+            # 优先查询该学生的个人记录；若无，则查询课堂整体记录
+            query = (
+                session.query(BehaviorSummaryRecord)
+                .filter(
+                    or_(
+                        BehaviorSummaryRecord.student_id == uid,
+                        BehaviorSummaryRecord.student_id.is_(None),
+                    )
+                )
+                .order_by(desc(BehaviorSummaryRecord.session_date))
+                .limit(5)
+            )
+            records = query.all()
+            if not records:
+                return ""
+            
+            lines = ["【错题-课堂注意力归因数据】"]
+            import json
+            avg_mw = sum(r.mind_wandering_rate for r in records) / len(records)
+            avg_lei = sum(r.avg_lei for r in records) / len(records)
+            
+            lines.append(f"- 该生近期平均走神率: {avg_mw:.1%}")
+            lines.append(f"- 该生近期平均学习投入指数: {avg_lei:.2f}")
+            
+            if avg_mw > 0.3 and avg_lei < 0.5:
+                lines.append("- [归因判断] 该生课堂注意力问题严重，错题可能主要由于上课未听讲导致，建议优先重新听课而非盲目刷题。")
+            elif avg_mw > 0.2:
+                lines.append("- [归因判断] 该生存在一定注意力问题，错题可能兼有知识漏洞和听课不专注两种原因。")
+            else:
+                lines.append("- [归因判断] 该生课堂注意力正常，错题主要反映知识理解问题，建议针对性练习。")
+            
+            lines.append("\n【错题诊断要求】")
+            lines.append("- 若归因判断为'上课未听讲'，请在symptom中明确指出'课堂注意力不集中导致概念遗漏'")
+            lines.append("- 若归因判断为'知识理解问题'，请深入分析概念误解的具体表现")
+            lines.append("- fix_strategy必须对应归因结论：注意力问题→重新听课；知识问题→针对性练习")
+            
+            return "\n".join(lines)
+        except Exception:
+            return ""
+
     def _infer_mistake_digest(
         self,
         *,
         profile: dict[str, Any] | None,
         history: list[Chat],
         history_digest: str,
+        behavior_context: str = "",
     ) -> _MistakeDigestPayload:
         topics = self._normalized_topics(profile, history)
+        behavior_section = f"\n{behavior_context}\n" if behavior_context else ""
+        
         prompt = (
-            "你是一名错题整理助手。请根据学生画像和近期问答，输出严格 JSON。"
+            "你是一名错题整理助手。请根据学生画像、近期问答以及课堂注意力归因数据，输出严格 JSON。"
             "字段包括：summary, mistakes, flashcards。"
             "mistakes 为数组，每项包含 title, symptom, evidence, fix_strategy。"
             "请优先整理最值得优先复盘的 3 个错点。\n\n"
+            "【重要】如果归因数据指出'课堂注意力不集中'，则诊断结论必须区分'真不会'和'没听'，"
+            "fix_strategy不能一味地建议'刷更多题'，对于注意力问题应建议'重新听课/回顾笔记'。\n"
             f"【候选薄弱点】{'、'.join(topics)}\n"
             f"【近期问答】\n{history_digest}"
+            f"{behavior_section}"
         )
         try:
             llm = ChatModelFactory.create(temperature=0.2, max_tokens=900)
@@ -289,7 +510,10 @@ class LearningReportService:
         profile = user_memory_profile_service.get_profile_dict(session, user_id) or {}
         history = self._recent_history(session, user_id)
         digest = self._history_digest(history)
-        payload = self._infer_payload(profile=profile, history_digest=digest)
+        
+        # 教育学参数联动1：注入课堂行为上下文
+        behavior_context = self._get_recent_behavior_context(session, user_id)
+        payload = self._infer_payload(profile=profile, history_digest=digest, behavior_context=behavior_context)
         weak_points = [str(item).strip() for item in profile.get("weak_points") or [] if str(item).strip()]
         mastery_map = {
             str(topic): round(float(score), 4)
@@ -314,6 +538,65 @@ class LearningReportService:
                     ),
                 )
             )
+        
+        # 教育学参数联动：附加课堂行为摘要
+        classroom_behavior_summary = None
+        if behavior_context:
+            try:
+                from uuid import UUID
+                from sqlalchemy import desc
+                try:
+                    uid = UUID(user_id) if isinstance(user_id, str) else user_id
+                except ValueError:
+                    latest_record = None
+                else:
+                    from sqlalchemy import or_
+                    latest_record = (
+                        session.query(BehaviorSummaryRecord)
+                        .filter(
+                            or_(
+                                BehaviorSummaryRecord.student_id == uid,
+                                BehaviorSummaryRecord.student_id.is_(None),
+                            )
+                        )
+                        .order_by(desc(BehaviorSummaryRecord.session_date))
+                        .first()
+                    )
+                if latest_record:
+                    import json
+                    bd = {}
+                    if latest_record.bloom_distribution:
+                        try:
+                            bd = json.loads(latest_record.bloom_distribution)
+                        except Exception:
+                            pass
+                    # 解析个体画像快照中的三维投入指标
+                    snapshot = {}
+                    if latest_record.student_profiles_snapshot:
+                        try:
+                            snapshot = json.loads(latest_record.student_profiles_snapshot)
+                        except Exception:
+                            pass
+                    classroom_behavior_summary = {
+                        "recent_avg_lei": round(latest_record.avg_lei, 3),
+                        "avg_cognitive_depth": round(latest_record.avg_cognitive_depth, 3),
+                        "mind_wandering_rate": round(latest_record.mind_wandering_rate, 3),
+                        "contagion_index": round(latest_record.contagion_index, 3),
+                        "on_task_rate": round(latest_record.on_task_rate, 3),
+                        "dominant_cognitive_state": "",
+                        "mind_wandering_rate": round(latest_record.mind_wandering_rate, 3),
+                        "bloom_distribution": bd,
+                        "teacher_note": "课堂表现已纳入诊断参考",
+                        "behavioral_engagement": snapshot.get("class_behavioral_engagement", 0),
+                        "cognitive_engagement": snapshot.get("class_cognitive_engagement", 0),
+                        "emotional_engagement": snapshot.get("class_emotional_engagement", 0),
+                        "attention_cycle_phase": snapshot.get("attention_cycle_phase"),
+                        "class_attention_trend": snapshot.get("class_attention_trend"),
+                        "student_count": snapshot.get("student_count", 0),
+                    }
+            except Exception:
+                pass
+        
         return LearningReport(
             learner_id=user_id,
             generated_at=datetime.utcnow().isoformat(),
@@ -330,6 +613,7 @@ class LearningReportService:
             recommended_resources=payload.recommended_resources,
             follow_up_questions=payload.follow_up_questions,
             sections=sections,
+            classroom_behavior_summary=classroom_behavior_summary,
         )
 
     def build_review_plan(
@@ -343,10 +627,14 @@ class LearningReportService:
         profile = user_memory_profile_service.get_profile_dict(session, user_id) or {}
         history = self._recent_history(session, user_id)
         digest = self._history_digest(history)
+        
+        # 教育学参数联动2：注入课堂认知特征
+        behavior_context = self._get_behavior_for_review_plan(session, user_id)
         payload = self._infer_review_plan(
             profile=profile,
             history=history,
             history_digest=digest,
+            behavior_context=behavior_context,
         )
         plan_days: list[ReviewPlanDay] = []
         for index, item in enumerate(payload.daily_plan[:3], start=1):
@@ -402,10 +690,15 @@ class LearningReportService:
         profile = user_memory_profile_service.get_profile_dict(session, user_id) or {}
         history = self._recent_history(session, user_id)
         digest = self._history_digest(history)
+        topics = self._normalized_topics(profile, history)
+        
+        # 教育学参数联动7：注入注意力归因数据
+        behavior_context = self._get_attention_context_for_mistakes(session, user_id, topics)
         payload = self._infer_mistake_digest(
             profile=profile,
             history=history,
             history_digest=digest,
+            behavior_context=behavior_context,
         )
         items: list[MistakeDigestItem] = []
         for raw in payload.mistakes[:4]:

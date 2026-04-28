@@ -45,3 +45,7 @@ ResourceCreate = _mod.ResourceCreate
 ResourceUpdate = _mod.ResourceUpdate
 ResourcePublic = _mod.ResourcePublic
 ResourcesPublic = _mod.ResourcesPublic
+
+BehaviorSummaryRecord = _mod.BehaviorSummaryRecord
+CourseEngagementRecord = _mod.CourseEngagementRecord
+StudentBehaviorAlert = _mod.StudentBehaviorAlert

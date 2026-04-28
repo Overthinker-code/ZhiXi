@@ -40,6 +40,18 @@ class FrameMessage(BaseModel):
     image_base64: str = Field(..., description="base64 编码的图像数据，支持 data URI")
 
 
+class EducationalMetrics(BaseModel):
+    """单个人员的教育学参数（基于头部姿态推导）"""
+    lei: float = Field(0.0, ge=0.0, le=1.0, description="学习投入指数 Learning Engagement Index")
+    bloom_level: str = Field("understand", description="布鲁姆认知层次: remember/understand/apply/analyze/evaluate/create")
+    cognitive_state: str = Field("专注", description="认知状态: 深度专注/阅读书写/轻度走神/明显走神/疲劳/困惑")
+    bei: float = Field(0.0, ge=0.0, le=1.0, description="身体投入指数 Body Engagement Index")
+    cei: float = Field(0.0, ge=0.0, le=1.0, description="认知投入指数 Cognitive Engagement Index")
+    eei: float = Field(0.0, ge=0.0, le=1.0, description="情感投入指数 Emotional Engagement Index")
+    attention_deviation: float = Field(0.0, description="注意力偏离度(负值=低于基线)")
+    mind_wandering: bool = Field(False, description="是否判定为走神")
+
+
 class PersonResult(BaseModel):
     """单个人员检测结果"""
     track_id: str = Field(..., description="人员追踪 ID，如 person_1")
@@ -51,6 +63,8 @@ class PersonResult(BaseModel):
     color: Optional[str] = Field(None, description="行为标签颜色")
     reason: Optional[str] = Field(None, description="行为判断原因")
     method: Optional[str] = Field(None, description="检测方法：yolo / fallback")
+    eye_closed: Optional[bool] = Field(None, description="是否检测到闭眼（仅 FaceLandmarker 模式有效）")
+    educational: Optional[EducationalMetrics] = Field(None, description="教育学参数（LEI/布鲁姆/认知状态等）")
 
 
 class SummaryResult(BaseModel):
@@ -62,6 +76,10 @@ class SummaryResult(BaseModel):
     attention_score: Optional[float] = Field(None, ge=0.0, le=1.0, description="专注度指标公式得分")
     focus_rate: Optional[float] = Field(None, ge=0.0, le=1.0, description="专注率")
     stability_index: Optional[float] = Field(None, ge=0.0, le=1.0, description="时序稳定度")
+    avg_lei: Optional[float] = Field(None, ge=0.0, le=1.0, description="全班平均 LEI")
+    bloom_distribution: Optional[Dict[str, float]] = Field(None, description="布鲁姆层次分布")
+    on_task_rate: Optional[float] = Field(None, ge=0.0, le=1.0, description="on-task 比例")
+    mind_wandering_rate: Optional[float] = Field(None, ge=0.0, le=1.0, description="走神率")
 
 
 class AnalysisMessage(BaseModel):
@@ -158,6 +176,7 @@ class BehaviorWebSocketService:
         if not MEDIAPIPE_AVAILABLE:
             return
         if not os.path.exists(self.MODEL_PATH_LANDMARKER):
+
             return
         try:
             options = FaceLandmarkerOptions(
@@ -355,7 +374,7 @@ class BehaviorWebSocketService:
         face: Tuple[int, int, int, int, List[Any], Optional[Dict[str, float]]],
         img_h: int,
         img_w: int,
-    ) -> Tuple[str, float]:
+    ) -> Tuple[str, float, Optional[bool]]:
         """
         估算头部姿态状态。
         - FaceLandmarker 模式：468 个关键点 + blendshapes，支持闭眼检测
@@ -433,10 +452,10 @@ class BehaviorWebSocketService:
                     0.0,
                     1.0 - (nose_offset_y * 2.0 + eye_height_diff * 3.0 + (0.3 if is_eye_closed else 0)),
                 )
-                return self.STATUS_UNFOCUSED, round(score, 2)
+                return self.STATUS_UNFOCUSED, round(score, 2), is_eye_closed
 
             score = min(1.0, 0.90 + (0.25 - nose_offset_y) * 0.5)
-            return self.STATUS_FOCUSED, round(score, 2)
+            return self.STATUS_FOCUSED, round(score, 2), is_eye_closed
 
         # ============= FaceDetector 模式 (6 点) =============
         if len(keypoints) >= 4:
@@ -467,10 +486,10 @@ class BehaviorWebSocketService:
                     0.0,
                     1.0 - (nose_offset_y * 2.0 + eye_height_diff * 3.0 + (0.02 if is_small else 0)),
                 )
-                return self.STATUS_UNFOCUSED, round(score, 2)
+                return self.STATUS_UNFOCUSED, round(score, 2), None
 
             score = min(1.0, 0.90 + (0.25 - nose_offset_y) * 0.5)
-            return self.STATUS_FOCUSED, round(score, 2)
+            return self.STATUS_FOCUSED, round(score, 2), None
 
         # ============= Haar 降级模式 =============
         def _clamp(value: float, minimum: float, maximum: float) -> float:
@@ -483,12 +502,175 @@ class BehaviorWebSocketService:
         ) else 0.0
         if face_area_ratio < 0.004:
             score = _clamp(0.34 + face_area_ratio * 34 - edge_penalty, 0.28, 0.58)
-            return self.STATUS_UNFOCUSED, round(score, 2)
+            return self.STATUS_UNFOCUSED, round(score, 2), None
 
         score = _clamp(0.64 + face_area_ratio * 10 - edge_penalty, 0.46, 0.93)
         if score < 0.63:
-            return self.STATUS_UNFOCUSED, round(score, 2)
-        return self.STATUS_FOCUSED, round(score, 2)
+            return self.STATUS_UNFOCUSED, round(score, 2), None
+        return self.STATUS_FOCUSED, round(score, 2), None
+
+    def _derive_educational_metrics(
+        self,
+        face: Tuple[int, int, int, int, List[Any], Optional[Dict[str, float]]],
+        img_h: int,
+        img_w: int,
+        final_status: str,
+        final_score: float,
+        eye_closed: Optional[bool],
+    ) -> EducationalMetrics:
+        """
+        基于头部姿态特征推导教育学参数（LEI / 布鲁姆层次 / 认知状态）。
+        与 _estimate_pose 共用相同的特征提取逻辑，避免重复计算时直接复用中间值。
+        """
+        if len(face) == 6:
+            x, y, w, h, keypoints, blendshapes = face
+        else:
+            x, y, w, h, keypoints = face
+            blendshapes = {}
+        blendshapes = blendshapes or {}
+
+        face_area_ratio = (w * h) / (img_w * img_h) if img_w > 0 and img_h > 0 else 0.01
+
+        # ---------- 特征提取 ----------
+        is_head_down = False
+        is_turning = False
+        is_turning_yaw = False
+        is_reading = False
+        is_eye_closed = eye_closed or False
+        nose_offset_y = 0.0
+        eye_height_diff = 0.0
+        has_fine_lm = keypoints and hasattr(keypoints[0], 'x') and len(keypoints) > 100
+        has_6pt = len(keypoints) >= 4 if keypoints else False
+
+        if has_fine_lm:
+            lm = keypoints
+            nose = lm[1]
+            left_eye = lm[33]
+            right_eye = lm[263]
+            eye_center_y = (left_eye.y + right_eye.y) / 2
+            nose_offset_y = nose.y - eye_center_y
+            eye_height_diff = abs(left_eye.y - right_eye.y)
+            eye_center_x = (left_eye.x + right_eye.x) / 2
+            eye_span = abs(right_eye.x - left_eye.x)
+            nose_offset_x = abs(nose.x - eye_center_x)
+            is_turning_yaw = (nose_offset_x / eye_span) > 0.18 if eye_span > 0 else False
+            is_head_down = nose_offset_y > 0.20
+            is_turning = eye_height_diff > 0.030
+            if blendshapes and is_head_down and not is_eye_closed:
+                eye_look_down = (blendshapes.get('eyeLookDownLeft', 0) + blendshapes.get('eyeLookDownRight', 0)) / 2
+                if eye_look_down > 0.25:
+                    is_reading = True
+                    is_head_down = False
+        elif has_6pt:
+            left_eye = keypoints[0]
+            right_eye = keypoints[1]
+            nose = keypoints[2]
+            eye_center_y = (left_eye[1] + right_eye[1]) / 2
+            nose_offset_y = nose[1] - eye_center_y
+            eye_height_diff = abs(left_eye[1] - right_eye[1])
+            is_head_down = nose_offset_y > 0.22
+            is_turning = eye_height_diff > 0.035
+            if len(keypoints) >= 6:
+                left_ear = keypoints[4]
+                right_ear = keypoints[5]
+                ear_span = abs(right_ear[0] - left_ear[0])
+                eye_span = abs(right_eye[0] - left_eye[0])
+                if eye_span > 0 and (ear_span / eye_span) < 1.7:
+                    is_turning_yaw = True
+        else:
+            # Haar 降级：用 face_area_ratio 和 final_score 推断
+            is_head_down = face_area_ratio < 0.004
+            is_turning = final_score < 0.55
+
+        # ---------- 认知状态 ----------
+        if final_status == self.STATUS_FOCUSED:
+            if is_reading:
+                cognitive_state = "阅读书写"
+            elif not is_head_down and not is_turning and not is_eye_closed:
+                cognitive_state = "深度专注"
+            else:
+                cognitive_state = "专注"
+        else:  # unfocused
+            if is_eye_closed:
+                cognitive_state = "疲劳"
+            elif is_turning or is_turning_yaw:
+                cognitive_state = "明显走神"
+            elif is_head_down and not is_reading:
+                cognitive_state = "轻度走神"
+            else:
+                cognitive_state = "困惑"
+
+        # ---------- 布鲁姆层次 ----------
+        if cognitive_state == "深度专注":
+            if 0.05 < nose_offset_y <= 0.15:
+                bloom_level = "analyze"
+            else:
+                bloom_level = "understand"
+        elif cognitive_state == "阅读书写":
+            bloom_level = "apply"
+        elif cognitive_state in ("疲劳", "轻度走神"):
+            bloom_level = "remember"
+        elif cognitive_state == "明显走神":
+            bloom_level = "remember"
+        elif final_status == self.STATUS_FOCUSED:
+            bloom_level = "understand"
+        else:
+            bloom_level = "remember"
+
+        # ---------- LEI 三维度 ----------
+        # BEI: 身体投入（头部姿态正直度）
+        if has_fine_lm or has_6pt:
+            bei = max(0.0, min(1.0, 1.0 - nose_offset_y * 2.5 - eye_height_diff * 2.0))
+        else:
+            bei = max(0.3, min(0.9, final_score))
+
+        # CEI: 认知投入（布鲁姆层次映射）
+        BLOOM_CEI = {
+            "remember": 0.35,
+            "understand": 0.55,
+            "apply": 0.70,
+            "analyze": 0.82,
+            "evaluate": 0.90,
+            "create": 0.95,
+        }
+        cei = BLOOM_CEI.get(bloom_level, 0.5)
+
+        # EEI: 情感投入（面部活跃度，blendshapes 嘴部/眉毛变化）
+        if blendshapes and has_fine_lm:
+            expressiveness = (
+                blendshapes.get('jawOpen', 0)
+                + blendshapes.get('mouthSmileLeft', 0)
+                + blendshapes.get('mouthSmileRight', 0)
+                + blendshapes.get('browDownLeft', 0)
+                + blendshapes.get('browDownRight', 0)
+                + blendshapes.get('browInnerUp', 0)
+            ) / 6.0
+            eei = max(0.2, min(0.95, 0.5 + expressiveness * 0.8))
+        else:
+            eei = max(0.25, min(0.85, final_score * 0.9 + 0.1))
+
+        # LEI = 0.35*BEI + 0.40*CEI + 0.25*EEI
+        lei = round(0.35 * bei + 0.40 * cei + 0.25 * eei, 3)
+
+        # 注意力偏离度（以 0.7 为课堂基线）
+        attention_deviation = round(final_score - 0.7, 3)
+
+        # 走神判定
+        mind_wandering = (
+            final_status == self.STATUS_UNFOCUSED
+            and (is_turning or is_turning_yaw or (is_head_down and not is_reading))
+        )
+
+        return EducationalMetrics(
+            lei=lei,
+            bloom_level=bloom_level,
+            cognitive_state=cognitive_state,
+            bei=round(bei, 3),
+            cei=round(cei, 3),
+            eei=round(eei, 3),
+            attention_deviation=attention_deviation,
+            mind_wandering=mind_wandering,
+        )
 
     def analyze_frame(
         self, image_base64: str, frame_id: int
@@ -535,12 +717,15 @@ class BehaviorWebSocketService:
         # 1. 计算当前帧检测到的人脸
         current_raw: List[Dict[str, Any]] = []
         for (x, y, w, h, keypoints, blendshapes) in faces:
-            raw_status, raw_score = self._estimate_pose((x, y, w, h, keypoints, blendshapes), img_h, img_w)
+            raw_status, raw_score, eye_closed = self._estimate_pose((x, y, w, h, keypoints, blendshapes), img_h, img_w)
             current_raw.append({
                 "bbox": (x, y, w, h),
                 "center": (x + w / 2, y + h / 2),
                 "raw_status": raw_status,
                 "raw_score": raw_score,
+                "eye_closed": eye_closed,
+                "keypoints": keypoints,
+                "blendshapes": blendshapes,
             })
 
         # 2. 与上一帧按人脸中心点距离做最近邻匹配
@@ -641,11 +826,31 @@ class BehaviorWebSocketService:
             for p in current_persons
         ]
 
-        # 6. 构建返回结果
+        # 6. 构建返回结果（填充教育学参数）
+        status_colors = {
+            self.STATUS_FOCUSED: "#52c41a",
+            self.STATUS_UNFOCUSED: "#faad14",
+            self.STATUS_ABSENT: "#f5222d",
+        }
+        lei_values: List[float] = []
+        bloom_counts: Dict[str, int] = {}
+        on_task = 0
+        mind_wandering = 0
+
         for person in current_persons:
             x, y, w, h = person["bbox"]
             final_status = person["final_status"]
             final_score = person["final_score"]
+
+            # 推导教育学参数
+            edu = self._derive_educational_metrics(
+                (x, y, w, h, person.get("keypoints"), person.get("blendshapes")),
+                img_h,
+                img_w,
+                final_status,
+                final_score,
+                person.get("eye_closed"),
+            )
 
             persons.append(
                 PersonResult(
@@ -653,6 +858,9 @@ class BehaviorWebSocketService:
                     bbox=[int(x), int(y), int(x + w), int(y + h)],
                     status=final_status,
                     score=final_score,
+                    color=status_colors.get(final_status),
+                    eye_closed=person.get("eye_closed"),
+                    educational=edu,
                 )
             )
 
@@ -661,9 +869,27 @@ class BehaviorWebSocketService:
             elif final_status == self.STATUS_UNFOCUSED:
                 unfocused_count += 1
 
+            # 汇总教育学统计
+            if edu:
+                lei_values.append(edu.lei)
+                bloom_counts[edu.bloom_level] = bloom_counts.get(edu.bloom_level, 0) + 1
+                if edu.cognitive_state in ("深度专注", "阅读书写", "专注"):
+                    on_task += 1
+                if edu.mind_wandering:
+                    mind_wandering += 1
+
         # 7. 如果当前帧一个人都没有（包括追踪中的），才判定为缺席
         if not persons:
             absent_count = 1
+
+        total_persons = len(persons) or 1
+        avg_lei = round(sum(lei_values) / total_persons, 3) if lei_values else None
+        bloom_distribution = {
+            k: round(v / total_persons, 3) for k, v in bloom_counts.items()
+        } if bloom_counts else None
+        on_task_rate = round(on_task / total_persons, 3) if persons else None
+        mind_wandering_rate = round(mind_wandering / total_persons, 3) if persons else None
+        overall_score = avg_lei if avg_lei is not None else (focused_count / total_persons if persons else 0.0)
 
         return AnalysisMessage(
             frame_id=frame_id,
@@ -673,6 +899,12 @@ class BehaviorWebSocketService:
                 focused_count=focused_count,
                 unfocused_count=unfocused_count,
                 absent_count=absent_count,
+                overall_score=round(overall_score, 3),
+                focus_rate=round(focused_count / total_persons, 3) if persons else 0.0,
+                avg_lei=avg_lei,
+                bloom_distribution=bloom_distribution,
+                on_task_rate=on_task_rate,
+                mind_wandering_rate=mind_wandering_rate,
             ),
         )
 
@@ -680,6 +912,47 @@ class BehaviorWebSocketService:
         """供 HTTP 上传分析复用的字节入口。"""
         data_uri = f"data:image/jpeg;base64,{base64.b64encode(image_data).decode('utf-8')}"
         return self.analyze_frame(data_uri, frame_id)
+
+    def detect_face_detail(self, image_data: bytes) -> List[Dict[str, Any]]:
+        """
+        对单张图片做人脸检测，返回每个人脸的 bbox、闭眼状态、是否在看书/写字。
+        不维护帧间追踪状态，适合作为 YOLO 结果的辅助增强。
+        """
+        image = cv2.imdecode(np.frombuffer(image_data, np.uint8), cv2.IMREAD_COLOR)
+        if image is None:
+            return []
+        img_h, img_w = image.shape[:2]
+        faces = self._detect_faces(image)
+        results = []
+        for face in faces:
+            if len(face) == 6:
+                x, y, w, h, keypoints, blendshapes = face
+            else:
+                x, y, w, h, keypoints = face
+                blendshapes = {}
+            _, _, is_eye_closed = self._estimate_pose((x, y, w, h, keypoints, blendshapes), img_h, img_w)
+
+            # 提取"看书/写字"特征：低头 + 眼睛向下看 + 眼睛睁开
+            is_reading = False
+            if blendshapes and keypoints and hasattr(keypoints[0], 'x') and len(keypoints) > 100:
+                lm = keypoints
+                nose = lm[1]
+                left_eye = lm[33]
+                right_eye = lm[263]
+                eye_center_y = (left_eye.y + right_eye.y) / 2
+                nose_offset_y = nose.y - eye_center_y
+                is_head_down = nose_offset_y > 0.20
+                if is_head_down and not is_eye_closed:
+                    eye_look_down = (blendshapes.get('eyeLookDownLeft', 0) + blendshapes.get('eyeLookDownRight', 0)) / 2
+                    if eye_look_down > 0.25:
+                        is_reading = True
+
+            results.append({
+                "bbox": [int(x), int(y), int(x + w), int(y + h)],
+                "eye_closed": is_eye_closed,
+                "is_reading": is_reading,
+            })
+        return results
 
 
 # 全局单例（避免每次请求都重新加载模型）

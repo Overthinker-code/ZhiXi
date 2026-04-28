@@ -5,6 +5,12 @@
 基于YOLOv8-Pose提取关键点，使用几何规则判断行为
 适合比赛应急使用，无需准备训练数据
 
+教育学理论增强 (v3.0):
+- Fredricks三维学习投入模型 (Behavioral/Cognitive/Emotional Engagement)
+- Bloom认知分类法修订版 (Anderson & Krathwohl, 2001)
+- 持续性注意力动态模型 (Attention Cycle Theory)
+- 社会传染理论 (Social Contagion in Classroom)
+
 规则逻辑:
 - 看手机: 手腕靠近面部（鼻子）
 - 睡觉: 头部低于肩部（低头）或后仰
@@ -27,7 +33,23 @@ from datetime import datetime
 import time
 import torch
 
+# ==================== 教育学理论增强模块 ====================
+try:
+    from educational_behavior import (
+        EducationalBehaviorAnalyzer,
+        StudentEngagementProfile,
+        ClassroomEngagementReport,
+    )
+    EDU_MODULE_AVAILABLE = True
+    print("📚 教育学理论增强模块加载成功")
+except ImportError as e:
+    EDU_MODULE_AVAILABLE = False
+    print(f"⚠️ 教育学模块未加载: {e}")
+
 app = FastAPI(title="课堂行为检测服务 - 规则-Based版本")
+
+# ==================== 教育学分析器实例 ====================
+edu_analyzer = EducationalBehaviorAnalyzer() if EDU_MODULE_AVAILABLE else None
 
 # ==================== 配置 ====================
 MODEL_PATH = os.getenv("YOLO_MODEL_PATH", "../model/yolov8n-pose.pt")
@@ -38,8 +60,8 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 # 推荐教室场景：yolo11m（精度与速度平衡）或 yolo11l（精度优先）
 # 默认使用 yolo11m.pt（教室场景精度与速度平衡），如不存在会自动回退到单阶段模式
 DETECTOR_PATH = os.getenv("DETECTOR_MODEL_PATH", "../model/yolo11m.pt")
-DETECTOR_CONF = float(os.getenv("DETECTOR_CONF", "0.35"))   # yolo11 系列建议 0.35-0.4
-POSE_CONF = float(os.getenv("POSE_CONF", "0.3"))           # 姿态估计置信度阈值
+DETECTOR_CONF = float(os.getenv("DETECTOR_CONF", "0.22"))   # yolo11 系列建议 0.35-0.4
+POSE_CONF = float(os.getenv("POSE_CONF", "0.15"))          # 姿态估计置信度阈值（教室场景后排小目标需要更低阈值）
 TEMPORAL_WINDOW = int(os.getenv("YOLO_TEMPORAL_WINDOW", "6"))
 TEMPORAL_DECAY = float(os.getenv("YOLO_TEMPORAL_DECAY", "0.72"))
 TEMPORAL_RESET_SECONDS = float(os.getenv("YOLO_TEMPORAL_RESET_SECONDS", "3.0"))
@@ -108,6 +130,23 @@ BEHAVIOR_LABELS = {
 
 def clamp01(value: float) -> float:
     return float(max(0.0, min(1.0, value)))
+
+
+def sanitize_for_json(obj: Any) -> Any:
+    """递归清理对象中的 numpy 类型，确保可被 FastAPI/json 序列化"""
+    if isinstance(obj, dict):
+        return {k: sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [sanitize_for_json(v) for v in obj]
+    if isinstance(obj, np.ndarray):
+        return sanitize_for_json(obj.tolist())
+    if isinstance(obj, (np.floating, np.float32, np.float64)):
+        return float(obj)
+    if isinstance(obj, (np.integer, np.int32, np.int64)):
+        return int(obj)
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    return obj
 
 
 def bbox_iou(box_a: List[float], box_b: List[float]) -> float:
@@ -409,9 +448,10 @@ def calculate_classroom_score(persons):
     for behavior_name, stats in behavior_stats.items():
         bid = stats["behavior_id"]
         if bid is None:
-            bid = 0
-        
-        base_score = BEHAVIOR_LABELS[bid]["score"]
+            # 未知行为不映射到专注学习，使用独立兜底分数避免评分虚高
+            base_score = 0.3
+        else:
+            base_score = BEHAVIOR_LABELS[bid]["score"]
         avg_confidence = stats["total_confidence"] / stats["count"]
         count = stats["count"]
         
@@ -455,7 +495,10 @@ def calculate_classroom_score(persons):
     return final_score, get_learning_status(final_score)
 
 
-def calculate_classroom_metrics(persons: List[Dict[str, Any]]) -> Dict[str, Any]:
+def calculate_classroom_metrics(
+    persons: List[Dict[str, Any]],
+    educational_report: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """
     面向课堂场景的综合指标公式。
 
@@ -532,7 +575,7 @@ def calculate_classroom_metrics(persons: List[Dict[str, Any]]) -> Dict[str, Any]
     )
     attention_score = round(clamp01(attention_score), 2)
 
-    return {
+    metrics = {
         "attention_score": attention_score,
         "learning_status": get_learning_status(attention_score),
         "focus_rate": round(focus_rate, 4),
@@ -545,6 +588,27 @@ def calculate_classroom_metrics(persons: List[Dict[str, Any]]) -> Dict[str, Any]
         "behavior_distribution": distribution,
         "formula": "0.44*专注率 + 0.24*行为得分 + 0.16*平均置信度 + 0.16*时序稳定度 - 0.18*严重行为率 - 0.10*分心率",
     }
+    
+    # 附加教育学理论指标 (优先使用传入的报告，避免全局单例数据残留)
+    report = educational_report
+    if report is None and edu_analyzer is not None and edu_analyzer.student_profiles:
+        report = edu_analyzer.get_report_summary()
+    if report is not None:
+        metrics["educational"] = {
+            "learning_engagement_index": report.get("class_learning_engagement_index", 0),
+            "behavioral_engagement": report.get("class_behavioral_engagement", 0),
+            "cognitive_engagement": report.get("class_cognitive_engagement", 0),
+            "cognitive_depth": report.get("class_cognitive_depth", 0),
+            "mind_wandering_rate": report.get("class_mind_wandering_rate", 0),
+            "contagion_index": report.get("contagion_index", 0),
+            "attention_trend": report.get("class_attention_trend", "unknown"),
+            "attention_cycle_phase": report.get("attention_cycle_phase", "unknown"),
+            "bloom_distribution": report.get("bloom_distribution", {}),
+            "pedagogical_suggestions": report.get("pedagogical_suggestions", []),
+            "theoretical_framework": report.get("theoretical_framework", []),
+        }
+    
+    return metrics
 
 # COCO关键点索引
 KEYPOINT_DICT = {
@@ -615,7 +679,8 @@ class RuleBasedBehaviorClassifier:
         检查是否在睡觉
         规则1：头部远低于肩部（低头打瞌睡）
         规则2：头部后仰（仰头睡觉）
-        规则3：长时间静止（需要时序信息，这里简化为姿态判断）
+        规则3：眼睛可见性辅助校验（眼睛可见时大幅降低睡觉概率）
+        改进：提高阈值避免近景自拍/正常低头看屏幕的误判
         """
         nose = self.get_keypoint(keypoints, 'nose')
         left_shoulder = self.get_keypoint(keypoints, 'left_shoulder')
@@ -623,20 +688,32 @@ class RuleBasedBehaviorClassifier:
         left_ear = self.get_keypoint(keypoints, 'left_ear')
         right_ear = self.get_keypoint(keypoints, 'right_ear')
         
+        # 获取眼睛关键点（COCO索引1=left_eye, 2=right_eye）
+        left_eye = keypoints[1]
+        right_eye = keypoints[2]
+        eyes_visible = (
+            np.linalg.norm(left_eye) > 0.001 and np.linalg.norm(right_eye) > 0.001
+        )
+        
         shoulder_center = (left_shoulder + right_shoulder) / 2
         ear_center = (left_ear + right_ear) / 2
         
         # 规则1：头部低于肩部（低头）
-        head_low = nose[1] > shoulder_center[1] + 0.12
+        # 阈值从0.12提高到0.22，避免正常看屏幕/自拍近景的误判
+        head_low = nose[1] > shoulder_center[1] + 0.22
         
         # 规则2：头部后仰（仰头，耳朵在鼻子下方很多）
-        head_back = ear_center[1] < nose[1] - 0.1
+        # 阈值从0.1提高到0.15，更严格的仰头判定
+        head_back = ear_center[1] < nose[1] - 0.15
         
         if head_low:
+            # 如果眼睛可见，降低置信度（正常低头看东西，不是睡觉）
+            base_conf = 0.7 if eyes_visible else 0.85
             severity = min(1.0, (nose[1] - shoulder_center[1]) / 0.3)
-            return True, "head_down", 0.7 + severity * 0.25
+            return True, "head_down", base_conf + severity * 0.15
         elif head_back:
-            return True, "head_back", 0.75
+            base_conf = 0.65 if eyes_visible else 0.8
+            return True, "head_back", base_conf
         else:
             return False, "normal", 0.0
     
@@ -728,13 +805,20 @@ class RuleBasedBehaviorClassifier:
         
         if len(keypoints_sequence) == 1:
             # 单帧直接分类
-            behavior_id, conf, reason = self.classify_single_frame(keypoints_sequence[0].reshape(17, 2))
+            kp_arr = np.asarray(keypoints_sequence[0], dtype=np.float32)
+            if kp_arr.size != 34:
+                return 0, 0.0, "关键点数量异常"
+            behavior_id, conf, reason = self.classify_single_frame(kp_arr.reshape(17, 2))
             return behavior_id, conf, reason
         
         # 对每帧分类
         frame_results = []
         for kp in keypoints_sequence:
-            behavior_id, conf, reason = self.classify_single_frame(kp.reshape(17, 2))
+            kp_arr = np.asarray(kp, dtype=np.float32)
+            if kp_arr.size != 34:
+                frame_results.append((0, 0.0, "关键点数量异常"))
+                continue
+            behavior_id, conf, reason = self.classify_single_frame(kp_arr.reshape(17, 2))
             frame_results.append((behavior_id, conf, reason))
         
         # 统计各行为出现次数（加权）
@@ -779,7 +863,7 @@ def detect_persons(image: np.ndarray, conf_threshold: float = None, pad_ratio: f
         conf_threshold = DETECTOR_CONF
     
     h, w = image.shape[:2]
-    results = detector_model(image, verbose=False, conf=conf_threshold, classes=[0])  # 只检测人
+    results = detector_model(image, verbose=False, conf=conf_threshold, classes=[0], imgsz=1280)  # 只检测人
     boxes = results[0].boxes
     
     if boxes is None or len(boxes) == 0:
@@ -832,7 +916,7 @@ def extract_pose_keypoints(frame: np.ndarray):
     """提取单帧中最佳人物的关键点（用于视频分析）"""
     if not USE_DUAL_STAGE or detector_model is None:
         # 回退到单阶段模式
-        results = pose_model(frame, verbose=False, conf=POSE_CONF)
+        results = pose_model(frame, verbose=False, conf=POSE_CONF, imgsz=1280)
         if results[0].keypoints is None or len(results[0].keypoints) == 0:
             return None
         keypoints = results[0].keypoints.xy.cpu().numpy()
@@ -869,12 +953,17 @@ def extract_all_persons(frame: np.ndarray):
     h, w = frame.shape[:2]
     
     if not USE_DUAL_STAGE or detector_model is None:
-        # 回退到单阶段模式
-        results = pose_model(frame, verbose=False, conf=POSE_CONF)
+        # 回退到单阶段模式（全帧1280px提升教室后排小目标检出率）
+        results = pose_model(frame, verbose=False, conf=POSE_CONF, imgsz=1280)
+        raw_boxes = results[0].boxes.xyxy.cpu().numpy() if results[0].boxes is not None else []
+        kp_count = len(results[0].keypoints) if results[0].keypoints is not None else 0
+        print(f"[DEBUG] 单阶段模式 | 原始检测框: {len(raw_boxes)} | keypoints: {kp_count} | conf阈值: {POSE_CONF} | imgsz: 1280")
         if results[0].keypoints is None:
+            print(f"[DEBUG] 单阶段返回0人（keypoints为None）")
             return []
         keypoints = results[0].keypoints.xy.cpu().numpy()
         if len(keypoints) == 0:
+            print(f"[DEBUG] 单阶段返回0人（keypoints为空）")
             return []
         
         persons = []
@@ -893,22 +982,36 @@ def extract_all_persons(frame: np.ndarray):
                 "keypoints": kp,
                 "bbox": [float(x_min), float(y_min), float(x_max), float(y_max)]
             })
+        print(f"[DEBUG] 单阶段最终返回: {len(persons)} 人")
         return persons
     
     # 双阶段模式
+    print(f"[DEBUG] 双阶段模式 | 检测器conf: {DETECTOR_CONF} | 姿态conf: {POSE_CONF}")
     detected = detect_persons(frame, conf_threshold=DETECTOR_CONF, pad_ratio=0.25)
+    print(f"[DEBUG] 检测器发现 {len(detected)} 人")
     if not detected:
         return []
     
     persons = []
+    failed_count = 0
     for person in detected:
         keypoints = extract_pose_from_crop(person["crop"])
+        x1, y1, x2, y2 = person["bbox"]
+        
         if keypoints is None:
-            print(f"Person {person['id']}: pose extraction failed, skipping")
+            failed_count += 1
+            print(f"Person {person['id']}: pose extraction failed, keeping bbox only")
+            # 保留检测框，使用空关键点（后续 analyze_frame 会给出默认行为）
+            persons.append({
+                "id": person["id"],
+                "keypoints": np.zeros((17, 2), dtype=np.float32),
+                "bbox": [float(x1), float(y1), float(x2), float(y2)],
+                "confidence": float(person["confidence"]),
+                "pose_failed": True
+            })
             continue
         
         # 映射回原始图像坐标
-        x1, y1, x2, y2 = person["bbox"]
         keypoints[:, 0] += x1
         keypoints[:, 1] += y1
         
@@ -920,16 +1023,19 @@ def extract_all_persons(frame: np.ndarray):
             "id": person["id"],
             "keypoints": keypoints,
             "bbox": [float(x1), float(y1), float(x2), float(y2)],
-            "confidence": person["confidence"]
+            "confidence": person["confidence"],
+            "pose_failed": False
         })
     
-    print(f"姿态估计成功 {len(persons)}/{len(detected)} 人")
+    print(f"姿态估计成功 {len(persons) - failed_count}/{len(detected)} 人，保留失败人员 {failed_count} 人")
     return persons
 
 
 def normalize_keypoints(keypoints, image_width, image_height):
     """归一化关键点到[0,1]范围"""
-    normalized = keypoints.copy()
+    if keypoints is None or image_width <= 0 or image_height <= 0:
+        return None
+    normalized = keypoints.copy().astype(np.float32)
     normalized[:, 0] /= image_width
     normalized[:, 1] /= image_height
     return normalized
@@ -964,15 +1070,22 @@ async def root():
     """服务信息"""
     return {
         "service": "课堂行为检测服务 - 规则-Based版本",
-        "version": "2.2.0-temporal-fusion",
+        "version": "3.0.0-educational-enhanced",
         "device": str(DEVICE),
         "sequence_length": SEQUENCE_LENGTH,
-        "method": "rule_based_temporal_fusion",
+        "method": "rule_based_temporal_fusion + educational_behavior_analysis",
         "temporal_window": TEMPORAL_WINDOW,
         "confidence_fusion": "behavior/detector/pose/bbox weighted fusion",
         "detection_mode": "dual_stage" if USE_DUAL_STAGE else "single_stage",
-        "note": "基于几何规则 + 时序平滑 + 多源置信度融合，无需训练数据，立即可用！",
+        "educational_module": EDU_MODULE_AVAILABLE,
+        "note": "基于几何规则 + 时序平滑 + 多源置信度融合 + 教育学理论增强，无需训练数据，立即可用！",
         "accuracy": "课堂场景下比单帧规则更稳定，适合实时监测与比赛演示",
+        "theoretical_framework": [
+            "Fredricks三维学习投入模型 (Behavioral/Cognitive/Emotional Engagement)",
+            "Bloom认知分类法修订版 (Anderson & Krathwohl, 2001)",
+            "持续性注意力动态模型 (Attention Cycle Theory)",
+            "社会传染理论 (Social Contagion in Classroom)"
+        ] if EDU_MODULE_AVAILABLE else [],
         "endpoints": [
             "/analyze/frame - POST 分析单帧姿态",
             "/analyze/video - POST 分析视频行为",
@@ -992,16 +1105,17 @@ async def health_check():
         "detector_loaded": detector_model is not None,
         "dual_stage_enabled": USE_DUAL_STAGE,
         "classifier": "rule_based_temporal_fusion",
+        "educational_module": EDU_MODULE_AVAILABLE,
         "temporal_window": TEMPORAL_WINDOW,
         "confidence_fusion": True,
-        "note": "无需LSTM权重，立即可用"
+        "note": "无需LSTM权重，立即可用" + ("；教育学理论增强已启用" if EDU_MODULE_AVAILABLE else "")
     }
 
 
 @app.get("/behaviors")
 async def get_behavior_definitions():
     """获取行为定义"""
-    return {
+    result = {
         "behaviors": list(BEHAVIOR_LABELS.values()),
         "method": "rule_based",
         "algorithm": {
@@ -1017,13 +1131,56 @@ async def get_behavior_definitions():
             "专注": "默认正常姿态"
         },
         "score_ranges": [
-            {"min": 0.7, "max": 1.0, "status": "学习状态优秀", "color": "#52c41a"},
-            {"min": 0.3, "max": 0.7, "status": "学习状态良好", "color": "#1890ff"},
-            {"min": -0.3, "max": 0.3, "status": "学习状态一般", "color": "#faad14"},
-            {"min": -0.7, "max": -0.3, "status": "学习状态较差", "color": "#fa541c"},
-            {"min": -1.0, "max": -0.7, "status": "学习状态极差", "color": "#f5222d"},
+            {"min": 0.90, "max": 1.0, "status": "学习状态优秀", "color": "#52c41a"},
+            {"min": 0.75, "max": 0.90, "status": "学习状态良好", "color": "#1890ff"},
+            {"min": 0.60, "max": 0.75, "status": "学习状态一般", "color": "#faad14"},
+            {"min": 0.45, "max": 0.60, "status": "学习状态较差", "color": "#fa541c"},
+            {"min": 0.0, "max": 0.45, "status": "学习状态极差", "color": "#f5222d"},
         ],
     }
+    
+    # 附加教育学理论说明
+    if EDU_MODULE_AVAILABLE:
+        result["educational_enhancement"] = {
+            "theoretical_framework": [
+                {
+                    "name": "Fredricks三维学习投入模型",
+                    "description": "将学习投入分为行为投入(可观测参与)、认知投入(学习策略与心理努力)、情感投入(兴趣与态度)三个维度",
+                    "reference": "Fredricks, J. A., Blumenfeld, P. C., & Paris, A. H. (2004). School engagement: Potential of the concept, state of the evidence. Review of Educational Research, 74(1), 59-109."
+                },
+                {
+                    "name": "Bloom认知分类法修订版",
+                    "description": "将课堂可观测行为映射到六个认知层次: 记忆→理解→应用→分析→评价→创造",
+                    "reference": "Anderson, L. W., & Krathwohl, D. R. (Eds.). (2001). A taxonomy for learning, teaching, and assessing: A revision of Bloom's taxonomy of educational objectives. Allyn & Bacon."
+                },
+                {
+                    "name": "持续性注意力动态模型",
+                    "description": "课堂注意力呈约15-20分钟周期性波动，系统区分正常波动与异常脱离",
+                    "reference": "Attention Cycle Theory in educational psychology"
+                },
+                {
+                    "name": "社会传染理论",
+                    "description": "课堂中的分心行为具有空间聚集性，可通过传染指数识别教学因素vs个体因素",
+                    "reference": "Social Contagion Theory in classroom context"
+                }
+            ],
+            "engagement_formula": "LEI = 0.35×BEI + 0.40×CEI + 0.25×EEI",
+            "engagement_dimensions": {
+                "BEI": "行为投入指数 = 0.30×在席率 + 0.35×目标行为率 + 0.20×主动参与率 + 0.15×(1-破坏行为率)",
+                "CEI": "认知投入指数 = 0.30×持续注意 + 0.25×认知深度 + 0.25×注意稳定性 + 0.20×(1-任务切换频率)",
+                "EEI": "情感投入指数 = 基于行为 proxies 的复合指标"
+            },
+            "bloom_mapping": {
+                "remembering": "单纯注视前方/听讲 → 被动接收信息",
+                "understanding": "注视+轻微身体前倾/点头 → 主动跟随理解",
+                "applying": "低头书写/记录笔记 → 主动加工信息",
+                "analyzing": "注视+停顿+明显前倾 → 深度思考分析",
+                "evaluating": "课堂讨论中的批判性发言 → 评价层次(需语音辅助)",
+                "creating": "创新性提问/方案设计 → 创造层次(需多模态辅助)"
+            }
+        }
+    
+    return result
 
 
 @app.post("/analyze/frame")
@@ -1049,6 +1206,9 @@ async def analyze_frame(file: UploadFile = File(...)):
         # 提取所有人（双阶段：检测器 -> Pose）
         persons = extract_all_persons(frame)
         
+        # 为当前请求创建独立的教育学分析器实例，避免全局单例数据残留与并发冲突
+        local_analyzer = EducationalBehaviorAnalyzer() if EDU_MODULE_AVAILABLE else None
+        
         if len(persons) == 0:
             print("No persons detected, returning debug info")
             return {
@@ -1063,14 +1223,15 @@ async def analyze_frame(file: UploadFile = File(...)):
                 "debug": "未检测到人体，请确保画面中有人"
             }
         
-        # 分析每个人的行为
+        # 分析每个人的行为（使用本地分类器实例，避免全局单例并发污染）
+        local_classifier = RuleBasedBehaviorClassifier()
         analyzed_persons = []
         for person in persons:
             # 归一化关键点
             keypoints_norm = normalize_keypoints(person["keypoints"], w, h)
             
             # 规则分类
-            behavior_id, behavior_conf, reason = classifier.classify_single_frame(keypoints_norm)
+            behavior_id, behavior_conf, reason = local_classifier.classify_single_frame(keypoints_norm)
             behavior_info = BEHAVIOR_LABELS[behavior_id]
             
             # 综合置信度：检测器、规则分类、姿态完整度、框质量融合
@@ -1084,7 +1245,7 @@ async def analyze_frame(file: UploadFile = File(...)):
                 bbox_quality=bbox_quality,
             )
             
-            analyzed_persons.append({
+            person_result = {
                 "id": person["id"],
                 "bbox": person["bbox"],  # [x1, y1, x2, y2]
                 "class_id": behavior_id,
@@ -1097,16 +1258,66 @@ async def analyze_frame(file: UploadFile = File(...)):
                 "score": float(behavior_info["score"]),
                 "color": behavior_info["color"],
                 "reason": reason
-            })
+            }
+            
+            # ==================== 教育学姿态解码（使用本地实例）====================
+            if local_analyzer is not None:
+                edu_event = local_analyzer.decode_posture_education(
+                    keypoints=keypoints_norm,
+                    raw_behavior=behavior_info["name"],
+                    confidence=final_conf,
+                )
+                # 更新学生学习投入画像 (使用临时track_id)
+                temp_track_id = f"frame_person_{person['id']}"
+                local_analyzer.update_student_profile(temp_track_id, edu_event)
+                # 获取时序画像（包含bei/cei/eei/lei等）
+                profile_summary = local_analyzer.get_profile_summary(temp_track_id)
+                
+                # 将教育学语义附加到结果中（合并基础姿态 + 投入指标）
+                edu_payload: Dict[str, Any] = {
+                    "head_pose": edu_event.head_pose,
+                    "gaze_direction": edu_event.gaze_direction,
+                    "body_lean": round(edu_event.body_lean, 3),
+                    "hand_position": edu_event.hand_position,
+                    "bloom_level": edu_event.bloom_level.value,
+                    "cognitive_state": edu_event.cognitive_state.value,
+                    "engagement_dimension": edu_event.engagement_dimension.value,
+                }
+                # 合并时序画像中的投入指标（前端直接读取）
+                if profile_summary:
+                    edu_payload["bei"] = profile_summary.get("behavioral_engagement_index", 0)
+                    edu_payload["cei"] = profile_summary.get("cognitive_engagement_index", 0)
+                    edu_payload["eei"] = profile_summary.get("emotional_engagement_index", 0)
+                    edu_payload["lei"] = profile_summary.get("learning_engagement_index", 0)
+                    edu_payload["mind_wandering"] = profile_summary.get("is_abnormal_decline", False)
+                    edu_payload["attention_baseline"] = profile_summary.get("attention_baseline", 0)
+                    edu_payload["attention_deviation"] = profile_summary.get("attention_deviation", 0)
+                    edu_payload["on_task_rate"] = profile_summary.get("on_task_rate", 0)
+                    edu_payload["cognitive_depth_score"] = profile_summary.get("cognitive_depth_score", 0)
+                    person_result["engagement_profile"] = profile_summary
+                else:
+                    # 兜底：即使画像为空，也给默认值避免前端崩溃
+                    edu_payload["bei"] = 0.5
+                    edu_payload["cei"] = 0.5
+                    edu_payload["eei"] = 0.5
+                    edu_payload["lei"] = 0.5
+                    edu_payload["mind_wandering"] = False
+                person_result["educational"] = edu_payload
+            
+            analyzed_persons.append(person_result)
         
         # 使用独立的 temporal_smoother 实例，避免并发请求间状态污染
         local_smoother = TemporalBehaviorSmoother()
         analyzed_persons = local_smoother.smooth(analyzed_persons, w, h)
-        classroom_metrics = calculate_classroom_metrics(analyzed_persons)
+        
+        # 生成本地教育学报告并传入metrics计算，避免全局单例污染
+        local_edu_report = local_analyzer.get_report_summary() if local_analyzer else None
+        classroom_metrics = calculate_classroom_metrics(analyzed_persons, local_edu_report)
         overall_score = classroom_metrics["attention_score"]
         learning_status = classroom_metrics["learning_status"]
         
-        return {
+        # 构建响应
+        response = {
             "status": "success",
             "method": "rule_based_temporal_fusion",
             "person_count": len(analyzed_persons),
@@ -1117,6 +1328,14 @@ async def analyze_frame(file: UploadFile = File(...)):
             "image_width": w,
             "image_height": h
         }
+        
+        # 附加课堂教育学报告（来自本地实例）
+        if local_edu_report is not None:
+            response["educational_report"] = local_edu_report
+        
+        # 清理所有 numpy 类型，确保 FastAPI 能正确序列化为 JSON
+        response = sanitize_for_json(response)
+        return response
         
     except Exception as e:
         import traceback
@@ -1129,17 +1348,20 @@ async def analyze_frame(file: UploadFile = File(...)):
 
 @app.post("/analyze/video")
 async def analyze_video(file: UploadFile = File(...), sample_interval: int = 1):
+    """
+    分析视频文件的行为
+    使用滑动窗口对视频进行分段分析
+    """
     # 参数校验
     if sample_interval < 1:
         return JSONResponse(
             status_code=400,
             content={"error": "sample_interval必须大于等于1", "status": "error"}
         )
-    """
-    分析视频文件的行为
-    使用滑动窗口对视频进行分段分析
-    """
     video_path = None
+    # 为当前请求创建独立的分析器实例，避免全局单例并发污染
+    local_analyzer = EducationalBehaviorAnalyzer() if EDU_MODULE_AVAILABLE else None
+    local_classifier = RuleBasedBehaviorClassifier()
     try:
         contents = await file.read()
         
@@ -1183,6 +1405,17 @@ async def analyze_video(file: UploadFile = File(...), sample_interval: int = 1):
                     keypoints_sequence.append(kp_norm)
                     valid_frames += 1
                     
+                    # 教育学解码：对每帧关键点做姿态解码并更新本地画像
+                    if local_analyzer is not None:
+                        behavior_id, behavior_conf, _reason = local_classifier.classify_single_frame(kp_norm)
+                        behavior_name = BEHAVIOR_LABELS[behavior_id]["name"]
+                        edu_event = local_analyzer.decode_posture_education(
+                            keypoints=kp_norm,
+                            raw_behavior=behavior_name,
+                            confidence=behavior_conf,
+                        )
+                        local_analyzer.update_student_profile("video_person_1", edu_event)
+                    
                     # 保存第一帧有人员的数据用于后续显示
                     if first_frame_with_persons is None:
                         first_frame_with_persons = frame.copy()
@@ -1216,7 +1449,7 @@ async def analyze_video(file: UploadFile = File(...), sample_interval: int = 1):
             window = keypoints_sequence[start:end]
             
             # 规则分类
-            behavior_id, confidence, reason = classifier.classify_sequence(window)
+            behavior_id, confidence, reason = local_classifier.classify_sequence(window)
             behavior_info = BEHAVIOR_LABELS[behavior_id]
             
             # 计算时间戳
@@ -1285,13 +1518,20 @@ async def analyze_video(file: UploadFile = File(...), sample_interval: int = 1):
                         "color": BEHAVIOR_LABELS[dominant_class]["color"]
                     })
             
-            # 返回与后端匹配的数据结构
-            return {
+            # 生成本地教育学报告
+            local_edu_report = local_analyzer.get_report_summary() if local_analyzer else None
+            if local_edu_report is not None:
+                summary["classroom_metrics"] = calculate_classroom_metrics(
+                    metrics_persons, local_edu_report
+                )
+            
+            # 构建视频分析响应
+            video_response = {
                 "status": "success",
                 "method": "rule_based_temporal_fusion",
-                "frame_analyses": predictions,  #  renamed from predictions
+                "frame_analyses": predictions,
                 "summary": summary,
-                "persons": persons_for_display,  # 添加人员检测数据
+                "persons": persons_for_display,
                 "video_info": {
                     "total_frames": total_frames,
                     "valid_frames": valid_frames,
@@ -1302,6 +1542,12 @@ async def analyze_video(file: UploadFile = File(...), sample_interval: int = 1):
                     "image_height": first_frame_shape[0] if first_frame_shape else 0
                 }
             }
+            
+            # 附加课堂教育学报告（来自本地实例，确保是本次视频的真实数据）
+            if local_edu_report is not None:
+                video_response["educational_report"] = local_edu_report
+            
+            return video_response
         else:
             return JSONResponse(
                 status_code=500,
@@ -1332,6 +1578,8 @@ async def analyze_stream(frames: List[List[float]]):
             status_code=503,
             content={"error": "姿态估计模型未加载，服务不可用", "status": "error"}
         )
+    # 为当前请求创建独立的教育学分析器实例
+    local_analyzer = EducationalBehaviorAnalyzer() if EDU_MODULE_AVAILABLE else None
     try:
         if len(frames) < SEQUENCE_LENGTH:
             return JSONResponse(
@@ -1344,12 +1592,33 @@ async def analyze_stream(frames: List[List[float]]):
         
         # 取最近SEQUENCE_LENGTH帧
         recent_frames = frames[-SEQUENCE_LENGTH:]
-        keypoints_seq = np.array(recent_frames)
+        
+        # 防御：校验每帧长度必须为34（17×2）
+        if not all(len(f) == 34 for f in recent_frames):
+            return JSONResponse(
+                status_code=400,
+                content={"error": "每帧必须包含34个值(17×2坐标)", "status": "error"}
+            )
+        
+        keypoints_seq = np.array(recent_frames, dtype=np.float32)
         
         # 规则分类（使用独立实例，避免并发状态污染）
         local_classifier = RuleBasedBehaviorClassifier()
         behavior_id, confidence, reason = local_classifier.classify_sequence(keypoints_seq)
         behavior_info = BEHAVIOR_LABELS[behavior_id]
+        
+        # 对流式输入进行教育学解码（使用本地实例）
+        local_edu_report = None
+        if local_analyzer is not None:
+            recent_kp = keypoints_seq[-1].reshape(17, 2)
+            edu_event = local_analyzer.decode_posture_education(
+                keypoints=recent_kp,
+                raw_behavior=behavior_info["name"],
+                confidence=confidence,
+            )
+            local_analyzer.update_student_profile("stream_person_1", edu_event)
+            local_edu_report = local_analyzer.get_report_summary()
+        
         metrics = calculate_classroom_metrics([
             {
                 "behavior": behavior_info["name"],
@@ -1357,9 +1626,10 @@ async def analyze_stream(frames: List[List[float]]):
                 "score": behavior_info["score"],
                 "temporal_stability": 0.85,
             }
-        ])
+        ], local_edu_report)
         
-        return {
+        # 构建流式分析响应
+        stream_response = {
             "status": "success",
             "method": "rule_based_temporal_fusion",
             "class_id": behavior_id,
@@ -1372,6 +1642,21 @@ async def analyze_stream(frames: List[List[float]]):
             "reason": reason,
             "classroom_metrics": metrics,
         }
+        
+        # 附加教育学分析（来自本地实例）
+        if local_analyzer is not None:
+            stream_response["educational"] = {
+                "bloom_level": edu_event.bloom_level.value,
+                "cognitive_state": edu_event.cognitive_state.value,
+                "head_pose": edu_event.head_pose,
+                "gaze_direction": edu_event.gaze_direction,
+                "body_lean": round(edu_event.body_lean, 3),
+                "hand_position": edu_event.hand_position,
+            }
+            if local_edu_report is not None:
+                stream_response["educational_report"] = local_edu_report
+        
+        return stream_response
         
     except Exception as e:
         import traceback
@@ -1387,16 +1672,21 @@ if __name__ == "__main__":
     import uvicorn
     
     print("=" * 70)
-    print("🚀 启动课堂行为检测服务 - 规则-Based版本")
+    print("🚀 启动课堂行为检测服务 - 教育学理论增强版")
     print("=" * 70)
     print("✅ 无需训练数据，无需LSTM权重，立即可用！")
-    print("📊 准确率: 约60-75%（适合演示和比赛应急）")
-    print("🔧 规则逻辑:")
+    print("📚 教育学理论增强:")
+    print("   • Fredricks三维学习投入模型 (Behavioral/Cognitive/Emotional)")
+    print("   • Bloom认知分类法修订版 (记忆→理解→应用→分析→评价→创造)")
+    print("   • 持续性注意力动态模型 (15-20分钟周期性波动)")
+    print("   • 社会传染理论 (分心行为空间聚集性分析)")
+    print("🔧 CV规则逻辑:")
     print("   • 看手机: 手腕靠近面部(距离<0.15) + 低头")
     print("   • 睡觉: 头部低于肩部(低头) 或后仰")
     print("   • 交谈: 头部转向侧面(耳高差异>0.06)")
     print("   • 离开: 人体检测不完整(关键点<8)")
     print("   • 专注: 默认正常姿态")
+    print("📊 准确率: 约60-75%（CV部分）+ 教育学语义增强")
     print("=" * 70)
     
     port = int(os.getenv("YOLO_PORT", "8000"))

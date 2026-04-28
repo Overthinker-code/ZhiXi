@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 from langchain_core.messages import HumanMessage
-from sqlmodel import Session
+from sqlmodel import Session, select, or_
 
 from app.core.config import settings
 from app.core.db import engine
@@ -36,8 +36,9 @@ class UserMemoryProfileService:
     )
 
     def get_record(self, session: Session, user_id: UUID | str) -> UserMemoryProfile | None:
-        return session.query(UserMemoryProfile).filter(
-            UserMemoryProfile.user_id == user_id
+        uid = UUID(user_id) if isinstance(user_id, str) else user_id
+        return session.exec(
+            select(UserMemoryProfile).where(UserMemoryProfile.user_id == uid)
         ).first()
 
     def get_profile_dict(self, session: Session, user_id: UUID | str) -> dict[str, Any] | None:
@@ -95,14 +96,14 @@ class UserMemoryProfileService:
 
     def collect_recent_chat_history(self, session: Session, user_id: UUID | str) -> str:
         limit = max(1, int(settings.MEMORY_PROFILE_MAX_TURNS))
-        rows = (
-            session.query(Chat)
+        uid = UUID(user_id) if isinstance(user_id, str) else user_id
+        rows = session.exec(
+            select(Chat)
             .join(ChatThread, ChatThread.thread_id == Chat.thread_id)
-            .filter(ChatThread.user_id == str(user_id))
+            .where(ChatThread.user_id == uid)
             .order_by(Chat.created_at.desc())
             .limit(limit)
-            .all()
-        )
+        ).all()
         if not rows:
             return ""
         blocks: list[str] = []
@@ -174,10 +175,77 @@ class UserMemoryProfileService:
             observed[goal] = 0.58
         return observed
 
+    def _merge_behavioral_observations(
+        self,
+        user_id: str | UUID,
+        current_mastery: dict[str, float],
+        session: Session,
+    ) -> dict[str, float]:
+        """
+        教育学参数联动4：将课堂行为观察融合到 mastery_map 中。
+        使用传入的session避免嵌套事务（由refresh_profile统一提供）
+        
+        逻辑：
+        - 如果学生在某知识点授课时段的LEI<0.5且认知状态为mind_wandering/task_switching，
+          将该知识点的掌握度向下调整（学生可能没听懂）
+        - 如果LEI>0.8且认知深度高，掌握度向上微调
+        """
+        try:
+            from uuid import UUID
+            from sqlalchemy import desc, or_
+            from app.models import BehaviorSummaryRecord
+            
+            try:
+                uid = UUID(str(user_id))
+            except ValueError:
+                uid = None
+            
+            # 优先查询该学生的个人记录；若无，则查询课堂整体记录（student_id=NULL）
+            sid = UUID(uid) if isinstance(uid, str) and uid else uid
+            records = session.exec(
+                select(BehaviorSummaryRecord)
+                .where(
+                    or_(
+                        BehaviorSummaryRecord.student_id == sid,
+                        BehaviorSummaryRecord.student_id.is_(None),
+                    )
+                )
+                .order_by(desc(BehaviorSummaryRecord.session_date))
+                .limit(5)
+            ).all()
+            if not records:
+                return current_mastery
+            
+            avg_lei = sum(r.avg_lei for r in records) / len(records)
+            avg_mw = sum(r.mind_wandering_rate for r in records) / len(records)
+            
+            adjusted = dict(current_mastery)
+            
+            # 课堂整体表现差 → 对所有知识点掌握度打折扣
+            if avg_lei < 0.4:
+                discount = 0.85
+                for topic in adjusted:
+                    adjusted[topic] = self._clamp_mastery(adjusted[topic] * discount)
+            elif avg_lei < 0.6:
+                discount = 0.92
+                for topic in adjusted:
+                    adjusted[topic] = self._clamp_mastery(adjusted[topic] * discount)
+            elif avg_lei > 0.8 and avg_mw < 0.1:
+                # 表现优秀 → 轻微上调
+                boost = 1.05
+                for topic in adjusted:
+                    adjusted[topic] = self._clamp_mastery(adjusted[topic] * boost)
+            
+            return adjusted
+        except Exception:
+            return current_mastery
+
     def _merge_mastery_map(
         self,
         previous_profile: dict[str, Any] | None,
         payload: MemoryProfilePayload,
+        user_id: str | UUID | None = None,
+        session: Session | None = None,
     ) -> tuple[dict[str, float], dict[str, Any]]:
         previous_mastery = {}
         if previous_profile and isinstance(previous_profile.get("mastery_map"), dict):
@@ -217,6 +285,10 @@ class UserMemoryProfileService:
             )
             updated[topic] = new_score
             deltas[topic] = round(new_score - old_score, 4)
+
+        # 教育学参数联动4：融合课堂行为观察
+        if user_id is not None and session is not None:
+            updated = self._merge_behavioral_observations(user_id, updated, session)
 
         low_topics = [
             topic for topic, score in sorted(updated.items(), key=lambda item: item[1])
@@ -276,7 +348,8 @@ class UserMemoryProfileService:
                 return {"status": "skipped", "reason": "no_history"}
             previous_profile = self.get_profile_dict(session, user_id) or {}
             payload = self.infer_profile_from_history(history)
-            mastery_map, mastery_update = self._merge_mastery_map(previous_profile, payload)
+            # 传入user_id和session以启用课堂行为观察融合（联动4）
+            mastery_map, mastery_update = self._merge_mastery_map(previous_profile, payload, user_id=user_id, session=session)
             payload.mastery_map = mastery_map
             payload.mastery_update = mastery_update
             self.upsert_profile(session, user_id=user_id, payload=payload)

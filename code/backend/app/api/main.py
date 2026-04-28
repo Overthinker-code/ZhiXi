@@ -19,6 +19,8 @@ from app.api.v1.endpoints import (
     health,
     learning_report,
     ai_metrics,
+    digital_human_assistant,
+    alerts,
 )
 from app.core.config import settings
 
@@ -37,6 +39,10 @@ api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboar
 api_router.include_router(user_center_mock.router, tags=["user-center"])
 api_router.include_router(learning_report.router, prefix="/learning-report", tags=["learning-report"])
 api_router.include_router(ai_metrics.router, prefix="/ai-metrics", tags=["ai-metrics"])
+api_router.include_router(
+    digital_human_assistant.router, tags=["classroom-assistant"]
+)
+api_router.include_router(alerts.router, prefix="/alerts", tags=["alerts"])
 api_router.include_router(health.router, tags=["ops"])
 api_router.include_router(behavior_analysis.router, prefix="/behavior", tags=["behavior-analysis"])
 # api_router.include_router(utils.router)
