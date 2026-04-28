@@ -1,4 +1,4 @@
-import uuid
+#import uuid
 from uuid import UUID, uuid4
 
 from sqlmodel import Field, Relationship, SQLModel
@@ -8,11 +8,10 @@ from typing import Optional, List
 
 from enum import Enum
 
-from sqlmodel import SQLModel, Field, Relationship
-from typing import Optional, List
-from uuid import UUID, uuid4
-from datetime import datetime
-
+#from sqlmodel import SQLModel, Field, Relationship
+#from typing import Optional, List
+#from uuid import UUID, uuid4
+#from datetime import datetime
 
 # User / Item / Message：使用 app.models 包内定义，避免本文件被 importlib 加载时重复注册表
 from app.models.user import User  # noqa: E402
@@ -237,7 +236,7 @@ class TCBase(SQLModel):
 
 
 class TCCreate(TCBase):
-    course_id: UUID
+    course_id: UUID = Field(foreign_key="course.id")
     lecturer_id: UUID
 
 
@@ -457,6 +456,99 @@ class Alert(SQLModel, table=True):
     severity: str  
 
     student: "Student" = Relationship()
+
+
+# ==================== 教育学参数联动新增模型 ====================
+
+class BehaviorSummaryRecord(SQLModel, table=True):
+    """课堂行为分析摘要记录（用于联动LLM学情诊断、复习计划、错题归因）"""
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    student_id: Optional[UUID] = Field(default=None, foreign_key="student.id")
+    tc_id: Optional[UUID] = Field(default=None, foreign_key="tc.id")
+    course_id: Optional[UUID] = Field(default=None, foreign_key="course.id")
+    session_date: datetime = Field(default_factory=datetime.utcnow)
+    
+    # 课堂整体指标
+    avg_lei: float = Field(default=0.0)                    # 学习投入指数
+    avg_cognitive_depth: float = Field(default=0.0)        # 认知深度
+    mind_wandering_rate: float = Field(default=0.0)        # 走神率
+    contagion_index: float = Field(default=0.0)            # 传染指数
+    on_task_rate: float = Field(default=0.0)               # 目标行为率
+    
+    # 布鲁姆认知层次分布（JSON存储）
+    bloom_distribution: Optional[str] = None               # JSON: {"remembering":0.2,...}
+    cognitive_state_distribution: Optional[str] = None     # JSON: {"shallow_attention":3,...}
+    
+    # 教学建议存档
+    pedagogical_suggestions: Optional[str] = None          # JSON数组
+    
+    # 个体画像快照（JSON存储）
+    student_profiles_snapshot: Optional[str] = None        # JSON: {student_id: {lei,bei,cei,...}}
+    
+    # 数据来源标识
+    source_type: str = Field(default="video_analysis", max_length=50)  # video_analysis / realtime_ws
+    analysis_duration_sec: Optional[float] = None
+    
+    student: Optional["Student"] = Relationship()
+    tc: Optional["TC"] = Relationship()
+    course: Optional["Course"] = Relationship()
+
+
+class CourseEngagementRecord(SQLModel, table=True):
+    """课程质量评估记录（用于教师课后反思、课程对比）"""
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    course_id: Optional[UUID] = Field(default=None, foreign_key="course.id")
+    tc_id: Optional[UUID] = Field(default=None, foreign_key="tc.id")
+    session_date: datetime = Field(default_factory=datetime.utcnow)
+    
+    # 课堂整体指标
+    avg_lei: float = Field(default=0.0)
+    avg_cognitive_depth: float = Field(default=0.0)
+    mind_wandering_rate: float = Field(default=0.0)
+    contagion_index: float = Field(default=0.0)
+    
+    # 布鲁姆分布
+    bloom_distribution: Optional[str] = None
+    cognitive_state_distribution: Optional[str] = None
+    
+    # 时序数据（JSON数组，每分钟一个点）
+    lei_timeline: Optional[str] = None                     # JSON: [{"minute":1,"lei":0.82},...]
+    
+    # 教学建议
+    pedagogical_suggestions: Optional[str] = None
+    
+    # 注意力周期相位
+    attention_cycle_phase: Optional[str] = Field(default=None, max_length=20)
+    class_attention_trend: Optional[str] = Field(default=None, max_length=20)
+    
+    # 参与人数
+    student_count: int = Field(default=0)
+    
+    course: "Course" = Relationship()
+    tc: "TC" = Relationship()
+
+
+class StudentBehaviorAlert(SQLModel, table=True):
+    """基于CV的真实行为预警记录（替代mock数据）"""
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    student_id: Optional[UUID] = Field(default=None, foreign_key="student.id")
+    tc_id: Optional[UUID] = Field(default=None, foreign_key="tc.id")
+    alert_time: datetime = Field(default_factory=datetime.utcnow)
+    reason: str
+    severity: str = Field(max_length=20)                   # low / medium / high
+    alert_type: str = Field(max_length=50)                 # individual_overload / group_contagion / attention_trough / cognitive_shallow
+    
+    # 触发时的指标快照
+    trigger_lei: Optional[float] = None
+    trigger_attention_deviation: Optional[float] = None
+    trigger_contagion_index: Optional[float] = None
+    
+    # 是否已处理
+    resolved: bool = Field(default=False)
+    resolved_at: Optional[datetime] = None
+    
+    student: Optional["Student"] = Relationship()
+    tc: Optional["TC"] = Relationship()
 
 
 class ResourceBase(SQLModel):

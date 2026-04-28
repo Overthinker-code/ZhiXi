@@ -5,6 +5,17 @@ import axios from 'axios';
 /**
  * 检测到人
  */
+export interface EducationalMetrics {
+  lei: number;
+  bloom_level: string;
+  cognitive_state: string;
+  bei: number;
+  cei: number;
+  eei: number;
+  attention_deviation: number;
+  mind_wandering: boolean;
+}
+
 export interface Person {
   id: number;
   bbox: [number, number, number, number]; // [x1, y1, x2, y2]
@@ -21,6 +32,7 @@ export interface Person {
   bbox_quality?: number;
   temporal_stability?: number;
   temporal_volatility?: number;
+  educational?: EducationalMetrics;
 }
 
 export interface ClassroomMetrics {
@@ -192,9 +204,12 @@ export interface RealtimeSession {
  * 分析图片中的行为
  * @param file 图片文件
  */
-export function analyzeImage(file: File) {
+export function analyzeImage(file: File, courseId?: string) {
   const formData = new FormData();
   formData.append('file', file);
+  if (courseId) {
+    formData.append('course_id', courseId);
+  }
   return axios.post<ImageAnalysisResult>(
     '/api/behavior/analyze/image',
     formData,

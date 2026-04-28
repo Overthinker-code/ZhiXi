@@ -1,5 +1,16 @@
 export type BehaviorStatus = 'focused' | 'unfocused' | 'absent';
 
+export interface WsEducationalMetrics {
+  lei: number;
+  bloom_level: string;
+  cognitive_state: string;
+  bei: number;
+  cei: number;
+  eei: number;
+  attention_deviation: number;
+  mind_wandering: boolean;
+}
+
 export interface WsPersonResult {
   track_id: string;
   bbox: [number, number, number, number];
@@ -10,6 +21,7 @@ export interface WsPersonResult {
   color?: string;
   reason?: string;
   method?: 'yolo' | 'fallback' | string;
+  educational?: WsEducationalMetrics;
 }
 
 export interface WsSummaryResult {
@@ -20,6 +32,10 @@ export interface WsSummaryResult {
   attention_score?: number;
   focus_rate?: number;
   stability_index?: number;
+  avg_lei?: number;
+  bloom_distribution?: Record<string, number>;
+  on_task_rate?: number;
+  mind_wandering_rate?: number;
 }
 
 export interface WsAnalysisMessage {

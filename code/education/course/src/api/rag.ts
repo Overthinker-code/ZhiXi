@@ -559,6 +559,14 @@ export interface LearningReportSection {
   content: string;
 }
 
+export interface ClassroomBehaviorSummary {
+  recent_avg_lei: number;
+  dominant_cognitive_state: string;
+  mind_wandering_rate: number;
+  bloom_distribution: Record<string, number>;
+  teacher_note: string;
+}
+
 export interface LearningReport {
   learner_id: string;
   generated_at: string;
@@ -575,6 +583,7 @@ export interface LearningReport {
   recommended_resources: string[];
   follow_up_questions: string[];
   sections: LearningReportSection[];
+  classroom_behavior_summary?: ClassroomBehaviorSummary;
 }
 
 export interface ReviewPlanDay {

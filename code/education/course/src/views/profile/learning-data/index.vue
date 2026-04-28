@@ -69,6 +69,54 @@
           </div>
         </a-card>
 
+        <!-- 课堂行为数据（来自CV检测） -->
+        <a-card title="课堂行为数据" class="card-block">
+          <a-spin :loading="loadingDiagnosis" style="width: 100%">
+            <template v-if="behaviorStats && behaviorStats.length">
+              <a-row :gutter="12">
+                <a-col v-for="s in behaviorStats" :key="s.label" :span="8">
+                  <div class="stat-box">
+                    <div class="stat-num">{{ s.value }}</div>
+                    <div class="stat-label">{{ s.label }}</div>
+                  </div>
+                </a-col>
+              </a-row>
+
+              <!-- Bloom认知分布 -->
+              <div v-if="behaviorBloomBars.length" class="bloom-section">
+                <a-divider orientation="left">🎯 Bloom认知分布</a-divider>
+                <div class="bloom-bar-list">
+                  <div v-for="b in behaviorBloomBars" :key="b.label" class="bloom-bar-row">
+                    <span class="bloom-bar-label">{{ b.label }}</span>
+                    <a-progress :percent="Math.round(b.value * 100)" size="small" style="flex: 1;" />
+                    <span class="bloom-bar-pct">{{ (b.value * 100).toFixed(0) }}%</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 教育学理论分析 -->
+              <div v-if="eduTheoryAnalysis.length" class="theory-section">
+                <a-divider orientation="left">🎓 教育学理论驱动分析</a-divider>
+                <div class="theory-list">
+                  <div v-for="(t, idx) in eduTheoryAnalysis" :key="idx" class="theory-item">
+                    <div class="theory-header">
+                      <span class="theory-icon">{{ t.icon }}</span>
+                      <span class="theory-name">{{ t.theory }}</span>
+                    </div>
+                    <div class="theory-insight">{{ t.insight }}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="behaviorNote" class="behavior-note">
+                <a-tag color="arcoblue">教师备注</a-tag>
+                <span class="note-text">{{ behaviorNote }}</span>
+              </div>
+            </template>
+            <a-empty v-else description="暂无课堂行为数据，请先上传课堂图片或视频进行分析" />
+          </a-spin>
+        </a-card>
+
         <a-card title="学情概况" class="card-block">
           <a-row :gutter="12">
             <a-col v-for="s in stats" :key="s.label" :span="8">
@@ -299,6 +347,108 @@
     return '中风险';
   };
 
+  // 课堂行为数据（来自CV检测 → 学情诊断接口）
+  const behaviorStats = computed(() => {
+    const cbs = diagnosis.value?.classroom_behavior_summary;
+    if (!cbs) return [];
+    const statsList: { label: string; value: string }[] = [];
+    if (typeof cbs.recent_avg_lei === 'number') {
+      statsList.push({ label: '学习投入指数 LEI', value: (cbs.recent_avg_lei * 100).toFixed(0) });
+    }
+    if (typeof cbs.behavioral_engagement === 'number') {
+      statsList.push({ label: '行为投入 BEI', value: (cbs.behavioral_engagement * 100).toFixed(0) });
+    }
+    if (typeof cbs.cognitive_engagement === 'number') {
+      statsList.push({ label: '认知投入 CEI', value: (cbs.cognitive_engagement * 100).toFixed(0) });
+    }
+    if (typeof cbs.emotional_engagement === 'number') {
+      statsList.push({ label: '情感投入 EEI', value: (cbs.emotional_engagement * 100).toFixed(0) });
+    }
+    if (typeof cbs.avg_cognitive_depth === 'number') {
+      statsList.push({ label: '认知深度', value: (cbs.avg_cognitive_depth * 100).toFixed(0) });
+    }
+    if (typeof cbs.mind_wandering_rate === 'number') {
+      statsList.push({ label: '走神率', value: `${(cbs.mind_wandering_rate * 100).toFixed(0)}%` });
+    }
+    if (typeof cbs.contagion_index === 'number') {
+      statsList.push({ label: '社会传染指数', value: cbs.contagion_index.toFixed(2) });
+    }
+    if (typeof cbs.on_task_rate === 'number') {
+      statsList.push({ label: '目标行为率', value: `${(cbs.on_task_rate * 100).toFixed(0)}%` });
+    }
+    if (cbs.attention_cycle_phase) {
+      statsList.push({ label: '注意力相位', value: cbs.attention_cycle_phase });
+    }
+    if (cbs.class_attention_trend) {
+      statsList.push({ label: '注意力趋势', value: cbs.class_attention_trend });
+    }
+    if (typeof cbs.student_count === 'number' && cbs.student_count > 0) {
+      statsList.push({ label: '检测人数', value: `${cbs.student_count}人` });
+    }
+    return statsList;
+  });
+
+  const behaviorBloomBars = computed(() => {
+    const cbs = diagnosis.value?.classroom_behavior_summary;
+    if (!cbs?.bloom_distribution) return [];
+    return Object.entries(cbs.bloom_distribution).map(([key, val]) => ({
+      label: key,
+      value: typeof val === 'number' ? val : 0,
+    }));
+  });
+
+  const behaviorNote = computed(() => {
+    return diagnosis.value?.classroom_behavior_summary?.teacher_note || '';
+  });
+
+  const eduTheoryAnalysis = computed(() => {
+    const cbs = diagnosis.value?.classroom_behavior_summary;
+    if (!cbs) return [];
+    const items: { theory: string; icon: string; insight: string }[] = [];
+    // Fredricks三维投入模型分析
+    const bei = (cbs.behavioral_engagement || 0) * 100;
+    const cei = (cbs.cognitive_engagement || 0) * 100;
+    const eei = (cbs.emotional_engagement || 0) * 100;
+    if (bei > 0 || cei > 0 || eei > 0) {
+      const minDim = Math.min(bei, cei, eei);
+      const minName = minDim === bei ? '行为投入(BEI)' : minDim === cei ? '认知投入(CEI)' : '情感投入(EEI)';
+      items.push({
+        theory: 'Fredricks三维投入模型',
+        icon: '🧠',
+        insight: `BEI ${bei.toFixed(0)}% / CEI ${cei.toFixed(0)}% / EEI ${eei.toFixed(0)}%。${minName}相对偏低，建议针对性提升该维度。`,
+      });
+    }
+    // Bloom认知分类分析
+    const bd = cbs.bloom_distribution || {};
+    const bloomKeys = Object.keys(bd);
+    if (bloomKeys.length) {
+      const dominant = bloomKeys.reduce((a, b) => (bd[a] || 0) > (bd[b] || 0) ? a : b);
+      items.push({
+        theory: 'Bloom认知分类法',
+        icon: '📊',
+        insight: `主导认知层次为「${dominant}」。建议设计分层任务，推动学生向更高阶思维进阶。`,
+      });
+    }
+    // 注意力动态模型
+    if (cbs.class_attention_trend) {
+      items.push({
+        theory: '注意力动态模型',
+        icon: '⏰',
+        insight: `注意力趋势：${cbs.class_attention_trend}。${cbs.attention_cycle_phase ? '当前相位：' + cbs.attention_cycle_phase + '。' : ''}建议每15-20分钟切换教学模态以重置注意力曲线。`,
+      });
+    }
+    // 社会传染理论
+    const ci = cbs.contagion_index || 0;
+    if (ci > 0) {
+      items.push({
+        theory: '社会传染理论',
+        icon: '🔥',
+        insight: `社会传染指数 ${(ci * 100).toFixed(0)}%。${ci > 0.5 ? '分心行为存在聚集扩散风险，建议物理隔离或同伴教学干预。' : '课堂注意力免疫良好，可强化正向传染效应。'}`,
+      });
+    }
+    return items;
+  });
+
   async function loadInitialDiagnosis() {
     try {
       diagnosis.value = await fetchLearningReport(false);
@@ -451,6 +601,21 @@
     font-size: 12px;
   }
 
+  .behavior-note {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    padding: 8px 12px;
+    background: #f0f7ff;
+    border-radius: 8px;
+
+    .note-text {
+      font-size: 13px;
+      color: #333;
+    }
+  }
+
   .report-summary {
     color: #1e293b;
     line-height: 1.8;
@@ -582,6 +747,78 @@
     height: 8px;
     border-radius: 50%;
     margin-right: 6px;
+  }
+
+  // Bloom认知分布
+  .bloom-section {
+    margin-top: 12px;
+
+    .bloom-bar-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .bloom-bar-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+
+      .bloom-bar-label {
+        font-size: 12px;
+        color: #666;
+        width: 70px;
+        text-align: right;
+      }
+
+      .bloom-bar-pct {
+        font-size: 12px;
+        color: #333;
+        width: 40px;
+        text-align: right;
+      }
+    }
+  }
+
+  // 教育学理论分析
+  .theory-section {
+    margin-top: 12px;
+
+    .theory-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .theory-item {
+      background: #f8f9fa;
+      border-radius: 8px;
+      padding: 8px 10px;
+      border-left: 3px solid #1890ff;
+
+      .theory-header {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 4px;
+
+        .theory-icon {
+          font-size: 14px;
+        }
+
+        .theory-name {
+          font-size: 12px;
+          font-weight: 600;
+          color: #333;
+        }
+      }
+
+      .theory-insight {
+        font-size: 12px;
+        color: #555;
+        line-height: 1.6;
+      }
+    }
   }
 
   @media (max-width: 991px) {

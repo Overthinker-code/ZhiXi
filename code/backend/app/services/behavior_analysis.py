@@ -23,6 +23,8 @@ class BehaviorAnalysisService:
 
     优先调用独立 YOLO 服务；当 YOLO 服务不可用时，自动回退到本地轻量级人脸检测，
     确保上传图片/视频分析在单机部署下仍然可用。
+    
+    教育学参数联动：分析结果自动缓存，供预警引擎和LLM服务消费
     """
 
     def __init__(
@@ -33,6 +35,10 @@ class BehaviorAnalysisService:
         host = yolo_host or getattr(settings, "YOLO_SERVICE_HOST", "http://127.0.0.1")
         port = yolo_port or getattr(settings, "YOLO_SERVICE_PORT", 8002)
         self.base_url = f"{host}:{port}"
+        
+        # 教育学参数联动：内存缓存最新分析结果（供alerts.py消费）
+        self._last_educational_report: Optional[Dict[str, Any]] = None
+        self._last_person_profiles: Dict[str, Any] = {}
 
         self.behavior_mapping = {
             0: "专注学习",
@@ -120,6 +126,38 @@ class BehaviorAnalysisService:
             return "absent"
         return "unfocused"
 
+    def _match_bbox_face_detail(
+        self,
+        yolo_bbox: List[int],
+        local_faces: List[Dict[str, Any]],
+        img_w: int,
+        img_h: int,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        通过 bbox 中心点距离匹配 YOLO 人脸与本地 FaceLandmarker 人脸，
+        返回匹配到的人脸详情（eye_closed, is_reading 等）。
+        """
+        if not local_faces:
+            return None
+        yolo_cx = (yolo_bbox[0] + yolo_bbox[2]) / 2
+        yolo_cy = (yolo_bbox[1] + yolo_bbox[3]) / 2
+        max_dist = max(img_w, img_h) * 0.15
+
+        best_match = None
+        best_dist = float("inf")
+        for face in local_faces:
+            lb = face.get("bbox", [0, 0, 0, 0])
+            if len(lb) != 4:
+                continue
+            lc_x = (lb[0] + lb[2]) / 2
+            lc_y = (lb[1] + lb[3]) / 2
+            dist = ((yolo_cx - lc_x) ** 2 + (yolo_cy - lc_y) ** 2) ** 0.5
+            if dist < best_dist and dist < max_dist:
+                best_dist = dist
+                best_match = face
+
+        return best_match
+
     def _clamp_score(self, value: Any, default: float = 0.5) -> float:
         try:
             score = float(value)
@@ -163,6 +201,20 @@ class BehaviorAnalysisService:
         if result.get("status") != "success":
             return None
 
+        # 教育学参数联动：缓存实时帧的教育学数据（供预警引擎消费）
+        self._cache_educational_data(result)
+
+        # 叠加本地 FaceLandmarker 细节检测，增强 YOLO 结果
+        local_face_results: List[Dict[str, Any]] = []
+        img_h, img_w = 0, 0
+        try:
+            decoded = cv2.imdecode(np.frombuffer(image_data, np.uint8), cv2.IMREAD_COLOR)
+            if decoded is not None:
+                img_h, img_w = decoded.shape[:2]
+                local_face_results = behavior_ws_service.detect_face_detail(image_data)
+        except Exception:
+            pass
+
         persons: List[PersonResult] = []
         focused_count = 0
         unfocused_count = 0
@@ -171,6 +223,38 @@ class BehaviorAnalysisService:
         for index, person in enumerate(result.get("persons", [])):
             behavior = person.get("behavior", "未知")
             status = self._yolo_behavior_to_status(behavior)
+            bbox = person.get("bbox") or [0, 0, 0, 0]
+            if len(bbox) != 4:
+                bbox = [0, 0, 0, 0]
+
+            # 用 FaceLandmarker 辅助验证：匹配本地人脸详情
+            local_detail = None
+            if img_w > 0 and img_h > 0:
+                local_detail = self._match_bbox_face_detail(bbox, local_face_results, img_w, img_h)
+
+            eye_closed = local_detail.get("eye_closed") if local_detail else None
+            is_reading = local_detail.get("is_reading") if local_detail else False
+
+            # 1. 闭眼修正：专注学习 → 注意力分散
+            if behavior == "专注学习" and eye_closed:
+                status = "unfocused"
+                behavior = "注意力分散"
+                person["behavior"] = behavior
+                person["color"] = "#faad14"
+                original_reason = person.get("reason") or ""
+                suffix = "（FaceLandmarker 辅助检测到闭眼）"
+                person["reason"] = f"{original_reason}{suffix}" if original_reason else suffix
+
+            # 2. 睡觉过滤：低头看书/写字被 YOLO 误判为睡觉 → 修正回专注学习
+            if behavior == "睡觉" and is_reading:
+                status = "focused"
+                behavior = "专注学习"
+                person["behavior"] = behavior
+                person["color"] = "#52c41a"
+                original_reason = person.get("reason") or ""
+                suffix = "（FaceLandmarker 辅助：低头看书/写字，非睡觉）"
+                person["reason"] = f"{original_reason}{suffix}" if original_reason else suffix
+
             if status == "focused":
                 focused_count += 1
             elif status == "absent":
@@ -178,9 +262,6 @@ class BehaviorAnalysisService:
             else:
                 unfocused_count += 1
 
-            bbox = person.get("bbox") or [0, 0, 0, 0]
-            if len(bbox) != 4:
-                bbox = [0, 0, 0, 0]
             score = self._clamp_score(person.get("score"), 0.5)
             confidence = self._clamp_score(person.get("confidence"), score)
             try:
@@ -198,6 +279,7 @@ class BehaviorAnalysisService:
                     color=person.get("color"),
                     reason=person.get("reason"),
                     method="yolo",
+                    eye_closed=eye_closed,
                 )
             )
 
@@ -471,18 +553,145 @@ class BehaviorAnalysisService:
             if temp_path and os.path.exists(temp_path):
                 os.remove(temp_path)
 
+    def _cache_educational_data(self, result: Dict[str, Any]) -> None:
+        """缓存教育学数据，供预警引擎消费（联动3）"""
+        edu_report = result.get("educational_report")
+        if edu_report:
+            self._last_educational_report = edu_report
+        # 从persons中提取时序画像（engagement_profile包含is_abnormal_decline等预警所需字段）
+        persons = result.get("persons", [])
+        for p in persons:
+            track_id = p.get("track_id") or p.get("id")
+            if track_id:
+                # 优先使用时序画像（供Rule 4个体预警），回退到单帧教育学位段
+                profile = p.get("engagement_profile")
+                if profile:
+                    self._last_person_profiles[str(track_id)] = profile
+                elif "educational" in p:
+                    self._last_person_profiles[str(track_id)] = p.get("educational", {})
+
+    def _persist_behavior_summary_sync(
+        self,
+        result: Dict[str, Any],
+        course_id: Optional[str] = None,
+        tc_id: Optional[str] = None,
+    ) -> None:
+        """
+        同步方法：将分析结果持久化到数据库（联动1/2/4/6/7的基础）
+        写入两张表：
+        - CourseEngagementRecord: 课程级指标（联动6）
+        - BehaviorSummaryRecord: 课堂行为摘要（联动1/2/4/7）
+        此方法应在后台线程中调用，避免阻塞async事件循环
+        """
+        try:
+            from app.core.db import engine
+            from app.models import CourseEngagementRecord, BehaviorSummaryRecord
+            from sqlmodel import Session
+            import json
+            from uuid import uuid4, UUID
+            
+            edu_report = result.get("educational_report", {})
+            if not edu_report:
+                return
+            
+            # 解析UUID
+            actual_course_id = None
+            actual_tc_id = None
+            try:
+                if course_id:
+                    actual_course_id = UUID(course_id)
+                if tc_id:
+                    actual_tc_id = UUID(tc_id)
+            except (ValueError, TypeError):
+                pass
+            
+            with Session(engine) as session:
+                # 1) 课程级记录（联动6：LEI趋势→课程质量）
+                # 仅在有 course_id 时保存，避免 NOT NULL 约束冲突
+                if actual_course_id is not None:
+                    cer = CourseEngagementRecord(
+                        id=uuid4(),
+                        course_id=actual_course_id,
+                        tc_id=actual_tc_id,
+                        avg_lei=float(edu_report.get("class_learning_engagement_index", 0.0) or 0.0),
+                        avg_cognitive_depth=float(edu_report.get("class_cognitive_depth", 0.0) or 0.0),
+                        mind_wandering_rate=float(edu_report.get("class_mind_wandering_rate", 0.0) or 0.0),
+                        contagion_index=float(edu_report.get("contagion_index", 0.0) or 0.0),
+                        bloom_distribution=json.dumps(edu_report.get("bloom_distribution") or {}),
+                        cognitive_state_distribution=json.dumps(edu_report.get("cognitive_state_distribution") or {}),
+                        pedagogical_suggestions=json.dumps(edu_report.get("pedagogical_suggestions") or []),
+                        attention_cycle_phase=edu_report.get("attention_cycle_phase"),
+                        class_attention_trend=edu_report.get("class_attention_trend"),
+                        student_count=int(edu_report.get("student_count", 0) or 0),
+                    )
+                    session.add(cer)
+                
+                # 2) 课堂行为摘要记录（联动1/2/4/7：学情诊断/复习计划/学习画像/错题归因）
+                # 当前YOLO无学生身份识别，student_id留NULL，存储课堂整体数据作为参考
+                # 提取BEI/CEI/EEI等三维投入指标存入快照，供学情档案展示
+                engagement_snapshot = {
+                    "class_behavioral_engagement": edu_report.get("class_behavioral_engagement", 0),
+                    "class_cognitive_engagement": edu_report.get("class_cognitive_engagement", 0),
+                    "class_emotional_engagement": getattr(edu_report, "class_emotional_engagement", 0) or edu_report.get("class_emotional_engagement", 0),
+                    "attention_cycle_phase": edu_report.get("attention_cycle_phase"),
+                    "class_attention_trend": edu_report.get("class_attention_trend"),
+                    "student_count": edu_report.get("student_count", 0),
+                }
+                bsr = BehaviorSummaryRecord(
+                    id=uuid4(),
+                    student_id=None,
+                    course_id=actual_course_id,
+                    tc_id=actual_tc_id,
+                    avg_lei=float(edu_report.get("class_learning_engagement_index", 0.0) or 0.0),
+                    avg_cognitive_depth=float(edu_report.get("class_cognitive_depth", 0.0) or 0.0),
+                    mind_wandering_rate=float(edu_report.get("class_mind_wandering_rate", 0.0) or 0.0),
+                    contagion_index=float(edu_report.get("contagion_index", 0.0) or 0.0),
+                    on_task_rate=float(edu_report.get("class_on_task_rate", 0.0) or 0.0),
+                    bloom_distribution=json.dumps(edu_report.get("bloom_distribution") or {}),
+                    cognitive_state_distribution=json.dumps(edu_report.get("cognitive_state_distribution") or {}),
+                    pedagogical_suggestions=json.dumps(edu_report.get("pedagogical_suggestions") or []),
+                    student_profiles_snapshot=json.dumps(engagement_snapshot),
+                    source_type="image_analysis" if result.get("image_width") else "video_analysis",
+                )
+                session.add(bsr)
+                session.commit()
+        except Exception as _exc:
+            # 持久化失败不应阻塞主流程
+            import traceback
+            print(f"[BehaviorAnalysis] _persist_behavior_summary_sync failed: {_exc}")
+            traceback.print_exc()
+
+    async def _persist_behavior_summary(
+        self,
+        result: Dict[str, Any],
+        course_id: Optional[str] = None,
+        tc_id: Optional[str] = None,
+    ) -> None:
+        """异步包装：在后台线程执行持久化，避免阻塞事件循环"""
+        import asyncio
+        try:
+            await asyncio.to_thread(
+                self._persist_behavior_summary_sync,
+                result,
+                course_id,
+                tc_id,
+            )
+        except Exception:
+            # to_thread需要Python 3.9+，如果失败则静默跳过
+            pass
+
     async def analyze_video(
         self,
         video_data: bytes,
         sample_interval: int = 1,
         course_id: Optional[str] = None,
+        tc_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         分析视频中的行为。
 
-        `course_id` 目前保留给上层路由记录使用，服务内部不依赖。
+        `course_id` / `tc_id` 用于课后数据持久化（教育学参数联动）
         """
-        del course_id
         try:
             files = {"file": ("video.mp4", video_data, "video/mp4")}
             data = {"sample_interval": sample_interval}
@@ -508,13 +717,21 @@ class BehaviorAnalysisService:
                 }
 
             summary = self._build_video_summary(result)
+            
+            # 教育学参数联动：缓存+持久化
+            self._cache_educational_data(result)
+            await self._persist_behavior_summary(result, course_id=course_id, tc_id=tc_id)
+            
+            # 防御YOLO返回的summary可能为None的情况
+            raw_summary = result.get("summary") or {}
             return {
                 "status": "success",
                 "frame_analyses": result.get("frame_analyses", []),
-                "summary": result.get("summary", summary),
+                "summary": result.get("summary") or summary,
                 "video_info": result.get("video_info", {}),
                 "persons": result.get("persons", []),
-                "classroom_metrics": result.get("summary", {}).get("classroom_metrics", {}),
+                "classroom_metrics": raw_summary.get("classroom_metrics", {}),
+                "educational_report": result.get("educational_report"),
             }
         except httpx.RequestError as exc:
             fallback = await self._analyze_video_locally(video_data, sample_interval)
@@ -595,7 +812,7 @@ class BehaviorAnalysisService:
         behavior_counts: Dict[str, int] = {}
         behavior_durations: Dict[str, float] = {}
         for pred in predictions:
-            behavior = pred["behavior"]
+            behavior = pred.get("behavior", "未知")
             if behavior not in behavior_counts:
                 behavior_counts[behavior] = 0
                 behavior_durations[behavior] = 0
@@ -610,16 +827,16 @@ class BehaviorAnalysisService:
         key_moments = []
         prev_behavior = None
         for pred in predictions:
-            if pred["behavior"] != prev_behavior:
+            if pred.get("behavior", "未知") != prev_behavior:
                 key_moments.append(
                     {
-                        "timestamp": pred["timestamp"],
-                        "behavior": pred["behavior"],
-                        "confidence": pred["confidence"],
-                        "score": pred["score"],
+                        "timestamp": pred.get("timestamp", 0),
+                        "behavior": pred.get("behavior", "未知"),
+                        "confidence": pred.get("confidence", 0.0),
+                        "score": pred.get("score", 0.0),
                     }
                 )
-            prev_behavior = pred["behavior"]
+            prev_behavior = pred.get("behavior", "未知")
 
         return {
             "average_score": result.get("overall_score", 0),
@@ -674,6 +891,7 @@ class BehaviorAnalysisService:
                 "overall_score": result.get("overall_score", 0),
                 "learning_status": result.get("learning_status", "无法评估"),
                 "classroom_metrics": result.get("classroom_metrics", {}),
+                "educational_report": result.get("educational_report"),
                 "image_width": result.get("image_width", 0),
                 "image_height": result.get("image_height", 0),
             }

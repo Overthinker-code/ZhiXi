@@ -5,9 +5,18 @@
     <div class="monitor-stage-shell">
       <div class="monitor-stage-main" :class="{ 'with-panel': activePanel !== null }">
         <div class="stage-canvas">
+          <!-- AI 行为检测面板直接显示在主舞台 -->
+          <div v-if="activePanel === 'ai'" class="ai-behavior-stage">
+            <BehaviorDetectionPanel
+              :course-id="currentCourse.id"
+              @analysis-complete="onUploadAnalysisComplete"
+            />
+            <MonitorHudCharts />
+          </div>
+
           <!-- 教室摄像头/本地摄像头实时画面 -->
           <video
-            v-if="videoEnabled"
+            v-else-if="videoEnabled"
             ref="mainVideo"
             class="stage-video"
             autoplay
@@ -25,9 +34,9 @@
             alt="课堂主舞台"
           />
 
-          <!-- 主舞台检测框 Canvas -->
+          <!-- 主舞台检测框 Canvas (WebSocket 实时) -->
           <canvas
-            v-if="wsState.isDetecting && wsState.persons.length > 0"
+            v-if="wsState.isDetecting && wsState.persons.length > 0 && activePanel !== 'ai'"
             ref="mainCanvas"
             class="stage-detection-canvas"
           ></canvas>
@@ -39,7 +48,7 @@
           </div>
 
           <!-- 主舞台评分浮层 -->
-          <div v-if="wsState.isDetecting" class="stage-score-overlay">
+          <div v-if="wsState.isDetecting && activePanel !== 'ai'" class="stage-score-overlay">
             <div
               class="stage-score-badge"
               :style="{ backgroundColor: liveTelemetry.badgeColor }"
@@ -51,7 +60,7 @@
             </div>
           </div>
 
-          <div class="stage-status-bar">
+          <div v-if="activePanel !== 'ai'" class="stage-status-bar">
             <div class="status-main">
               <span class="class-name">{{ currentCourse.name }} · 实时课堂</span>
               <span class="time-chip">{{ timerText }}</span>
@@ -72,7 +81,7 @@
             </a-dropdown>
           </div>
 
-          <div class="hud-metrics">
+          <div v-if="activePanel !== 'ai'" class="hud-metrics">
             <div class="hud-metric" v-for="item in hudMetrics" :key="item.label">
               <span class="hud-label">{{ item.label }}</span>
               <span class="hud-value">{{ item.value }}</span>
@@ -80,7 +89,7 @@
             </div>
           </div>
 
-          <button type="button" class="course-drawer-trigger" @click="courseDrawerOpen = true">
+          <button v-if="activePanel !== 'ai'" type="button" class="course-drawer-trigger" @click="courseDrawerOpen = true">
             📚 课程选择
           </button>
 
@@ -103,7 +112,7 @@
         </div>
       </div>
 
-      <aside class="monitor-side-panel" :class="{ open: activePanel !== null }">
+      <aside class="monitor-side-panel" :class="{ open: activePanel !== null && activePanel !== 'ai' }">
         <div class="side-header">
           <h3 class="side-title">{{ panelTitle }}</h3>
           <button type="button" class="close-btn" @click="activePanel = null">✕</button>
@@ -116,9 +125,6 @@
             v-show="activePanel === 'ai'"
             class="ai-panel-wrap"
           >
-            <BehaviorDetectionPanel
-              :course-id="currentCourse.id"
-            />
             <MonitorHudCharts />
           </div>
           <div v-else-if="activePanel === 'setting'" class="settings-panel">
@@ -248,6 +254,51 @@
   const mainCanvas = ref<HTMLCanvasElement | null>(null);
   const captureCanvas = document.createElement('canvas');
 
+  // 上传分析结果显示在主舞台
+  const uploadAnalysis = ref<{ imageUrl: string; result: any } | null>(null);
+  const uploadCanvas = ref<HTMLCanvasElement | null>(null);
+  const uploadImageRef = ref<HTMLImageElement | null>(null);
+
+  const onUploadAnalysisComplete = (payload: { imageUrl: string; result: any }) => {
+    uploadAnalysis.value = payload;
+    nextTick(() => drawUploadBoxesOnStage());
+  };
+
+  const drawUploadBoxesOnStage = () => {
+    if (!uploadCanvas.value || !uploadImageRef.value || !uploadAnalysis.value?.result?.persons) return;
+    const canvas = uploadCanvas.value;
+    const img = uploadImageRef.value;
+    const ctx = canvas.getContext('2d');
+    if (!ctx || !img.complete || img.naturalWidth === 0) {
+      setTimeout(drawUploadBoxesOnStage, 100);
+      return;
+    }
+    const rect = img.getBoundingClientRect();
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const scaleX = rect.width / (uploadAnalysis.value.result.image_width || img.naturalWidth);
+    const scaleY = rect.height / (uploadAnalysis.value.result.image_height || img.naturalHeight);
+    uploadAnalysis.value.result.persons.forEach((person: any) => {
+      const [x1, y1, x2, y2] = person.bbox;
+      const sx1 = x1 * scaleX;
+      const sy1 = y1 * scaleY;
+      const sx2 = x2 * scaleX;
+      const sy2 = y2 * scaleY;
+      const color = person.color || '#52c41a';
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(sx1, sy1, sx2 - sx1, sy2 - sy1);
+      const label = `${person.behavior || '未知'} ${Math.round((person.confidence || 0) * 100)}%`;
+      ctx.font = 'bold 14px Arial';
+      const tw = ctx.measureText(label).width;
+      ctx.fillStyle = color;
+      ctx.fillRect(sx1, sy1 - 22, tw + 10, 22);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(label, sx1 + 5, sy1 - 6);
+    });
+  };
+
   // WebSocket 实时检测（由主舞台直接管理，侧边栏只负责上传分析）
   const ws = useBehaviorWebSocket();
   const { state: wsState, getStatusColor } = ws;
@@ -297,6 +348,20 @@
 
   const cameraUrlMap = ref<Record<string, string>>({});
   const behaviorDefinitions = ref<any>(null);
+
+  const getScoreColor = (score: number): string => {
+    const ranges = behaviorDefinitions.value?.score_ranges || [];
+    for (const r of ranges) {
+      if (score >= r.min && score <= r.max) {
+        return r.color;
+      }
+    }
+    if (score >= 0.7) return '#52c41a';
+    if (score >= 0.3) return '#1890ff';
+    if (score >= -0.3) return '#faad14';
+    if (score >= -0.7) return '#fa541c';
+    return '#f5222d';
+  };
   const courseTelemetryProfiles: Record<string, CourseTelemetryProfile> = {
     db: {
       expectedStudents: 46,
@@ -657,22 +722,33 @@
         : person.track_id;
       const confidenceValue = person.confidence ?? person.score;
       const confidenceLabel = `${Math.round(confidenceValue * 100)}%`;
-      const behaviorLabel = person.behavior || statusLabel(person.status);
+
+      // 优先显示教育学参数标签
+      const edu = person.educational;
+      const cognitiveLabel = edu?.cognitive_state || person.behavior || statusLabel(person.status);
+      const leiLabel = edu ? `LEI:${(edu.lei * 100).toFixed(0)}` : '';
+      const line1 = `${displayId} ${cognitiveLabel}`;
+      const line2 = edu ? `${leiLabel} 布鲁姆:${edu.bloom_level}` : confidenceLabel;
 
       ctx.strokeStyle = color;
       ctx.lineWidth = 3;
       ctx.strokeRect(sx1, sy1, width, height);
 
-      const label = `${displayId} ${behaviorLabel} ${confidenceLabel}`;
-      ctx.font = 'bold 14px Arial';
-      const textWidth = ctx.measureText(label).width;
-      const textHeight = 20;
+      // 绘制标签背景（两行）
+      ctx.font = 'bold 13px Arial';
+      const textWidth1 = ctx.measureText(line1).width;
+      const textWidth2 = ctx.measureText(line2).width;
+      const maxTextWidth = Math.max(textWidth1, textWidth2);
+      const lineHeight = 18;
+      const padding = 6;
+      const bgHeight = lineHeight * 2 + padding;
 
       ctx.fillStyle = color;
-      ctx.fillRect(sx1, sy1 - textHeight - 4, textWidth + 10, textHeight + 4);
+      ctx.fillRect(sx1, sy1 - bgHeight - 2, maxTextWidth + padding * 2, bgHeight);
 
       ctx.fillStyle = '#fff';
-      ctx.fillText(label, sx1 + 5, sy1 - 4);
+      ctx.fillText(line1, sx1 + padding, sy1 - lineHeight - 2);
+      ctx.fillText(line2, sx1 + padding, sy1 - 4);
     });
   };
 
@@ -691,6 +767,9 @@
   const onResize = () => {
     if (wsState.value.isDetecting) {
       drawMainStageBoxes();
+    }
+    if (uploadAnalysis.value?.result?.persons?.length) {
+      drawUploadBoxesOnStage();
     }
   };
 
@@ -828,6 +907,39 @@
     height: 100%;
     pointer-events: none;
     z-index: 3;
+  }
+
+  .ai-behavior-stage {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow-y: auto;
+    background: #f5f5f5;
+    box-sizing: border-box;
+
+    :deep(.behavior-detection-card) {
+      width: 100%;
+      max-width: 100%;
+      margin: 0;
+      border-radius: 0;
+      box-shadow: none;
+    }
+
+    :deep(.preview-image) {
+      max-height: none;
+      width: 100%;
+      height: auto;
+      object-fit: contain;
+    }
+
+    :deep(.upload-preview-area) {
+      max-width: 100%;
+    }
+
+    :deep(.video-container) {
+      max-height: none;
+      min-height: 500px;
+    }
   }
 
   .stage-error-toast {

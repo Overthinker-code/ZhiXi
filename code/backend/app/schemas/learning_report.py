@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Optional
 from pydantic import BaseModel, Field
 
 
@@ -24,6 +25,8 @@ class LearningReport(BaseModel):
     recommended_resources: list[str] = Field(default_factory=list)
     follow_up_questions: list[str] = Field(default_factory=list)
     sections: list[LearningReportSection] = Field(default_factory=list)
+    # 教育学参数联动：课堂行为摘要
+    classroom_behavior_summary: Optional[dict] = None
 
 
 class ReviewPlanDay(BaseModel):

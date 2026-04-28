@@ -35,6 +35,7 @@ class PersonResult(BaseModel):
     bbox_quality: float | None = None
     temporal_stability: float | None = None
     temporal_volatility: float | None = None
+    educational: dict | None = None  # 教育学参数（来自YOLO服务）
 
 
 class BehaviorAnalysisResult(BaseModel):
@@ -79,6 +80,7 @@ analysis_records: list[dict] = []
 async def analyze_image(
     *,
     file: UploadFile = File(...),
+    course_id: Optional[str] = Form(None),
     current_user: models.User = Depends(deps.get_current_user),
 ) -> Any:
     """
@@ -90,6 +92,14 @@ async def analyze_image(
 
         if result["status"] == "error":
             raise HTTPException(status_code=500, detail=result["error"])
+
+        # 将图片分析结果也持久化到数据库，供LLM学情诊断消费
+        if result.get("educational_report"):
+            try:
+                await behavior_service._persist_behavior_summary(result, course_id=course_id)
+            except Exception:
+                # 持久化失败不应阻塞主流程
+                pass
 
         return BehaviorAnalysisResult(
             status="success",
@@ -124,12 +134,15 @@ async def analyze_video(
     """
     try:
         video_data = await file.read()
-        result = await behavior_service.analyze_video(video_data, sample_interval)
+        # 传入 course_id 触发数据库持久化（CourseEngagementRecord + BehaviorSummaryRecord）
+        result = await behavior_service.analyze_video(
+            video_data, sample_interval, course_id=course_id
+        )
 
         if result["status"] == "error":
             raise HTTPException(status_code=500, detail=result["error"])
 
-        # 保存分析记录
+        # 同时保留内存缓存（向后兼容已有查询接口）
         if course_id and result.get("summary"):
             record = {
                 "id": str(uuid4()),
