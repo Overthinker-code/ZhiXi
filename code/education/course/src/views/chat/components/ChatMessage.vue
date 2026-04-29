@@ -780,7 +780,12 @@
         :deep(ul),
         :deep(ol) {
           margin: 0.5rem 0;
-          padding-left: 1.3rem;
+          padding-left: 1.65rem;
+          list-style-position: outside;
+        }
+
+        :deep(li) {
+          padding-left: 0.12rem;
         }
 
         :deep(blockquote) {
