@@ -471,7 +471,6 @@ class BehaviorSummaryRecord(SQLModel, table=True):
     # 课堂整体指标
     avg_lei: float = Field(default=0.0)                    # 学习投入指数
     avg_cognitive_depth: float = Field(default=0.0)        # 认知深度
-    avg_emotional_engagement: float = Field(default=0.0)   # 情感投入指数
     mind_wandering_rate: float = Field(default=0.0)        # 走神率
     contagion_index: float = Field(default=0.0)            # 传染指数
     on_task_rate: float = Field(default=0.0)               # 目标行为率
@@ -505,7 +504,6 @@ class CourseEngagementRecord(SQLModel, table=True):
     # 课堂整体指标
     avg_lei: float = Field(default=0.0)
     avg_cognitive_depth: float = Field(default=0.0)
-    avg_emotional_engagement: float = Field(default=0.0)   # 情感投入指数
     mind_wandering_rate: float = Field(default=0.0)
     contagion_index: float = Field(default=0.0)
     
