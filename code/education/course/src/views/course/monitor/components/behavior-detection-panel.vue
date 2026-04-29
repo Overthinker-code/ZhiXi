@@ -368,27 +368,6 @@
         </div>
       </div>
 
-      <!-- 历史记录快捷入口 -->
-      <div v-if="recentRecords.length > 0" class="recent-records">
-        <a-divider orientation="center">历史记录</a-divider>
-        <a-list :bordered="false" size="small">
-          <a-list-item
-            v-for="record in recentRecords.slice(0, 3)"
-            :key="record.id"
-          >
-            <div class="record-item">
-              <span class="record-time">{{ formatTime(record.timestamp) }}</span>
-              <a-tag :color="getOverallStatusColor(record.overall_status)">
-                {{ record.overall_status }}
-              </a-tag>
-            </div>
-          </a-list-item>
-        </a-list>
-        <a-button type="text" long @click="viewAllRecords">
-          查看全部
-        </a-button>
-      </div>
-
       <!-- 空状态 -->
       <div v-if="!currentFrame" class="video-placeholder">
         <IconVideoCamera class="icon" />
