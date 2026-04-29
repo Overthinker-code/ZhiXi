@@ -588,14 +588,14 @@ def _default_suggestions(user_q: str) -> list[str]:
     q = (user_q or "").strip()
     if not q:
         return [
-            "我这一步最容易在哪里出错？",
-            "能给我一个最小练习题吗？",
-            "我下一步应该怎么学？",
+            "这一步最容易在哪里出错？",
+            "能给一个最小练习题吗？",
+            "下一步应该怎么学？",
         ]
     return [
-        "我需要先掌握哪个核心知识点？",
-        "能给我一道由浅入深的练习题吗？",
-        "如果我答错了，应该怎么快速纠正？",
+        "先补哪个核心知识点？",
+        "能给一道由浅入深的练习题吗？",
+        "答错时应该怎么快速纠正？",
     ]
 
 
@@ -623,7 +623,7 @@ def _parse_suggestion_candidates(raw: str) -> list[str]:
                 candidates = []
     out: list[str] = []
     q_hint = re.compile(
-        r"(吗|么|如何|为什么|怎么|是否|能否|能不能|帮我|给我|带我|我该|我想|哪个|哪些|几种|\?)"
+        r"(吗|么|如何|为什么|怎么|是否|能否|能不能|帮我|给我|带我|我该|我想|哪|哪些|几种|\?)"
     )
     for c in candidates:
         cc = re.sub(r"\s+", " ", c).strip()
@@ -708,26 +708,26 @@ def _contextual_suggestions_from_llm(
     _ = max_tokens
     if intent == "practice":
         return [
-            f"我应该先练 {topic} 的哪三类题型最提分？",
-            f"能基于 {topic} 给我一道阶梯练习题，并先只给第 1 步提示吗？",
-            f"我做 {topic} 题时最常见的失分点有哪些？",
+            f"先练{topic}哪三类题型最提分？",
+            f"能基于{topic}出一道阶梯练习吗？",
+            f"{topic}题最常见失分点有哪些？",
         ]
     if intent == "fix":
         return [
-            f"我在 {topic} 上最可能犯的 3 个错误分别是什么？",
-            f"能给我一个 {topic} 的错题订正模板吗？",
-            f"下次遇到 {topic} 同类题，我该如何快速自检？",
+            f"{topic}最常见的3个错误是什么？",
+            f"能给一个{topic}错题订正模板吗？",
+            f"遇到{topic}同类题时怎么快速自检？",
         ]
     if intent == "summary":
         return [
-            f"能帮我把 {topic} 压缩成 5 条考前速记卡片吗？",
-            f"能给我一张 {topic} 中易混概念的对照表吗？",
-            f"我复习 {topic} 时应该按什么优先级安排？",
+            f"能把{topic}压缩成5条速记卡片吗？",
+            f"能给一张{topic}易混概念对照表吗？",
+            f"{topic}复习优先级怎么安排？",
         ]
     return [
-        f"我最容易混淆 {topic} 里的哪些概念？",
-        f"能围绕 {topic} 给我一题由浅入深的练习吗？",
-        f"如果我在 {topic} 上做错题，应该怎么快速纠正？",
+        f"{topic}里最容易混淆哪些概念？",
+        f"能围绕{topic}出一道由浅入深的练习吗？",
+        f"{topic}做错题时怎么快速纠正？",
     ]
 
 
@@ -740,10 +740,11 @@ def _llm_followup_suggestions(user_q: str, answer: str) -> list[str]:
             SystemMessage(
                 content=(
                     "你负责为智能伴学对话生成 3 个下一轮追问胶囊。"
-                    "这些胶囊会被学生点击后直接发送给 AI，所以必须是学生第一人称的提问。"
+                    "这些胶囊会被学生点击后直接发送给 AI，所以要像学生自然会继续问的问题。"
                     "只输出 JSON 数组，正好 3 条。"
-                    "每条 12-32 个中文字符，包含“我/帮我/给我/带我”等第一人称表达；"
-                    "不要写成“你是否需要/请问您是否需要/是否还需要我”。"
+                    "每条 10-34 个中文字符，语气自然、具体、可直接发送；"
+                    "可以使用“能不能/怎么/哪些/为什么/帮我”等表达，"
+                    "但不要为了第一人称硬塞“我，”“我想我”“请问您是否需要”等别扭话。"
                 )
             ),
             HumanMessage(
@@ -764,16 +765,17 @@ _FOLLOWUP_FORBIDDEN_VIEWPOINT_RE = re.compile(
     r"(您|你是否|是否需要|请问你|请问您)"
 )
 _FOLLOWUP_QUESTION_HINT_RE = re.compile(
-    r"(吗|么|如何|为什么|怎么|是否|能否|能不能|帮我|给我|带我|我该|我想|可以|应该|哪些|哪个|\?|？)"
+    r"(吗|么|如何|为什么|怎么|是否|能否|能不能|帮我|给我|带我|我该|我想|可以|应该|哪|哪些|哪个|\?|？)"
 )
-_FOLLOWUP_FIRST_PERSON_RE = re.compile(r"(我|帮我|给我|带我)")
-
-
 def _clean_followup_question(text: str) -> str:
     s = re.sub(r"\s+", " ", str(text or "")).strip()
+    s = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])", "", s)
     s = re.sub(r"^(问题\s*\d+[:：.\-、]?\s*)", "", s, flags=re.IGNORECASE)
     s = re.sub(r"^(\d+[:：.\-、]\s*)", "", s)
     s = s.strip(" -\t\r\n\"'“”‘’")
+    s = re.sub(r"^我[，,、：:]\s*", "", s)
+    s = re.sub(r"^我\s+(?=(帮我|给我|能不能|可以|需要|应该|该|想|要))", "", s)
+    s = re.sub(r"^(帮我|给我)\s*(帮我|给我)", r"\1", s)
     s = re.sub(r"[。.!！?？]+$", "", s).strip()
     if not s:
         return ""
@@ -792,8 +794,6 @@ def _normalize_followups(
         if _FOLLOWUP_FORBIDDEN_VIEWPOINT_RE.search(item):
             continue
         if not _FOLLOWUP_QUESTION_HINT_RE.search(item):
-            continue
-        if not _FOLLOWUP_FIRST_PERSON_RE.search(item):
             continue
         if item not in normalized:
             normalized.append(item)
@@ -1067,7 +1067,8 @@ def finalize_node(state: State) -> dict[str, Any]:
         "如果使用知识库证据，citations 中必须引用上面候选里的 citation_id；"
         "不要编造不存在的 citation_id。\n"
         "follow_ups 必须正好 3 条，必须是学生会点击后直接发给你的下一轮问题；"
-        "每条都要用学生第一人称表达，包含“我/帮我/给我”等表达，不要写成“请问您是否需要...”这类面向用户的提示。"
+        "每条都要像学生自然追问，不要写成“请问您是否需要...”这类面向用户的提示，"
+        "也不要刻意用“我，”开头。"
         "普通伴学问题若属于讲解、教程、语法、例题或学习指导，answer 不得只给短定义；"
         "除非学生明确要求简短，否则建议 500-900 个中文字符。"
     )

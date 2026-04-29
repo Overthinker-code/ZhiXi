@@ -330,9 +330,21 @@
 
   .md {
     width: 100%;
+    box-sizing: border-box;
+    padding-left: 6px;
     font-size: 13px;
     line-height: 1.7;
     color: #e2e8f0;
+  }
+
+  :deep(.markdown-body ol),
+  :deep(.markdown-body ul) {
+    margin-left: 0;
+    padding-left: 1.55em;
+  }
+
+  :deep(.markdown-body li) {
+    padding-left: 0.2em;
   }
 
   .tw-caret {
