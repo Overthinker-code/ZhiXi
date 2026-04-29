@@ -10,6 +10,21 @@ from uuid import UUID
 router = APIRouter()
 
 
+def _tc_public(db: Any, tc: models.TC) -> models.TCPublic:
+    course = db.get(models.Course, tc.course_id)
+    lecturer = db.get(models.Teacher, tc.lecturer_id)
+    return models.TCPublic(
+        id=tc.id,
+        name=tc.name,
+        course_id=tc.course_id,
+        lecturer_id=tc.lecturer_id,
+        created_at=tc.created_at,
+        updated_at=tc.updated_at,
+        course_name=course.name if course else None,
+        lecturer_name=lecturer.name if lecturer else None,
+    )
+
+
 @router.get("/", response_model=models.TCsPublic)
 def read_tcs(
     *,
@@ -40,22 +55,13 @@ def read_tcs(
     query = query.offset(skip).limit(limit)
     tcs = db.exec(query).all()
 
-    # 添加课程和教师名称
-    for tc in tcs:
-        course = db.get(models.Course, tc.course_id)
-        lecturer = db.get(models.Teacher, tc.lecturer_id)
-        if course:
-            tc.course_name = course.name
-        if lecturer:
-            tc.lecturer_name = lecturer.name
-
     count_query = select(models.TC)
     if conditions:
         count_query = count_query.where(and_(*conditions))
 
     total = len(db.exec(count_query).all())
 
-    return models.TCsPublic(data=tcs, count=total)
+    return models.TCsPublic(data=[_tc_public(db, tc) for tc in tcs], count=total)
 
 
 @router.post("/", response_model=models.TCPublic)
@@ -108,11 +114,7 @@ def create_tc(
     db.commit()
     db.refresh(tc)
 
-    # 添加课程和教师名称
-    tc.course_name = course.name
-    tc.lecturer_name = lecturer.name
-
-    return tc
+    return _tc_public(db, tc)
 
 
 @router.get("/{tc_id}", response_model=models.TCPublic)
@@ -132,15 +134,7 @@ def read_tc(
             detail="未找到指定的教学班",
         )
 
-    # 添加课程和教师名称
-    course = db.get(models.Course, tc.course_id)
-    lecturer = db.get(models.Teacher, tc.lecturer_id)
-    if course:
-        tc.course_name = course.name
-    if lecturer:
-        tc.lecturer_name = lecturer.name
-
-    return tc
+    return _tc_public(db, tc)
 
 
 @router.put("/{tc_id}", response_model=models.TCPublic)
@@ -215,13 +209,7 @@ def update_tc(
     db.commit()
     db.refresh(tc)
 
-    # 添加课程和教师名称
-    if course:
-        tc.course_name = course.name
-    if lecturer:
-        tc.lecturer_name = lecturer.name
-
-    return tc
+    return _tc_public(db, tc)
 
 
 @router.delete("/{tc_id}")

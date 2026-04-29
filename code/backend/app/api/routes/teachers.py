@@ -10,6 +10,10 @@ from uuid import UUID
 router = APIRouter()
 
 
+def _teacher_public(teacher: models.Teacher) -> models.TeacherPublic:
+    return models.TeacherPublic.model_validate(teacher, from_attributes=True)
+
+
 @router.get("/", response_model=models.TeachersPublic)
 def read_teachers(
     *,
@@ -46,7 +50,10 @@ def read_teachers(
 
     total = len(db.exec(count_query).all())
 
-    return models.TeachersPublic(data=teachers, count=total)
+    return models.TeachersPublic(
+        data=[_teacher_public(teacher) for teacher in teachers],
+        count=total,
+    )
 
 
 @router.post("/", response_model=models.TeacherPublic)
@@ -86,7 +93,7 @@ def create_teacher(
     db.commit()
     db.refresh(teacher)
 
-    return teacher
+    return _teacher_public(teacher)
 
 
 @router.get("/{teacher_id}", response_model=models.TeacherPublic)
@@ -106,7 +113,7 @@ def read_teacher(
             detail="未找到指定的教师",
         )
 
-    return teacher
+    return _teacher_public(teacher)
 
 
 @router.put("/{teacher_id}", response_model=models.TeacherPublic)
@@ -162,7 +169,7 @@ def update_teacher(
     db.commit()
     db.refresh(teacher)
 
-    return teacher
+    return _teacher_public(teacher)
 
 
 @router.delete("/{teacher_id}")

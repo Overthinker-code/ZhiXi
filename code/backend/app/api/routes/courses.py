@@ -10,6 +10,10 @@ from uuid import UUID
 router = APIRouter()
 
 
+def _course_public(course: models.Course) -> models.CoursePublic:
+    return models.CoursePublic.model_validate(course, from_attributes=True)
+
+
 @router.get("/", response_model=models.CoursesPublic)
 def read_courses(
     *,
@@ -49,7 +53,10 @@ def read_courses(
 
     total = len(db.exec(count_query).all())
 
-    return models.CoursesPublic(data=courses, count=total)
+    return models.CoursesPublic(
+        data=[_course_public(course) for course in courses],
+        count=total,
+    )
 
 
 @router.post("/", response_model=models.CoursePublic)
@@ -89,7 +96,7 @@ def create_course(
     db.commit()
     db.refresh(course)
 
-    return course
+    return _course_public(course)
 
 
 @router.get("/{course_id}", response_model=models.CoursePublic)
@@ -109,7 +116,7 @@ def read_course(
             detail="未找到指定的课程",
         )
 
-    return course
+    return _course_public(course)
 
 
 @router.put("/{course_id}", response_model=models.CoursePublic)
@@ -164,7 +171,7 @@ def update_course(
     db.commit()
     db.refresh(course)
 
-    return course
+    return _course_public(course)
 
 
 @router.delete("/{course_id}")
