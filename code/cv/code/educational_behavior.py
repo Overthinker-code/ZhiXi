@@ -293,6 +293,23 @@ class EducationalBehaviorAnalyzer:
         hand_on_desk = (left_wrist_y > shoulder_y + 0.05) or (right_wrist_y > shoulder_y + 0.05)
         hand_near_face = raw_behavior == "查看手机"  # CV已检测
         
+        # -------------------- 手机使用二次判别（补刀 YOLO 漏检）--------------------
+        # 当 YOLO 把玩手机误判为"专注学习"时，用姿态几何特征识别
+        if raw_behavior in ("专注学习", "未知"):
+            # 典型玩手机姿态：头部低垂 + 双手在面部下方且相对靠拢
+            head_down = head_vertical > 0.10
+            # 双手在面部下方（y坐标小于鼻子，说明手抬起来了）
+            wrists_below_face = (left_wrist[1] < nose[1] + 0.10) and (right_wrist[1] < nose[1] + 0.10)
+            # 双手水平距离较近（握持手机的典型姿态）
+            wrists_close = abs(left_wrist[0] - right_wrist[0]) < 0.20
+            # 双手不在书写区（书写时手更低、更分开）
+            not_writing = not (hand_on_desk and event.head_pose == "down")
+            
+            if head_down and wrists_below_face and wrists_close and not_writing:
+                raw_behavior = "查看手机"
+                event.raw_behavior = "查看手机"
+                hand_near_face = True
+        
         if hand_near_face:
             event.hand_position = "near_face"
         elif hand_on_desk and event.head_pose == "down":
@@ -354,6 +371,7 @@ class EducationalBehaviorAnalyzer:
         基于单帧姿态推断认知状态
         
         注意: 单帧推断不确定性高，需要结合时序数据验证
+        为避免全员状态一致，采用多档梯度阈值 + 头部姿态辅助
         """
         if raw_behavior == "睡觉":
             return CognitiveState.MIND_WANDERING
@@ -372,13 +390,29 @@ class EducationalBehaviorAnalyzer:
             return CognitiveState.DEEP_PROCESSING
         
         if event.gaze_direction == "front":
-            if event.body_lean > 0.2:
+            # 身体前倾度高 → 深度加工
+            if event.body_lean > 0.30:
                 return CognitiveState.DEEP_PROCESSING
+            # 中度前倾 → 浅层注意（在听但不够深入）
+            elif event.body_lean > 0.10:
+                return CognitiveState.SHALLOW_ATTENTION
+            # 头部有轻微偏移（不是完全正直）→ 浅层注意
+            elif event.head_pose in ("turned_left", "turned_right", "up"):
+                return CognitiveState.SHALLOW_ATTENTION
+            # 明显后仰 → 可能走神或疲劳
+            elif event.body_lean < -0.10:
+                return CognitiveState.MIND_WANDERING
             else:
                 return CognitiveState.PASSIVE_LISTENING
         
         if event.gaze_direction == "down_reading":
             return CognitiveState.DEEP_PROCESSING
+        
+        if event.gaze_direction == "down_sleeping":
+            return CognitiveState.MIND_WANDERING
+        
+        if event.gaze_direction == "sideways":
+            return CognitiveState.TASK_SWITCHING
         
         return CognitiveState.SHALLOW_ATTENTION
     

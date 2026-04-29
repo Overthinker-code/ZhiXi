@@ -827,6 +827,30 @@ class BehaviorWebSocketService:
         ]
 
         # 6. 构建返回结果（填充教育学参数）
+        # 认知状态颜色映射：同一 status 下按认知深度区分颜色
+        # 设计原则：差异最大化，避免绿色系扎堆
+        cognitive_state_colors = {
+            # 高认知投入 - 深蓝（深度思考）
+            "深度专注": "#2f54eb",
+            "deep_processing": "#2f54eb",
+            # 中等投入（应用/阅读）- 蓝
+            "阅读书写": "#1890ff",
+            "apply": "#1890ff",
+            # 基础专注 - 亮绿（正常听讲）
+            "专注": "#52c41a",
+            "passive_listening": "#52c41a",
+            # 浅层注意 - 深橙（明显区别于绿色）
+            "shallow_attention": "#fa8c16",
+            "轻度走神": "#fa8c16",
+            # 明显脱离 - 红
+            "明显走神": "#f5222d",
+            "mind_wandering": "#f5222d",
+            # 生理/情绪异常
+            "疲劳": "#722ed1",
+            "困惑": "#eb2f96",
+            "cognitive_overload": "#f5222d",
+            "task_switching": "#f5222d",
+        }
         status_colors = {
             self.STATUS_FOCUSED: "#52c41a",
             self.STATUS_UNFOCUSED: "#faad14",
@@ -852,13 +876,18 @@ class BehaviorWebSocketService:
                 person.get("eye_closed"),
             )
 
+            # 优先按认知状态分配颜色，其次按 status 兜底
+            color = cognitive_state_colors.get(edu.cognitive_state) if edu else None
+            if not color:
+                color = status_colors.get(final_status)
+
             persons.append(
                 PersonResult(
                     track_id=person["track_id"],
                     bbox=[int(x), int(y), int(x + w), int(y + h)],
                     status=final_status,
                     score=final_score,
-                    color=status_colors.get(final_status),
+                    color=color,
                     eye_closed=person.get("eye_closed"),
                     educational=edu,
                 )

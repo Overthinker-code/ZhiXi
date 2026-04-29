@@ -757,7 +757,9 @@ const drawUploadDetectionBoxes = () => {
     const width = sx2 - sx1;
     const height = sy2 - sy1;
 
-    ctx.strokeStyle = person.color || '#6366f1';
+    // 优先按认知状态分配颜色，覆盖后端返回的统一绿色
+    const boxColor = getCognitiveStateColor(person.educational?.cognitive_state, person.behavior) || person.color || '#6366f1';
+    ctx.strokeStyle = boxColor;
     ctx.lineWidth = 3;
     ctx.strokeRect(sx1, sy1, width, height);
 
@@ -776,7 +778,7 @@ const drawUploadDetectionBoxes = () => {
     const padding = 6;
     const bgHeight = lineHeight * 2 + padding;
 
-    ctx.fillStyle = person.color || '#6366f1';
+    ctx.fillStyle = boxColor;
     ctx.fillRect(sx1, sy1 - bgHeight - 2, maxTextWidth + padding * 2, bgHeight);
 
     ctx.fillStyle = '#fff';
@@ -804,6 +806,35 @@ const getScoreColor = (score: number): string => {
 const getBehaviorColor = (behaviorName: string): string => {
   const behavior = behaviorDefinitions.value?.behaviors.find(b => b.name === behaviorName);
   return behavior?.color || '#1890ff';
+};
+
+/** 根据认知状态获取检测框颜色（覆盖后端统一绿色） */
+const getCognitiveStateColor = (cognitiveState?: string, behavior?: string): string => {
+  const map: Record<string, string> = {
+    // 高认知投入 - 深蓝（深度思考，与绿色差异明显）
+    '深度专注': '#2f54eb',
+    deep_processing: '#2f54eb',
+    // 中等投入
+    '阅读书写': '#1890ff',
+    apply: '#1890ff',
+    // 基础专注 - 亮绿
+    '专注': '#52c41a',
+    passive_listening: '#52c41a',
+    // 浅层注意 - 深橙（明显区别于绿色）
+    shallow_attention: '#fa8c16',
+    '轻度走神': '#fa8c16',
+    // 明显脱离 - 红
+    '明显走神': '#f5222d',
+    mind_wandering: '#f5222d',
+    // 异常状态
+    '疲劳': '#722ed1',
+    '困惑': '#eb2f96',
+    cognitive_overload: '#f5222d',
+    task_switching: '#f5222d',
+  };
+  const key = cognitiveState || behavior;
+  if (key && map[key]) return map[key];
+  return '#6366f1';
 };
 
 // LEI 颜色映射
