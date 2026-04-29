@@ -14,7 +14,7 @@ import yaml
 
 from app.core.config import settings
 from app.services.document_processor import DocumentProcessor
-from app.services.digital_human_tts import ensure_edge_tts_available
+from app.services.digital_human_tts import synthesize_edge_tts_to_file
 from app.services.user_memory_profile_service import user_memory_profile_service
 from app.worker.celery_app import celery, celery_enabled
 
@@ -400,19 +400,17 @@ if celery_enabled():
                 message="正在合成讲解语音",
                 stage="tts",
             )
-            tts_cmd = [
-                *ensure_edge_tts_available(),
-                "--text",
-                script_text,
-                "--voice",
-                selected_voice,
-                "--write-media",
-                str(audio_path),
-            ]
-            subprocess.run(
-                tts_cmd,
-                check=True,
+            resolved_voice = synthesize_edge_tts_to_file(
+                text=script_text,
+                voice_id=selected_voice,
+                output_path=audio_path,
                 timeout=settings.DIGITAL_HUMAN_RENDER_TIMEOUT_SECONDS,
+            )
+            _update_progress(
+                self,
+                progress=45,
+                message=f"讲解语音合成完成（{resolved_voice}）",
+                stage="tts",
             )
 
             if engine == "musetalk":

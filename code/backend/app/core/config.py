@@ -163,6 +163,10 @@ class Settings(BaseSettings):
     DIGITAL_HUMAN_ENGINE: str = "musetalk"
     DIGITAL_HUMAN_EDGE_TTS_BIN: str = ""
     DIGITAL_HUMAN_EDGE_TTS_VOICE: str = "zh-CN-YunxiNeural"
+    DIGITAL_HUMAN_EDGE_TTS_FALLBACK_VOICES: str = (
+        "zh-CN-XiaoxiaoNeural,zh-CN-YunjianNeural,zh-CN-YunyangNeural"
+    )
+    DIGITAL_HUMAN_EDGE_TTS_RETRIES: int = 2
     DIGITAL_HUMAN_RENDER_TIMEOUT_SECONDS: int = 1800
     DIGITAL_HUMAN_CELERY_ENABLED: bool = True
 

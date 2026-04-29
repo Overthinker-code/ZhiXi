@@ -74,6 +74,11 @@ _QUIZ_HINT = re.compile(
 # 防止异常超大请求；实际需要更长可在 .env 提高 CHAT_DEFAULT_MAX_TOKENS
 _MAX_OUTPUT_CAP = 131072
 _SELECTION_MIN_ANSWER_CHARS = 420
+_GENERAL_MIN_ANSWER_CHARS = 280
+_BRIEF_ANSWER_HINT_RE = re.compile(r"(一句话|简短|简单说|概括|只要|不要展开|100字以内)")
+_SUBSTANTIVE_TEACHING_HINT_RE = re.compile(
+    r"(基础不好|零基础|讲解|解释|说明|生成|写一份|教程|语法|例子|示例|步骤|怎么|如何|为什么|知识点|学习|练习|代码|链表|数组|栈|队列|数据库|SQL)"
+)
 
 
 def _supervisor_fallback_decision() -> SupervisorDecision:
@@ -395,6 +400,86 @@ def _expand_selection_answer_if_needed(
     return clean_answer
 
 
+def _needs_substantive_teaching_answer(user_q: str, answer: str) -> bool:
+    q = (user_q or "").strip()
+    if not q:
+        return False
+    if _is_selection_query_text(q):
+        return False
+    if len((answer or "").strip()) >= _GENERAL_MIN_ANSWER_CHARS:
+        return False
+    if _BRIEF_ANSWER_HINT_RE.search(q):
+        return False
+    return bool(_SUBSTANTIVE_TEACHING_HINT_RE.search(q))
+
+
+def _expand_general_answer_if_needed(
+    llm: Any,
+    *,
+    current_q: str,
+    answer: str,
+    rag_excerpt: str,
+    worker_material: str,
+) -> str:
+    clean_answer = (answer or "").strip()
+    if not _needs_substantive_teaching_answer(current_q, clean_answer):
+        return clean_answer
+
+    expand_sys = SystemMessage(
+        content=(
+            "你是知曦智能伴学的最终答复老师。学生需要的是可直接学习的完整回答，"
+            "而不是一句短定义。请把已有短答扩写成 500-900 个中文字符的教学型回答。"
+            "要求：1）先回应学生水平与目标；2）分层讲清核心概念和操作步骤；"
+            "3）至少给一个贴近题目的例子，涉及数据结构/代码时给最小可读示例；"
+            "4）列出常见误区；5）给出下一步练习建议。"
+            "不要输出内部思考、模型提示、路由或 JSON。"
+        )
+    )
+    expand_human = HumanMessage(
+        content=(
+            f"【学生问题】\n{current_q}\n\n"
+            f"【已有短答】\n{clean_answer or '（无）'}\n\n"
+            f"【知识库摘要】\n{rag_excerpt or '（无）'}\n\n"
+            f"【专员材料】\n{worker_material or '（无）'}"
+        )
+    )
+    try:
+        expanded_msg = llm.invoke([expand_sys, expand_human])
+        expanded = _strip_think_blocks_from_text(
+            _strict_ai_content_for_user(expanded_msg)
+        ).strip()
+        if len(expanded) > len(clean_answer):
+            return expanded
+    except Exception:
+        pass
+    return clean_answer
+
+
+def _expand_final_answer_if_needed(
+    llm: Any,
+    *,
+    current_q: str,
+    answer: str,
+    rag_excerpt: str,
+    worker_material: str,
+) -> str:
+    if _is_selection_query_text(current_q):
+        return _expand_selection_answer_if_needed(
+            llm,
+            current_q=current_q,
+            answer=answer,
+            rag_excerpt=rag_excerpt,
+            worker_material=worker_material,
+        )
+    return _expand_general_answer_if_needed(
+        llm,
+        current_q=current_q,
+        answer=answer,
+        rag_excerpt=rag_excerpt,
+        worker_material=worker_material,
+    )
+
+
 def _clip_messages_for_llm(messages: list) -> list:
     """保留首段（通常为 RAG 系统消息）+ 最近若干条，再按单条长度截断。"""
     if not messages:
@@ -537,7 +622,9 @@ def _parse_suggestion_candidates(raw: str) -> list[str]:
             except Exception:
                 candidates = []
     out: list[str] = []
-    q_hint = re.compile(r"(吗|么|如何|为什么|怎么|是否|能否|要不要|哪个|哪些|几种|\?)")
+    q_hint = re.compile(
+        r"(吗|么|如何|为什么|怎么|是否|能否|能不能|帮我|给我|带我|我该|我想|哪个|哪些|几种|\?)"
+    )
     for c in candidates:
         cc = re.sub(r"\s+", " ", c).strip()
         if len(cc) < 4:
@@ -561,6 +648,7 @@ def _pick_topic_from_question(user_q: str) -> str:
     # 优先提取「X的/关于X/围绕X」这类显式主题片段
     patterns = [
         r"(?:关于|围绕|针对|聚焦)\s*([^\s，。；！？,.!?]{2,24})",
+        r"(?:生成|写|讲|解释|学习|整理|梳理)(?:一个|一份|一下)?\s*([^\s，。；！？,.!?]{2,24}?)(?:基础|语法|教程|知识|示例|代码)",
         r"([^\s，。；！？,.!?]{2,24})\s*的(?:核心|典型|重点|难点|易错点|题型|知识点)",
         r"解决\s*([^\s，。；！？,.!?]{2,24})\s*(?:问题|难题|题目)",
     ]
@@ -583,6 +671,15 @@ def _pick_topic_from_question(user_q: str) -> str:
         "SQL",
         "事务处理",
         "并发控制",
+        "链表",
+        "数组",
+        "栈",
+        "队列",
+        "二叉树",
+        "树结构",
+        "递归",
+        "排序",
+        "指针",
     ]
     for kw in subject_keywords:
         if kw in q:
@@ -634,11 +731,40 @@ def _contextual_suggestions_from_llm(
     ]
 
 
+def _llm_followup_suggestions(user_q: str, answer: str) -> list[str]:
+    if not (user_q or "").strip() or not (answer or "").strip():
+        return []
+    try:
+        llm = ChatModelFactory.create(temperature=0.35, max_tokens=256)
+        prompt = [
+            SystemMessage(
+                content=(
+                    "你负责为智能伴学对话生成 3 个下一轮追问胶囊。"
+                    "这些胶囊会被学生点击后直接发送给 AI，所以必须是学生第一人称的提问。"
+                    "只输出 JSON 数组，正好 3 条。"
+                    "每条 12-32 个中文字符，包含“我/帮我/给我/带我”等第一人称表达；"
+                    "不要写成“你是否需要/请问您是否需要/是否还需要我”。"
+                )
+            ),
+            HumanMessage(
+                content=(
+                    f"【学生上一问】\n{user_q}\n\n"
+                    f"【AI刚才回答】\n{answer[:1800]}\n\n"
+                    "请预测学生最可能继续关心的 3 个问题。"
+                )
+            ),
+        ]
+        msg = llm.invoke(prompt)
+        return _parse_suggestion_candidates(_strict_ai_content_for_user(msg))
+    except Exception:
+        return []
+
+
 _FOLLOWUP_FORBIDDEN_VIEWPOINT_RE = re.compile(
     r"(您|你是否|是否需要|请问你|请问您)"
 )
 _FOLLOWUP_QUESTION_HINT_RE = re.compile(
-    r"(吗|么|如何|为什么|怎么|是否|能否|能不能|可以|应该|哪些|哪个|\?|？)"
+    r"(吗|么|如何|为什么|怎么|是否|能否|能不能|帮我|给我|带我|我该|我想|可以|应该|哪些|哪个|\?|？)"
 )
 _FOLLOWUP_FIRST_PERSON_RE = re.compile(r"(我|帮我|给我|带我)")
 
@@ -942,6 +1068,8 @@ def finalize_node(state: State) -> dict[str, Any]:
         "不要编造不存在的 citation_id。\n"
         "follow_ups 必须正好 3 条，必须是学生会点击后直接发给你的下一轮问题；"
         "每条都要用学生第一人称表达，包含“我/帮我/给我”等表达，不要写成“请问您是否需要...”这类面向用户的提示。"
+        "普通伴学问题若属于讲解、教程、语法、例题或学习指导，answer 不得只给短定义；"
+        "除非学生明确要求简短，否则建议 500-900 个中文字符。"
     )
     if is_selection_query:
         structured_prompt_text += (
@@ -972,7 +1100,7 @@ def finalize_node(state: State) -> dict[str, Any]:
             payload = parse_structured_payload(_strict_ai_content_for_user(raw_msg))
         if payload:
             clean = _strip_think_blocks_from_text((payload.answer or "").strip())
-            clean = _expand_selection_answer_if_needed(
+            clean = _expand_final_answer_if_needed(
                 llm,
                 current_q=current_q,
                 answer=clean,
@@ -992,8 +1120,11 @@ def finalize_node(state: State) -> dict[str, Any]:
                 has_citations=bool(citations),
             )
             if clean:
+                llm_followups = _llm_followup_suggestions(current_q, clean)
                 follow_ups = _normalize_followups(
-                    current_q, clean, payload.follow_ups
+                    current_q,
+                    clean,
+                    [*llm_followups, *list(payload.follow_ups or [])],
                 )
                 msg = AIMessage(content=clean, name="final_answer")
             else:
@@ -1003,7 +1134,7 @@ def finalize_node(state: State) -> dict[str, Any]:
                     else ""
                 )
                 clean = _strip_think_blocks_from_text(raw_fallback)
-                clean = _expand_selection_answer_if_needed(
+                clean = _expand_final_answer_if_needed(
                     llm,
                     current_q=current_q,
                     answer=clean,
@@ -1011,8 +1142,11 @@ def finalize_node(state: State) -> dict[str, Any]:
                     worker_material=worker_mat,
                 )
                 if clean:
+                    llm_followups = _llm_followup_suggestions(current_q, clean)
                     follow_ups = _normalize_followups(
-                        current_q, clean, payload.follow_ups
+                        current_q,
+                        clean,
+                        [*llm_followups, *list(payload.follow_ups or [])],
                     )
                     msg = AIMessage(content=clean, name="final_answer")
                 else:
@@ -1022,7 +1156,7 @@ def finalize_node(state: State) -> dict[str, Any]:
     except Exception as e:
         fallback_text = _fallback_from_recent_worker_messages(msgs)
         if fallback_text:
-            fallback_text = _expand_selection_answer_if_needed(
+            fallback_text = _expand_final_answer_if_needed(
                 llm,
                 current_q=current_q,
                 answer=fallback_text,
@@ -1040,8 +1174,11 @@ def finalize_node(state: State) -> dict[str, Any]:
             )
         confidence = "low"
         grounding_mode = "general"
+        llm_followups = _llm_followup_suggestions(current_q, msg.content)
         follow_ups = _normalize_followups(
-            current_q, msg.content, _default_suggestions(current_q)
+            current_q,
+            msg.content,
+            llm_followups or _default_suggestions(current_q),
         )
     return {
         "messages": [msg],
