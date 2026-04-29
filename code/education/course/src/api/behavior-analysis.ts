@@ -14,6 +14,22 @@ export interface EducationalMetrics {
   eei: number;
   attention_deviation: number;
   mind_wandering: boolean;
+  head_pose?: string;
+  gaze_direction?: string;
+  body_lean?: number;
+  hand_position?: string;
+  engagement_dimension?: string;
+}
+
+export interface ClassroomEducationalMetrics {
+  learning_engagement_index?: number;
+  behavioral_engagement?: number;
+  cognitive_engagement?: number;
+  emotional_engagement?: number;
+  contagion_index?: number;
+  attention_cycle_phase?: string;
+  attention_trend?: string;
+  bloom_distribution?: Record<string, number>;
 }
 
 export interface Person {
@@ -47,6 +63,7 @@ export interface ClassroomMetrics {
   behavior_score?: number;
   behavior_distribution?: Record<string, number>;
   formula?: string;
+  educational?: ClassroomEducationalMetrics;
 }
 
 /**

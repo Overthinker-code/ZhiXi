@@ -828,15 +828,16 @@ const getBloomColor = (bloom: string): string => {
 };
 
 // 学习投入指标颜色映射
-const getEngagementColor = (value: number): string => {
-  if (value >= 0.75) return '#52c41a';
-  if (value >= 0.55) return '#1890ff';
-  if (value >= 0.40) return '#faad14';
+const getEngagementColor = (value: number | undefined): string => {
+  const safeValue = value || 0;
+  if (safeValue >= 0.75) return '#52c41a';
+  if (safeValue >= 0.55) return '#1890ff';
+  if (safeValue >= 0.40) return '#faad14';
   return '#f5222d';
 };
 
 // Bloom分布条颜色映射
-const getBloomBarColor = (bloom: string): string => {
+const getBloomBarColor = (bloom: string | number): string => {
   const map: Record<string, string> = {
     remembering: '#bfbfbf',
     understanding: '#1890ff',
@@ -845,7 +846,7 @@ const getBloomBarColor = (bloom: string): string => {
     evaluating: '#eb2f96',
     creating: '#13c2c2',
   };
-  return map[bloom.toLowerCase()] || '#1890ff';
+  return map[String(bloom).toLowerCase()] || '#1890ff';
 };
 
 // 获取状态颜色

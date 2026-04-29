@@ -565,12 +565,22 @@ export interface ClassroomBehaviorSummary {
   mind_wandering_rate: number;
   bloom_distribution: Record<string, number>;
   teacher_note: string;
+  behavioral_engagement?: number;
+  cognitive_engagement?: number;
+  emotional_engagement?: number;
+  avg_cognitive_depth?: number;
+  contagion_index?: number;
+  on_task_rate?: number;
+  attention_cycle_phase?: string;
+  class_attention_trend?: string;
+  student_count?: number;
 }
 
 export interface LearningReport {
   learner_id: string;
   generated_at: string;
   summary: string;
+  overall_summary?: string;
   current_goal: string;
   learning_style: string;
   risk_level: string;
@@ -596,6 +606,7 @@ export interface ReviewPlan {
   learner_id: string;
   generated_at: string;
   summary: string;
+  overview?: string;
   focus_topics: string[];
   daily_plan: ReviewPlanDay[];
   checkpoints: string[];
