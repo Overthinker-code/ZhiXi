@@ -645,30 +645,47 @@ const handleFileUpload = async (event: Event) => {
   target.value = '';
 };
 
-// 从视频文件提取第一帧作为预览图
+// 从视频文件提取代表性帧作为预览图（跳过开头黑场）
 const extractVideoFirstFrame = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
+    const objectUrl = URL.createObjectURL(file);
 
     video.preload = 'metadata';
     video.crossOrigin = 'anonymous';
+    video.muted = true;
+    video.playsInline = true;
 
-    video.onloadeddata = () => {
+    // 元数据加载完成后，跳到一个非黑场的时间点
+    video.onloadedmetadata = () => {
+      // 跳过开头可能存在的黑场，取 0.5s 或视频总时长的 1/4（取较小值）
+      const seekTime = Math.min(0.5, video.duration > 0 ? video.duration / 4 : 0.5);
+      video.currentTime = seekTime;
+    };
+
+    // seek 完成后再截图，确保不是黑帧
+    video.onseeked = () => {
+      if (video.videoWidth === 0 || video.videoHeight === 0) {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error('视频尺寸无效'));
+        return;
+      }
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       ctx?.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL('image/jpeg');
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+      URL.revokeObjectURL(objectUrl);
       resolve(dataUrl);
     };
 
     video.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
       reject(new Error('无法加载视频'));
     };
 
-    video.src = URL.createObjectURL(file);
-    video.currentTime = 0.1;
+    video.src = objectUrl;
   });
 };
 

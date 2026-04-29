@@ -551,7 +551,15 @@ def calculate_classroom_metrics(
         weighted_behavior_score += raw_score * max(0.25, confidence)
         confidence_weight += max(0.25, confidence)
 
-        if behavior == "专注学习":
+        # 优先使用 educational 认知状态做更精细的专注/分心判断
+        # 原则：浅层注意、被动听讲、认知过载都属于"仍在课堂"，不算走神
+        # 只有明确的负面行为（看手机、走神、睡觉、离开）才算分心
+        cognitive_state = str(person.get("educational", {}).get("cognitive_state", "")).lower()
+        if cognitive_state in {"deep_processing", "passive_listening", "shallow_attention", "cognitive_overload"}:
+            focus_count += 1
+        elif cognitive_state in {"task_switching", "mind_wandering"}:
+            distraction_count += 1
+        elif behavior == "专注学习":
             focus_count += 1
         elif behavior in {"睡觉", "离开座位"}:
             severe_count += 1
@@ -1267,6 +1275,10 @@ async def analyze_frame(file: UploadFile = File(...)):
                     raw_behavior=behavior_info["name"],
                     confidence=final_conf,
                 )
+                # 如果姿态解码修正了行为标签（如手机漏检补刀），同步覆盖顶层 behavior
+                if edu_event.raw_behavior != behavior_info["name"]:
+                    person_result["behavior"] = edu_event.raw_behavior
+                
                 # 更新学生学习投入画像 (使用临时track_id)
                 temp_track_id = f"frame_person_{person['id']}"
                 local_analyzer.update_student_profile(temp_track_id, edu_event)
