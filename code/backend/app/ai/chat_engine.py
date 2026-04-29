@@ -430,11 +430,13 @@ def _expand_general_answer_if_needed(
     clean_answer = (answer or "").strip()
     if not _needs_substantive_teaching_answer(current_q, clean_answer):
         return clean_answer
+    current_topic = _pick_topic_from_question(current_q)
 
     expand_sys = SystemMessage(
         content=(
             "你是知曦智能伴学的最终答复老师。学生需要的是可直接学习的完整回答，"
             "而不是一句短定义。请把已有短答扩写成 700-1100 个中文字符的教学型回答。"
+            "必须围绕学生当前问题本身，不要被知识库里相邻但不同的主题带偏。"
             "要求：1）先回应学生水平与目标；2）分层讲清核心概念和操作步骤；"
             "3）至少给一个贴近题目的例子，涉及数据结构/代码时给最小可读示例；"
             "4）列出常见误区；5）给出下一步练习建议。"
@@ -446,6 +448,7 @@ def _expand_general_answer_if_needed(
     expand_human = HumanMessage(
         content=(
             f"【学生问题】\n{current_q}\n\n"
+            f"【当前主题锁定】\n{current_topic}\n\n"
             f"【已有短答】\n{clean_answer or '（无）'}\n\n"
             f"【知识库摘要】\n{rag_excerpt or '（无）'}\n\n"
             f"【专员材料】\n{worker_material or '（无）'}"
@@ -1136,6 +1139,7 @@ def finalize_node(state: State) -> dict[str, Any]:
     if not current_q:
         current_q = "（未解析到当前学生问题，请根据历史与材料尽量作答。）"
     is_selection_query = _is_selection_query_text(current_q)
+    current_topic = _pick_topic_from_question(current_q)
 
     history_lines = _recent_public_history(msgs, max_turns=4)
     recent_history = "\n".join(history_lines) if history_lines else "（暂无历史对话）"
@@ -1149,6 +1153,12 @@ def finalize_node(state: State) -> dict[str, Any]:
     memory_context = (state.get("user_memory_context") or "").strip()
     if memory_context:
         sys_chunks.append(memory_context)
+    if current_topic != "这个知识点":
+        sys_chunks.append(
+            f"【当前主题锁定】学生当前问题主题是「{current_topic}」。"
+            "最终 answer 必须优先围绕这个主题组织；"
+            "知识库里出现的相邻主题只能作为补充背景，不能把回答主体替换成其它知识点。"
+        )
     if is_selection_query:
         sys_chunks.append(
             "【划词唤醒回答要求】本次是学生在课堂内容中划词后的即时解答。"
@@ -1201,6 +1211,8 @@ def finalize_node(state: State) -> dict[str, Any]:
         "也不要刻意用“我，”开头。"
         "普通伴学问题若属于讲解、教程、语法、例题或学习指导，answer 不得只给短定义；"
         "除非学生明确要求简短，否则建议 700-1100 个中文字符。"
+        "如果学生问题中有明确主题，answer 和 follow_ups 都必须围绕该主题，"
+        "不能被知识库片段中的相邻主题带偏。"
         "如果学生同时要求知识点讲解和练习题，answer 必须先系统讲解，再提供由浅入深练习题和提示。"
     )
     if is_selection_query:
