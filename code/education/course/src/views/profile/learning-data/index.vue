@@ -88,8 +88,8 @@
                 <div class="bloom-bar-list">
                   <div v-for="b in behaviorBloomBars" :key="b.label" class="bloom-bar-row">
                     <span class="bloom-bar-label">{{ b.label }}</span>
-                    <a-progress :percent="Math.round(b.value * 100)" size="small" style="flex: 1;" />
-                    <span class="bloom-bar-pct">{{ (b.value * 100).toFixed(0) }}%</span>
+                    <a-progress :percent="(typeof b.value === 'number' && b.value < 1 ? b.value * 100 : b.value)" size="small" style="flex: 1;" :show-text="false" />
+                    <span class="bloom-bar-pct">{{ (typeof b.value === 'number' && b.value < 1 ? b.value * 100 : b.value).toFixed(0) }}%</span>
                   </div>
                 </div>
               </div>

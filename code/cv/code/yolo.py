@@ -606,6 +606,7 @@ def calculate_classroom_metrics(
             "learning_engagement_index": report.get("class_learning_engagement_index", 0),
             "behavioral_engagement": report.get("class_behavioral_engagement", 0),
             "cognitive_engagement": report.get("class_cognitive_engagement", 0),
+            "emotional_engagement": report.get("class_emotional_engagement", 0),
             "cognitive_depth": report.get("class_cognitive_depth", 0),
             "mind_wandering_rate": report.get("class_mind_wandering_rate", 0),
             "contagion_index": report.get("contagion_index", 0),

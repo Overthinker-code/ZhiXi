@@ -156,11 +156,11 @@
             <div class="edu-metric-item">
               <div class="edu-metric-label">情感投入 EEI</div>
               <a-progress
-                :percent="Math.round((currentResult.classroom_metrics.educational.learning_engagement_index || 0) * 100) / 100"
-                :color="getEngagementColor(currentResult.classroom_metrics.educational.learning_engagement_index)"
+                :percent="Math.round((currentResult.classroom_metrics.educational.emotional_engagement || 0) * 100) / 100"
+                :color="getEngagementColor(currentResult.classroom_metrics.educational.emotional_engagement)"
                 size="small"
               />
-              <div class="edu-metric-num">{{ ((currentResult.classroom_metrics.educational.learning_engagement_index || 0) * 100).toFixed(0) }}</div>
+              <div class="edu-metric-num">{{ ((currentResult.classroom_metrics.educational.emotional_engagement || 0) * 100).toFixed(0) }}</div>
             </div>
           </div>
           <div class="edu-extra-row">
@@ -179,8 +179,8 @@
             <div class="bloom-bars">
               <div v-for="(val, key) in currentResult.classroom_metrics.educational.bloom_distribution" :key="key" class="bloom-bar-item">
                 <span class="bloom-label">{{ key }}</span>
-                <a-progress :percent="val" size="small" :color="getBloomBarColor(key)" />
-                <span class="bloom-pct">{{ (val * 100).toFixed(0) }}%</span>
+                <a-progress :percent="(typeof val === 'number' && val < 1 ? val * 100 : val)" size="small" :color="getBloomBarColor(key)" :show-text="false" />
+                <span class="bloom-pct">{{ (typeof val === 'number' && val < 1 ? val * 100 : val).toFixed(0) }}%</span>
               </div>
             </div>
           </div>
