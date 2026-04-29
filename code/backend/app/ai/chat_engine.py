@@ -68,16 +68,20 @@ _DOC_QUERY_HINT = re.compile(
     r"(这篇|该|这个)?(论文|文档|报告|课件|pdf|PDF|word|Word|doc|DOC|章节|第[一二三四五六七八九十0-9]+章|摘要|方法|实验|结论|创新点|原文)"
 )
 _QUIZ_HINT = re.compile(
-    r"(考考我|出题|做题|测验|测试我|我来答题|我来回答|练习题|来道题|随堂测|小测)"
+    r"(考考我|出题|做题|测验|测试我|我来答题|我来回答|来道题|出[一1]?道题|随堂测|小测)"
+)
+_EXPLAIN_WITH_PRACTICE_HINT = re.compile(
+    r"((讲解|解释|知识点|基础|不熟|不会|掌握|学习).{0,50}(练习|题目|训练|刷题)|"
+    r"(练习|题目|训练|刷题).{0,50}(讲解|解释|知识点|基础|不熟|不会|掌握|学习))"
 )
 
 # 防止异常超大请求；实际需要更长可在 .env 提高 CHAT_DEFAULT_MAX_TOKENS
 _MAX_OUTPUT_CAP = 131072
 _SELECTION_MIN_ANSWER_CHARS = 420
-_GENERAL_MIN_ANSWER_CHARS = 280
+_GENERAL_MIN_ANSWER_CHARS = 650
 _BRIEF_ANSWER_HINT_RE = re.compile(r"(一句话|简短|简单说|概括|只要|不要展开|100字以内)")
 _SUBSTANTIVE_TEACHING_HINT_RE = re.compile(
-    r"(基础不好|零基础|讲解|解释|说明|生成|写一份|教程|语法|例子|示例|步骤|怎么|如何|为什么|知识点|学习|练习|代码|链表|数组|栈|队列|数据库|SQL)"
+    r"(基础|基础不好|不太好|不熟|不会|零基础|讲解|讲讲|讲一讲|解释|说明|生成|写一份|教程|语法|例子|示例|步骤|怎么|如何|为什么|知识点|学习|练习|代码|链表|数组|栈|队列|数据库|SQL)"
 )
 
 
@@ -410,6 +414,8 @@ def _needs_substantive_teaching_answer(user_q: str, answer: str) -> bool:
         return False
     if _BRIEF_ANSWER_HINT_RE.search(q):
         return False
+    if _QUIZ_HINT.search(q) and not _EXPLAIN_WITH_PRACTICE_HINT.search(q):
+        return False
     return bool(_SUBSTANTIVE_TEACHING_HINT_RE.search(q))
 
 
@@ -428,10 +434,12 @@ def _expand_general_answer_if_needed(
     expand_sys = SystemMessage(
         content=(
             "你是知曦智能伴学的最终答复老师。学生需要的是可直接学习的完整回答，"
-            "而不是一句短定义。请把已有短答扩写成 500-900 个中文字符的教学型回答。"
+            "而不是一句短定义。请把已有短答扩写成 700-1100 个中文字符的教学型回答。"
             "要求：1）先回应学生水平与目标；2）分层讲清核心概念和操作步骤；"
             "3）至少给一个贴近题目的例子，涉及数据结构/代码时给最小可读示例；"
             "4）列出常见误区；5）给出下一步练习建议。"
+            "如果学生明确要求练习题，最后必须补一个【练习题】小节，给 2-4 道由浅入深的题目，"
+            "并标出每题考查点或提示。"
             "不要输出内部思考、模型提示、路由或 JSON。"
         )
     )
@@ -523,7 +531,8 @@ SUPERVISOR_SYSTEM_PROMPT = """你是「知曦学习系统」的主管 Supervisor
 4. 输出必须严格符合约定的结构化字段（next_agent / routing_reason / task_breakdown），不要输出其它闲聊；禁止用 Markdown 代码块包裹 JSON。
 5. 【必须遵守】当你认为下属专员已经给出足够信息、或问题已可收束、或不宜再换人时，你 MUST 将 next_agent 设为字符串 FINISH（仅此一种写法），进入汇总；不要继续派发专员。
 6. task_breakdown 仅写简短要点（每条一行内），禁止写入完整解题过程或长篇推导，避免污染协作上下文。
-7. 用户请求“考考我/出题/测试一下/我来回答上一题”等测验场景时，优先路由 quiz_master。
+7. 用户明确请求“考考我/出题/测试一下/我来回答上一题”等主动测验场景时，优先路由 quiz_master；
+   但如果同一句里同时要求“讲解知识点/基础不熟/给练习题”，先路由 knowledge_mentor 完成讲解与练习设计，不要只走测验流程。
 8. 若用户当前挂载了文件，且问题指向该文件内容（如“总结这篇论文”“解释第三章”），优先路由 doc_researcher。"""
 
 FINALIZE_SYSTEM_PROMPT = """你是知曦学习系统的最终发言人。你将收到「学生问题」「知识库摘要」「专员协作产出」。请面向学生生成可直接发送的最终答复。
@@ -572,6 +581,8 @@ def _rule_based_route(state: State) -> tuple[str, str] | None:
         user_q = ""
     if not user_q:
         return None
+    if _EXPLAIN_WITH_PRACTICE_HINT.search(user_q):
+        return ("knowledge_mentor", "复合学习请求，先完成知识讲解与练习设计。")
     if _QUIZ_HINT.search(user_q):
         return ("quiz_master", "命中测验意图，进入主动测验流程。")
     current_file_id = (state.get("current_file_id") or "").strip()
@@ -641,10 +652,67 @@ def _parse_suggestion_candidates(raw: str) -> list[str]:
     return out
 
 
+_SUBJECT_KEYWORDS = [
+    "数据库关系模型",
+    "关系数据库模型",
+    "关系模型",
+    "ER模型",
+    "E-R模型",
+    "实体关系模型",
+    "数据库",
+    "SQL",
+    "事务处理",
+    "并发控制",
+    "范式",
+    "主键",
+    "外键",
+    "索引",
+    "B+树",
+    "B树",
+    "小学数学",
+    "初中数学",
+    "高中数学",
+    "微积分",
+    "线性代数",
+    "概率论",
+    "链表",
+    "数组",
+    "栈",
+    "队列",
+    "二叉树",
+    "树结构",
+    "递归",
+    "排序",
+    "指针",
+]
+
+_BAD_TOPIC_FRAGMENT_RE = re.compile(
+    r"(必要|一些|一下|帮我|给我|讲解|解释|说明|学习|最近|掌握|不熟|不会|基础|知识点|题型|题目|练习)"
+)
+
+
+def _clean_topic_candidate(value: str) -> str:
+    topic = re.sub(r"\s+", "", str(value or "").strip())
+    topic = re.sub(r"^(关于|围绕|针对|聚焦|一下|一些|这个|该|当前|本节|本课)", "", topic)
+    topic = re.sub(
+        r"(的)?(基础|语法|教程|知识点|知识|内容|题型|题目|练习|问题|部分)$",
+        "",
+        topic,
+    )
+    topic = re.sub(r"[的地得]+$", "", topic)
+    if len(topic) < 2 or _BAD_TOPIC_FRAGMENT_RE.search(topic):
+        return ""
+    return topic[:20]
+
+
 def _pick_topic_from_question(user_q: str) -> str:
     q = (user_q or "").strip()
     if not q:
         return "这个知识点"
+    # 优先按明确学科/知识点关键词识别主题，避免提取成“必要的知识点”这类动作片段。
+    for kw in _SUBJECT_KEYWORDS:
+        if kw in q:
+            return kw
     # 优先提取「X的/关于X/围绕X」这类显式主题片段
     patterns = [
         r"(?:关于|围绕|针对|聚焦)\s*([^\s，。；！？,.!?]{2,24})",
@@ -655,36 +723,22 @@ def _pick_topic_from_question(user_q: str) -> str:
     for pat in patterns:
         m = re.search(pat, q)
         if m:
-            topic = re.sub(r"[的地得]+$", "", m.group(1).strip())
+            topic = _clean_topic_candidate(m.group(1))
             if topic:
-                return topic[:20]
+                return topic
 
-    # 次优：按学科关键词兜底，避免提取成“指导我完成高分训练”这类动作词
-    subject_keywords = [
-        "小学数学",
-        "初中数学",
-        "高中数学",
-        "微积分",
-        "线性代数",
-        "概率论",
-        "数据库",
-        "SQL",
-        "事务处理",
-        "并发控制",
-        "链表",
-        "数组",
-        "栈",
-        "队列",
-        "二叉树",
-        "树结构",
-        "递归",
-        "排序",
-        "指针",
-    ]
-    for kw in subject_keywords:
-        if kw in q:
-            return kw
     return "这个知识点"
+
+
+def _pick_topic_from_context(user_q: str, answer: str) -> str:
+    topic = _pick_topic_from_question(user_q)
+    if topic != "这个知识点":
+        return topic
+    text = f"{user_q}\n{answer or ''}"
+    for kw in _SUBJECT_KEYWORDS:
+        if kw in text:
+            return kw
+    return topic
 
 
 def _infer_followup_intent(user_q: str, answer: str) -> str:
@@ -703,14 +757,50 @@ def _contextual_suggestions_from_llm(
 ) -> list[str]:
     # 为保证主回复稳定，不再在流式尾部二次调用 LLM；
     # 改为基于当前问题主题生成上下文相关追问。
-    topic = _pick_topic_from_question(user_q)
+    topic = _pick_topic_from_context(user_q, answer)
     intent = _infer_followup_intent(user_q, answer)
     _ = max_tokens
+    if topic in {"数据库关系模型", "关系数据库模型", "关系模型"}:
+        if intent == "practice":
+            return [
+                "实体、属性和关系怎么区分？",
+                "能给几道关系模型入门题吗？",
+                "关系模型和ER模型有什么区别？",
+            ]
+        return [
+            "关系模型最核心的概念有哪些？",
+            "主键和外键怎么快速判断？",
+            "能给一个关系模型转换例子吗？",
+        ]
+    if topic == "这个知识点":
+        if intent == "practice":
+            return [
+                "能先给一道入门练习吗？",
+                "这部分最容易错在哪里？",
+                "能用例子带我做一遍吗？",
+            ]
+        if intent == "fix":
+            return [
+                "这类错误应该怎么排查？",
+                "能给一个订正思路模板吗？",
+                "遇到同类题怎么快速自检？",
+            ]
+        if intent == "summary":
+            return [
+                "能帮我梳理成复习提纲吗？",
+                "哪些概念最容易混淆？",
+                "接下来应该先复习哪部分？",
+            ]
+        return [
+            "这部分核心概念怎么串起来？",
+            "能举一个更具体的例子吗？",
+            "学这里最容易卡在哪里？",
+        ]
     if intent == "practice":
         return [
-            f"先练{topic}哪三类题型最提分？",
-            f"能基于{topic}出一道阶梯练习吗？",
-            f"{topic}题最常见失分点有哪些？",
+            f"能先给一道{topic}入门练习吗？",
+            f"{topic}最容易错在哪里？",
+            f"能用{topic}例子带我做一遍吗？",
         ]
     if intent == "fix":
         return [
@@ -725,17 +815,18 @@ def _contextual_suggestions_from_llm(
             f"{topic}复习优先级怎么安排？",
         ]
     return [
-        f"{topic}里最容易混淆哪些概念？",
-        f"能围绕{topic}出一道由浅入深的练习吗？",
-        f"{topic}做错题时怎么快速纠正？",
+        f"{topic}的核心概念怎么串起来？",
+        f"能举一个{topic}的具体例子吗？",
+        f"学{topic}最容易混淆哪里？",
     ]
 
 
 def _llm_followup_suggestions(user_q: str, answer: str) -> list[str]:
     if not (user_q or "").strip() or not (answer or "").strip():
         return []
+    topic = _pick_topic_from_context(user_q, answer)
     try:
-        llm = ChatModelFactory.create(temperature=0.35, max_tokens=256)
+        llm = ChatModelFactory.create(temperature=0.25, max_tokens=384)
         prompt = [
             SystemMessage(
                 content=(
@@ -745,13 +836,18 @@ def _llm_followup_suggestions(user_q: str, answer: str) -> list[str]:
                     "每条 10-34 个中文字符，语气自然、具体、可直接发送；"
                     "可以使用“能不能/怎么/哪些/为什么/帮我”等表达，"
                     "但不要为了第一人称硬塞“我，”“我想我”“请问您是否需要”等别扭话。"
+                    "必须综合【学生上一问】和【AI刚才回答】来预测下一步问题，"
+                    "不要只套模板，不要把“必要、一些、知识点、题型”当作主题。"
+                    "三条追问应分别覆盖：继续理解、练习巩固、易错/迁移应用。"
+                    "必须紧扣学生上一问的主题或回答中的具体概念，不要跳到无关知识点。"
                 )
             ),
             HumanMessage(
                 content=(
                     f"【学生上一问】\n{user_q}\n\n"
+                    f"【识别出的主题】\n{topic}\n\n"
                     f"【AI刚才回答】\n{answer[:1800]}\n\n"
-                    "请预测学生最可能继续关心的 3 个问题。"
+                    "请预测学生最可能继续关心的 3 个问题；如果主题识别有误，以学生上一问和回答正文为准。"
                 )
             ),
         ]
@@ -783,6 +879,38 @@ def _clean_followup_question(text: str) -> str:
     return s[:80]
 
 
+def _is_followup_relevant(user_q: str, answer: str, item: str) -> bool:
+    topic = _pick_topic_from_context(user_q, answer)
+    text = item or ""
+    if re.search(r"(解一下必要|解一些必要|必要哪|一些必要|必要题型)", text):
+        return False
+    related_topics = {
+        "数据库关系模型": {"关系数据库模型", "关系模型", "ER模型", "E-R模型", "实体关系模型", "数据库"},
+        "关系数据库模型": {"数据库关系模型", "关系模型", "ER模型", "E-R模型", "实体关系模型", "数据库"},
+        "关系模型": {"数据库关系模型", "关系数据库模型", "ER模型", "E-R模型", "实体关系模型", "数据库"},
+        "数据库": {"SQL", "事务处理", "并发控制", "范式", "主键", "外键", "索引", "B+树", "B树", "关系模型"},
+    }
+    if topic != "这个知识点":
+        allowed_topics = {topic, *related_topics.get(topic, set())}
+        if any(kw in text for kw in _SUBJECT_KEYWORDS if kw not in allowed_topics):
+            return False
+    if topic == "这个知识点":
+        return True
+    if topic in text:
+        return True
+    # 允许自然代词，但要求仍是学习推进类问题。
+    if re.search(r"(这个|这类|同类|入门|基础|核心|易错|练习|题|例子|步骤|区别|判断|自检)", text):
+        return True
+    domain_terms = {
+        "数据库关系模型": ["实体", "属性", "关系", "ER", "E-R", "主键", "外键", "表", "范式"],
+        "关系数据库模型": ["实体", "属性", "关系", "ER", "E-R", "主键", "外键", "表", "范式"],
+        "关系模型": ["实体", "属性", "关系", "ER", "E-R", "主键", "外键", "表", "范式"],
+        "数据库": ["SQL", "表", "字段", "主键", "外键", "范式", "事务", "索引"],
+        "链表": ["节点", "指针", "头结点", "遍历", "插入", "删除"],
+    }
+    return any(term in text for term in domain_terms.get(topic, []))
+
+
 def _normalize_followups(
     user_q: str, answer: str, candidates: list[str] | None
 ) -> list[str]:
@@ -794,6 +922,8 @@ def _normalize_followups(
         if _FOLLOWUP_FORBIDDEN_VIEWPOINT_RE.search(item):
             continue
         if not _FOLLOWUP_QUESTION_HINT_RE.search(item):
+            continue
+        if not _is_followup_relevant(user_q, answer, item):
             continue
         if item not in normalized:
             normalized.append(item)
@@ -1070,7 +1200,8 @@ def finalize_node(state: State) -> dict[str, Any]:
         "每条都要像学生自然追问，不要写成“请问您是否需要...”这类面向用户的提示，"
         "也不要刻意用“我，”开头。"
         "普通伴学问题若属于讲解、教程、语法、例题或学习指导，answer 不得只给短定义；"
-        "除非学生明确要求简短，否则建议 500-900 个中文字符。"
+        "除非学生明确要求简短，否则建议 700-1100 个中文字符。"
+        "如果学生同时要求知识点讲解和练习题，answer 必须先系统讲解，再提供由浅入深练习题和提示。"
     )
     if is_selection_query:
         structured_prompt_text += (
@@ -1385,8 +1516,10 @@ def _build_selection_prompt(request: ChatRequest) -> str:
 
 
 def _should_use_semantic_cache(request: ChatRequest) -> bool:
-    """划词问答不走语义缓存，避免旧模板/旧长度的答案被复用。"""
+    """划词和教学讲解类问题不走语义缓存，避免旧模板/旧长度答案被复用。"""
     if request.selected_text:
+        return False
+    if _SUBSTANTIVE_TEACHING_HINT_RE.search(request.user_input or ""):
         return False
     return not bool(request.prior_turns or [])
 
@@ -1570,8 +1703,9 @@ def chat_service(request: ChatRequest) -> ChatResponse:
         else None
     )
     if cache_hit:
+        cached_text = cache_hit.answer
         return ChatResponse(
-            response=cache_hit.answer,
+            response=cached_text,
             tool_calls=[],
             agent="supervisor",
             intent="semantic_cache",
@@ -1579,7 +1713,7 @@ def chat_service(request: ChatRequest) -> ChatResponse:
             thoughts=["⚡ 语义缓存命中，直接返回历史高相似答案。"],
             confidence="high",
             grounding_mode="general",
-            suggestions=_default_suggestions(request.user_input),
+            suggestions=_normalize_followups(request.user_input, cached_text, []),
             metrics={
                 "ttft_ms": 0,
                 "latency_ms": 0,
