@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { getToken } from '@/utils/auth';
+import { normalizeDisplayText, normalizeSuggestionList, normalizeTextList } from '@/utils/llmDisplay';
 
 /** 会话列表/设置/知识库列表等：尽快失败，避免 AI 页长时间白屏等待 */
 const READ_TIMEOUT_MS = 8000;
@@ -276,13 +277,13 @@ export function createAssistantChat(
         timeout: 0,
       }
     )
-    .then((res: any) => res.data as ChatRecord);
+    .then((res: any) => normalizeChatRecord(res.data));
 }
 
 export interface ChatStreamEvent {
   type: 'thought' | 'token' | 'final' | 'error' | 'suggestions';
   content?: string;
-  data?: string[];
+  data?: unknown[];
   /** 后端可选：pipeline_start | kb_inject | tool_run | … */
   stage?: string;
   agent?: string;
@@ -294,7 +295,74 @@ export interface ChatStreamEvent {
   citations?: CitationItem[];
   confidence?: 'high' | 'medium' | 'low' | string;
   grounding_mode?: 'rag' | 'general' | 'tool' | 'mixed' | string;
+  suggestions?: unknown[];
   metrics?: ChatMetrics;
+}
+
+function normalizeChatRecord(raw: any): ChatRecord {
+  return {
+    ...raw,
+    suggestions: normalizeSuggestionList(raw?.suggestions || []),
+  } as ChatRecord;
+}
+
+function normalizeLearningReport(raw: any): LearningReport {
+  return {
+    ...raw,
+    summary: normalizeDisplayText(raw?.summary),
+    overall_summary: normalizeDisplayText(raw?.overall_summary),
+    current_goal: normalizeDisplayText(raw?.current_goal),
+    learning_style: normalizeDisplayText(raw?.learning_style),
+    risk_level: normalizeDisplayText(raw?.risk_level),
+    weak_points: normalizeTextList(raw?.weak_points),
+    mastery_insights: normalizeTextList(raw?.mastery_insights),
+    strengths: normalizeTextList(raw?.strengths),
+    recommended_actions: normalizeTextList(raw?.recommended_actions),
+    recommended_resources: normalizeTextList(raw?.recommended_resources),
+    follow_up_questions: normalizeSuggestionList(raw?.follow_up_questions, 12),
+    sections: Array.isArray(raw?.sections)
+      ? raw.sections.map((section: any) => ({
+          ...section,
+          title: normalizeDisplayText(section?.title),
+          content: normalizeDisplayText(section?.content),
+        }))
+      : [],
+  } as LearningReport;
+}
+
+function normalizeReviewPlan(raw: any): ReviewPlan {
+  return {
+    ...raw,
+    summary: normalizeDisplayText(raw?.summary),
+    overview: normalizeDisplayText(raw?.overview),
+    focus_topics: normalizeTextList(raw?.focus_topics),
+    daily_plan: Array.isArray(raw?.daily_plan)
+      ? raw.daily_plan.map((day: any) => ({
+          ...day,
+          day_label: normalizeDisplayText(day?.day_label),
+          focus: normalizeDisplayText(day?.focus),
+          tasks: normalizeTextList(day?.tasks),
+        }))
+      : [],
+    checkpoints: normalizeTextList(raw?.checkpoints),
+  } as ReviewPlan;
+}
+
+function normalizeMistakeDigest(raw: any): MistakeDigest {
+  return {
+    ...raw,
+    summary: normalizeDisplayText(raw?.summary),
+    mistakes: Array.isArray(raw?.mistakes)
+      ? raw.mistakes.map((item: any) => ({
+          ...item,
+          title: normalizeDisplayText(item?.title),
+          symptom: normalizeDisplayText(item?.symptom),
+          evidence: normalizeDisplayText(item?.evidence),
+          fix_strategy: normalizeDisplayText(item?.fix_strategy),
+        }))
+      : [],
+    flashcards: normalizeTextList(raw?.flashcards),
+  } as MistakeDigest;
 }
 
 export interface ChatAdvancedOptions {
@@ -377,6 +445,12 @@ async function consumeAssistantChatStream(
       if (!trimmed.startsWith('data: ')) return;
       try {
         const event = JSON.parse(trimmed.slice(6)) as ChatStreamEvent;
+        if (event.type === 'suggestions') {
+          event.data = normalizeSuggestionList(event.data || []);
+        }
+        if (event.type === 'final') {
+          (event as any).suggestions = normalizeSuggestionList((event as any).suggestions || []);
+        }
         onEvent(event);
         if (event.type === 'error') {
           throw new Error(event.content || 'Stream error');
@@ -485,7 +559,7 @@ export function askSelectionQuery(
       },
       { timeout: 0 }
     )
-    .then((res: any) => res.data as ChatRecord);
+    .then((res: any) => normalizeChatRecord(res.data));
 }
 
 export function resumeChatAction(pendingActionId: string, approve = true) {
@@ -645,7 +719,7 @@ export function fetchLearningReport(refresh = false) {
       params: { refresh },
       timeout: 0,
     })
-    .then((res: any) => res.data as LearningReport);
+    .then((res: any) => normalizeLearningReport(res.data));
 }
 
 export function fetchAiMetricsOverview(days = 7) {
@@ -663,7 +737,7 @@ export function runLearningDiagnosis(refresh = true) {
       params: { refresh },
       timeout: 0,
     })
-    .then((res: any) => res.data as LearningReport);
+    .then((res: any) => normalizeLearningReport(res.data));
 }
 
 export function generateReviewPlan(refresh = true) {
@@ -672,7 +746,7 @@ export function generateReviewPlan(refresh = true) {
       params: { refresh },
       timeout: 0,
     })
-    .then((res: any) => res.data as ReviewPlan);
+    .then((res: any) => normalizeReviewPlan(res.data));
 }
 
 export function generateMistakeDigest(refresh = true) {
@@ -681,13 +755,15 @@ export function generateMistakeDigest(refresh = true) {
       params: { refresh },
       timeout: 0,
     })
-    .then((res: any) => res.data as MistakeDigest);
+    .then((res: any) => normalizeMistakeDigest(res.data));
 }
 
 export function fetchChatHistory(threadId = 'default') {
   return axios
     .get(`/chat/history/${threadId}`, { timeout: READ_TIMEOUT_MS })
-    .then((res: any) => res.data as ChatRecord[]);
+    .then((res: any) =>
+      Array.isArray(res.data) ? res.data.map(normalizeChatRecord) : []
+    );
 }
 
 export function createChatThread(title = '', threadId = '') {

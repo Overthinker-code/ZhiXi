@@ -87,6 +87,7 @@
   import { nextTick, onUnmounted, ref, watch } from 'vue';
   import { renderMarkdown, stripMarkdownCodeToolbar } from '@/utils/markdown';
   import humanizeAgentReasoning from '@/utils/humanizeAgentReasoning';
+  import { normalizeSuggestionList } from '@/utils/llmDisplay';
 
   interface ChatItem {
     id: number;
@@ -281,9 +282,7 @@
             if (event.content) thoughts.push(event.content);
             msg.reasoning = humanizeAgentReasoning(thoughts.join('\n\n'));
           } else if (event.type === 'suggestions') {
-            suggestions.value = Array.isArray(event.data)
-              ? event.data.slice(0, 3)
-              : [];
+            suggestions.value = normalizeSuggestionList(event.data || []);
           } else if (event.type === 'final') {
             msg.content = sanitizeStreamingContent(event.content || answer || '');
           } else if (event.type === 'error') {

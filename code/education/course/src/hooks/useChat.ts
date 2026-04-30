@@ -4,6 +4,7 @@ import { getToken } from '@/utils/auth';
 import { useChatStore } from '@/store/chat';
 import { useSettingStore } from '@/store/setting';
 import { messageHandler } from '@/utils/messageHandler';
+import { normalizeSuggestionList } from '@/utils/llmDisplay';
 import {
   createAssistantChat,
   createAssistantChatStream,
@@ -139,7 +140,7 @@ export function useChat() {
             citations: item.citations || [],
             confidence: item.confidence || '',
             grounding_mode: item.grounding_mode || '',
-            suggestions: item.suggestions || [],
+            suggestions: normalizeSuggestionList(item.suggestions || []),
             metrics: item.metrics || {},
           });
         }
@@ -389,9 +390,7 @@ export function useChat() {
                 metrics
               );
             } else if (event.type === 'suggestions') {
-              suggestions = Array.isArray(event.data)
-                ? event.data.filter(Boolean).slice(0, 3)
-                : [];
+              suggestions = normalizeSuggestionList(event.data || []);
             } else if (event.type === 'final') {
               answer = event.content || answer;
               const displayContent = sanitizeStreamingContent(answer);
@@ -446,7 +445,7 @@ export function useChat() {
           [],
           false,
           '',
-          response.suggestions || [],
+          normalizeSuggestionList(response.suggestions || []),
           response.citations || [],
           response.confidence || '',
           response.grounding_mode || '',
@@ -588,7 +587,7 @@ export function useChat() {
         [],
         false,
         '',
-        response.suggestions || [],
+        normalizeSuggestionList(response.suggestions || []),
         response.citations || [],
         response.confidence || '',
         response.grounding_mode || '',

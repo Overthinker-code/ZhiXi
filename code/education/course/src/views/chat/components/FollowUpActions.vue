@@ -1,8 +1,9 @@
 <script setup lang="ts">
   import { computed } from 'vue';
+  import { normalizeSuggestionList, normalizeSuggestionText } from '@/utils/llmDisplay';
 
   const props = defineProps<{
-    suggestions?: string[];
+    suggestions?: unknown[];
   }>();
 
   const emit = defineEmits<{
@@ -15,28 +16,13 @@
     '答错时应该怎么快速纠正？',
   ];
 
-  function cleanSuggestion(value: string) {
-    return value
-      .replace(/\s+/g, ' ')
-      .replace(/([\u4e00-\u9fff])\s+([\u4e00-\u9fff])/g, '$1$2')
-      .replace(/^问题\s*\d+[:：.\-、]?\s*/i, '')
-      .replace(/^\d+[:：.\-、]\s*/, '')
-      .replace(/^我[，,、：:]\s*/, '')
-      .replace(/^我\s+(?=(帮我|给我|能不能|可以|需要|应该|该|想|要))/, '')
-      .replace(/^(帮我|给我)\s*(帮我|给我)/, '$1')
-      .trim();
-  }
-
   const displaySuggestions = computed(() => {
     const seen = new Set<string>();
-    const normalized = [...(props.suggestions || []), ...fallbackSuggestions]
-      .map((item) => String(item || '').trim())
-      .map(cleanSuggestion)
+    const normalized = [
+      ...normalizeSuggestionList(props.suggestions || []),
+      ...fallbackSuggestions.map(normalizeSuggestionText),
+    ]
       .filter((item) => {
-        if (/您|你是否|是否需要|请问你|请问您/.test(item)) return false;
-        if (!/(吗|么|如何|为什么|怎么|哪|能否|能不能|帮我|给我|可以|应该|\?|？)/.test(item)) {
-          return false;
-        }
         if (!item || seen.has(item)) return false;
         seen.add(item);
         return true;
