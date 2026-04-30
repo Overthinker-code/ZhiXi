@@ -14,7 +14,7 @@
       :body-style="{
         paddingTop: '20px',
       }"
-      :title="$t('workplace.alertsTrend')"
+      :title="$t('workplace.contentData')"
     >
       <template #extra>
         <a-link>{{ $t('workplace.viewMore') }}</a-link>

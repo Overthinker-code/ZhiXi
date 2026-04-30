@@ -1,7 +1,19 @@
 import { spawn } from 'node:child_process';
 
-const targetUrl = process.env.VITE_DEV_OPEN_URL || 'http://localhost:5173/login?force=1';
-const viteArgs = ['vite', '--config', './config/vite.config.dev.ts'];
+const devHost = process.env.VITE_DEV_HOST || '127.0.0.1';
+const devPort = process.env.VITE_DEV_PORT || '5174';
+const targetUrl =
+  process.env.VITE_DEV_OPEN_URL || `http://localhost:${devPort}/login?force=1`;
+const viteArgs = [
+  'vite',
+  '--host',
+  devHost,
+  '--port',
+  devPort,
+  '--strictPort',
+  '--config',
+  './config/vite.config.dev.ts',
+];
 const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
 let browserOpened = false;
