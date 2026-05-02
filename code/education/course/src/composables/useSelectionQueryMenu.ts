@@ -7,10 +7,8 @@ import {
 } from 'vue';
 import { Message } from '@arco-design/web-vue';
 import { renderMarkdown, stripMarkdownCodeToolbar } from '@/utils/markdown';
-import { useChatStore } from '@/store/chat';
 import { askSelectionQuery } from '@/api/rag';
 import { useSettingStore } from '@/store/setting';
-import { messageHandler } from '@/utils/messageHandler';
 
 const promptTemplates = [
   {
@@ -57,7 +55,6 @@ export type AnswerPanelBounds = {
 
 /** 划词菜单：fixed 定位须使用 getBoundingClientRect 的视口坐标，勿加 scrollX/scrollY */
 export function useSelectionQueryMenu(getContextSource: () => string) {
-  const chatStore = useChatStore();
   const settingStore = useSettingStore();
   const showContextMenu = ref(false);
   const contextMenuStyle = reactive({
@@ -84,6 +81,9 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
   }>({ active: false, x1: 0, y1: 0, x2: 0, y2: 0 });
   let twTimer: ReturnType<typeof setInterval> | null = null;
   let bridgeTimer: ReturnType<typeof setTimeout> | null = null;
+  let activeController: AbortController | null = null;
+  let requestSeq = 0;
+  let disposed = false;
 
   const sanitizeSelectionAnswer = (raw: string) =>
     (raw || '')
@@ -92,14 +92,22 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
       .replace(/<\/?final>/gi, '')
       .trim();
 
-  const currentThreadId = computed(() => chatStore.currentConversationId || '');
-
-  const getThreadId = () =>
-    currentThreadId.value || localSelectionThreadId.value;
-
   const showAnswerPanel = computed(
     () => isLoadingResponse.value || Boolean(aiResponse.value)
   );
+
+  function createSelectionThreadId() {
+    return `sel-${Date.now().toString(36)}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+  }
+
+  function cancelActiveRequest() {
+    if (activeController) {
+      activeController.abort();
+      activeController = null;
+    }
+  }
 
   const isTypingAnswer = computed(
     () =>
@@ -303,6 +311,12 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
     const template = promptTemplates.find((t) => t.key === promptKey);
     if (!template) return;
 
+    cancelActiveRequest();
+    const seq = requestSeq + 1;
+    requestSeq = seq;
+    const controller = new AbortController();
+    activeController = controller;
+
     stopTypewriter();
     typewriterLen.value = 0;
     aiResponse.value = '';
@@ -313,14 +327,12 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
     triggerBridgeToPanel();
 
     try {
-      if (!currentThreadId.value) {
-        // 课堂内容页无主会话时，划词问答使用独立临时线程，避免历史串话导致答非所问
-        localSelectionThreadId.value = `selection-notes-${Date.now()}`;
-      }
+      // 课堂内容页划词问答不复用 AI 对话线程，避免晚返回的结果串到智能伴学页面。
+      localSelectionThreadId.value = createSelectionThreadId();
       const response = await askSelectionQuery(
         selectedText.value,
         surroundingContext.value,
-        getThreadId(),
+        localSelectionThreadId.value,
         {
           systemPrompt: template.prompt(selectedText.value),
           ragK: settingStore.settings.ragK as 3 | 4 | 5,
@@ -329,31 +341,40 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
           activeTools: settingStore.settings.activeTools || [],
           maxTokens: Math.max(Number(settingStore.settings.maxTokens) || 0, 8192),
           temperature: 0.5,
+          signal: controller.signal,
         }
       );
+      if (disposed || seq !== requestSeq || controller.signal.aborted) return;
       if (response?.response) {
         const cleanAnswer = sanitizeSelectionAnswer(response.response);
         aiResponse.value = cleanAnswer;
-        chatStore.addMessage(
-          messageHandler.formatMessage('user', selectedText.value)
-        );
-        chatStore.addMessage(
-          messageHandler.formatMessage('assistant', cleanAnswer || response.response)
-        );
         startTypewriter();
       } else {
         Message.error('AI 响应为空');
       }
     } catch (error) {
+      if (
+        disposed ||
+        seq !== requestSeq ||
+        controller.signal.aborted ||
+        (error instanceof Error && error.name === 'CanceledError')
+      ) {
+        return;
+      }
       Message.error(
         `查询失败: ${error instanceof Error ? error.message : String(error)}`
       );
     } finally {
-      isLoadingResponse.value = false;
+      if (seq === requestSeq) {
+        isLoadingResponse.value = false;
+        activeController = null;
+      }
     }
   }
 
   function clearAnswerPanel() {
+    requestSeq += 1;
+    cancelActiveRequest();
     stopTypewriter();
     typewriterLen.value = 0;
     aiResponse.value = '';
@@ -376,12 +397,15 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
   }
 
   onMounted(() => {
+    disposed = false;
     document.addEventListener('mousedown', onDocMouseDown);
     document.addEventListener('scroll', closeMenu, true);
   });
   onUnmounted(() => {
+    disposed = true;
     document.removeEventListener('mousedown', onDocMouseDown);
     document.removeEventListener('scroll', closeMenu, true);
+    cancelActiveRequest();
     stopTypewriter();
     if (bridgeTimer) {
       clearTimeout(bridgeTimer);

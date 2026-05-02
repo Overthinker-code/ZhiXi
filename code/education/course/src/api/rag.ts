@@ -384,6 +384,7 @@ export interface ChatAdvancedOptions {
   forceAgent?: string;
   forceCache?: boolean;
   debugMode?: boolean;
+  signal?: AbortSignal;
 }
 
 async function consumeAssistantChatStream(
@@ -557,7 +558,10 @@ export function askSelectionQuery(
         top_p: normalized.topP,
         top_k: normalized.topK,
       },
-      { timeout: 0 }
+      {
+        signal: normalized.signal,
+        timeout: 120000,
+      }
     )
     .then((res: any) => normalizeChatRecord(res.data));
 }
