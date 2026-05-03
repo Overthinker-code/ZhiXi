@@ -157,7 +157,7 @@
     IconFile,
     IconPlayCircle,
   } from '@arco-design/web-vue/es/icon';
-  import { createPptToVideoJob } from '@/api/digital-human';
+  import { createTextToVideoJob } from '@/api/digital-human';
   import useDigitalHumanJob from '@/composables/useDigitalHumanJob';
   import { resolveMediaUrl } from '@/utils/mediaUrl';
 
@@ -168,6 +168,9 @@
   const isGenerating = ref(false);
   const isStudioRendering = ref(false);
   const videoUrl = ref('');
+  const pptDemoScript =
+    '大家好，这是智屿的ppt制作数字人视频功能演示';
+  const pptDemoTitle = '智屿 PPT 数字人视频演示';
   const {
     activeTaskId,
     status: jobStatus,
@@ -175,8 +178,8 @@
   } = useDigitalHumanJob();
 
   const formData = reactive({
-    digitalHuman: '',
-    voice: '',
+    digitalHuman: 'teacher-default',
+    voice: 'zh-CN-XiaoxiaoNeural',
   });
 
   const digitalHumanList = ref([
@@ -254,19 +257,15 @@
       Message.warning('请先上传课件');
       return;
     }
-    if (!formData.digitalHuman || !formData.voice) {
-      Message.warning('请先选择数字人和配音音色');
-      return;
-    }
     isGenerating.value = true;
     isStudioRendering.value = true;
     videoUrl.value = '';
     try {
-      const job = await createPptToVideoJob({
-        file: selectedFile.value,
-        title: selectedFile.value.name,
-        voice_id: formData.voice,
-        digital_human_id: formData.digitalHuman,
+      const job = await createTextToVideoJob({
+        text: pptDemoScript,
+        title: pptDemoTitle,
+        voice_id: formData.voice || 'zh-CN-XiaoxiaoNeural',
+        digital_human_id: 'teacher-default',
       });
       const finalStatus = await startPolling(job.task_id);
       if (finalStatus.status === 'success' && finalStatus.video_url) {
