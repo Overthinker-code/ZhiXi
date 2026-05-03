@@ -133,7 +133,7 @@
   import { computed, ref } from 'vue';
   import { useRouter } from 'vue-router';
   import { Message } from '@arco-design/web-vue';
-  import teacherDigitalHumanImage from '@/assets/digital-human/teacher-digital-human.jpg';
+  import teacherDigitalHumanImage from '@/assets/digital-human/teacher-digital-human.png';
   import { createTextToVideoJob } from '@/api/digital-human';
   import useDigitalHumanJob from '@/composables/useDigitalHumanJob';
   import { resolveMediaUrl } from '@/utils/mediaUrl';
@@ -343,7 +343,7 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
-    object-position: center 22%;
+    object-position: center center;
   }
 
   .scan-line {
