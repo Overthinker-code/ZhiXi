@@ -98,8 +98,8 @@
         :y1="bridgeLine.y1"
         :x2="bridgeLine.x2"
         :y2="bridgeLine.y2"
-        stroke="#a78bfa"
-        stroke-width="2.5"
+        stroke="#22d3ee"
+        stroke-width="3"
         stroke-linecap="round"
         class="selection-bridge-line"
       />
@@ -340,13 +340,20 @@
     min-width: 200px;
     padding: 8px 0;
     border-radius: 14px;
-    border: 1px solid rgba(139, 92, 246, 0.45);
-    background: rgba(15, 23, 42, 0.42);
+    border: 1px solid rgba(186, 230, 253, 0.7);
+    background:
+      linear-gradient(
+        145deg,
+        rgba(37, 99, 235, 0.9) 0%,
+        rgba(14, 165, 233, 0.78) 48%,
+        rgba(124, 58, 237, 0.86) 100%
+      );
     backdrop-filter: blur(20px) saturate(1.4);
     -webkit-backdrop-filter: blur(20px) saturate(1.4);
     box-shadow:
-      0 0 0 1px rgba(255, 255, 255, 0.08) inset,
-      0 18px 48px rgba(2, 6, 23, 0.45);
+      0 0 0 1px rgba(255, 255, 255, 0.16) inset,
+      0 18px 48px rgba(37, 99, 235, 0.34),
+      0 0 28px rgba(6, 182, 212, 0.24);
 
     .menu-title {
       padding: 8px 14px 6px;
@@ -354,8 +361,8 @@
       font-weight: 600;
       letter-spacing: 0.06em;
       text-transform: uppercase;
-      color: #94a3b8;
-      border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+      color: #e0f2fe;
+      border-bottom: 1px solid rgba(224, 242, 254, 0.24);
     }
 
     .menu-item {
@@ -367,14 +374,14 @@
       background: none;
       cursor: pointer;
       font-size: 13px;
-      color: #e2e8f0;
+      color: #f8fbff;
       transition:
         background 0.2s,
         color 0.2s;
 
       &:hover {
-        background: rgba(99, 102, 241, 0.2);
-        color: #f8fafc;
+        background: rgba(255, 255, 255, 0.16);
+        color: #ffffff;
       }
     }
   }

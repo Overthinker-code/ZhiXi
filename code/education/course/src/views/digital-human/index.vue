@@ -60,7 +60,7 @@
 
 <script lang="ts" setup>
   import { IconRight } from '@arco-design/web-vue/es/icon';
-  import studioCover from '@/assets/digital-human/studio-cover.png';
+  import studioCover from '@/assets/digital-human/teacher-digital-human.jpg';
 
   const tools = [
     {
@@ -284,6 +284,7 @@
       width: 100%;
       height: 100%;
       object-fit: cover;
+      object-position: center 22%;
     }
   }
 

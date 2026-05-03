@@ -133,7 +133,7 @@
   import { computed, ref } from 'vue';
   import { useRouter } from 'vue-router';
   import { Message } from '@arco-design/web-vue';
-  import studioCover from '@/assets/digital-human/studio-cover.png';
+  import teacherDigitalHumanImage from '@/assets/digital-human/teacher-digital-human.jpg';
   import { createTextToVideoJob } from '@/api/digital-human';
   import useDigitalHumanJob from '@/composables/useDigitalHumanJob';
   import { resolveMediaUrl } from '@/utils/mediaUrl';
@@ -141,7 +141,7 @@
   const router = useRouter();
   const scriptContent = ref('');
   const isGenerating = ref(false);
-  const studioCoverImage = ref(studioCover);
+  const studioCoverImage = ref(teacherDigitalHumanImage);
   const videoUrl = ref('');
   const selectedVoice = ref('zh-CN-YunxiNeural');
   const selectedDigitalHumanId = ref('teacher-default');
@@ -343,6 +343,7 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+    object-position: center 22%;
   }
 
   .scan-line {

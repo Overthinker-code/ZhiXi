@@ -227,14 +227,21 @@
   .selection-ai-answer-panel {
     position: fixed;
     z-index: 10002;
-    background: rgba(15, 23, 42, 0.55);
+    background:
+      linear-gradient(
+        145deg,
+        rgba(37, 99, 235, 0.88) 0%,
+        rgba(6, 182, 212, 0.74) 46%,
+        rgba(124, 58, 237, 0.84) 100%
+      );
     backdrop-filter: blur(18px) saturate(1.25);
     -webkit-backdrop-filter: blur(18px) saturate(1.25);
     border-radius: 14px;
-    border: 1px solid rgba(139, 92, 246, 0.35);
+    border: 1px solid rgba(186, 230, 253, 0.72);
     box-shadow:
-      0 0 0 1px rgba(255, 255, 255, 0.06) inset,
-      0 20px 50px rgba(2, 6, 23, 0.45);
+      0 0 0 1px rgba(255, 255, 255, 0.18) inset,
+      0 22px 58px rgba(37, 99, 235, 0.36),
+      0 0 34px rgba(6, 182, 212, 0.28);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -267,11 +274,16 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    background: linear-gradient(90deg, rgba(49, 46, 129, 0.5), rgba(15, 23, 42, 0.3));
-    border-bottom: 1px solid rgba(99, 102, 241, 0.25);
+    background: linear-gradient(
+      90deg,
+      rgba(29, 78, 216, 0.98),
+      rgba(14, 165, 233, 0.9),
+      rgba(124, 58, 237, 0.96)
+    );
+    border-bottom: 1px solid rgba(224, 242, 254, 0.35);
     cursor: grab;
     font-weight: 600;
-    color: #e0e7ff;
+    color: #f8fbff;
     user-select: none;
 
     &:active {
@@ -283,7 +295,7 @@
     border: none;
     background: none;
     cursor: pointer;
-    color: #999;
+    color: rgba(255, 255, 255, 0.82);
     padding: 4px 8px;
     font-size: 16px;
     line-height: 1;
@@ -297,6 +309,11 @@
     display: flex;
     flex-direction: column;
     align-items: stretch;
+    background: linear-gradient(
+      180deg,
+      rgba(8, 13, 30, 0.42),
+      rgba(8, 13, 30, 0.26)
+    );
 
     &.loading {
       align-items: stretch;
@@ -324,7 +341,7 @@
   .ai-loading-tip {
     margin: 8px 0 0;
     font-size: 12px;
-    color: #94a3b8;
+    color: #e0f2fe;
     text-align: center;
   }
 
@@ -334,7 +351,7 @@
     padding-left: 6px;
     font-size: 13px;
     line-height: 1.7;
-    color: #e2e8f0;
+    color: #f8fbff;
   }
 
   :deep(.markdown-body ol),
@@ -348,7 +365,7 @@
   }
 
   .tw-caret {
-    color: #a5b4fc;
+    color: #67e8f9;
     animation: blink 1s step-end infinite;
     margin-left: 2px;
     align-self: flex-start;
