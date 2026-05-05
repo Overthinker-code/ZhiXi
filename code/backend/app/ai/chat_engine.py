@@ -358,6 +358,7 @@ def _is_selection_query_text(text: str) -> bool:
     return "选中了" in blob and "上下文片段" in blob
 
 
+# AI辅助生成：Kimi Code, 2026-04-08
 def _expand_selection_answer_if_needed(
     llm: Any,
     *,
@@ -375,7 +376,7 @@ def _expand_selection_answer_if_needed(
 
     expand_sys = SystemMessage(
         content=(
-            "你是知曦课堂划词唤醒的最终解答老师。学生选中了课堂内容中的一个概念，"
+            "你是智屿课堂划词唤醒的最终解答老师。学生选中了课堂内容中的一个概念，"
             "你需要把已有短答扩写成完整、耐心、可直接展示的课堂讲解。"
             "硬性要求：正文控制在 500-800 个中文字符；使用 3-5 个 Markdown 小标题；"
             "必须覆盖概念定位、核心机制、课堂例子、常见误区或实践价值、下一步学习建议；"
@@ -434,7 +435,7 @@ def _expand_general_answer_if_needed(
 
     expand_sys = SystemMessage(
         content=(
-            "你是知曦智能伴学的最终答复老师。学生需要的是可直接学习的完整回答，"
+            "你是智屿智能伴学的最终答复老师。学生需要的是可直接学习的完整回答，"
             "而不是一句短定义。请把已有短答扩写成 700-1100 个中文字符的教学型回答。"
             "必须围绕学生当前问题本身，不要被知识库里相邻但不同的主题带偏。"
             "要求：1）先回应学生水平与目标；2）分层讲清核心概念和操作步骤；"
@@ -517,7 +518,8 @@ def _with_resolved_max_tokens(request: ChatRequest) -> ChatRequest:
     return request.model_copy(update={"max_tokens": _resolve_max_tokens(request)})
 
 
-SUPERVISOR_SYSTEM_PROMPT = """你是「知曦学习系统」的主管 Supervisor（包工头），负责编排多位专员协同完成学生问题。
+# AI辅助生成：Claude Code, 2026-04-21
+SUPERVISOR_SYSTEM_PROMPT = """你是「智屿学习系统」的主管 Supervisor（包工头），负责编排多位专员协同完成学生问题。
 
 下属专员（每次只派其中一人发言，或判定可以结束）：
 - code_tutor：编程语言报错、调试、运行失败、SQL/Python/Java/TS 等工程问题。
@@ -538,7 +540,7 @@ SUPERVISOR_SYSTEM_PROMPT = """你是「知曦学习系统」的主管 Supervisor
    但如果同一句里同时要求“讲解知识点/基础不熟/给练习题”，先路由 knowledge_mentor 完成讲解与练习设计，不要只走测验流程。
 8. 若用户当前挂载了文件，且问题指向该文件内容（如“总结这篇论文”“解释第三章”），优先路由 doc_researcher。"""
 
-FINALIZE_SYSTEM_PROMPT = """你是知曦学习系统的最终发言人。你将收到「学生问题」「知识库摘要」「专员协作产出」。请面向学生生成可直接发送的最终答复。
+FINALIZE_SYSTEM_PROMPT = """你是智屿学习系统的最终发言人。你将收到「学生问题」「知识库摘要」「专员协作产出」。请面向学生生成可直接发送的最终答复。
 
 必须遵守：
 1. 直接给出完整、专业的解答，使用 Markdown 标题与列表排版；语气像耐心的导师。

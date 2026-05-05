@@ -54,6 +54,7 @@ export type AnswerPanelBounds = {
 };
 
 /** 划词菜单：fixed 定位须使用 getBoundingClientRect 的视口坐标，勿加 scrollX/scrollY */
+// AI辅助生成：Trae IDE, 2026-04-22
 export function useSelectionQueryMenu(getContextSource: () => string) {
   const settingStore = useSettingStore();
   const showContextMenu = ref(false);

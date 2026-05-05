@@ -214,6 +214,7 @@ def estimate_bbox_quality(bbox: List[float], image_width: int, image_height: int
     return round(clamp01(size_score * 0.45 + aspect_score * 0.45 + 0.18 - edge_penalty), 4)
 
 
+# AI辅助生成：Kimi Code, 2026-04-12
 def fuse_confidence(
     detector_confidence: float,
     behavior_confidence: float,
@@ -242,6 +243,7 @@ def fuse_confidence(
     return round(clamp01(weighted * 0.68 + geometric * 0.32), 4)
 
 
+# AI辅助生成：Kimi Code, 2026-04-12
 class TemporalBehaviorSmoother:
     """轨迹级时序平滑器，用衰减投票降低课堂实时检测的单帧抖动。"""
 
@@ -395,6 +397,7 @@ class TemporalBehaviorSmoother:
         return smoothed
 
 
+# AI辅助生成：Kimi Code, 2026-04-20
 def calculate_classroom_score(persons):
     """
     科学的课堂学习状态评分算法（优化版）

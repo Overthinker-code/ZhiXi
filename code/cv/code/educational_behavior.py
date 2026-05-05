@@ -180,6 +180,7 @@ class ClassroomEngagementReport:
 
 # ==================== 核心分析器 ====================
 
+# AI辅助生成：Kimi Code, 2026-04-12
 class EducationalBehaviorAnalyzer:
     """
     教育学行为分析器

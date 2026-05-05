@@ -85,6 +85,7 @@
   import { reactive, onMounted, ref } from 'vue';
   import { getTeacherStats, type TeacherStats } from '@/api/dashboard';
 
+  // AI辅助生成：Trae IDE, 2026-04-17
   const loading = ref(true);
   const error = ref<string | null>(null);
   const data = ref<TeacherStats | null>(null);

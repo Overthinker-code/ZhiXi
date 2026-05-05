@@ -488,6 +488,7 @@ async function consumeAssistantChatStream(
   }
 }
 
+// AI辅助生成：Trae IDE, 2026-04-22
 export function createAssistantChatStream(
   userInput: string,
   threadId: string,

@@ -85,6 +85,7 @@
   import { ref } from 'vue';
   import { generateMistakeDigest, type MistakeDigest } from '@/api/rag';
 
+  // AI辅助生成：Trae IDE, 2026-04-25
   type State = 'idle' | 'loading' | 'data' | 'error';
 
   const state = ref<State>('idle');
