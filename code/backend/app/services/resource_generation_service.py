@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime
 from pathlib import Path
@@ -136,6 +137,13 @@ class ResourceGenerationService:
                     )
                 )
 
+        self.write_manifest(
+            target_dir,
+            request=request,
+            package_id=package_id,
+            artifacts=artifacts,
+        )
+
         return ResourceGenerationResponse(
             package_id=package_id,
             subject=request.subject,
@@ -167,6 +175,41 @@ class ResourceGenerationService:
             ],
             artifacts=artifacts,
         )
+
+    def list_recent_packages(self, limit: int = 12) -> list[dict[str, object]]:
+        self.output_root.mkdir(parents=True, exist_ok=True)
+        packages: list[dict[str, object]] = []
+        for folder in sorted(
+            [item for item in self.output_root.iterdir() if item.is_dir()],
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )[:limit]:
+            artifacts = sorted(folder.iterdir(), key=lambda item: item.name)
+            manifest = next((item for item in artifacts if item.suffix == ".json" and item.name == "manifest.json"), None)
+            payload: dict[str, object] = {}
+            if manifest and manifest.exists():
+                try:
+                    payload = json.loads(manifest.read_text(encoding="utf-8"))
+                except Exception:
+                    payload = {}
+            packages.append(
+                {
+                    "package_id": folder.name,
+                    "subject": payload.get("subject") or "",
+                    "topic": payload.get("topic") or folder.name,
+                    "generated_at": payload.get("generated_at")
+                    or datetime.fromtimestamp(folder.stat().st_mtime).isoformat(),
+                    "artifacts": [
+                        {
+                            "file_name": item.name,
+                            "file_size": item.stat().st_size,
+                        }
+                        for item in artifacts
+                        if item.is_file() and item.name != "manifest.json"
+                    ],
+                }
+            )
+        return packages
 
     def _build_context(self, request: ResourceGenerationRequest) -> dict[str, str]:
         goal = request.learning_goal or f"掌握 {request.topic} 的核心概念、典型题型和应用方法"
@@ -210,6 +253,35 @@ class ResourceGenerationService:
             content_type=content_type,
             file_size=stat.st_size,
             preview=preview,
+        )
+
+    def write_manifest(
+        self,
+        target_dir: Path,
+        *,
+        request: ResourceGenerationRequest,
+        package_id: str,
+        artifacts: list[GeneratedResourceArtifact],
+    ) -> None:
+        manifest = {
+            "package_id": package_id,
+            "subject": request.subject,
+            "topic": request.topic,
+            "generated_at": datetime.utcnow().isoformat(),
+            "artifacts": [
+                {
+                    "kind": artifact.kind,
+                    "title": artifact.title,
+                    "file_name": artifact.file_name,
+                    "download_url": artifact.download_url,
+                    "file_size": artifact.file_size,
+                }
+                for artifact in artifacts
+            ],
+        }
+        (target_dir / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2),
+            encoding="utf-8",
         )
 
     @staticmethod

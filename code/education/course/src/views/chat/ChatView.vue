@@ -2,9 +2,11 @@
   import { computed, h, ref, resolveComponent } from 'vue';
   import { Message } from '@arco-design/web-vue';
   import { useUserStore } from '@/store';
+  import { useChatStore } from '@/store/chat';
   import {
     deleteReferenceFile,
     fetchReferenceFiles,
+    fetchLearningReport,
     type ReferenceFile,
     type ReferenceScopeFilter,
   } from '@/api/rag';
@@ -19,6 +21,8 @@
   const loadingFiles = ref(false);
   const filesLoaded = ref(false);
   const resourceLoadError = ref('');
+  const learningReport = ref<any | null>(null);
+  const loadingReport = ref(false);
   const scopeFilter = ref<ReferenceScopeFilter>('all');
   const scopeFilterOptions = [
     { label: '全部', value: 'all' },
@@ -27,6 +31,7 @@
   ];
 
   const userStore = useUserStore();
+  const chatStore = useChatStore();
   const isAdmin = computed(() => userStore.role === 'teacher');
   const drawerVisible = computed({
     get: () => Boolean(activeDrawer.value),
@@ -40,27 +45,119 @@
     return '课程资料上下文';
   });
 
-  const profileItems = [
-    { label: '知识基础', value: '中等', hint: '关系模型需要迁移训练' },
-    { label: '认知风格', value: '例题驱动', hint: '先例题再抽象规则' },
-    { label: '易错偏好', value: '完整性约束', hint: '参照完整性最易混淆' },
-    { label: '资源偏好', value: '短讲义 + 练习', hint: '适合 20 分钟闭环' },
-    { label: '当前目标', value: 'SQL 联结', hint: '下一步进入多表查询' },
-    { label: '课堂投入', value: '82%', hint: '可继续提升专注稳定性' },
-  ];
+  const profileItems = computed(() => {
+    const report = learningReport.value;
+    const behavior = report?.classroom_behavior_summary || {};
+    const weakPoints = Array.isArray(report?.weak_points) ? report.weak_points : [];
+    const strengths = Array.isArray(report?.strengths) ? report.strengths : [];
+    const insights = Array.isArray(report?.mastery_insights)
+      ? report.mastery_insights
+      : [];
+    return [
+      {
+        label: '当前目标',
+        value: report?.current_goal || '待通过对话逐步收敛',
+        hint: report?.summary || '系统会结合问答与练习持续更新目标。',
+      },
+      {
+        label: '学习偏好',
+        value: report?.learning_style || '待分析',
+        hint: strengths[0] || '将根据互动方式自动提炼偏好。',
+      },
+      {
+        label: '薄弱点',
+        value: weakPoints.length ? weakPoints.slice(0, 2).join(' / ') : '暂无高风险薄弱点',
+        hint: insights[0] || '系统会在批改与问答后更新掌握度。',
+      },
+      {
+        label: '风险等级',
+        value:
+          report?.risk_level === 'high'
+            ? '较高'
+            : report?.risk_level === 'low'
+              ? '较低'
+              : '中等',
+        hint: Array.isArray(report?.recommended_actions)
+          ? report.recommended_actions[0] || '按当前节奏推进。'
+          : '按当前节奏推进。',
+      },
+      {
+        label: '课堂投入',
+        value:
+          typeof behavior?.recent_avg_lei === 'number'
+            ? `${Math.round(behavior.recent_avg_lei * 100)}%`
+            : '暂无数据',
+        hint: behavior?.teacher_note || '课堂行为数据接入后会在这里显示。',
+      },
+      {
+        label: '推荐资源',
+        value:
+          Array.isArray(report?.recommended_resources) && report.recommended_resources.length
+            ? report.recommended_resources.slice(0, 2).join(' / ')
+            : '优先从课程资料库检索',
+        hint: Array.isArray(report?.follow_up_questions)
+          ? report.follow_up_questions[0] || '继续追问可触发个性化推荐。'
+          : '继续追问可触发个性化推荐。',
+      },
+    ];
+  });
 
-  const agentCards = [
-    { name: '画像专员', text: '抽取目标、基础、偏好', active: true },
-    { name: '检索专员', text: '匹配课程库与个人资料', active: true },
-    { name: '批改专员', text: '分析错因并更新掌握度', active: true },
-    { name: '资源专员', text: '生成练习、讲义、脚本', active: false },
-  ];
+  const latestAssistantMessage = computed(() => {
+    const messages = chatStore.currentMessages || [];
+    return [...messages].reverse().find((item: any) => item.role === 'assistant') || null;
+  });
 
-  const quickActions = [
-    '解析这道题并给我提示',
-    '按批改模式检查我的答案',
-    '根据薄弱点生成 20 分钟练习',
-  ];
+  const agentCards = computed(() => {
+    const routeTrace = latestAssistantMessage.value?.metrics?.route_trace || [];
+    const routeSet = new Set(routeTrace);
+    const labels: Record<string, string> = {
+      profile_agent: '学习画像专员',
+      retrieval_agent: '课程检索专员',
+      grading_agent: '练习批改专员',
+      tutor_agent: '辅导讲解专员',
+      web_research_agent: '联网检索专员',
+      safety_review_agent: '事实审查专员',
+      semantic_cache: '语义缓存',
+      demo_mode: '本地兜底回答',
+    };
+    const descriptions: Record<string, string> = {
+      profile_agent: '根据问答与练习更新画像与掌握度',
+      retrieval_agent: '从课程资料库和上传文档中检索证据',
+      grading_agent: '按批改模式分析作答与后续练习',
+      tutor_agent: '负责概念讲解、图像题解和分步辅导',
+      web_research_agent: '在启用联网搜索时补充时效信息',
+      safety_review_agent: '做事实性与内容安全复核',
+      semantic_cache: '命中缓存，快速返回已验证回答',
+      demo_mode: '当前使用本地兜底路径',
+    };
+    const defaultOrder = [
+      'profile_agent',
+      'retrieval_agent',
+      'grading_agent',
+      'tutor_agent',
+      'web_research_agent',
+      'safety_review_agent',
+    ];
+    const source = routeTrace.length ? routeTrace : defaultOrder;
+    return source.map((key: string) => ({
+      name: labels[key] || key,
+      text: descriptions[key] || '已参与本轮协作',
+      active: routeSet.has(key),
+    }));
+  });
+
+  const quickActions = computed(() => {
+    const report = learningReport.value;
+    const questions = Array.isArray(report?.follow_up_questions)
+      ? report.follow_up_questions.slice(0, 3)
+      : [];
+    if (questions.length) return questions;
+    return [
+      '解析这道题并给我提示',
+      '按批改模式检查我的答案',
+      '根据薄弱点生成 20 分钟练习',
+    ];
+  });
 
   const latestFiles = computed(() => files.value.slice(0, 6));
 
@@ -105,6 +202,17 @@
       resourceLoadError.value = '课程资料服务暂不可用，可稍后刷新';
     } finally {
       loadingFiles.value = false;
+    }
+  }
+
+  async function loadLearningReport(refresh = false) {
+    loadingReport.value = true;
+    try {
+      learningReport.value = await fetchLearningReport(refresh);
+    } catch {
+      learningReport.value = null;
+    } finally {
+      loadingReport.value = false;
     }
   }
 
@@ -164,6 +272,9 @@
 
   function openDrawer(key: DrawerKey) {
     activeDrawer.value = key;
+    if (key === 'profile' && !loadingReport.value && !learningReport.value) {
+      loadLearningReport(false);
+    }
     if (key === 'resources' && !filesLoaded.value && !loadingFiles.value) {
       loadReferenceFiles();
     }
@@ -225,6 +336,12 @@
       unmount-on-close
     >
       <section v-if="activeDrawer === 'profile'" class="drawer-section">
+        <div class="drawer-toolbar drawer-toolbar--profile">
+          <span class="drawer-meta">{{ loadingReport ? '学习画像更新中…' : '学习画像已接入真实学情接口' }}</span>
+          <a-button size="small" :loading="loadingReport" @click="loadLearningReport(true)">
+            刷新画像
+          </a-button>
+        </div>
         <div class="profile-grid">
           <article v-for="item in profileItems" :key="item.label">
             <span>{{ item.label }}</span>
@@ -555,6 +672,16 @@
     display: grid;
     grid-template-columns: 1fr auto;
     gap: 8px;
+  }
+
+  .drawer-toolbar--profile {
+    align-items: center;
+    grid-template-columns: 1fr auto;
+  }
+
+  .drawer-meta {
+    color: var(--assistant-sub);
+    font-size: 12px;
   }
 
   .file-list article {

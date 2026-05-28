@@ -3,11 +3,16 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
+import subprocess
+import tempfile
+from io import BytesIO
 from datetime import datetime
 from typing import Any, Literal
 from uuid import uuid4
 
 import httpx
+from PIL import Image
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field, model_validator
 from sqlmodel import Session
@@ -57,6 +62,121 @@ def _extract_json_blob(raw: str) -> dict[str, Any]:
     except Exception:
         return {}
     return {}
+
+
+def _decode_image_bytes(image_base64: str | None) -> bytes | None:
+    if not image_base64:
+        return None
+    raw = image_base64
+    if "," in raw:
+        raw = raw.split(",", 1)[1]
+    try:
+        import base64
+
+        return base64.b64decode(raw)
+    except Exception:
+        return None
+
+
+def _ocr_text_from_image_bytes(image_bytes: bytes | None) -> str:
+    if not image_bytes:
+        return ""
+    tesseract_bin = shutil.which("tesseract")
+    if not tesseract_bin:
+        return ""
+    try:
+        image = Image.open(BytesIO(image_bytes)).convert("L")
+        image = image.resize((image.width * 2, image.height * 2))
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+            temp_path = tmp.name
+            image.save(temp_path, format="PNG")
+        result = subprocess.run(
+            [tesseract_bin, temp_path, "stdout", "-l", "eng+chi_sim"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=12,
+        )
+        text = (result.stdout or "").strip()
+        return re.sub(r"\s+", " ", text)
+    except Exception:
+        return ""
+    finally:
+        try:
+            if "temp_path" in locals():
+                os.unlink(temp_path)
+        except OSError:
+            pass
+
+
+def _guess_problem_type(text: str, subject: str) -> str:
+    joined = f"{subject} {text}".lower()
+    if "select" in joined or "sql" in joined or "from" in joined:
+        return "SQL 题目解析"
+    if any(token in joined for token in ("证明", "函数", "方程", "导数")):
+        return "数学题"
+    if any(token in joined for token in ("电路", "电压", "电流")):
+        return "电路分析题"
+    return "图片题目分析"
+
+
+def _fallback_reasoned_answer(subject: str, text: str) -> tuple[str, list[str], str]:
+    normalized = re.sub(r"\s+", " ", text).strip()
+    if not normalized:
+        return (
+            "### 解题提示\n请先补充题干文字，系统会基于文字继续给出步骤化讲解。",
+            [
+                "先确认题干、已知条件和要求回答的问题。",
+                "把关键概念、公式或约束逐条列出来。",
+                "按条件到结论的顺序尝试求解，并回头检查边界条件。",
+            ],
+            "建议补充更完整的题干文字，或上传更清晰、边界完整的图片。",
+        )
+
+    lowered = normalized.lower()
+    if "select" in lowered and "from" in lowered:
+        answer = (
+            "### 图片内容理解\n"
+            f"识别到的核心文本为：`{normalized}`\n\n"
+            "### 题意讲解\n"
+            "这是一条 SQL 查询语句。`SELECT` 用来指定要返回的列，`FROM` 指定数据来源的表。\n\n"
+            "### 解题步骤\n"
+            "1. 先确认 `SELECT` 后面是查询全部列还是部分列。\n"
+            "2. 再确认 `FROM` 后面的表名表示从哪个数据表取数。\n"
+            "3. 如果后续还有 `WHERE`、`JOIN`、`GROUP BY`，再继续分析筛选、连接或分组逻辑。\n\n"
+            "### 延伸建议\n"
+            "可以继续追问这条 SQL 的执行结果、是否需要筛选条件，或者如何改写为带 `WHERE` 的版本。"
+        )
+        return (
+            answer,
+            [
+                "先标记 SQL 的关键字：SELECT、FROM、WHERE、JOIN。",
+                "确认每个关键字分别承担“取什么、从哪取、怎么筛选”的作用。",
+                "把这条语句改写成自然语言描述，再反过来验证。",
+            ],
+            "如果你愿意，我可以继续把这条 SQL 语句逐词解释，并给出执行示例。",
+        )
+
+    answer = (
+        "### 图片内容理解\n"
+        f"已提取到的题干文本：{normalized}\n\n"
+        "### 分析思路\n"
+        f"系统当前按“{subject or '通用学科'}”场景进行文字化解析，优先从题干、条件、目标三部分入手。\n\n"
+        "### 推荐步骤\n"
+        "1. 把题干中的已知条件逐条摘出来。\n"
+        "2. 判断题目在考查哪个核心概念或公式。\n"
+        "3. 按“条件 -> 推理 -> 结论”的顺序作答。\n"
+        "4. 最后检查答案是否真的回应了题目要求。"
+    )
+    return (
+        answer,
+        [
+            "先提取题干中的已知条件和限制词。",
+            "再判断对应知识点、概念或公式。",
+            "最后按步骤完成推理并校验结论。",
+        ],
+        "如果补充完整题干或更清晰图片，我可以继续给出更具体的分步讲解。",
+    )
 
 
 def _profile_for_user(db: Session, user_id: str) -> dict[str, Any]:
@@ -485,29 +605,30 @@ async def _call_qwen3_vl(request: ImageAnalyzeRequest) -> dict[str, Any]:
 def _fallback_image_analysis(request: ImageAnalyzeRequest, reason: str) -> ImageAnalyzeResponse:
     subject = (request.subject or "未知学科").strip() or "未知学科"
     question_text = (request.question_text or "").strip()
-    extracted = question_text or "已收到图片，但当前未能稳定读取图片文字。"
+    image_bytes = _decode_image_bytes(request.image_base64)
+    ocr_text = _ocr_text_from_image_bytes(image_bytes)
+    extracted = question_text or ocr_text or "已收到图片，但当前未能稳定读取图片文字。"
+    answer_markdown, solution_outline, answer_hint = _fallback_reasoned_answer(
+        subject, extracted
+    )
     return ImageAnalyzeResponse(
         source="fallback",
         status="fallback",
         subject=subject,
-        problem_type="图片题目分析骨架",
+        problem_type=_guess_problem_type(extracted, subject),
         extracted_text=extracted,
-        answer_markdown=(
-            "### 解题提示\n"
-            "当前图片识别服务未就绪。请先补充题干文字，系统会继续给出分步讲解。"
-        ),
-        solution_outline=[
-            "先人工确认题干、图表标注和已知条件是否完整。",
-            "圈出要求求解或证明的目标，并把相关公式、概念或约束列成清单。",
-            "按条件到结论的顺序尝试建立解题路径；若是选择题，逐项排除明显矛盾选项。",
-        ],
-        answer_hint="请补充更清晰的题干文字，或重新上传包含完整题目边界的图片。",
+        answer_markdown=answer_markdown,
+        solution_outline=solution_outline,
+        answer_hint=answer_hint,
         diagram={
             "type": "mermaid",
             "content": "flowchart TD\nA[确认题干] --> B[提取条件]\nB --> C[匹配公式或概念]\nC --> D[分步求解]",
         },
-        confidence=0.42 if question_text else 0.28,
-        limitations=[f"视觉模型暂不可用：{reason}", "fallback 不会声称已读取图片细节"],
+        confidence=0.58 if ocr_text or question_text else 0.28,
+        limitations=[
+            f"视觉模型暂不可用：{reason}",
+            "当前结果主要基于 OCR 和补充题干推理，复杂图表题仍建议补充文字说明。",
+        ],
     )
 
 

@@ -1,6 +1,16 @@
 from app.core.config import settings
 
 
+def _with_optional_timeout(model):
+    timeout = getattr(settings, "LEARNING_REPORT_LLM_TIMEOUT_SECONDS", 0)
+    if not timeout:
+        return model
+    try:
+        return model.with_config({"timeout": timeout})
+    except Exception:
+        return model
+
+
 class ChatModelFactory:
     @staticmethod
     def create(
@@ -29,7 +39,7 @@ class ChatModelFactory:
                 kwargs["top_k"] = top_k
             if max_tokens is not None:
                 kwargs["num_predict"] = max_tokens
-            return ChatOllama(**kwargs)
+            return _with_optional_timeout(ChatOllama(**kwargs))
 
         if provider in {"openai", "openai_compatible"}:
             from langchain_openai import ChatOpenAI
@@ -46,6 +56,6 @@ class ChatModelFactory:
             if settings.OPENAI_API_BASE:
                 kwargs["openai_api_base"] = settings.OPENAI_API_BASE
 
-            return ChatOpenAI(**kwargs)
+            return _with_optional_timeout(ChatOpenAI(**kwargs))
 
         raise ValueError(f"Unsupported chat provider: {settings.CHAT_PROVIDER}")

@@ -1,14 +1,18 @@
 <script setup lang="ts">
-  import { computed, reactive, ref } from 'vue';
+  import { computed, onMounted, reactive, ref } from 'vue';
   import { Message } from '@arco-design/web-vue';
   import {
+    fetchRecentGeneratedPackages,
     generateResourcePackage,
+    type RecentGeneratedPackage,
     type ResourceGenerationResponse,
     type ResourceKind,
   } from '@/api/resource-generation';
+  import { getToken } from '@/utils/auth';
 
   const loading = ref(false);
   const result = ref<ResourceGenerationResponse | null>(null);
+  const recentPackages = ref<RecentGeneratedPackage[]>([]);
 
   const form = reactive({
     subject: '数据库系统',
@@ -115,11 +119,20 @@
     '数字人口播脚本',
   ];
 
-  const generationScenarios = [
-    { topic: 'SQL 联结查询', time: '数据库系统', status: '适合生成讲义+练习' },
-    { topic: '操作系统进程调度', time: '计算机基础', status: '适合生成思维导图' },
-    { topic: 'Python 文件读写', time: '程序设计', status: '适合生成实操案例' },
-  ];
+  const generationScenarios = computed(() => {
+    if (recentPackages.value.length) {
+      return recentPackages.value.map((item) => ({
+        topic: item.topic,
+        time: item.subject,
+        status: `已生成 ${item.artifacts.length} 个真实产物`,
+      }));
+    }
+    return [
+      { topic: 'SQL 联结查询', time: '数据库系统', status: '适合生成讲义+练习' },
+      { topic: '操作系统进程调度', time: '计算机基础', status: '适合生成思维导图' },
+      { topic: 'Python 文件读写', time: '程序设计', status: '适合生成实操案例' },
+    ];
+  });
 
   const modelProfile = computed(() => result.value?.local_model_profile || {});
   const activeAgentCount = computed(() =>
@@ -131,6 +144,14 @@
       ...item,
       label: resourceOptions.find((option) => option.value === item.kind)?.label || item.kind,
     }));
+  });
+  const modelLabel = computed(() => {
+    const profile = modelProfile.value || {};
+    return (
+      profile.multimodal_model ||
+      profile.chat_model ||
+      '本地模型'
+    );
   });
 
   const applyTemplate = (template: (typeof templateCards)[number]) => {
@@ -162,6 +183,7 @@
         topic: form.topic.trim(),
         learning_goal: form.learning_goal.trim(),
       });
+      await loadRecentPackages();
       Message.success('资源包已生成');
     } catch (error: any) {
       Message.error(error?.message || '资源生成失败');
@@ -169,6 +191,27 @@
       loading.value = false;
     }
   };
+
+  const loadRecentPackages = async () => {
+    try {
+      recentPackages.value = await fetchRecentGeneratedPackages();
+    } catch {
+      recentPackages.value = [];
+    }
+  };
+
+  const openArtifact = (downloadUrl: string) => {
+    const token = getToken();
+    if (!token) {
+      Message.warning('当前登录状态已失效，请重新登录后下载');
+      return;
+    }
+    window.open(`${downloadUrl}?token=${encodeURIComponent(token)}`, '_blank');
+  };
+
+  onMounted(() => {
+    void loadRecentPackages();
+  });
 </script>
 
 <template>
@@ -314,7 +357,7 @@
 
           <div class="profile-row">
             <a-tag>{{ modelProfile.chat_provider || 'local' }}</a-tag>
-            <a-tag color="arcoblue">{{ modelProfile.chat_model || '本地模型' }}</a-tag>
+            <a-tag color="arcoblue">{{ modelLabel }}</a-tag>
             <a-tag>{{ modelProfile.embedding_provider || 'embedding' }}</a-tag>
           </div>
 
@@ -346,8 +389,7 @@
               </div>
               <a-button
                 type="outline"
-                :href="artifact.download_url"
-                target="_blank"
+                @click="openArtifact(artifact.download_url)"
               >
                 下载
               </a-button>

@@ -43,10 +43,27 @@ export interface ResourceGenerationResponse {
   artifacts: GeneratedResourceArtifact[];
 }
 
+export interface RecentGeneratedPackage {
+  package_id: string;
+  subject: string;
+  topic: string;
+  generated_at: string;
+  artifacts: Array<{
+    file_name: string;
+    file_size: number;
+  }>;
+}
+
 export function generateResourcePackage(payload: ResourceGenerationRequest) {
   return axios
     .post<ResourceGenerationResponse>('/api/resource-generation/packages', payload, {
       timeout: 0,
     })
     .then((res: any) => res.data);
+}
+
+export function fetchRecentGeneratedPackages() {
+  return axios
+    .get('/api/resource-generation/packages/recent')
+    .then((res: any) => (res.data?.packages || []) as RecentGeneratedPackage[]);
 }

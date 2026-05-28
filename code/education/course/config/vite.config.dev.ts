@@ -12,6 +12,41 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, root, '');
   const proxyTarget =
     env.VITE_DEV_API_PROXY_TARGET || 'http://127.0.0.1:8001';
+  const proxyToApiV1 = (path: string) => `/api/v1${path}`;
+  const apiV1Prefixes = [
+    '/rag',
+    '/chat',
+    '/file',
+    '/login',
+    '/users',
+    '/password-recovery',
+    '/reset-password',
+    '/dashboard',
+    '/behavior',
+    '/digital-human',
+    '/learning-report',
+    '/ai-metrics',
+    '/resource-generation',
+    '/resource-workshop',
+    '/alerts',
+    '/education',
+  ];
+  const proxy: Record<string, any> = {
+    '/api': {
+      target: proxyTarget,
+      changeOrigin: true,
+      ws: true,
+      rewrite: (path: string) => path.replace(/^\/api/, '/api/v1'),
+    },
+  };
+  for (const prefix of apiV1Prefixes) {
+    proxy[prefix] = {
+      target: proxyTarget,
+      changeOrigin: true,
+      ws: true,
+      rewrite: (path: string) => proxyToApiV1(path),
+    };
+  }
 
   console.log(
     `[vite-dev] API proxy enabled: /api -> ${proxyTarget.replace(/\/$/, '')}/api/v1`
@@ -25,15 +60,7 @@ export default defineConfig(({ mode }) => {
         fs: {
           strict: true,
         },
-        proxy: {
-          '/api': {
-            target: proxyTarget,
-            changeOrigin: true,
-            ws: true,
-            // 将 /api 映射到后端的 /api/v1
-            rewrite: (path) => path.replace(/^\/api/, '/api/v1'),
-          },
-        },
+        proxy,
       },
       plugins: [
         // 开发环境禁用 ESLint 避免格式警告

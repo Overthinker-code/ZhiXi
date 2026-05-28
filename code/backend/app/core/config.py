@@ -211,6 +211,7 @@ class Settings(BaseSettings):
     MEMORY_PROFILE_AUTO_REFRESH: bool = True
     MEMORY_PROFILE_MAX_TURNS: int = 20
     MEMORY_PROFILE_MAX_CHARS: int = 12000
+    LEARNING_REPORT_LLM_TIMEOUT_SECONDS: int = 8
     DEMO_MODE: bool = False
     DEMO_FAKE_CHAT_CACHE: bool = False
     DEVELOPER_PANEL_ENABLED: bool = True
