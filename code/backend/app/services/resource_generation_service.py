@@ -192,6 +192,8 @@ class ResourceGenerationService:
                     payload = json.loads(manifest.read_text(encoding="utf-8"))
                 except Exception:
                     payload = {}
+            if not payload:
+                payload = self._infer_manifest_from_artifacts(folder)
             packages.append(
                 {
                     "package_id": folder.name,
@@ -210,6 +212,33 @@ class ResourceGenerationService:
                 }
             )
         return packages
+
+    @staticmethod
+    def _infer_manifest_from_artifacts(folder: Path) -> dict[str, object]:
+        lecture = folder / "lecture.md"
+        subject = ""
+        topic = folder.name
+        if lecture.exists():
+            try:
+                text = lecture.read_text(encoding="utf-8", errors="ignore")
+                for line in text.splitlines():
+                    if line.startswith("课程："):
+                        subject = line.replace("课程：", "", 1).strip()
+                    elif line.startswith("# "):
+                        topic = (
+                            line.replace("# ", "", 1)
+                            .replace(" 个性化讲义", "")
+                            .strip()
+                            or topic
+                        )
+            except Exception:
+                pass
+        return {
+            "package_id": folder.name,
+            "subject": subject,
+            "topic": topic,
+            "generated_at": datetime.fromtimestamp(folder.stat().st_mtime).isoformat(),
+        }
 
     def _build_context(self, request: ResourceGenerationRequest) -> dict[str, str]:
         goal = request.learning_goal or f"掌握 {request.topic} 的核心概念、典型题型和应用方法"
@@ -249,7 +278,7 @@ class ResourceGenerationService:
             title=title,
             file_name=safe_name,
             file_path=str(path),
-            download_url=f"/api/resource-generation/artifacts/{target_dir.name}/{safe_name}",
+            download_url=f"/api/v1/resource-generation/artifacts/{target_dir.name}/{safe_name}",
             content_type=content_type,
             file_size=stat.st_size,
             preview=preview,
