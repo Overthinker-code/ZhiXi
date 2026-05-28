@@ -13,6 +13,8 @@ export default defineConfig(({ mode }) => {
   const proxyTarget =
     env.VITE_DEV_API_PROXY_TARGET || 'http://127.0.0.1:8001';
   const proxyToApiV1 = (path: string) => `/api/v1${path}`;
+  const rewriteApiPath = (path: string) =>
+    path.startsWith('/api/v1/') ? path : path.replace(/^\/api/, '/api/v1');
   const apiV1Prefixes = [
     '/rag',
     '/chat',
@@ -36,7 +38,7 @@ export default defineConfig(({ mode }) => {
       target: proxyTarget,
       changeOrigin: true,
       ws: true,
-      rewrite: (path: string) => path.replace(/^\/api/, '/api/v1'),
+      rewrite: rewriteApiPath,
     },
   };
   for (const prefix of apiV1Prefixes) {
