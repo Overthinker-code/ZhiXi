@@ -15,6 +15,8 @@ class ChatBase(BaseModel):
     temperature: Optional[float] = None
     top_p: Optional[float] = None
     top_k: Optional[int] = None
+    image_base64_list: Optional[List[str]] = None
+    tool_mode: Optional[str] = "chat"
     force_agent: Optional[str] = None
     force_cache: Optional[bool] = False
     debug_mode: Optional[bool] = False

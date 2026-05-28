@@ -15,11 +15,25 @@ from app.schemas.chat_thread import ChatThreadCreate
 from app.services.background_tasks import schedule_memory_profile_refresh
 from app.services.chat_artifact_service import upsert_chat_artifact, attach_chat_artifact
 
+
+_ALLOWED_TOOL_MODES = {
+    "chat",
+    "exercise_grading",
+    "image_tutoring",
+    "digital_human_explain",
+}
+
+
+def _normalize_tool_mode(tool_mode: str | None) -> str:
+    normalized = (tool_mode or "chat").strip()
+    return normalized if normalized in _ALLOWED_TOOL_MODES else "chat"
+
+
 class ChatProvider(BaseProvider[Chat, ChatCreate, ChatUpdate]):
     def get_by_thread_id(self, db: Session, *, thread_id: str) -> List[Chat]:
         """获取指定thread_id的所有对话记录"""
         return db.query(Chat).filter(Chat.thread_id == thread_id).all()
-    
+
     def create_with_ai_response(
         self, db: Session, *, obj_in: ChatCreate, current_user: User | None = None
     ) -> Chat:
@@ -52,6 +66,8 @@ class ChatProvider(BaseProvider[Chat, ChatCreate, ChatUpdate]):
             thread_id=thread_id,
             user_id=user_id,
             is_admin=bool(getattr(current_user, "is_superuser", False)) if current_user else False,
+            image_base64_list=obj_in.image_base64_list,
+            tool_mode=_normalize_tool_mode(obj_in.tool_mode),
             force_agent=obj_in.force_agent,
             force_cache=bool(obj_in.force_cache),
             debug_mode=bool(obj_in.debug_mode),
@@ -60,7 +76,7 @@ class ChatProvider(BaseProvider[Chat, ChatCreate, ChatUpdate]):
         effective_system_prompt = resolve_system_prompt(
             obj_in.prompt_key or "tutor", obj_in.system_prompt or ""
         )
-        
+
         chat_data = {
             "thread_id": thread_id,
             "user_input": obj_in.user_input,
@@ -88,7 +104,7 @@ class ChatProvider(BaseProvider[Chat, ChatCreate, ChatUpdate]):
         )
         attach_chat_artifact(db_obj, artifact)
         return db_obj
-    
+
     def get_chat_history(
         self, db: Session, *, thread_id: str, skip: int = 0, limit: int = 100
     ) -> List[Chat]:

@@ -66,6 +66,11 @@ class DocumentProcessor:
         metadata = self._build_metadata(file_path, doc_type="markdown")
         return self._split_text(text, metadata=metadata)
 
+    def process_plain_text(self, file_path: str) -> List[Document]:
+        text = self._read_plain_text(file_path)
+        metadata = self._build_metadata(file_path, doc_type="text")
+        return self._split_text(text, metadata=metadata)
+
     def _read_plain_text(self, file_path: str) -> str:
         for encoding in ("utf-8-sig", "utf-8", "gb18030"):
             try:
@@ -118,7 +123,7 @@ class DocumentProcessor:
                     if hasattr(shape, "text"):
                         text += shape.text + "\n"
             return text
-        elif ext in (".md", ".markdown"):
+        elif ext in (".md", ".markdown", ".txt", ".py", ".js", ".ts", ".java", ".cpp", ".c", ".sql"):
             return self._read_plain_text(file_path)
         else:
             raise ValueError(f"Unsupported file type: {ext}")
@@ -134,6 +139,8 @@ class DocumentProcessor:
             return "ppt"
         elif ext in (".md", ".markdown"):
             return "markdown"
+        elif ext in (".txt", ".py", ".js", ".ts", ".java", ".cpp", ".c", ".sql"):
+            return "text"
         else:
             return "unknown"
 
@@ -148,6 +155,14 @@ class DocumentProcessor:
             ".ppt": self.process_ppt,
             ".md": self.process_markdown,
             ".markdown": self.process_markdown,
+            ".txt": self.process_plain_text,
+            ".py": self.process_plain_text,
+            ".js": self.process_plain_text,
+            ".ts": self.process_plain_text,
+            ".java": self.process_plain_text,
+            ".cpp": self.process_plain_text,
+            ".c": self.process_plain_text,
+            ".sql": self.process_plain_text,
         }
 
         processor = processors.get(file_extension)

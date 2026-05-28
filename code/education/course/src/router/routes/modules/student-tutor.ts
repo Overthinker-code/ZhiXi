@@ -5,21 +5,24 @@ const STUDENT_TUTOR: AppRouteRecordRaw = {
   path: '/student-tutor',
   name: 'studentTutor',
   component: DEFAULT_LAYOUT,
+  redirect: '/assistant/chat',
   meta: {
     locale: '智屿伴学中心',
     requiresAuth: true,
     icon: 'icon-robot',
     order: 2.2,
+    hideInMenu: true,
   },
   children: [
     {
       path: '',
       name: 'StudentTutor',
-      component: () => import('@/views/chat/ChatView.vue'),
+      redirect: '/assistant/chat',
       meta: {
         locale: '智屿伴学中心',
         requiresAuth: true,
         roles: ['student'],
+        hideInMenu: true,
       },
     },
   ],

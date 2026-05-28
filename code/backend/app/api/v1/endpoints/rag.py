@@ -12,11 +12,19 @@ router = APIRouter()
 rag_service = RAGService()
 
 ALLOWED_UPLOAD_EXTENSIONS = {
+    ".c",
+    ".cpp",
     ".doc",
     ".docx",
+    ".java",
+    ".js",
     ".pdf",
     ".ppt",
     ".pptx",
+    ".py",
+    ".sql",
+    ".ts",
+    ".txt",
     ".md",
     ".markdown",
 }

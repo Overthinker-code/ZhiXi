@@ -38,7 +38,7 @@ export function fetchCourses(params: CourseQueryParams = {}) {
   if (params.ud_id) queryParams.append('ud_id', params.ud_id);
 
   const queryString = queryParams.toString();
-  const url = `/education/courses${queryString ? `?${queryString}` : ''}`;
+  const url = `/api/education/courses${queryString ? `?${queryString}` : ''}`;
 
   return axios
     .get(url, { timeout: READ_TIMEOUT_MS })
@@ -47,7 +47,7 @@ export function fetchCourses(params: CourseQueryParams = {}) {
 
 export function fetchCourseById(courseId: string) {
   return axios
-    .get(`/education/courses/${courseId}`, { timeout: READ_TIMEOUT_MS })
+    .get(`/api/education/courses/${courseId}`, { timeout: READ_TIMEOUT_MS })
     .then((res) => res.data as Course);
 }
 
@@ -62,7 +62,7 @@ export interface TeachingClass {
 
 export function fetchTeachingClasses(courseId: string) {
   return axios
-    .get(`/education/tc?course_id=${courseId}`, { timeout: READ_TIMEOUT_MS })
+    .get(`/api/education/tc?course_id=${courseId}`, { timeout: READ_TIMEOUT_MS })
     .then((res) => res.data as { data: TeachingClass[]; count: number });
 }
 
@@ -78,17 +78,8 @@ export interface CourseResourceAnalysis {
 
 export function fetchCourseResourceAnalysis(courseId: string) {
   return axios
-    .get(`/education/courses/${courseId}/resources/analysis`, {
+    .get(`/api/education/courses/${courseId}/resources/analysis`, {
       timeout: READ_TIMEOUT_MS,
     })
     .then((res) => res.data as CourseResourceAnalysis)
-    .catch(() => ({
-      document_size: 8.5,
-      document_count: 76692,
-      video_size: 10.2,
-      video_count: 148,
-      image_size: 13.2,
-      image_count: 96,
-      homework_count: 1535,
-    }));
 }

@@ -94,6 +94,93 @@ function needsFreshWebSearch(text: string) {
   );
 }
 
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('图片读取失败'));
+    reader.readAsDataURL(file);
+  });
+}
+
+type ChatSendOptions = {
+  useWebSearch?: boolean;
+  deepThinking?: boolean;
+  mode?: 'chat' | 'exercise_grading' | 'digital_human_explain';
+  gradingMode?: boolean;
+  digitalHumanExplain?: boolean;
+  activeTools?: string[];
+  toolMode?: 'chat' | 'exercise_grading' | 'image_tutoring' | 'digital_human_explain';
+};
+
+type ChatSendContent = {
+  text: string;
+  files?: any[];
+  options?: ChatSendOptions;
+};
+
+function uniqueTools(tools: string[]) {
+  return Array.from(new Set(tools.filter(Boolean)));
+}
+
+function inferToolMode(messageContent: ChatSendContent) {
+  const text = messageContent.text || '';
+  if (
+    messageContent.options?.gradingMode ||
+    messageContent.options?.mode === 'exercise_grading' ||
+    messageContent.options?.toolMode === 'exercise_grading'
+  ) {
+    return 'exercise_grading' as const;
+  }
+  if (
+    messageContent.options?.digitalHumanExplain ||
+    messageContent.options?.mode === 'digital_human_explain' ||
+    messageContent.options?.toolMode === 'digital_human_explain'
+  ) {
+    return 'digital_human_explain' as const;
+  }
+  if (/批改|评分|打分|订正|错因|我的答案|参考答案|掌握度/.test(text)) {
+    return 'exercise_grading' as const;
+  }
+  if ((messageContent.files || []).some((f: any) => String(f?.type || '').startsWith('image'))) {
+    return 'image_tutoring' as const;
+  }
+  return 'chat' as const;
+}
+
+function buildModePrompt(messageContent: ChatSendContent, toolMode: string) {
+  const sections: string[] = [];
+  const hasImages = (messageContent.files || []).some((f: any) =>
+    String(f?.type || '').startsWith('image')
+  );
+  if (messageContent.options?.useWebSearch) {
+    sections.push(
+      '已开启联网搜索：涉及外部事实、时效信息或来源校验时可以使用 web_search；最终回答必须单独写出「联网搜索补充」，标注来源类型、可信度判断和与课程资料的关系。'
+    );
+  }
+  if (messageContent.options?.deepThinking) {
+    sections.push(
+      '已开启深度思考：先拆解问题、核对约束和隐含条件，再给出结构化结论；只展示必要推理摘要，不暴露冗长内部过程。'
+    );
+  }
+  if (toolMode === 'exercise_grading') {
+    sections.push(
+      '已开启批改模式：请按「结论与得分、得分点、问题定位、订正建议、同类题提醒、掌握度反馈」输出。若题干或标准答案缺失，先说明评分假设，再给出可执行反馈；避免只给泛泛鼓励。'
+    );
+  }
+  if (messageContent.options?.digitalHumanExplain) {
+    sections.push(
+      '已开启数字人讲解：回答要适合直接转成教师数字人口播，包含开场、分点讲解、课堂提问和收束语；语言自然、节奏清晰。'
+    );
+  }
+  if (hasImages) {
+    sections.push(
+      '学生上传了图片：请把图片识别内容作为输入证据，与学生文字和课程知识联合判断；不确定的视觉细节必须说明。'
+    );
+  }
+  return sections.join('\n');
+}
+
 /**
  * Composable for managing AI chat interactions.
  * Extracts conversation logic from LegacyAssistantPanel into a reusable hook.
@@ -203,7 +290,7 @@ export function useChat() {
   /**
    * Send a user message and get an AI response.
    */
-  async function sendMessage(messageContent: { text: string; files?: any[] }) {
+  async function sendMessage(messageContent: ChatSendContent) {
     if (chatStore.isLoading) return;
     if (!currentThreadId.value) {
       if (!getToken()) {
@@ -234,6 +321,9 @@ export function useChat() {
     const needTitleSync =
       userCountBeforeSend === 0 && isGenericThreadTitle(existingTitle);
     let mountedFile = chatStore.getMountedFile(threadIdForTitle);
+    const imageFiles = (messageContent.files || []).filter((f: any) =>
+      String(f?.type || '').startsWith('image')
+    );
     const firstDoc = (messageContent.files || []).find((f: any) => {
       const raw = f?.raw;
       const name = String(f?.name || '').toLowerCase();
@@ -243,8 +333,18 @@ export function useChat() {
         name.endsWith('.pdf') ||
         name.endsWith('.doc') ||
         name.endsWith('.docx') ||
+        name.endsWith('.txt') ||
         name.endsWith('.md') ||
-        name.endsWith('.markdown')
+        name.endsWith('.markdown') ||
+        name.endsWith('.ppt') ||
+        name.endsWith('.pptx') ||
+        name.endsWith('.py') ||
+        name.endsWith('.js') ||
+        name.endsWith('.ts') ||
+        name.endsWith('.java') ||
+        name.endsWith('.cpp') ||
+        name.endsWith('.c') ||
+        name.endsWith('.sql')
       );
     });
 
@@ -277,10 +377,39 @@ export function useChat() {
         }
       }
 
+      const imageBase64List = (
+        await Promise.all(
+          imageFiles
+            .filter((file: any) => file?.raw)
+            .slice(0, 3)
+            .map((file: any) => fileToDataUrl(file.raw))
+        )
+      ).filter(Boolean);
+      const visibleUserText =
+        messageContent.text?.trim() ||
+        (imageFiles.length
+          ? '请解析我上传的图片，并结合课程内容回答。'
+          : firstDoc
+            ? `请结合我上传的文件《${firstDoc.name || '参考文件'}》回答。`
+            : '');
+      const toolMode = inferToolMode({
+        ...messageContent,
+        text: visibleUserText,
+      });
+      const modePrompt = buildModePrompt(messageContent, toolMode);
+      const userTextForModel =
+        toolMode === 'exercise_grading'
+          ? `【练习批改模式】\n请对下面题目或答案进行批改，必须包含：评分/等级、关键得分点、错误证据、订正步骤、后续练习建议、掌握度反馈。\n\n${visibleUserText}`
+          : toolMode === 'digital_human_explain'
+              ? `【数字人讲解模式】\n请把下面内容组织成适合数字人教师讲解的视频口播稿，结构清晰、面向学生。\n\n${visibleUserText}`
+              : imageBase64List.length
+                ? `【图像与文本联合提问】\n学生上传了图片，并补充以下文字。请结合图片识别内容、文字信息和课程知识进行回答；如果图片细节不确定，请明确说明。\n\n${visibleUserText}`
+                : visibleUserText;
+
       chatStore.addMessage(
         messageHandler.formatMessage(
           'user',
-          messageContent.text,
+          visibleUserText,
           '',
           messageContent.files
         )
@@ -299,12 +428,20 @@ export function useChat() {
       if (lastMessage) lastMessage.loading = true;
 
       const rawTemperature = Number(settingStore.settings.temperature);
-      const activeTools = [...(settingStore.settings.activeTools || [])];
+      const optionTools = messageContent.options?.activeTools || [];
+      const activeTools = uniqueTools([
+        ...(settingStore.settings.activeTools || []),
+        ...optionTools,
+        messageContent.options?.useWebSearch ? 'web_search' : '',
+        messageContent.options?.deepThinking ? 'deep_thinking' : '',
+        messageContent.options?.digitalHumanExplain ? 'digital_human_explain' : '',
+      ]);
       if (
+        !messageContent.options?.useWebSearch &&
         settingStore.settings.promptKey === 'tutor' &&
         activeTools.includes('knowledge_base') &&
         activeTools.includes('web_search') &&
-        !needsFreshWebSearch(messageContent.text)
+        !needsFreshWebSearch(visibleUserText)
       ) {
         const webSearchIndex = activeTools.indexOf('web_search');
         if (webSearchIndex >= 0) {
@@ -313,7 +450,12 @@ export function useChat() {
       }
 
       const commonOptions = {
-        systemPrompt: settingStore.settings.customSystemPrompt || '',
+        systemPrompt: [
+          settingStore.settings.customSystemPrompt || '',
+          modePrompt,
+        ]
+          .filter(Boolean)
+          .join('\n\n'),
         ragK: settingStore.settings.ragK as 3 | 4 | 5,
         promptKey: settingStore.settings.promptKey,
         strictMode: settingStore.settings.strictMode,
@@ -347,12 +489,14 @@ export function useChat() {
         let groundingMode = '';
         let metrics: Record<string, any> = {};
         await createAssistantChatStream(
-          messageContent.text,
+          userTextForModel,
           currentThreadId.value,
           {
             ...commonOptions,
             currentFileId: mountedFile?.file_id || undefined,
             fileName: mountedFile?.file_name || undefined,
+            imageBase64List,
+            toolMode,
           },
           (event) => {
             if (event.type === 'thought') {
@@ -426,12 +570,14 @@ export function useChat() {
         roundSucceeded = true;
       } else {
         const response = await createAssistantChat(
-          messageContent.text,
+          userTextForModel,
           currentThreadId.value,
           {
             ...commonOptions,
             currentFileId: mountedFile?.file_id || undefined,
             fileName: mountedFile?.file_name || undefined,
+            imageBase64List,
+            toolMode,
           }
         );
         const { content, reasoning } = parseAssistantResponse(

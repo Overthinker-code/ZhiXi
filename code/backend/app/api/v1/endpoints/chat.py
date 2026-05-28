@@ -31,6 +31,29 @@ from app.services.background_tasks import schedule_memory_profile_refresh
 router = APIRouter()
 
 _MAX_PRIOR_TURNS = 48
+_MAX_CHAT_IMAGES = 3
+_MAX_CHAT_IMAGE_BASE64_CHARS = 8 * 1024 * 1024
+_ALLOWED_TOOL_MODES = {
+    "chat",
+    "exercise_grading",
+    "image_tutoring",
+    "digital_human_explain",
+}
+
+
+def _normalize_tool_mode(tool_mode: str | None) -> str:
+    normalized = (tool_mode or "chat").strip()
+    return normalized if normalized in _ALLOWED_TOOL_MODES else "chat"
+
+
+def _validate_chat_images(images: list[str] | None) -> None:
+    cleaned = [item for item in (images or []) if item]
+    if len(cleaned) > _MAX_CHAT_IMAGES:
+        raise HTTPException(status_code=413, detail=f"最多支持上传 {_MAX_CHAT_IMAGES} 张图片")
+    for item in cleaned:
+        body = item.split(",", 1)[1] if "," in item[:80] else item
+        if len(body) > _MAX_CHAT_IMAGE_BASE64_CHARS:
+            raise HTTPException(status_code=413, detail="单张图片过大，请压缩到 6MB 以内")
 
 
 def _prior_turns_for_request(
@@ -127,6 +150,8 @@ class ChatStreamRequest(BaseModel):
     course_module: str | None = None
     current_file_id: str | None = None
     file_name: str | None = None
+    image_base64_list: list[str] | None = None
+    tool_mode: str = "chat"
     force_agent: AgentName | None = None
     force_cache: bool = False
     debug_mode: bool = False
@@ -330,6 +355,7 @@ def create_chat(
     创建新的对话并获取AI响应。
     """
     try:
+        _validate_chat_images(chat_in.image_base64_list)
         chat = chat_provider.create_with_ai_response(
             db, obj_in=chat_in, current_user=current_user
         )
@@ -361,6 +387,7 @@ def stream_chat(
     request: ChatStreamRequest,
     current_user: CurrentUser,
 ):
+    _validate_chat_images(request.image_base64_list)
     user_id = str(current_user.id) if current_user else None
     prior_turns = _prior_turns_for_request(
         db, thread_id=request.thread_id, user_id=user_id
@@ -393,6 +420,8 @@ def stream_chat(
                 prior_turns=prior_turns or None,
                 current_file_id=request.current_file_id,
                 file_name=request.file_name,
+                image_base64_list=request.image_base64_list,
+                tool_mode=_normalize_tool_mode(request.tool_mode),
                 force_agent=request.force_agent,
                 force_cache=bool(request.force_cache),
                 debug_mode=bool(request.debug_mode),
@@ -461,6 +490,7 @@ def selection_query(
     current_user: CurrentUser,
 ) -> Any:
     try:
+        _validate_chat_images(request.image_base64_list)
         user_id = str(current_user.id) if current_user else None
         prior_turns = _prior_turns_for_request(
             db, thread_id=request.thread_id, user_id=user_id
@@ -488,6 +518,8 @@ def selection_query(
             prior_turns=prior_turns or None,
             current_file_id=request.current_file_id,
             file_name=request.file_name,
+            image_base64_list=request.image_base64_list,
+            tool_mode=_normalize_tool_mode(request.tool_mode),
             force_agent=request.force_agent,
             force_cache=bool(request.force_cache),
             debug_mode=bool(request.debug_mode),

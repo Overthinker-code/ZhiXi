@@ -63,10 +63,10 @@ def run_schema_migrations() -> None:
 def ensure_sqlalchemy_tables() -> None:
     # SQLAlchemy tables used by chat/history modules
     Base.metadata.create_all(bind=engine)
+    run_schema_migrations()
     # SQLModel tables used by auth/business modules + bootstrap admin user
     with Session(engine) as session:
         init_db(session)
-    run_schema_migrations()
     logger.info("Schema migrations are up to date")
 
 # Set all CORS enabled origins

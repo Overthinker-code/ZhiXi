@@ -14,9 +14,9 @@
 
 <script lang="ts" setup>
   import { computed } from 'vue';
-  import { demoAttendanceStudents } from '@/mock/demoData';
+  import { scenarioAttendanceStudents } from '@/data/teachingScenario';
 
-  const rows = computed(() => demoAttendanceStudents);
+  const rows = computed(() => scenarioAttendanceStudents);
 
   const statusClass = (status: string) => {
     if (status === '已签到') return 'ok';

@@ -17,6 +17,7 @@
   const report = ref<any | null>(null);
   const loadingMetrics = ref(false);
   const loadingReport = ref(false);
+  const showInternalPanel = import.meta.env.DEV;
 
   const close = () => emit('update:visible', false);
 
@@ -54,12 +55,12 @@
 
 <template>
   <teleport to="body">
-    <div v-if="visible" class="dev-overlay" @click.self="close">
+    <div v-if="visible && showInternalPanel" class="dev-overlay" @click.self="close">
       <aside class="dev-drawer">
         <div class="dev-header">
           <div>
-            <h3>God Mode</h3>
-            <p>开发者调试与演示控制面板</p>
+            <h3>高级诊断</h3>
+            <p>本地开发链路与性能指标</p>
           </div>
           <button type="button" class="close-btn" @click="close">×</button>
         </div>
@@ -72,14 +73,14 @@
           </label>
           <label class="dev-switch">
             <input v-model="settingStore.settings.forceCache" type="checkbox" />
-            <span>强制走演示兜底回答</span>
+            <span>启用本地兜底回答</span>
           </label>
           <label class="dev-switch">
             <input
               v-model="settingStore.settings.simulateDigitalHumanSuccess"
               type="checkbox"
             />
-            <span>模拟数字人成功（占位开关）</span>
+            <span>数字人任务快速返回</span>
           </label>
           <div class="dev-field">
             <span>强制路由专员</span>

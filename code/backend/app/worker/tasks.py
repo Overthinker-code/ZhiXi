@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import selectors
 import shlex
 import shutil
@@ -13,7 +14,12 @@ from typing import Any
 import yaml
 
 from app.core.config import settings
-from app.services.document_processor import DocumentProcessor
+from app.services.digital_human_assets import digital_human_asset_service
+from app.services.digital_human_fallback_renderer import digital_human_fallback_renderer
+from app.services.document_to_script_service import (
+    DigitalHumanScript,
+    document_to_script_service,
+)
 from app.services.digital_human_tts import synthesize_edge_tts_to_file
 from app.services.user_memory_profile_service import user_memory_profile_service
 from app.worker.celery_app import celery, celery_enabled
@@ -36,20 +42,22 @@ if celery_enabled():
             raise RuntimeError(f"{label} 不存在：{path}")
 
 
-    def _extract_script_text(job_type: str, text: str | None, source_path: str | None) -> str:
+    def _build_digital_human_script(
+        job_type: str,
+        text: str | None,
+        source_path: str | None,
+        title: str | None,
+    ) -> DigitalHumanScript:
         if job_type == "text_to_video":
-            body = (text or "").strip()
-            if not body:
-                raise RuntimeError("文本生成视频任务缺少脚本文本")
-            return body
+            return document_to_script_service.build_text_script(text or "", title=title)
         if not source_path:
             raise RuntimeError("课件生成视频任务缺少源文件")
-        processor = DocumentProcessor()
-        extracted = processor.extract_text(source_path)
-        script = " ".join((extracted or "").split())
-        if not script:
-            raise RuntimeError("上传的课件未提取到可用文本")
-        return script[:6000]
+        return document_to_script_service.build_document_script(source_path, title=title)
+
+
+    def _extract_script_text(job_type: str, text: str | None, source_path: str | None) -> str:
+        script = _build_digital_human_script(job_type, text, source_path, None)
+        return script.narration[:6000]
 
 
     def _normalize_progress(progress: int | float) -> int:
@@ -363,6 +371,94 @@ if celery_enabled():
         )
 
 
+    def _render_with_fallback(
+        task,
+        *,
+        task_id: str,
+        script: DigitalHumanScript,
+        audio_path: Path,
+        video_path: Path,
+        digital_human_id: str | None,
+    ) -> None:
+        _update_progress(
+            task,
+            progress=68,
+            message="正在合成数字人教师兜底视频",
+            stage="fallback_render",
+        )
+        asset = digital_human_asset_service.get_asset(digital_human_id)
+        work_dir = Path(settings.DIGITAL_HUMAN_OUTPUT_DIR) / "fallback_runs" / task_id
+        digital_human_fallback_renderer.render(
+            task_id=task_id,
+            script=script,
+            asset=asset,
+            audio_path=audio_path,
+            output_path=video_path,
+            work_dir=work_dir,
+        )
+
+
+    def _render_with_preferred_engine(
+        task,
+        *,
+        task_id: str,
+        engine: str,
+        script: DigitalHumanScript,
+        audio_path: Path,
+        video_path: Path,
+        digital_human_id: str | None,
+    ) -> str:
+        if engine == "fallback":
+            _render_with_fallback(
+                task,
+                task_id=task_id,
+                script=script,
+                audio_path=audio_path,
+                video_path=video_path,
+                digital_human_id=digital_human_id,
+            )
+            return "fallback"
+        try:
+            if engine == "musetalk":
+                _render_with_musetalk(
+                    task,
+                    task_id=task_id,
+                    audio_path=audio_path,
+                    video_path=video_path,
+                )
+                return "musetalk"
+            if engine == "wav2lip":
+                _update_progress(
+                    task,
+                    progress=75,
+                    message="正在驱动数字人唇形",
+                    stage="wav2lip",
+                )
+                _render_with_wav2lip(audio_path=audio_path, video_path=video_path)
+                return "wav2lip"
+            raise RuntimeError(
+                "DIGITAL_HUMAN_ENGINE 配置无效，请使用 musetalk、wav2lip 或 fallback。"
+            )
+        except Exception as exc:
+            if not settings.DIGITAL_HUMAN_ALLOW_FALLBACK_RENDERER:
+                raise
+            _update_progress(
+                task,
+                progress=66,
+                message=f"重模型渲染不可用，改用稳定兜底合成：{str(exc)[:120]}",
+                stage="fallback_prepare",
+            )
+            _render_with_fallback(
+                task,
+                task_id=task_id,
+                script=script,
+                audio_path=audio_path,
+                video_path=video_path,
+                digital_human_id=digital_human_id,
+            )
+            return f"fallback_after_{engine}"
+
+
     @celery.task(bind=True, name="digital_human.generate_video")
     def generate_video_task(
         self,
@@ -382,6 +478,7 @@ if celery_enabled():
 
         audio_path = output_dir / f"{task_id}.wav"
         video_path = output_dir / f"{task_id}.mp4"
+        script_path = output_dir / f"{task_id}_script.json"
         selected_voice = (voice_id or settings.DIGITAL_HUMAN_EDGE_TTS_VOICE).strip()
         engine = settings.DIGITAL_HUMAN_ENGINE.strip().lower()
 
@@ -392,7 +489,12 @@ if celery_enabled():
                 message="准备脚本与语音参数",
                 stage="prepare",
             )
-            script_text = _extract_script_text(job_type, text, source_path)
+            script = _build_digital_human_script(job_type, text, source_path, title)
+            script_text = script.narration[:6000]
+            script_path.write_text(
+                json.dumps(script.to_dict(), ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
 
             _update_progress(
                 self,
@@ -413,25 +515,15 @@ if celery_enabled():
                 stage="tts",
             )
 
-            if engine == "musetalk":
-                _render_with_musetalk(
-                    self,
-                    task_id=task_id,
-                    audio_path=audio_path,
-                    video_path=video_path,
-                )
-            elif engine == "wav2lip":
-                _update_progress(
-                    self,
-                    progress=75,
-                    message="正在驱动数字人唇形",
-                    stage="wav2lip",
-                )
-                _render_with_wav2lip(audio_path=audio_path, video_path=video_path)
-            else:
-                raise RuntimeError(
-                    "DIGITAL_HUMAN_ENGINE 配置无效，请使用 musetalk 或 wav2lip。"
-                )
+            render_engine = _render_with_preferred_engine(
+                self,
+                task_id=task_id,
+                engine=engine,
+                script=script,
+                audio_path=audio_path,
+                video_path=video_path,
+                digital_human_id=digital_human_id,
+            )
 
             if audio_path.exists():
                 audio_path.unlink()
@@ -442,9 +534,12 @@ if celery_enabled():
                 "stage": "done",
                 "message": "渲染完成",
                 "video_url": f"/api/digital-human/media/{video_path.name}",
+                "script_url": f"/api/digital-human/scripts/{script_path.name}",
                 "job_type": job_type,
                 "title": title or "",
                 "digital_human_id": digital_human_id or "",
+                "render_engine": render_engine,
+                "gesture_timeline": script.gesture_timeline,
             }
         except Exception as exc:
             return {

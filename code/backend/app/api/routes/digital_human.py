@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -9,6 +11,7 @@ from pydantic import BaseModel
 
 from app.api.deps import CurrentUser
 from app.core.config import settings
+from app.services.digital_human_assets import digital_human_asset_service
 from app.services.digital_human_service import digital_human_service
 from app.worker.celery_app import celery, celery_enabled
 
@@ -122,6 +125,9 @@ def get_digital_human_job_status(
             "message": result.get("message") or "渲染完成",
             "stage": result.get("stage") or "done",
             "video_url": result.get("video_url"),
+            "script_url": result.get("script_url"),
+            "render_engine": result.get("render_engine"),
+            "gesture_timeline": result.get("gesture_timeline") or [],
         }
 
     failure = task.info
@@ -144,3 +150,101 @@ def stream_digital_human_media(filename: str):
         media_type="video/mp4",
         filename=safe_name,
     )
+
+
+@router.get("/scripts/{filename}")
+def stream_digital_human_script(filename: str):
+    safe_name = os.path.basename(filename)
+    file_path = Path(settings.DIGITAL_HUMAN_OUTPUT_DIR) / safe_name
+    if file_path.suffix.lower() != ".json" or not file_path.exists():
+        raise HTTPException(status_code=404, detail="生成脚本不存在")
+    return FileResponse(
+        file_path,
+        media_type="application/json",
+        filename=safe_name,
+    )
+
+
+@router.get("/assets")
+def list_digital_human_assets(current_user: CurrentUser):
+    return {
+        "assets": digital_human_asset_service.list_assets(),
+        "gestures": digital_human_asset_service.gesture_manifest(),
+    }
+
+
+@router.get("/works")
+def list_digital_human_works(current_user: CurrentUser):
+    output_dir = Path(settings.DIGITAL_HUMAN_OUTPUT_DIR)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    works = []
+    for video_path in sorted(
+        output_dir.glob("*.mp4"),
+        key=lambda item: item.stat().st_mtime,
+        reverse=True,
+    ):
+        script_path = output_dir / f"{video_path.stem}_script.json"
+        title = video_path.stem
+        job_type = "text"
+        description = "数字人讲解视频"
+        if script_path.exists():
+            try:
+                import json
+
+                script = json.loads(script_path.read_text(encoding="utf-8"))
+                title = str(script.get("title") or title)
+                description = str(script.get("narration") or description)[:120]
+                source_kind = str(script.get("source_kind") or "")
+                job_type = "ppt" if source_kind in {"ppt", "pptx", "pdf"} else "text"
+            except Exception:
+                pass
+        stat = video_path.stat()
+        works.append(
+            {
+                "id": video_path.stem,
+                "title": title,
+                "description": description,
+                "type": job_type,
+                "duration": "",
+                "file_size": stat.st_size,
+                "created_at": datetime.fromtimestamp(
+                    stat.st_mtime, tz=timezone.utc
+                ).isoformat(),
+                "video_url": f"/api/digital-human/media/{video_path.name}",
+                "script_url": (
+                    f"/api/digital-human/scripts/{script_path.name}"
+                    if script_path.exists()
+                    else None
+                ),
+                "digital_human_id": "teacher-default",
+                "digital_human_name": "默认教师数字人",
+            }
+        )
+    return {"works": works}
+
+
+@router.get("/health")
+def get_digital_human_health(current_user: CurrentUser):
+    checks = {
+        "celery_enabled": celery_enabled(),
+        "ffmpeg": bool(
+            settings.DIGITAL_HUMAN_FFMPEG_PATH.strip()
+            or shutil.which("ffmpeg")
+        ),
+        "fallback_renderer": settings.DIGITAL_HUMAN_ALLOW_FALLBACK_RENDERER,
+        "musetalk_dir": os.path.exists(settings.DIGITAL_HUMAN_MUSETALK_DIR),
+        "musetalk_unet": os.path.exists(settings.DIGITAL_HUMAN_MUSETALK_UNET_MODEL_PATH),
+        "musetalk_config": os.path.exists(settings.DIGITAL_HUMAN_MUSETALK_UNET_CONFIG_PATH),
+        "wav2lip_dir": os.path.exists(settings.DIGITAL_HUMAN_WAV2LIP_DIR),
+        "default_asset": os.path.exists(
+            digital_human_asset_service.get_asset("teacher-default").source_image
+        ),
+    }
+    return {
+        "engine": settings.DIGITAL_HUMAN_ENGINE,
+        "checks": checks,
+        "ready": checks["celery_enabled"] and (
+            checks["fallback_renderer"]
+            or (checks["musetalk_dir"] and checks["musetalk_unet"] and checks["musetalk_config"])
+        ),
+    }

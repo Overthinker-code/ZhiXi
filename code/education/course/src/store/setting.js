@@ -6,15 +6,15 @@ export const useSettingStore = defineStore(
   () => {
     const developerPanelEnabled = ref(true);
     const settings = ref({
-      model: 'deepseek-chat',
+      model: 'Qwen/Qwen3-14B-Instruct',
       apiKey: import.meta.env.VITE_API_BASE_URL,
       stream: true,
       maxTokens: 32768,
       temperature: 0.7,
       topP: 0.7,
       topK: 50,
-      activeTools: ['knowledge_base', 'web_search'],
-      modelDisplay: 'deepseek-r1:7b',
+      activeTools: ['knowledge_base', 'code_sandbox'],
+      modelDisplay: 'qwen3:14b',
       ragK: 4,
       strictMode: false,
       promptKey: 'tutor',
@@ -55,7 +55,12 @@ export const useSettingStore = defineStore(
       {
         key: 'web_search',
         label: '联网搜索',
-        description: '用于补充最新公开信息',
+        description: '受控补充最新公开信息，回答中会说明来源与合理性',
+      },
+      {
+        key: 'code_sandbox',
+        label: '代码沙盒',
+        description: '运行轻量 Python 代码用于验证思路',
       },
       {
         key: 'behavior_analysis',
@@ -80,38 +85,28 @@ export const useSettingStore = defineStore(
 
 export const modelOptions = [
   {
-    label: 'DeepSeek-R1',
-    value: 'deepseek-ai/DeepSeek-R1',
+    label: 'Qwen3-14B-Instruct',
+    value: 'Qwen/Qwen3-14B-Instruct',
     maxTokens: 16384,
   },
   {
-    label: 'DeepSeek-V3',
-    value: 'deepseek-ai/DeepSeek-V3',
-    maxTokens: 4096,
+    label: 'Qwen3-32B-Instruct',
+    value: 'Qwen/Qwen3-32B-Instruct',
+    maxTokens: 32768,
   },
   {
-    label: 'DeepSeek-V2.5',
-    value: 'deepseek-ai/DeepSeek-V2.5',
-    maxTokens: 4096,
-  },
-  {
-    label: 'Qwen2.5-72B-Instruct-128K',
-    value: 'Qwen/Qwen2.5-72B-Instruct-128K',
-    maxTokens: 4096,
-  },
-  {
-    label: 'QwQ-32B-Preview',
-    value: 'Qwen/QwQ-32B-Preview',
+    label: 'Qwen3-VL-8B-Instruct',
+    value: 'Qwen/Qwen3-VL-8B-Instruct',
     maxTokens: 8192,
   },
   {
-    label: 'glm-4-9b-chat',
-    value: 'THUDM/glm-4-9b-chat',
-    maxTokens: 4096,
+    label: 'Qwen3-VL-4B-Instruct',
+    value: 'Qwen/Qwen3-VL-4B-Instruct',
+    maxTokens: 8192,
   },
   {
-    label: 'glm-4-9b-chat(Pro)',
-    value: 'Pro/THUDM/glm-4-9b-chat',
-    maxTokens: 4096,
+    label: 'Qwen3-8B-Instruct',
+    value: 'Qwen/Qwen3-8B-Instruct',
+    maxTokens: 8192,
   },
 ];

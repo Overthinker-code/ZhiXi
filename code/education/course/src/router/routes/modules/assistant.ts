@@ -23,6 +23,16 @@ const ASSISTANT: AppRouteRecordRaw = {
         roles: ['*'],
       },
     },
+    {
+      path: 'chat',
+      name: 'AssistantChat',
+      component: () => import('@/views/chat/ChatView.vue'),
+      meta: {
+        locale: 'AI 对话',
+        requiresAuth: true,
+        roles: ['*'],
+      },
+    },
   ],
 };
 

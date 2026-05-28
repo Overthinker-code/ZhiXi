@@ -16,7 +16,7 @@
 <script>
   import * as echarts from 'echarts';
   import { defineComponent, onMounted, ref } from 'vue';
-  import { demoCourseResourcePie } from '@/mock/demoData';
+  import { scenarioCourseResourcePie } from '@/data/teachingScenario';
 
   export default defineComponent({
     name: 'DoughnutChart',
@@ -66,23 +66,23 @@
               },
               data: [
                 {
-                  value: demoCourseResourcePie[0]?.value || 1884,
-                  name: demoCourseResourcePie[0]?.name || '文档',
+                  value: scenarioCourseResourcePie[0]?.value || 1884,
+                  name: scenarioCourseResourcePie[0]?.name || '文档',
                   itemStyle: { color: '#249eff' },
                 },
                 {
-                  value: demoCourseResourcePie[1]?.value || 920,
-                  name: demoCourseResourcePie[1]?.name || '作业',
+                  value: scenarioCourseResourcePie[1]?.value || 920,
+                  name: scenarioCourseResourcePie[1]?.name || '作业',
                   itemStyle: { color: '#6399ca' },
                 },
                 {
-                  value: demoCourseResourcePie[2]?.value || 5548,
-                  name: demoCourseResourcePie[2]?.name || '视频',
+                  value: scenarioCourseResourcePie[2]?.value || 5548,
+                  name: scenarioCourseResourcePie[2]?.name || '视频',
                   itemStyle: { color: '#21ccff' },
                 },
                 {
-                  value: demoCourseResourcePie[3]?.value || 933,
-                  name: demoCourseResourcePie[3]?.name || '图片',
+                  value: scenarioCourseResourcePie[3]?.value || 933,
+                  name: scenarioCourseResourcePie[3]?.name || '图片',
                   itemStyle: { color: '#313ca9' },
                 },
               ],

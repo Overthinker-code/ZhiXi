@@ -12,6 +12,9 @@ engine = create_engine(str(settings.SQLALCHEMY_DATABASE_URI))
 DEMO_UD_ID = UUID("b0000001-0000-4000-8000-000000000001")
 DEMO_TEACHER_ID = UUID("b0000002-0000-4000-8000-000000000001")
 DEMO_TC_ID = UUID("d0000001-0000-4000-8000-000000000001")
+DEMO_STUDENT_EMAIL = "syudent@example.com"
+DEMO_STUDENT_ALIASES = ("student@example.com",)
+DEMO_STUDENT_PASSWORD = "student123456"
 DEMO_COURSE_SPECS: list[tuple[UUID, str, str, str, str]] = [
     (
         UUID("c1111111-1111-4111-9111-111111111101"),
@@ -146,5 +149,26 @@ def init_db(session: Session) -> None:
         user.is_superuser = True
         session.add(user)
         session.commit()
+
+    for student_email in (DEMO_STUDENT_EMAIL, *DEMO_STUDENT_ALIASES):
+        student = session.exec(
+            select(User).where(User.email == student_email)
+        ).first()
+        if not student:
+            student_in = UserCreate(
+                email=student_email,
+                password=DEMO_STUDENT_PASSWORD,
+                username="student",
+                is_superuser=False,
+            )
+            crud.create_user(session=session, user_create=student_in)
+        else:
+            if not verify_password(DEMO_STUDENT_PASSWORD, student.hashed_password):
+                student.hashed_password = get_password_hash(DEMO_STUDENT_PASSWORD)
+            student.username = "student"
+            student.is_superuser = False
+            student.is_active = True
+            session.add(student)
+            session.commit()
 
     seed_education_demo(session)

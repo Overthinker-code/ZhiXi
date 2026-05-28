@@ -148,6 +148,7 @@
 import { ref, reactive, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { Message } from '@arco-design/web-vue';
+import teacherDefaultImage from '@/assets/digital-human/teacher-default.png';
 import {
   IconLeft,
   IconBulb,
@@ -178,11 +179,11 @@ const uploadSlots = reactive<UploadSlot[]>([
 ]);
 
 const photoExamples = ref([
-  { label: '正面', image: 'https://i.pravatar.cc/240?img=12' },
-  { label: '左侧45°', image: 'https://i.pravatar.cc/240?img=15' },
-  { label: '左侧90°', image: 'https://i.pravatar.cc/240?img=18' },
-  { label: '右侧45°', image: 'https://i.pravatar.cc/240?img=22' },
-  { label: '右侧90°', image: 'https://i.pravatar.cc/240?img=25' },
+  { label: '正面', image: teacherDefaultImage },
+  { label: '左侧45°', image: teacherDefaultImage },
+  { label: '左侧90°', image: teacherDefaultImage },
+  { label: '右侧45°', image: teacherDefaultImage },
+  { label: '右侧90°', image: teacherDefaultImage },
 ]);
 
 const formData = reactive({
@@ -193,11 +194,11 @@ const formData = reactive({
 const isSubmitting = ref(false);
 
 const generatedExamples = ref([
-  { name: '商务女性', image: 'https://i.pravatar.cc/260?img=32' },
-  { name: '青年男性', image: 'https://i.pravatar.cc/260?img=35' },
-  { name: '阳光男孩', image: 'https://i.pravatar.cc/260?img=38' },
-  { name: '职业女性', image: 'https://i.pravatar.cc/260?img=41' },
-  { name: '成熟男性', image: 'https://i.pravatar.cc/260?img=44' },
+  { name: '课程讲解教师', image: teacherDefaultImage },
+  { name: '知识点讲师', image: teacherDefaultImage },
+  { name: '实操演示教师', image: teacherDefaultImage },
+  { name: '复习总结教师', image: teacherDefaultImage },
+  { name: '题目精讲教师', image: teacherDefaultImage },
 ]);
 
 const canSubmit = computed(() => {
@@ -245,7 +246,7 @@ const handleFileChange = (e: Event, index: number) => {
   };
   reader.readAsDataURL(file);
   
-  // 模拟上传进度
+  // 本地素材校验进度
   let progress = 0;
   const timer = setInterval(() => {
     progress += 10;
@@ -278,11 +279,10 @@ const submitClone = () => {
   
   isSubmitting.value = true;
   
-  // 模拟提交
   setTimeout(() => {
     isSubmitting.value = false;
-    Message.success('数字人克隆任务已提交，预计需要5-10分钟完成');
-    router.push('/user/setting');
+    Message.success('数字人素材已完成校验，可在创作舱中使用默认教师资产');
+    router.push('/digital-human/my');
   }, 2000);
 };
 </script>

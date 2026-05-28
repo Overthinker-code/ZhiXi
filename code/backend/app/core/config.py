@@ -2,7 +2,7 @@ import os
 import secrets
 import warnings
 from pathlib import Path
-from typing import Annotated, Any, Dict, List, Literal, Optional, Union
+from typing import Annotated, Any, Literal
 
 from pydantic import (
     AnyUrl,
@@ -12,7 +12,6 @@ from pydantic import (
     PostgresDsn,
     computed_field,
     model_validator,
-    validator,
 )
 from pydantic_core import MultiHostUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -127,7 +126,7 @@ class Settings(BaseSettings):
     CHROMA_DB_PATH: str = os.path.join(BASE_PATH, "vector_db")
 
     CHAT_PROVIDER: str = "ollama"
-    CHAT_MODEL: str = "DeepSeek-R1"
+    CHAT_MODEL: str = "Qwen3-14B-Instruct"
     CHAT_TEMPERATURE: float = 0.0
     # 前端未传 max_tokens 时，协作图各专员/汇总使用的默认输出上限（可按机器与模型调大）
     CHAT_DEFAULT_MAX_TOKENS: int = 16384
@@ -141,12 +140,19 @@ class Settings(BaseSettings):
     EMBEDDINGS_PROVIDER: str = "ollama"
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
     OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "deepseek-r1:7b"
+    OLLAMA_MODEL: str = "qwen3:14b"
     OLLAMA_EMBEDDINGS_MODEL: str = "nomic-embed-text"
     VECTOR_STORE_TYPE: str = "chroma"
 
     OPENAI_API_KEY: str | None = None
     OPENAI_API_BASE: str | None = None
+
+    MULTIMODAL_PROVIDER: str = "openai_compatible"
+    MULTIMODAL_MODEL: str = "Qwen3-VL-8B-Instruct"
+    MULTIMODAL_FALLBACK_MODEL: str = "Qwen3-VL-4B-Instruct"
+    MULTIMODAL_API_BASE: str | None = None
+    MULTIMODAL_API_KEY: str | None = None
+    MULTIMODAL_TIMEOUT_SECONDS: int = 180
 
     RAG_TOP_K: int = 4
     RAG_CHUNK_SIZE: int = 1000
@@ -161,6 +167,7 @@ class Settings(BaseSettings):
     DIGITAL_HUMAN_OUTPUT_DIR: str = os.path.join(BASE_PATH, "digital_human_outputs")
     DIGITAL_HUMAN_ASSET_DIR: str = os.path.join(BASE_PATH, "digital_human_assets")
     DIGITAL_HUMAN_ENGINE: str = "musetalk"
+    DIGITAL_HUMAN_ALLOW_FALLBACK_RENDERER: bool = True
     DIGITAL_HUMAN_EDGE_TTS_BIN: str = ""
     DIGITAL_HUMAN_EDGE_TTS_VOICE: str = "zh-CN-YunxiNeural"
     DIGITAL_HUMAN_EDGE_TTS_FALLBACK_VOICES: str = (

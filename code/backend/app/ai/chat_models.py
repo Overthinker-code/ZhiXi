@@ -36,6 +36,8 @@ class State(TypedDict):
     current_thread_id: str
     current_file_id: str | None
     current_file_name: str
+    image_context: str
+    tool_mode: str
     user_memory_context: str
     rag_results: list[dict[str, Any]]
     final_citations: list[dict[str, Any]]
@@ -55,6 +57,12 @@ class SupervisorDecision(BaseModel):
         "analyst",
         "doc_researcher",
         "quiz_master",
+        "profile_agent",
+        "retrieval_agent",
+        "web_research_agent",
+        "tutor_agent",
+        "grading_agent",
+        "safety_review_agent",
         "FINISH",
     ] = Field(description="下一步执行的专员，或 FINISH 表示进入汇总")
     routing_reason: str = Field(default="", description="中文简要说明为何如此路由")
@@ -87,6 +95,13 @@ class ChatRequest(BaseModel):
     prior_turns: list[dict[str, str]] | None = None
     current_file_id: str | None = None
     file_name: str | None = None
+    image_base64_list: list[str] | None = None
+    tool_mode: Literal[
+        "chat",
+        "exercise_grading",
+        "image_tutoring",
+        "digital_human_explain",
+    ] = "chat"
     force_cache: bool = False
     debug_mode: bool = False
 

@@ -6,10 +6,7 @@
         <a-card title="学生画像" class="card-block">
           <div class="profile-row">
             <a-avatar :size="72">
-              <img
-                alt=""
-                src="https://api.dicebear.com/7.x/avataaars/svg?seed=study"
-              />
+              {{ displayName.slice(0, 1) }}
             </a-avatar>
             <div class="profile-meta">
               <div><strong>姓名</strong> {{ displayName }}</div>
@@ -278,6 +275,7 @@
     type MistakeDigest,
     type ReviewPlan,
   } from '@/api/rag';
+  import { scenarioLearningArchive } from '@/data/teachingScenario';
 
   const userStore = useUserStore();
   const displayName = computed(() => userStore.name || '同学');
@@ -289,44 +287,12 @@
   const loadingPlan = ref(false);
   const loadingMistakes = ref(false);
 
-  const enrolled = [
-    '计算机组成原理',
-    '操作系统',
-    '计算机网络',
-    '数据库原理',
-    '算法设计与分析',
-  ];
-
-  const calValue = ref(new Date(2025, 4, 10));
-
-  const eventRows = [
-    { date: '5月8日', desc: 'task4 截止 · 计算机网络课程' },
-    { date: '5月10日', desc: '实验1 截止 · 计算机组成原理' },
-    { date: '5月15日', desc: '计算机网络课程' },
-  ];
-
-  const stats = [
-    { label: '云端时长', value: 11 },
-    { label: '讨论次数', value: 2 },
-    { label: '互动次数', value: 4 },
-    { label: '缺勤次数', value: 0 },
-    { label: '考勤次数', value: 15 },
-    { label: '平均成绩', value: 91 },
-  ];
-
-  const warnings = [
-    { date: '2025.4.27', text: '操作系统 — 上课无故缺席' },
-    { date: '2025.4.23', text: '计算机网络 — 实验作业未提交' },
-    { date: '2025.3.15', text: '算法设计与分析 — 未发布讨论' },
-    { date: '2025.2.25', text: '计算机组成原理 — 测试成绩不佳' },
-  ];
-
-  const pieParts = [
-    { name: '计算机组成原理', pct: 29.66, color: '#6366f1' },
-    { name: '计算机网络', pct: 26.27, color: '#1677FF' },
-    { name: '操作系统', pct: 22.88, color: '#2563eb' },
-    { name: '算法设计与分析', pct: 21.19, color: '#0ea5e9' },
-  ];
+  const enrolled = scenarioLearningArchive.enrolled;
+  const calValue = ref(scenarioLearningArchive.calendarDate);
+  const eventRows = scenarioLearningArchive.events;
+  const stats = scenarioLearningArchive.stats;
+  const warnings = scenarioLearningArchive.warnings;
+  const pieParts = scenarioLearningArchive.timeShare;
 
   const donutStyle = computed(() => {
     let start = 0;

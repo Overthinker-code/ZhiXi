@@ -1,9 +1,12 @@
 <script setup>
   import { renderMarkdown } from '@/utils/markdown';
+  import { createTextToVideoJob } from '@/api/digital-human';
   import { submitChatFeedback } from '@/api/rag';
   import { useSettingStore } from '@/store/setting';
   import { ArrowDown, Document } from '@element-plus/icons-vue';
   import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+  import useDigitalHumanJob from '@/composables/useDigitalHumanJob';
+  import { resolveMediaUrl } from '@/utils/mediaUrl';
   // 导入图片资源
   import copyIcon from '@/assets/photo/复制.png';
   import successIcon from '@/assets/photo/成功.png';
@@ -36,6 +39,14 @@
 
   // 添加复制状态
   const isCopied = ref(false);
+  const digitalHumanVideoUrl = ref('');
+  const digitalHumanError = ref('');
+  const {
+    status: digitalHumanJobStatus,
+    displayProgress: digitalHumanProgress,
+    isPolling: isDigitalHumanPolling,
+    startPolling: startDigitalHumanPolling,
+  } = useDigitalHumanJob();
 
   /** 流式回复：正文 / 思考过程追赶式「打字机」 */
   const streamTypeLen = ref(0);
@@ -171,6 +182,29 @@
   // 添加重新生成的事件
   const handleRegenerate = () => {
     emit('regenerate');
+  };
+
+  const handleCreateDigitalHumanVideo = async () => {
+    const content = String(props.message.content || '').trim();
+    if (!content || isDigitalHumanPolling.value) return;
+    digitalHumanError.value = '';
+    digitalHumanVideoUrl.value = '';
+    try {
+      const job = await createTextToVideoJob({
+        text: content,
+        title: 'AI 伴学数字人讲解',
+        digital_human_id: 'teacher-default',
+      });
+      const finalStatus = await startDigitalHumanPolling(job.task_id);
+      if (finalStatus.status === 'success' && finalStatus.video_url) {
+        digitalHumanVideoUrl.value = resolveMediaUrl(finalStatus.video_url);
+      } else {
+        digitalHumanError.value = finalStatus.message || '数字人视频生成失败';
+      }
+    } catch (error) {
+      digitalHumanError.value =
+        error instanceof Error ? error.message : '数字人视频生成失败';
+    }
   };
 
   const handleResumeAction = (approve) => {
@@ -329,6 +363,41 @@
     if (props.message.role === 'user') return true;
     return Boolean((props.message.content || '').trim());
   });
+
+  const canCreateDigitalHumanVideo = computed(
+    () =>
+      props.message.role === 'assistant' &&
+      props.message.loading === false &&
+      Boolean(String(props.message.content || '').trim())
+  );
+
+  const answerInsightCards = computed(() => {
+    if (props.message.role !== 'assistant' || props.message.loading !== false) {
+      return [];
+    }
+    const metrics = props.message.metrics || {};
+    const cards = [
+      {
+        label: '可信依据',
+        value: props.message.grounding_mode
+          ? props.message.grounding_mode === 'rag'
+            ? '课程资料支撑'
+            : props.message.grounding_mode === 'mixed'
+              ? '资料 + 通用知识'
+              : '工具链支撑'
+          : '回答已生成',
+      },
+      {
+        label: '学习动作',
+        value: props.message.suggestions?.length ? '继续追问或练习' : '可生成巩固练习',
+      },
+      {
+        label: '协作过程',
+        value: metrics.agent_hops ? `${metrics.agent_hops} 个节点` : '已记录流程',
+      },
+    ];
+    return cards;
+  });
 </script>
 
 <template>
@@ -451,11 +520,44 @@
         :grounding-mode="message.grounding_mode"
         :metrics="message.metrics || {}"
       />
+      <div v-if="answerInsightCards.length" class="answer-insight-grid">
+        <article v-for="item in answerInsightCards" :key="item.label">
+          <span>{{ item.label }}</span>
+          <strong>{{ item.value }}</strong>
+        </article>
+      </div>
       <FollowUpActions
         v-if="message.role === 'assistant' && message.loading === false"
         :suggestions="message.suggestions || []"
         @pick="handleSuggestionClick"
       />
+      <div
+        v-if="
+          message.role === 'assistant' &&
+          (isDigitalHumanPolling || digitalHumanVideoUrl || digitalHumanError)
+        "
+        class="digital-human-card"
+      >
+        <div class="digital-human-card__head">
+          <span>数字人讲解视频</span>
+          <span v-if="isDigitalHumanPolling">{{ digitalHumanProgress }}%</span>
+        </div>
+        <div v-if="isDigitalHumanPolling" class="digital-human-progress">
+          <span :style="{ width: `${digitalHumanProgress}%` }" />
+        </div>
+        <p v-if="isDigitalHumanPolling">
+          {{ digitalHumanJobStatus.message || '正在生成数字人讲解' }}
+        </p>
+        <video
+          v-if="digitalHumanVideoUrl"
+          class="digital-human-video"
+          :src="digitalHumanVideoUrl"
+          controls
+        />
+        <p v-if="digitalHumanError" class="digital-human-error">
+          {{ digitalHumanError }}
+        </p>
+      </div>
       <div v-if="message.requires_confirmation" class="hitl-card">
         <p>系统生成了学习计划，是否确认写入你的学习日历？</p>
         <div class="hitl-actions">
@@ -482,6 +584,18 @@
         </button>
         <button class="action-btn" @click="handleCopy" data-tooltip="复制">
           <img :src="isCopied ? successIcon : copyIcon" alt="copy" />
+        </button>
+        <button
+          v-if="canCreateDigitalHumanVideo"
+          class="text-action-btn"
+          :disabled="isDigitalHumanPolling"
+          @click="handleCreateDigitalHumanVideo"
+        >
+          {{
+            isDigitalHumanPolling
+              ? `数字人生成中 ${digitalHumanProgress}%`
+              : '生成数字人讲解'
+          }}
         </button>
         <button class="action-btn" @click="handleLike" data-tooltip="喜欢">
           <img :src="isLiked ? likeActiveIcon : likeIcon" alt="like" />
@@ -958,6 +1072,90 @@
         }
       }
 
+      .digital-human-card {
+        margin: 0.65rem 0 0.45rem 0.5rem;
+        width: min(520px, 100%);
+        padding: 0.8rem;
+        border-radius: 12px;
+        border: 1px solid rgba(79, 70, 229, 0.16);
+        background: #f8fbff;
+
+        &__head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.75rem;
+          color: #1e2f4d;
+          font-size: 0.86rem;
+          font-weight: 700;
+        }
+
+        p {
+          margin: 0.45rem 0 0;
+          color: #5f718a;
+          font-size: 0.8rem;
+        }
+      }
+
+      .digital-human-progress {
+        margin-top: 0.55rem;
+        height: 6px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #e3eaf5;
+
+        span {
+          display: block;
+          height: 100%;
+          border-radius: inherit;
+          background: linear-gradient(90deg, #2563eb, #4f46e5);
+          transition: width 0.2s ease;
+        }
+      }
+
+      .digital-human-video {
+        margin-top: 0.65rem;
+        width: 100%;
+        max-height: 320px;
+        border-radius: 10px;
+        background: #0f172a;
+      }
+
+      .digital-human-error {
+        color: #b42318 !important;
+      }
+
+      .answer-insight-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.5rem;
+        width: min(620px, 100%);
+        margin: 0.65rem 0 0 0.5rem;
+
+        article {
+          min-height: 58px;
+          padding: 0.55rem 0.65rem;
+          border: 1px solid rgba(20, 128, 107, 0.16);
+          border-radius: 10px;
+          background: #f8fffc;
+        }
+
+        span {
+          display: block;
+          color: #6a7f8e;
+          font-size: 0.72rem;
+          font-weight: 650;
+        }
+
+        strong {
+          display: block;
+          margin-top: 0.28rem;
+          color: #173447;
+          font-size: 0.82rem;
+          line-height: 1.35;
+        }
+      }
+
       .message-actions {
         display: flex;
         align-items: center;
@@ -1008,6 +1206,24 @@
           &:hover::after {
             opacity: 1;
             visibility: visible;
+          }
+        }
+
+        .text-action-btn {
+          height: 1.65rem;
+          padding: 0 0.65rem;
+          border: 1px solid rgba(79, 70, 229, 0.2);
+          border-radius: 999px;
+          background: rgba(79, 70, 229, 0.08);
+          color: #4338ca;
+          font-size: 0.72rem;
+          font-weight: 700;
+          cursor: pointer;
+          white-space: nowrap;
+
+          &:disabled {
+            cursor: not-allowed;
+            opacity: 0.72;
           }
         }
 
@@ -1151,6 +1367,11 @@
           .tokens-info {
             white-space: normal;
           }
+        }
+
+        .answer-insight-grid {
+          grid-template-columns: 1fr;
+          margin-left: 0;
         }
       }
     }

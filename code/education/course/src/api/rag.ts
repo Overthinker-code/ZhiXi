@@ -244,6 +244,12 @@ export function createAssistantChat(
         topK?: number;
         currentFileId?: string;
         fileName?: string;
+        imageBase64List?: string[];
+        toolMode?:
+          | 'chat'
+          | 'exercise_grading'
+          | 'image_tutoring'
+          | 'digital_human_explain';
         forceAgent?: string;
         forceCache?: boolean;
         debugMode?: boolean;
@@ -269,6 +275,8 @@ export function createAssistantChat(
         top_k: normalized.topK,
         current_file_id: normalized.currentFileId,
         file_name: normalized.fileName,
+        image_base64_list: normalized.imageBase64List,
+        tool_mode: normalized.toolMode || 'chat',
         force_agent: normalized.forceAgent,
         force_cache: normalized.forceCache,
         debug_mode: normalized.debugMode,
@@ -381,6 +389,12 @@ export interface ChatAdvancedOptions {
   courseModule?: string;
   currentFileId?: string;
   fileName?: string;
+  imageBase64List?: string[];
+  toolMode?:
+    | 'chat'
+    | 'exercise_grading'
+    | 'image_tutoring'
+    | 'digital_human_explain';
   forceAgent?: string;
   forceCache?: boolean;
   debugMode?: boolean;
@@ -518,6 +532,8 @@ export function createAssistantChatStream(
     course_module: normalized.courseModule,
     current_file_id: normalized.currentFileId,
     file_name: normalized.fileName,
+    image_base64_list: normalized.imageBase64List,
+    tool_mode: normalized.toolMode || 'chat',
     force_agent: normalized.forceAgent,
     force_cache: normalized.forceCache,
     debug_mode: normalized.debugMode,
@@ -545,6 +561,8 @@ export function askSelectionQuery(
         course_module: normalized.courseModule,
         current_file_id: normalized.currentFileId,
         file_name: normalized.fileName,
+        image_base64_list: normalized.imageBase64List,
+        tool_mode: normalized.toolMode || 'chat',
         force_agent: normalized.forceAgent,
         force_cache: normalized.forceCache,
         debug_mode: normalized.debugMode,

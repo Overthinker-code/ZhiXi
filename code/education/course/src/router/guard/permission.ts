@@ -31,8 +31,15 @@ export default function setupPermissionGuard(router: Router) {
     const permissionsAllow = Permission.accessRouter(to);
     if (appStore.menuFromServer) {
       // 数字人工具页包含多个 hideInMenu 子路由，服务端菜单常不返回这些节点。
-      // 这里先强制放行该业务域，避免页面入口点击后无响应。
-      if (to.path.startsWith('/digital-human')) {
+      // 仅在本地路由和角色权限都通过时放行，避免学生端直达教师创作页。
+      if (
+        to.path.startsWith('/digital-human') &&
+        routeNameExistsInLocalConfig(
+          to.name,
+          appRoutes as unknown as RouteRecordNormalized[]
+        ) &&
+        permissionsAllow
+      ) {
         next();
         NProgress.done();
         return;

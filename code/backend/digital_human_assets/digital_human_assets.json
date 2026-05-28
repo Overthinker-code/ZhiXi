@@ -1,0 +1,101 @@
+{
+  "assets": [
+    {
+      "id": "teacher-default",
+      "label": "默认教师数字人",
+      "source_image": "/Users/xsp/Documents/GitHub/ZhiXi/code/backend/digital_human_assets/teacher_default_source.png",
+      "cutout_image": "/Users/xsp/Documents/GitHub/ZhiXi/code/backend/digital_human_assets/teacher_default_cutout.png",
+      "idle_video": null,
+      "default_voice": "zh-CN-YunxiNeural",
+      "gestures": [
+        {
+          "id": "idle",
+          "label": "自然讲解",
+          "use_cases": [
+            "过渡",
+            "铺垫",
+            "普通讲解"
+          ],
+          "default_duration": 3.0,
+          "fallback_motion": "breath"
+        },
+        {
+          "id": "explain_open",
+          "label": "展开解释",
+          "use_cases": [
+            "概念解释",
+            "定义说明"
+          ],
+          "default_duration": 4.0,
+          "fallback_motion": "open-hands"
+        },
+        {
+          "id": "emphasis_one_hand",
+          "label": "单手强调",
+          "use_cases": [
+            "重点",
+            "关键",
+            "注意"
+          ],
+          "default_duration": 3.0,
+          "fallback_motion": "emphasis"
+        },
+        {
+          "id": "point_left",
+          "label": "指向左侧",
+          "use_cases": [
+            "左侧知识卡",
+            "目录",
+            "第一步"
+          ],
+          "default_duration": 3.0,
+          "fallback_motion": "point-left"
+        },
+        {
+          "id": "point_right",
+          "label": "指向右侧",
+          "use_cases": [
+            "公式",
+            "步骤",
+            "右侧图表"
+          ],
+          "default_duration": 3.0,
+          "fallback_motion": "point-right"
+        },
+        {
+          "id": "compare_two_sides",
+          "label": "左右对比",
+          "use_cases": [
+            "对比",
+            "区别",
+            "相同点"
+          ],
+          "default_duration": 4.0,
+          "fallback_motion": "compare"
+        },
+        {
+          "id": "nod_summary",
+          "label": "点头总结",
+          "use_cases": [
+            "总结",
+            "归纳",
+            "回顾"
+          ],
+          "default_duration": 3.0,
+          "fallback_motion": "nod"
+        },
+        {
+          "id": "encourage_forward",
+          "label": "前倾鼓励",
+          "use_cases": [
+            "批改反馈",
+            "鼓励",
+            "继续练习"
+          ],
+          "default_duration": 3.0,
+          "fallback_motion": "encourage"
+        }
+      ]
+    }
+  ]
+}

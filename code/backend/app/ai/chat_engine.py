@@ -47,6 +47,12 @@ _WORKERS = frozenset(
         "analyst",
         "doc_researcher",
         "quiz_master",
+        "profile_agent",
+        "retrieval_agent",
+        "web_research_agent",
+        "tutor_agent",
+        "grading_agent",
+        "safety_review_agent",
     }
 )
 _MAX_SUPERVISOR_ENTRIES = 12
@@ -69,6 +75,10 @@ _DOC_QUERY_HINT = re.compile(
 )
 _QUIZ_HINT = re.compile(
     r"(考考我|出题|做题|测验|测试我|我来答题|我来回答|来道题|出[一1]?道题|随堂测|小测)"
+)
+_GRADE_HINT = re.compile(r"(批改|评分|打分|订正|错因|我的答案|参考答案|掌握度)")
+_FRESH_WEB_HINT = re.compile(
+    r"(最新|最近|当前|今天|本周|本月|今年|新闻|政策|发布|版本|官网|开源|许可证|价格|行情|current|latest|today|news|version|official)"
 )
 _EXPLAIN_WITH_PRACTICE_HINT = re.compile(
     r"((讲解|解释|知识点|基础|不熟|不会|掌握|学习).{0,50}(练习|题目|训练|刷题)|"
@@ -528,6 +538,12 @@ SUPERVISOR_SYSTEM_PROMPT = """你是「智屿学习系统」的主管 Supervisor
 - analyst：学习行为、状态评估、风险与数据化解读。
 - doc_researcher：围绕用户当前挂载文档（论文/课件/报告）做检索式解读与细节问答。
 - quiz_master：主动测验与批改，负责“出题->等待作答->点评引导”闭环。
+- profile_agent：学习画像维度、掌握度变化和干预建议。
+- retrieval_agent：课程知识库与上传文档证据整理。
+- web_research_agent：联网搜索、来源筛选、时效判断和事实校验。
+- tutor_agent：图像+文本多模态题解、概念讲解和分步辅导。
+- grading_agent：练习批改、评分、错因和后续练习建议。
+- safety_review_agent：事实性、防幻觉、来源标注和安全审查。
 
 规则：
 1. 结合完整对话历史判断「下一步谁最合适」；复合型需求可拆成多轮，一轮只派一名专员。
@@ -547,7 +563,9 @@ FINALIZE_SYSTEM_PROMPT = """你是智屿学习系统的最终发言人。你将�
 2. 禁止「我先想想」「接下来我要」「不对，应该是」等内心独白、草稿式自言自语；禁止复述专员的思考过程，只输出结论与推导要点。
 3. 禁止提及主管、路由、JSON、工具名、Agent、LangGraph 等内部实现与协作流程词。
 4. 专员材料不足时诚实说明，可结合知识库与通用知识合理补充，勿编造上传资料中不存在的事实。
-5. 在正文结束后，必须附加如下结构（严格保留标签）：
+5. 涉及公式、复杂度、推导或符号化定义时，行内公式用 $...$，独立公式用 $$...$$，不要把 LaTeX 放进代码块。
+6. 如果本轮使用了联网搜索，正文中必须单独写出“联网搜索补充”，说明来源类型、合理性判断和与课程资料的关系；不能把搜索结果伪装成课程知识库内容。
+7. 在正文结束后，必须附加如下结构（严格保留标签）：
 [SUGGESTIONS]
 问题1
 问题2
@@ -586,6 +604,16 @@ def _rule_based_route(state: State) -> tuple[str, str] | None:
         user_q = ""
     if not user_q:
         return None
+    tool_mode = (state.get("tool_mode") or "chat").strip()
+    if tool_mode == "exercise_grading" or _GRADE_HINT.search(user_q):
+        return ("grading_agent", "练习批改或订正请求，交由批改教师处理。")
+    if tool_mode == "image_tutoring" or state.get("image_context"):
+        return ("tutor_agent", "检测到图片与文本联合提问，交由多模态辅导教师处理。")
+    if tool_mode == "digital_human_explain":
+        return ("tutor_agent", "数字人讲解请求，交由辅导教师生成适合口播的视频讲稿。")
+    active_tools = set(state.get("active_tools") or [])
+    if "web_search" in active_tools and _FRESH_WEB_HINT.search(user_q):
+        return ("web_research_agent", "问题包含时效性或外部事实校验需求，启用联网研究员。")
     if _EXPLAIN_WITH_PRACTICE_HINT.search(user_q):
         return ("knowledge_mentor", "复合学习请求，先完成知识讲解与练习设计。")
     if _QUIZ_HINT.search(user_q):
@@ -1099,14 +1127,12 @@ def supervisor_node(state: State) -> dict[str, Any]:
     routing_reason = (decision.routing_reason or "").strip()
     task_bd = decision.task_breakdown.strip()
 
-    forced_finish_parse = False
     if used_fallback and streak >= _MAX_SUPERVISOR_FALLBACK_STREAK:
         na = "FINISH"
         routing_reason = (
             "主管路由结构化输出连续解析失败，已强制结束协作并进入汇总；"
             "将基于当前对话中已有专员发言生成答复。"
         )
-        forced_finish_parse = True
 
     if na not in _WORKERS and na != "FINISH":
         na = "FINISH"
@@ -1216,6 +1242,7 @@ def finalize_node(state: State) -> dict[str, Any]:
         "如果学生问题中有明确主题，answer 和 follow_ups 都必须围绕该主题，"
         "不能被知识库片段中的相邻主题带偏。"
         "如果学生同时要求知识点讲解和练习题，answer 必须先系统讲解，再提供由浅入深练习题和提示。"
+        "所有数学、算法复杂度或数据库符号公式必须使用标准 LaTeX，行内 $...$、块级 $$...$$。"
     )
     if is_selection_query:
         structured_prompt_text += (
@@ -1348,6 +1375,12 @@ _WORKER_DONE_TAG: dict[str, str] = {
     "analyst": "【学情分析】学习分析师本轮处理完成，已同步至主管。",
     "doc_researcher": "【文档研究】文档研究员本轮处理完成，已同步至主管。",
     "quiz_master": "【主动测验】测验官本轮处理完成，已同步至主管。",
+    "profile_agent": "【学习画像】画像分析师本轮处理完成，已同步至主管。",
+    "retrieval_agent": "【证据检索】课程证据检索员本轮处理完成，已同步至主管。",
+    "web_research_agent": "【联网研究】联网研究员本轮处理完成，已同步至主管。",
+    "tutor_agent": "【多模态辅导】辅导教师本轮处理完成，已同步至主管。",
+    "grading_agent": "【练习批改】批改教师本轮处理完成，已同步至主管。",
+    "safety_review_agent": "【事实审查】事实与安全审查员本轮处理完成，已同步至主管。",
 }
 
 
@@ -1451,6 +1484,12 @@ def _build_supervisor_graph(
         ("analyst", "analyst_tools"),
         ("doc_researcher", "doc_researcher_tools"),
         ("quiz_master", "quiz_master_tools"),
+        ("profile_agent", "profile_agent_tools"),
+        ("retrieval_agent", "retrieval_agent_tools"),
+        ("web_research_agent", "web_research_agent_tools"),
+        ("tutor_agent", "tutor_agent_tools"),
+        ("grading_agent", "grading_agent_tools"),
+        ("safety_review_agent", "safety_review_agent_tools"),
     ]
     for name, tools_node in worker_specs:
         builder.add_node(name, _make_worker_node(name))
@@ -1482,6 +1521,12 @@ def _build_supervisor_graph(
             "analyst": "analyst",
             "doc_researcher": "doc_researcher",
             "quiz_master": "quiz_master",
+            "profile_agent": "profile_agent",
+            "retrieval_agent": "retrieval_agent",
+            "web_research_agent": "web_research_agent",
+            "tutor_agent": "tutor_agent",
+            "grading_agent": "grading_agent",
+            "safety_review_agent": "safety_review_agent",
             "finalize": "finalize",
         },
     )
@@ -1561,12 +1606,67 @@ def _tool_status_text(
     active_tools: list[str] | None,
 ) -> tuple[list[str], list[str]]:
     allowed = sorted({k for keys in TOOL_KEYS_BY_AGENT.values() for k in keys})
-    if not active_tools:
-        return allowed, []
-    active = set(active_tools)
+    active = set(active_tools or ["knowledge_base", "code_sandbox"])
     enabled = [k for k in allowed if k in active]
     disabled = [k for k in allowed if k not in active]
     return enabled, disabled
+
+
+def _build_image_context(request: ChatRequest) -> str:
+    images = [img for img in (request.image_base64_list or []) if img]
+    if not images:
+        return ""
+    if not settings.MULTIMODAL_API_BASE:
+        return (
+            f"【图片上下文】学生上传了 {len(images)} 张图片。当前完全本地部署尚未配置视觉模型服务，"
+            "请结合学生补充文字进行讲解，并明确提示图片细节需要学生确认。"
+        )
+    image_ref = images[0]
+    if image_ref and not image_ref.startswith("data:"):
+        image_ref = f"data:image/png;base64,{image_ref}"
+    try:
+        import httpx
+
+        prompt = (
+            "你是本地视觉题目识别助手。请识别图片中的题干、图表、选项、公式和已知条件；"
+            "只输出中文要点，不要编造看不清的内容。"
+        )
+        with httpx.Client(timeout=settings.MULTIMODAL_TIMEOUT_SECONDS) as client:
+            resp = client.post(
+                f"{settings.MULTIMODAL_API_BASE.rstrip('/')}/chat/completions",
+                headers={"Authorization": f"Bearer {settings.MULTIMODAL_API_KEY or 'local-placeholder'}"},
+                json={
+                    "model": settings.MULTIMODAL_MODEL,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt},
+                                {"type": "image_url", "image_url": {"url": image_ref}},
+                            ],
+                        }
+                    ],
+                    "temperature": 0.1,
+                    "max_tokens": 900,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            if isinstance(content, list):
+                content = "\n".join(
+                    str(block.get("text", "")) if isinstance(block, dict) else str(block)
+                    for block in content
+                )
+            text = str(content or "").strip()
+            if text:
+                return f"【本地视觉模型识别结果】\n{text[:2500]}"
+    except Exception as exc:
+        return (
+            f"【图片上下文】学生上传了 {len(images)} 张图片，但本地视觉模型调用失败：{str(exc)[:240]}。"
+            "请基于学生补充文字继续回答，并明确说明图片细节未能稳定识别。"
+        )
+    return "【图片上下文】已收到图片，但视觉模型未返回有效内容。请要求学生补充题干文字。"
 
 
 def _normalize_structured_citations(
@@ -1641,7 +1741,10 @@ def _initial_state(request: ChatRequest, user_text: str) -> State:
     rag_msg, rag_results = _build_rag_context(request)
     preset = resolve_system_prompt(request.prompt_key, request.system_prompt)
     memory_context = _load_user_memory_context(request.user_id)
+    image_context = _build_image_context(request)
     messages: list = [rag_msg]
+    if image_context:
+        messages.append(SystemMessage(content=image_context))
     for turn in request.prior_turns or []:
         u = (turn.get("user") or "").strip()
         a = (turn.get("assistant") or "").strip()
@@ -1678,6 +1781,8 @@ def _initial_state(request: ChatRequest, user_text: str) -> State:
             "current_thread_id": str(request.thread_id),
             "current_file_id": request.current_file_id,
             "current_file_name": request.file_name or "",
+            "image_context": image_context,
+            "tool_mode": request.tool_mode,
             "user_memory_context": memory_context,
             "rag_results": rag_results,
             "final_citations": [],
@@ -1870,6 +1975,12 @@ def stream_chat_events(request: ChatRequest):
             "content": f"【工具策略】启用工具：{enabled_tools or ['none']}；已关闭：{disabled_tools or ['none']}",
             "stage": "tool_policy",
         }
+        if "web_search" in enabled_tools:
+            yield {
+                "type": "thought",
+                "content": "【联网搜索】本轮允许联网搜索；最终回答会区分课程资料、联网补充和模型推断。",
+                "stage": "web_policy",
+            }
         if not enabled_tools:
             yield {
                 "type": "thought",

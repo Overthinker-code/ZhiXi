@@ -187,7 +187,15 @@ TOOL_KEYS_BY_AGENT: dict[str, list[str]] = {
     "analyst": ["knowledge_base", "behavior_analysis"],
     "doc_researcher": ["search_uploaded_document"],
     "quiz_master": ["knowledge_base"],
+    "profile_agent": ["knowledge_base"],
+    "retrieval_agent": ["knowledge_base", "search_uploaded_document"],
+    "web_research_agent": ["web_search"],
+    "tutor_agent": ["knowledge_base", "web_search"],
+    "grading_agent": ["knowledge_base"],
+    "safety_review_agent": ["knowledge_base", "web_search"],
 }
+
+DEFAULT_ACTIVE_TOOL_KEYS = {"knowledge_base", "code_sandbox"}
 
 
 def _resolve_tool_impl(
@@ -234,19 +242,7 @@ def get_tools_for_agent(
                 current_file_id=current_file_id,
             )
         ]
-    if not active_tools:
-        return [
-            _resolve_tool_impl(
-                key,
-                rag_user_id=rag_user_id,
-                rag_is_admin=rag_is_admin,
-                rag_k=rag_k,
-                thread_id=thread_id,
-                current_file_id=current_file_id,
-            )
-            for key in tool_keys
-        ]
-    active = set(active_tools)
+    active = set(active_tools or DEFAULT_ACTIVE_TOOL_KEYS)
     filtered_keys = [key for key in tool_keys if key in active]
     keys = filtered_keys or ["knowledge_base"]
     return [

@@ -70,6 +70,10 @@ code/backend/vector_db/
 code/backend/digital_human_inputs/
 code/backend/digital_human_outputs/
 code/backend/digital_human_assets/
+!code/backend/digital_human_assets/
+!code/backend/digital_human_assets/digital_human_assets.json
+!code/backend/digital_human_assets/teacher_default_source.png
+!code/backend/digital_human_assets/teacher_default_cutout.png
 code/backend/models/
 code/backend/MuseTalk/configs/inference/test_local.yaml
 

@@ -95,7 +95,11 @@
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { fetchCourses, type Course } from '@/api/course';
-import { demoCourses } from '@/mock/demoData';
+import {
+  scenarioCourseDepartments,
+  scenarioCourseMetrics,
+  scenarioCourses,
+} from '@/data/teachingScenario';
 import LoadingState from '@/components/state/LoadingState.vue';
 import EmptyState from '@/components/state/EmptyState.vue';
 import ErrorState from '@/components/state/ErrorState.vue';
@@ -142,16 +146,22 @@ function getCourseImage(course: Course) {
   return courseImages[index];
 }
 
-function applyDemoCoursesPage() {
+function applyScenarioCoursesPage() {
   const q = (searchQuery.value || '').trim().toLowerCase();
+  const byCategory =
+    selectedCategory.value === '全部'
+      ? scenarioCourses
+      : scenarioCourses.filter(
+          (course) => scenarioCourseDepartments[course.id] === selectedCategory.value
+        );
   const filtered = q
-    ? demoCourses.filter(
+    ? byCategory.filter(
         (c) =>
           c.name.toLowerCase().includes(q) ||
           (c.description && c.description.toLowerCase().includes(q)) ||
           c.identifier.toLowerCase().includes(q)
       )
-    : [...demoCourses];
+    : [...byCategory];
   const start = (pagination.value.current - 1) * pagination.value.pageSize;
   courses.value = filtered.slice(start, start + pagination.value.pageSize) as Course[];
   pagination.value.total = filtered.length;
@@ -166,10 +176,14 @@ async function loadCourses() {
       limit: pagination.value.pageSize,
       name: searchQuery.value || undefined,
     });
-    courses.value = response.data;
-    pagination.value.total = response.count;
+    if (response.data?.length || searchQuery.value) {
+      courses.value = response.data || [];
+      pagination.value.total = response.count || 0;
+    } else {
+      applyScenarioCoursesPage();
+    }
   } catch {
-    applyDemoCoursesPage();
+    applyScenarioCoursesPage();
   } finally {
     loading.value = false;
   }
@@ -204,15 +218,18 @@ function goToCourseDetail(courseId: string) {
 /** 将原始 Course 适配为 CourseCard 组件所需的格式 */
 function adaptCourse(course: Course) {
   const c = course as any; // 后端动态字段，类型定义暂未覆盖
+  const metrics = scenarioCourseMetrics[course.id];
+  const rawProgress = c.progress ?? metrics?.progress ?? 0;
+  const progress = rawProgress > 1 ? rawProgress / 100 : rawProgress;
   return {
     id: course.id,
     name: course.name,
     category: course.course_type || '专业课程',
     coverImage: getCourseImage(course),
-    teacher: c.teacher_name || '未知教师',
+    teacher: c.teacher_name || metrics?.teacher || '智屿教师',
     teacherAvatar: undefined,
-    progress: c.progress ?? Math.floor(Math.random() * 80 + 10),
-    rating: c.rating || (4.5 + Math.random() * 0.5).toFixed(1),
+    progress,
+    rating: c.rating || metrics?.rating || '4.6',
   };
 }
 
@@ -382,4 +399,3 @@ onMounted(() => {
   color: #fff !important;
 }
 </style>
-

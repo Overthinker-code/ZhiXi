@@ -513,7 +513,7 @@
     .empty-content {
       width: min(100%, 460px);
       text-align: center;
-      background: rgba(240, 253, 246, 0.92);
+      background: rgba(251, 250, 255, 0.92);
       border: 1px solid rgba(99, 102, 241, 0.15);
       border-radius: 20px;
       padding: 2rem 1.2rem;

@@ -92,7 +92,7 @@ setupMock({
         thread_id: 'default',
         user_input: '',
         system_prompt: '',
-        response: '## 演示模式\n\n当前为本地 Mock 环境。\n\n智屿 AI 助手的完整能力包括：\n- 基于 RAG 的知识检索\n- 4 种教学 Prompt 模式\n- 多模态资源问答',
+        response: '## 智屿 AI 助手\n\n我可以围绕课程资料、知识点讲解、练习反馈和学习规划进行连续辅导。\n\n你可以直接上传资料或输入问题，我会结合当前课程内容给出结构化回答。',
         created_at: new Date().toISOString(),
       });
     });

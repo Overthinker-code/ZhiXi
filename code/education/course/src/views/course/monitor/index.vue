@@ -309,6 +309,7 @@
 
   // 摄像头
   const videoEnabled = ref(false);
+  const micMuted = ref(false);
   const videoSourceMode = ref<VideoSourceMode>('idle');
   const mediaStream = ref<MediaStream | null>(null);
 
@@ -559,7 +560,13 @@
       panel: null as PanelKey,
       active: videoEnabled.value,
     },
-    { key: 'mic', icon: '🎙️', label: '开启静音', panel: null as PanelKey },
+    {
+      key: 'mic',
+      icon: micMuted.value ? '🔇' : '🎙️',
+      label: micMuted.value ? '取消静音' : '开启静音',
+      panel: null as PanelKey,
+      active: micMuted.value,
+    },
     { key: 'chat', icon: '💬', label: '师生聊天', panel: 'chat' as PanelKey },
     { key: 'signin', icon: '🧾', label: '课堂签到', panel: 'signin' as PanelKey },
     { key: 'ai', icon: '🤖', label: 'AI 行为检测', panel: 'ai' as PanelKey },
@@ -596,8 +603,13 @@
       }
       return;
     }
+    if (item.key === 'mic') {
+      micMuted.value = !micMuted.value;
+      Message.success(micMuted.value ? '已开启静音' : '已取消静音');
+      return;
+    }
     if (!item.panel) {
-      Message.info(`${item.label} 功能已接入中`);
+      Message.info(`${item.label} 当前无需额外设置`);
       return;
     }
     activePanel.value = activePanel.value === item.panel ? null : item.panel;
@@ -835,7 +847,7 @@
         cameraUrlMap.value = map;
       })
       .catch(() => {
-        Message.warning('获取教室摄像头配置失败，请检查后端服务');
+        cameraUrlMap.value = {};
       });
 
     getBehaviorDefinitions()

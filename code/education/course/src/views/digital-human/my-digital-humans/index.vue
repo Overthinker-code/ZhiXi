@@ -202,9 +202,16 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { Message, Modal } from '@arco-design/web-vue';
+import { Message } from '@arco-design/web-vue';
+import {
+  fetchDigitalHumanAssets,
+  fetchDigitalHumanWorks,
+  type DigitalHumanWork,
+} from '@/api/digital-human';
+import teacherDefaultImage from '@/assets/digital-human/teacher-default.png';
+import studioCoverImage from '@/assets/digital-human/studio-cover.png';
 import {
   IconLeft,
   IconUser,
@@ -226,73 +233,79 @@ const videoFilter = ref('');
 const previewVisible = ref(false);
 const currentVideo = ref<any>(null);
 
-// 数字人列表
-const digitalHumanList = ref([
-  {
-    id: '1',
-    name: '小明老师',
-    description: '标准男声，适合教学讲解',
-    avatar: 'https://i.pravatar.cc/320?img=52',
-    createdAt: '2026-04-10',
-    videoCount: 5,
-    isDefault: true,
-  },
-  {
-    id: '2',
-    name: '小红老师',
-    description: '温柔女声，适合儿童教育',
-    avatar: 'https://i.pravatar.cc/320?img=47',
-    createdAt: '2026-04-09',
-    videoCount: 3,
-    isDefault: false,
-  },
-  {
-    id: '3',
-    name: '商务男士',
-    description: '专业沉稳，适合商务场合',
-    avatar: 'https://i.pravatar.cc/320?img=56',
-    createdAt: '2026-04-08',
-    videoCount: 2,
-    isDefault: false,
-  },
-]);
+interface DigitalHumanCard {
+  id: string;
+  name: string;
+  description: string;
+  avatar: string;
+  createdAt: string;
+  videoCount: number;
+  isDefault: boolean;
+}
 
-// 视频列表
-const videoList = ref([
-  {
-    id: '1',
-    title: '数据库系统概论-第一章',
-    description: '使用小明老师生成的教学视频',
-    thumbnail: 'https://picsum.photos/400/225?random=1',
-    duration: '05:32',
-    type: 'text',
-    digitalHumanName: '小明老师',
-    createdAt: '2026-04-11',
-    url: '',
-  },
-  {
-    id: '2',
-    title: '数据结构-线性表',
-    description: 'PPT转换生成的讲解视频',
-    thumbnail: 'https://picsum.photos/400/225?random=2',
-    duration: '12:18',
-    type: 'ppt',
-    digitalHumanName: '小红老师',
-    createdAt: '2026-04-10',
-    url: '',
-  },
-  {
-    id: '3',
-    title: '人工智能导论',
-    description: '课程导入视频',
-    thumbnail: 'https://picsum.photos/400/225?random=3',
-    duration: '08:45',
-    type: 'text',
-    digitalHumanName: '小明老师',
-    createdAt: '2026-04-09',
-    url: '',
-  },
-]);
+interface VideoCard {
+  id: string;
+  title: string;
+  description: string;
+  thumbnail: string;
+  duration: string;
+  type: 'text' | 'ppt';
+  digitalHumanName: string;
+  createdAt: string;
+  url: string;
+  scriptUrl?: string | null;
+}
+
+const digitalHumanList = ref<DigitalHumanCard[]>([]);
+const videoList = ref<VideoCard[]>([]);
+
+const formatFileDuration = (work: DigitalHumanWork) => {
+  if (work.duration) return work.duration;
+  const minutes = Math.max(1, Math.round((work.file_size || 0) / 1024 / 1024));
+  return `${String(minutes).padStart(2, '0')}:00`;
+};
+
+const loadDigitalHumanLibrary = async () => {
+  try {
+    const [assetRes, workRes] = await Promise.allSettled([
+      fetchDigitalHumanAssets(),
+      fetchDigitalHumanWorks(),
+    ]);
+    const works =
+      workRes.status === 'fulfilled' ? workRes.value.works || [] : [];
+    const assets =
+      assetRes.status === 'fulfilled' ? assetRes.value.assets || [] : [];
+
+    digitalHumanList.value = (assets.length ? assets : [{ id: 'teacher-default', label: '默认教师数字人', default_voice: 'zh-CN-YunxiNeural' }]).map((asset, index) => ({
+      id: asset.id,
+      name: asset.label || '默认教师数字人',
+      description: `适合课程讲解与资源生成，默认音色 ${asset.default_voice || 'Yunxi'}`,
+      avatar: teacherDefaultImage,
+      createdAt: '2026-05-01',
+      videoCount: works.filter((item) => item.digital_human_id === asset.id).length,
+      isDefault: index === 0,
+    }));
+
+    videoList.value = works.map((work) => ({
+      id: work.id,
+      title: work.title,
+      description: work.description || '数字人讲解视频',
+      thumbnail: studioCoverImage,
+      duration: formatFileDuration(work),
+      type: work.type,
+      digitalHumanName: work.digital_human_name || '默认教师数字人',
+      createdAt: work.created_at,
+      url: work.video_url,
+      scriptUrl: work.script_url,
+    }));
+  } catch (error) {
+    Message.warning('数字人作品列表暂时不可用，请确认后端服务已启动');
+  }
+};
+
+onMounted(() => {
+  void loadDigitalHumanLibrary();
+});
 
 // 计算属性
 const totalDuration = computed(() => {
@@ -325,18 +338,11 @@ const useDigitalHuman = (item: any) => {
 };
 
 const editDigitalHuman = (item: any) => {
-  Message.info(`编辑数字人: ${item.name}`);
+  Message.info(`${item.name} 为当前素材库资产，可在数字人创作舱中直接使用`);
 };
 
 const deleteDigitalHuman = (item: any) => {
-  Modal.confirm({
-    title: '确认删除',
-    content: `确定要删除数字人 "${item.name}" 吗？相关的视频作品也会被删除。`,
-    onOk: () => {
-      digitalHumanList.value = digitalHumanList.value.filter((d) => d.id !== item.id);
-      Message.success('删除成功');
-    },
-  });
+  Message.info(`${item.name} 是系统教学资产，暂不支持在前端直接删除`);
 };
 
 const previewVideo = (video: any) => {
@@ -345,22 +351,19 @@ const previewVideo = (video: any) => {
 };
 
 const downloadVideo = (video: any) => {
-  Message.success(`开始下载: ${video.title}`);
+  if (!video.url) {
+    Message.warning('该视频文件暂不可下载');
+    return;
+  }
+  window.open(video.url, '_blank');
 };
 
 const renameVideo = (video: any) => {
-  Message.info(`重命名: ${video.title}`);
+  Message.info(`"${video.title}" 来自生成任务记录，暂不在前端改名`);
 };
 
 const deleteVideo = (video: any) => {
-  Modal.confirm({
-    title: '确认删除',
-    content: `确定要删除视频 "${video.title}" 吗？`,
-    onOk: () => {
-      videoList.value = videoList.value.filter((v) => v.id !== video.id);
-      Message.success('删除成功');
-    },
-  });
+  Message.info(`"${video.title}" 已归档在后端产物目录，暂不在前端删除`);
 };
 
 const formatDate = (date: string) => {

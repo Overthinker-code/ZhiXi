@@ -13,9 +13,15 @@ const ROLE_MENU_RULES: Record<
   }
 > = {
   student: {
-    topLevel: ['assistantHall', 'course', 'studentTutor', 'profile'],
+    topLevel: ['assistantHall', 'course', 'profile'],
     children: {
-      course: ['CourseList', 'CourseOne', 'CourseContent', 'CourseDetail'],
+      assistantHall: ['AssistantHome', 'AssistantChat'],
+      course: [
+        'CourseList',
+        'CourseOne',
+        'CourseContent',
+        'CourseDetail',
+      ],
       profile: ['ProfileLearningData', 'ProfileUserInfo', 'Basic'],
     },
   },
@@ -23,7 +29,14 @@ const ROLE_MENU_RULES: Record<
     topLevel: ['dashboard', 'course', 'digitalHuman', 'profile'],
     children: {
       dashboard: ['Workplace'],
-      course: ['Monitor', 'CourseList', 'CourseOne', 'CourseContent', 'CourseDetail'],
+      course: [
+        'Monitor',
+        'CourseList',
+        'CourseOne',
+        'CourseContent',
+        'CourseDetail',
+        'CourseResourceGeneration',
+      ],
       profile: ['ProfileUserInfo', 'Basic', 'ProfileLearningData'],
     },
   },

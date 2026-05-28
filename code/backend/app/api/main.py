@@ -21,6 +21,8 @@ from app.api.v1.endpoints import (
     ai_metrics,
     digital_human_assistant,
     alerts,
+    resource_workshop,
+    resource_generation,
 )
 from app.core.config import settings
 
@@ -39,6 +41,8 @@ api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboar
 api_router.include_router(user_center_mock.router, tags=["user-center"])
 api_router.include_router(learning_report.router, prefix="/learning-report", tags=["learning-report"])
 api_router.include_router(ai_metrics.router, prefix="/ai-metrics", tags=["ai-metrics"])
+api_router.include_router(resource_workshop.router, prefix="/resource-workshop", tags=["resource-workshop"])
+api_router.include_router(resource_generation.router, prefix="/resource-generation", tags=["resource-generation"])
 api_router.include_router(
     digital_human_assistant.router, tags=["classroom-assistant"]
 )

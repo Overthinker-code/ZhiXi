@@ -10,6 +10,7 @@ from fastapi import UploadFile
 from sqlalchemy.exc import OperationalError
 
 from app.core.config import settings
+from app.services.digital_human_assets import digital_human_asset_service
 from app.services.digital_human_tts import ensure_edge_tts_available
 from app.worker.celery_app import celery, celery_enabled
 
@@ -79,14 +80,27 @@ class DigitalHumanService:
             )
         ensure_edge_tts_available()
         engine = settings.DIGITAL_HUMAN_ENGINE.strip().lower()
+        if engine == "fallback":
+            digital_human_asset_service.ensure_default_assets()
+            return
         if engine == "musetalk":
-            self._ensure_musetalk_ready()
+            try:
+                self._ensure_musetalk_ready()
+            except RuntimeError:
+                if not settings.DIGITAL_HUMAN_ALLOW_FALLBACK_RENDERER:
+                    raise
+                digital_human_asset_service.ensure_default_assets()
             return
         if engine == "wav2lip":
-            self._ensure_wav2lip_ready()
+            try:
+                self._ensure_wav2lip_ready()
+            except RuntimeError:
+                if not settings.DIGITAL_HUMAN_ALLOW_FALLBACK_RENDERER:
+                    raise
+                digital_human_asset_service.ensure_default_assets()
             return
         raise RuntimeError(
-            "DIGITAL_HUMAN_ENGINE 配置无效，请使用 musetalk 或 wav2lip。"
+            "DIGITAL_HUMAN_ENGINE 配置无效，请使用 musetalk、wav2lip 或 fallback。"
         )
 
     async def _save_source_file(self, file: UploadFile, task_id: str) -> str:

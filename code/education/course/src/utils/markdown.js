@@ -2,9 +2,11 @@ import MarkdownIt from 'markdown-it';
 import hljs from 'highlight.js';
 import mdLinkAttributes from 'markdown-it-link-attributes';
 import { full as emoji } from 'markdown-it-emoji';
+import markdownItKatex from 'markdown-it-katex';
 // import 'highlight.js/styles/github.css'
 // 使用 atom-one-dark 主题
 import 'highlight.js/styles/atom-one-dark.css';
+import 'katex/dist/katex.min.css';
 import copyIcon from '@/assets/photo/复制.png';
 import darkIcon from '@/assets/photo/暗黑模式.png';
 import lightIcon from '@/assets/photo/明亮模式.png';
@@ -39,6 +41,12 @@ md.use(mdLinkAttributes, {
 
 // 启用 emoji 支持
 md.use(emoji);
+
+// 渲染行内 $...$ 与块级 $$...$$ 公式，避免学生端看到裸 LaTeX 代码
+md.use(markdownItKatex, {
+  throwOnError: false,
+  errorColor: '#ef4444',
+});
 
 // 导出渲染函数
 export const renderMarkdown = (content) => {

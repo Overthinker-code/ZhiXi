@@ -45,12 +45,12 @@
       <!-- 学习进度条 -->
       <div v-if="course.progress !== undefined" class="progress-section">
         <a-progress
-          :percent="course.progress"
+          :percent="normalizedProgress"
           :color="'#6366f1'"
           :track-color="'rgba(99,102,241,0.15)'"
           size="small"
         />
-        <span class="progress-text">已完成 {{ course.progress }}%</span>
+        <span class="progress-text">已完成 {{ displayProgress }}%</span>
       </div>
 
       <!-- 底部行：评分 + 按钮 -->
@@ -66,7 +66,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 
 interface CourseCardData {
   id: string | number;
@@ -81,6 +81,14 @@ interface CourseCardData {
 
 const props = defineProps<{ course: CourseCardData }>();
 const emit = defineEmits<{ (e: 'click', course: CourseCardData): void }>();
+
+const normalizedProgress = computed(() => {
+  const value = Number(props.course.progress ?? 0);
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(1, value > 1 ? value / 100 : value));
+});
+
+const displayProgress = computed(() => Math.round(normalizedProgress.value * 100));
 
 const isFavorited = ref(false);
 const toggleFavorite = () => {

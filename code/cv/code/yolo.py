@@ -3,7 +3,7 @@
 运行: uvicorn yolo:app --host 0.0.0.0 --port 8000
 
 基于YOLOv8-Pose提取关键点，使用几何规则判断行为
-适合比赛应急使用，无需准备训练数据
+适合快速原型验证，无需准备训练数据
 
 教育学理论增强 (v3.0):
 - Fredricks三维学习投入模型 (Behavioral/Cognitive/Emotional Engagement)
@@ -1091,7 +1091,7 @@ async def root():
         "detection_mode": "dual_stage" if USE_DUAL_STAGE else "single_stage",
         "educational_module": EDU_MODULE_AVAILABLE,
         "note": "基于几何规则 + 时序平滑 + 多源置信度融合 + 教育学理论增强，无需训练数据，立即可用！",
-        "accuracy": "课堂场景下比单帧规则更稳定，适合实时监测与比赛演示",
+        "accuracy": "课堂场景下比单帧规则更稳定，适合实时监测与教学演示",
         "theoretical_framework": [
             "Fredricks三维学习投入模型 (Behavioral/Cognitive/Emotional Engagement)",
             "Bloom认知分类法修订版 (Anderson & Krathwohl, 2001)",

@@ -204,10 +204,11 @@ import {
   type CourseResourceAnalysis,
 } from '@/api/course';
 import {
-  DEMO_COURSE_IDS,
-  getDemoCourseById,
-  getDemoTeachingClasses,
-} from '@/mock/demoData';
+  SCENARIO_COURSE_IDS,
+  getScenarioCourseById,
+  getScenarioResourceAnalysis,
+  getScenarioTeachingClasses,
+} from '@/data/teachingScenario';
 import LoadingState from '@/components/state/LoadingState.vue';
 import EmptyState from '@/components/state/EmptyState.vue';
 import ErrorState from '@/components/state/ErrorState.vue';
@@ -225,13 +226,7 @@ const teachingClasses = ref<TeachingClass[]>([]);
 const loadingClasses = ref(false);
 
 const resourceAnalysis = ref<CourseResourceAnalysis>({
-  document_size: 8.5,
-  document_count: 76692,
-  video_size: 10.2,
-  video_count: 148,
-  image_size: 13.2,
-  image_count: 96,
-  homework_count: 1535,
+  ...getScenarioResourceAnalysis(SCENARIO_COURSE_IDS[0]),
 });
 
 function formatDate(dateStr: string) {
@@ -245,7 +240,7 @@ async function loadTeachingClasses(courseId: string, useDemoFallback: boolean) {
     teachingClasses.value = response.data;
   } catch {
     teachingClasses.value = useDemoFallback
-      ? (getDemoTeachingClasses(courseId) as TeachingClass[])
+      ? (getScenarioTeachingClasses(courseId) as TeachingClass[])
       : [];
   } finally {
     loadingClasses.value = false;
@@ -256,7 +251,7 @@ async function loadResourceAnalysis(courseId: string) {
   try {
     resourceAnalysis.value = await fetchCourseResourceAnalysis(courseId);
   } catch {
-    // 使用默认值
+    resourceAnalysis.value = getScenarioResourceAnalysis(courseId);
   }
 }
 
@@ -272,9 +267,9 @@ async function resolveCourseId(): Promise<string> {
       const first = r.data[0];
       if (first?.id) return first.id;
     } catch {
-      /* 使用演示 id */
+      /* 使用内置课程场景 */
     }
-    return DEMO_COURSE_IDS[0];
+    return SCENARIO_COURSE_IDS[0];
   }
   return '';
 }
@@ -295,9 +290,9 @@ async function loadCourseDetail() {
     await loadTeachingClasses(courseId, false);
     await loadResourceAnalysis(courseId);
   } catch {
-    const demo = getDemoCourseById(courseId);
-    if (demo) {
-      course.value = { ...demo } as Course;
+    const scenarioCourse = getScenarioCourseById(courseId);
+    if (scenarioCourse) {
+      course.value = { ...scenarioCourse } as Course;
       error.value = '';
       await loadTeachingClasses(courseId, true);
       await loadResourceAnalysis(courseId);

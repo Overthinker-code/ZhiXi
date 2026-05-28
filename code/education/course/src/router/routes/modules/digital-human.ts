@@ -8,6 +8,7 @@ const DIGITAL_HUMAN: AppRouteRecordRaw = {
   meta: {
     locale: '数字人创作舱',
     requiresAuth: true,
+    roles: ['teacher'],
     icon: 'icon-robot',
     order: 2,
   },
@@ -19,7 +20,7 @@ const DIGITAL_HUMAN: AppRouteRecordRaw = {
       meta: {
         locale: 'menu.digitalHuman.tools',
         requiresAuth: true,
-        roles: ['*'],
+        roles: ['teacher'],
       },
     },
     {
@@ -29,7 +30,7 @@ const DIGITAL_HUMAN: AppRouteRecordRaw = {
       meta: {
         locale: 'menu.digitalHuman.pptToVideo',
         requiresAuth: true,
-        roles: ['*'],
+        roles: ['teacher'],
         hideInMenu: true,
       },
     },
@@ -40,7 +41,7 @@ const DIGITAL_HUMAN: AppRouteRecordRaw = {
       meta: {
         locale: 'menu.digitalHuman.textToVideo',
         requiresAuth: true,
-        roles: ['*'],
+        roles: ['teacher'],
         hideInMenu: true,
       },
     },
@@ -51,7 +52,7 @@ const DIGITAL_HUMAN: AppRouteRecordRaw = {
       meta: {
         locale: 'menu.digitalHuman.clone',
         requiresAuth: true,
-        roles: ['*'],
+        roles: ['teacher'],
         hideInMenu: true,
       },
     },
@@ -62,7 +63,7 @@ const DIGITAL_HUMAN: AppRouteRecordRaw = {
       meta: {
         locale: 'menu.digitalHuman.my',
         requiresAuth: true,
-        roles: ['*'],
+        roles: ['teacher'],
         hideInMenu: true,
       },
     },

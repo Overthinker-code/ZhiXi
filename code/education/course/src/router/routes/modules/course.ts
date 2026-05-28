@@ -74,6 +74,16 @@ const COURSE: AppRouteRecordRaw = {
         roles: ['*'],
       },
     },
+    {
+      path: 'resource-generation',
+      name: 'CourseResourceGeneration',
+      component: () => import('@/views/course/resource-generation/index.vue'),
+      meta: {
+        locale: '资源生成中心',
+        requiresAuth: true,
+        roles: ['teacher'],
+      },
+    },
   ],
 };
 
