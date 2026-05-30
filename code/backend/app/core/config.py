@@ -150,8 +150,8 @@ class Settings(BaseSettings):
     MULTIMODAL_PROVIDER: str = "openai_compatible"
     MULTIMODAL_MODEL: str = "Qwen3-VL-8B-Instruct"
     MULTIMODAL_FALLBACK_MODEL: str = "Qwen3-VL-4B-Instruct"
-    MULTIMODAL_API_BASE: str | None = None
-    MULTIMODAL_API_KEY: str | None = None
+    MULTIMODAL_API_BASE: str | None = "http://127.0.0.1:11434/v1"
+    MULTIMODAL_API_KEY: str | None = "ollama"
     MULTIMODAL_TIMEOUT_SECONDS: int = 180
 
     RAG_TOP_K: int = 4

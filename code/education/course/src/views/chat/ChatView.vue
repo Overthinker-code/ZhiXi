@@ -40,7 +40,7 @@
     },
   });
   const drawerTitle = computed(() => {
-    if (activeDrawer.value === 'profile') return '动态学习画像';
+    if (activeDrawer.value === 'profile') return 'AI画像构建面板';
     if (activeDrawer.value === 'agents') return '多智能体协作';
     return '课程资料上下文';
   });
@@ -96,8 +96,8 @@
             ? report.recommended_resources.slice(0, 2).join(' / ')
             : '优先从课程资料库检索',
         hint: Array.isArray(report?.follow_up_questions)
-          ? report.follow_up_questions[0] || '继续追问可触发个性化推荐。'
-          : '继续追问可触发个性化推荐。',
+          ? report.follow_up_questions[0] || '继续追问会推动画像、资源和路径一起更新。'
+          : '继续追问会推动画像、资源和路径一起更新。',
       },
     ];
   });
@@ -302,7 +302,7 @@
         <span class="eyebrow">AI 伴学工作台</span>
         <h1>专注对话、批改与个性化辅导</h1>
         <p>
-          支持课程资料检索、图片与文档联合提问、练习批改、数字人讲解和学习画像更新。
+          支持课程资料检索、图片与文档联合提问、练习批改、数字人讲解，以及由对话持续更新的学习画像。
         </p>
       </div>
       <div class="drawer-actions">
@@ -337,7 +337,7 @@
     >
       <section v-if="activeDrawer === 'profile'" class="drawer-section">
         <div class="drawer-toolbar drawer-toolbar--profile">
-          <span class="drawer-meta">{{ loadingReport ? '学习画像更新中…' : '学习画像已接入真实学情接口' }}</span>
+          <span class="drawer-meta">{{ loadingReport ? '学习画像更新中…' : '画像已接入真实学情与掌握度更新链路' }}</span>
           <a-button size="small" :loading="loadingReport" @click="loadLearningReport(true)">
             刷新画像
           </a-button>

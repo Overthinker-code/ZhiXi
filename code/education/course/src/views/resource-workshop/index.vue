@@ -3,21 +3,79 @@
     <Breadcrumb :items="['学习资源工坊', currentPageTitle]" />
 
     <section class="hero-band">
-      <div>
+      <div class="hero-copy">
         <div class="eyebrow">学习资源工坊</div>
-        <h2>{{ currentPageTitle }}</h2>
+        <div class="hero-title-row">
+          <h2>{{ currentPageTitle }}</h2>
+          <span class="hero-scene">{{ currentModeCaption }}</span>
+        </div>
         <p>{{ currentPageDescription }}</p>
+        <div class="hero-highlights">
+          <div
+            v-for="item in heroHighlights"
+            :key="item.label"
+            class="hero-highlight"
+          >
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </div>
+        </div>
+        <div v-if="isUnifiedWorkbench" class="mode-switch-wrap">
+          <div class="section-note section-note--light">
+            <strong>工作模式切换</strong>
+            <span>同一页面内完成资源生成、练习批改与图像题解，结果区会随模式联动切换。</span>
+          </div>
+          <div class="mode-switch" role="tablist" aria-label="工坊模式">
+            <button
+              v-for="item in modeOptions"
+              :key="item.value"
+              type="button"
+              class="mode-switch__item"
+              :class="{ 'mode-switch__item--active': activeMode === item.value }"
+              @click="activeMode = item.value"
+            >
+              <em>{{ item.badge }}</em>
+              <strong>{{ item.label }}</strong>
+              <span>{{ item.description }}</span>
+            </button>
+          </div>
+        </div>
       </div>
-      <a-button type="primary" :loading="loadingReport" @click="loadProfile(true)">
-        刷新画像
-      </a-button>
+      <div class="hero-actions">
+        <div v-if="report" class="hero-status">
+          <span class="hero-status__label">学习画像状态</span>
+          <strong>{{ riskLabel(report.risk_level) }}</strong>
+          <small>{{ report.current_goal || '会根据最新互动持续更新' }}</small>
+          <div class="hero-status__meta">
+            <div class="hero-status__meta-item">
+              <span>薄弱点</span>
+              <strong>{{ weakPoints.length || 0 }} 项</strong>
+            </div>
+            <div class="hero-status__meta-item">
+              <span>掌握主题</span>
+              <strong>{{ masteryBars.length || 0 }} 项</strong>
+            </div>
+          </div>
+        </div>
+        <div v-else class="hero-status hero-status--empty">
+          <span class="hero-status__label">学习画像状态</span>
+          <strong>待生成</strong>
+          <small>首次进入可先刷新画像，系统会自动回填目标、薄弱点与学习背景。</small>
+        </div>
+        <a-button type="primary" :loading="loadingReport" @click="loadProfile(true)">
+          刷新学习画像
+        </a-button>
+      </div>
     </section>
 
     <a-row :gutter="16">
       <a-col :xs="24" :xl="8">
-        <a-card class="panel-card" title="学习画像">
+        <a-card class="panel-card" title="学习画像与生成依据">
           <a-spin :loading="loadingReport" style="width: 100%">
             <template v-if="report">
+              <div class="card-intro">
+                当前资源编排会优先参考学习目标、知识短板与课堂投入度，作为正式生成的依据。
+              </div>
               <div class="profile-summary">{{ report.summary }}</div>
               <div class="profile-grid">
                 <div v-for="item in profileDimensions" :key="item.label" class="profile-dim">
@@ -47,12 +105,23 @@
                   {{ item }}
                 </a-tag>
               </div>
+              <div class="signal-box">
+                <div class="signal-box__title">画像更新依据</div>
+                <ul class="plain-list plain-list--compact">
+                  <li>对话画像：结合近期提问与追问方式动态抽取学习偏好。</li>
+                  <li>掌握度：根据问答、练习批改与错因复盘持续更新。</li>
+                  <li>课堂表现：有行为检测数据时同步修正学习风险与投入度。</li>
+                </ul>
+              </div>
             </template>
-            <a-empty v-else description="暂无画像数据，点击刷新画像生成" />
+            <a-empty v-else description="尚未获取学习画像，请先刷新画像后再开始本轮资源生成。" />
           </a-spin>
         </a-card>
 
-        <a-card v-if="isPackageMode" class="panel-card" title="生成设置">
+        <a-card v-if="isPackageMode" class="panel-card" title="资源生成设置">
+          <div class="card-intro">
+            设置本轮课程主题、目标与难度，系统将生成可直接用于教学的正式资源包。
+          </div>
           <a-form :model="form" layout="vertical">
             <a-form-item field="subject" label="学科/课程">
               <a-input v-model="form.subject" placeholder="例如：数据库系统" />
@@ -90,12 +159,15 @@
               :loading="loadingPackage"
               @click="handleGeneratePackage"
             >
-              生成个性化资源包
+              生成正式资源包
             </a-button>
           </a-form>
         </a-card>
 
-        <a-card v-if="isExerciseMode" class="panel-card" title="批改范围">
+        <a-card v-if="isExerciseMode" class="panel-card" title="批改范围与上下文">
+          <div class="card-intro">
+            补充课程与知识点后，批改结果会更准确地回写到学生画像与后续追练建议中。
+          </div>
           <a-form :model="gradeForm" layout="vertical">
             <a-form-item label="学科/课程">
               <a-input v-model="gradeForm.subject" placeholder="例如：数据库系统" />
@@ -106,7 +178,10 @@
           </a-form>
         </a-card>
 
-        <a-card v-if="isImageMode" class="panel-card" title="题目背景">
+        <a-card v-if="isImageMode" class="panel-card" title="题目背景补充">
+          <div class="card-intro">
+            可补充课程信息与文字题干，帮助图像识别结果更稳定，也便于生成更清晰的结构化讲解。
+          </div>
           <a-form :model="imageForm" layout="vertical">
             <a-form-item label="学科/课程">
               <a-input v-model="imageForm.subject" placeholder="例如：数据库系统" />
@@ -125,6 +200,9 @@
       <a-col :xs="24" :xl="16">
         <template v-if="isPackageMode">
           <a-card class="panel-card" title="资源编排流程">
+            <div class="card-intro">
+              从画像匹配到结果校对，生成流程会按教学可用性逐步组织内容。
+            </div>
             <div class="agent-flow">
               <div
                 v-for="(agent, index) in agentSteps"
@@ -148,6 +226,22 @@
                 </div>
                 <a-tag color="arcoblue">{{ packageResult.resources.length }} 类资源</a-tag>
               </div>
+              <div class="result-stats">
+                <div
+                  v-for="item in packageStats"
+                  :key="item.label"
+                  class="result-stat"
+                >
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </div>
+              </div>
+              <div class="result-section">
+                <div class="result-section__head">
+                  <h4>个性化匹配依据</h4>
+                  <span>用于解释本轮资源为何这样编排</span>
+                </div>
+              </div>
               <div class="basis-row">
                 <a-tag
                   v-for="item in packageResult.personalization_basis"
@@ -159,10 +253,11 @@
               </div>
               <div class="resource-grid">
                 <article
-                  v-for="item in packageResult.resources"
+                  v-for="(item, index) in packageResult.resources"
                   :key="item.title"
                   class="resource-card"
                 >
+                  <div class="resource-card__index">0{{ index + 1 }}</div>
                   <div class="resource-meta">
                     <a-tag>{{ resourceTypeLabel(item.type) }}</a-tag>
                     <span>{{ item.estimated_minutes }} 分钟</span>
@@ -173,10 +268,19 @@
                 </article>
               </div>
             </template>
-            <a-empty v-else description="生成后将在这里展示资源包内容" />
+            <a-empty
+              v-else
+              description="尚未生成资源包。完成左侧设置后，这里会展示讲解、练习、案例与脚本等正式资源。"
+            />
           </a-card>
 
           <a-card class="panel-card" title="个性化学习路径图">
+            <div v-if="pathNodes.length" class="result-section">
+              <div class="result-section__head">
+                <h4>建议学习顺序</h4>
+                <span>根据资源类型自动编排完成路径</span>
+              </div>
+            </div>
             <div v-if="pathNodes.length" class="path-flow">
               <div v-for="(node, index) in pathNodes" :key="node.title" class="path-node">
                 <span class="path-index">{{ index + 1 }}</span>
@@ -184,11 +288,14 @@
                 <small>{{ node.minutes }} 分钟</small>
               </div>
             </div>
-            <a-empty v-else description="暂无路径，先生成资源包" />
+            <a-empty v-else description="资源包生成后，将自动编排建议学习路径。" />
           </a-card>
         </template>
 
         <a-card v-if="isExerciseMode" class="panel-card" title="练习批改与掌握度更新">
+          <div class="card-intro">
+            输入题目与学生作答后，系统会完成评分、错因反馈，并同步更新相关知识点掌握度。
+          </div>
           <a-form :model="gradeForm" layout="vertical">
             <a-form-item label="题目">
               <a-textarea
@@ -214,10 +321,26 @@
               :loading="loadingGrade"
               @click="handleGrade"
             >
-              批改并更新画像
+              提交批改并同步画像
             </a-button>
           </a-form>
           <div v-if="gradeResult" class="grade-result">
+            <div class="result-section">
+              <div class="result-section__head">
+                <h4>批改结果</h4>
+                <span>结果已与学习画像联动</span>
+              </div>
+            </div>
+            <div class="result-stats">
+              <div
+                v-for="item in gradeStats"
+                :key="item.label"
+                class="result-stat"
+              >
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+              </div>
+            </div>
             <div class="score-line">
               <strong>{{ gradeResult.score }}</strong>
               <span>分</span>
@@ -242,12 +365,21 @@
               <li v-for="item in gradeResult.follow_up" :key="item">{{ item }}</li>
             </ul>
           </div>
+          <a-empty
+            v-else
+            class="result-empty"
+            description="提交批改后，这里会展示得分、掌握度变化与后续追练建议。"
+          />
         </a-card>
 
         <a-card v-if="isImageMode" class="panel-card" title="图像题目识别与图解">
+          <div class="card-intro">
+            上传题目图片后，系统会完成题意提取、解题步骤生成与结构化图解整理。
+          </div>
           <div class="upload-line">
             <input type="file" accept="image/*" @change="handleImageFile" />
             <span v-if="imageName">{{ imageName }}</span>
+            <span v-else class="upload-placeholder">支持课堂拍照、练习截图与试题图片</span>
           </div>
           <a-button
             type="primary"
@@ -256,9 +388,25 @@
             :loading="loadingImage"
             @click="handleImageAnalyze"
           >
-            分析题目并生成图解
+            开始图像识别与题解
           </a-button>
           <div v-if="imageResult" class="image-result">
+            <div class="result-section">
+              <div class="result-section__head">
+                <h4>识别结果与题解输出</h4>
+                <span>支持题干提取、图解节点与步骤化讲解</span>
+              </div>
+            </div>
+            <div class="result-stats">
+              <div
+                v-for="item in imageStats"
+                :key="item.label"
+                class="result-stat"
+              >
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+              </div>
+            </div>
             <div class="result-meta">
               <a-tag>{{ imageResult.subject }}</a-tag>
               <a-tag color="arcoblue">{{ imageResult.problem_type }}</a-tag>
@@ -278,6 +426,11 @@
               </li>
             </ul>
           </div>
+          <a-empty
+            v-else
+            class="result-empty"
+            description="上传并分析题目图片后，这里会展示识别文本、图解节点与完整题解。"
+          />
         </a-card>
       </a-col>
     </a-row>
@@ -285,7 +438,7 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { Message } from '@arco-design/web-vue';
 import { fetchLearningReport, LearningReport } from '@/api/rag';
@@ -301,6 +454,14 @@ import {
 import { renderMarkdown } from '@/utils/markdown';
 
 const route = useRoute();
+type WorkbenchMode = 'package' | 'exercise' | 'image';
+
+function resolveRouteMode(routeName: unknown): WorkbenchMode {
+  const name = String(routeName || '');
+  if (name === 'ResourceExerciseReview') return 'exercise';
+  if (name === 'ResourceImageSolver') return 'image';
+  return 'package';
+}
 
 const loadingReport = ref(false);
 const loadingPackage = ref(false);
@@ -312,6 +473,7 @@ const packageResult = ref<ResourcePackageResponse | null>(null);
 const gradeResult = ref<Awaited<ReturnType<typeof gradeResourceExercise>> | null>(null);
 const imageResult = ref<ImageAnalyzeResponse | null>(null);
 const imageName = ref('');
+const activeMode = ref<WorkbenchMode>(resolveRouteMode(route.name));
 
 const form = reactive<{
   subject: string;
@@ -320,23 +482,23 @@ const form = reactive<{
   difficulty: ResourceDifficulty;
   minutes: number;
 }>({
-  subject: '数据库系统',
-  topic: '关系模型',
-  goal: '先补齐核心概念，再生成练习和可复盘路径',
+  subject: '',
+  topic: '',
+  goal: '',
   difficulty: 'auto',
   minutes: 45,
 });
 
 const gradeForm = reactive({
-  subject: '数据库系统',
-  topic: '关系模型',
-  question: '请说明关系模型中的实体完整性与参照完整性分别约束什么。',
+  subject: '',
+  topic: '',
+  question: '',
   student_answer: '',
   reference_answer: '',
 });
 
 const imageForm = reactive({
-  subject: '数据库系统',
+  subject: '',
   question_text: '',
   image_base64: '',
 });
@@ -350,13 +512,24 @@ const agentSteps = [
 ];
 
 const mode = computed(() => String(route.name || 'ResourcePackageBuilder'));
-const isPackageMode = computed(() => mode.value === 'ResourcePackageBuilder');
-const isExerciseMode = computed(() => mode.value === 'ResourceExerciseReview');
-const isImageMode = computed(() => mode.value === 'ResourceImageSolver');
+const isUnifiedWorkbench = computed(() => mode.value === 'CourseResourceGeneration');
+const isPackageMode = computed(() => activeMode.value === 'package');
+const isExerciseMode = computed(() => activeMode.value === 'exercise');
+const isImageMode = computed(() => activeMode.value === 'image');
+const modeOptions: Array<{
+  label: string;
+  value: WorkbenchMode;
+  description: string;
+  badge: string;
+}> = [
+  { label: '资源包生成', value: 'package', description: '围绕画像生成讲义、导图、练习与案例', badge: '主线' },
+  { label: '练习批改', value: 'exercise', description: '形成批改、掌握度、追练闭环', badge: '联动' },
+  { label: '图像题解', value: 'image', description: '接入图片识别与结构化讲解', badge: '多模态' },
+];
 const currentPageTitle = computed(() => {
   if (isExerciseMode.value) return '练习批改';
   if (isImageMode.value) return '图像题解';
-  return '资源包生成';
+  return isUnifiedWorkbench.value ? 'AI画像驱动资源工坊' : '资源包生成';
 });
 const currentPageDescription = computed(() => {
   if (isExerciseMode.value) {
@@ -365,7 +538,33 @@ const currentPageDescription = computed(() => {
   if (isImageMode.value) {
     return '上传题目图片并补充题干信息，识别题意后生成解题提示、步骤与图解。';
   }
-  return '基于学生画像、当前目标和薄弱点，生成讲解文档、思维导图、练习题、阅读材料、实操案例与数字人脚本。';
+  return '基于学生画像、当前目标和薄弱点，生成讲解文档、思维导图、练习题、阅读材料、实操案例与数字人脚本，并串联学习路径。';
+});
+const currentModeCaption = computed(() => {
+  if (isExerciseMode.value) return '掌握度闭环';
+  if (isImageMode.value) return '多模态题解';
+  return '正式资源生成';
+});
+const heroHighlights = computed(() => {
+  if (isExerciseMode.value) {
+    return [
+      { label: '结果输出', value: '评分、反馈、追练建议' },
+      { label: '联动更新', value: '掌握度即时回写' },
+      { label: '适用场景', value: '课堂练习与课后作业' },
+    ];
+  }
+  if (isImageMode.value) {
+    return [
+      { label: '输入方式', value: '题目图片与补充题干' },
+      { label: '结果输出', value: '识别文本、图解、步骤讲解' },
+      { label: '适用场景', value: '板书拍照与试题截图' },
+    ];
+  }
+  return [
+    { label: '资源范围', value: '讲解、练习、案例、脚本' },
+    { label: '编排依据', value: '画像、目标、薄弱点联动' },
+    { label: '结果组织', value: '资源包与学习路径同步生成' },
+  ];
 });
 
 const weakPoints = computed(() => report.value?.weak_points?.slice(0, 6) || []);
@@ -402,12 +601,60 @@ const pathNodes = computed(() =>
     minutes: item.estimated_minutes,
   }))
 );
+const packageStats = computed(() => {
+  if (!packageResult.value) return [];
+  const totalMinutes = packageResult.value.resources.reduce(
+    (sum, item) => sum + (Number(item.estimated_minutes) || 0),
+    0
+  );
+  return [
+    { label: '资源数量', value: `${packageResult.value.resources.length} 项` },
+    { label: '预计学习时长', value: `${totalMinutes} 分钟` },
+    { label: '匹配依据', value: `${packageResult.value.personalization_basis.length} 条` },
+  ];
+});
+const gradeStats = computed(() => {
+  if (!gradeResult.value) return [];
+  return [
+    { label: '得分', value: `${gradeResult.value.score} / 100` },
+    {
+      label: '掌握度变化',
+      value: `${Math.round(gradeResult.value.mastery_before * 100)}% -> ${Math.round(
+        gradeResult.value.mastery_after * 100
+      )}%`,
+    },
+    { label: '后续建议', value: `${gradeResult.value.follow_up.length} 项` },
+  ];
+});
 
 const diagramNodes = computed(() => {
   const content = imageResult.value?.diagram?.content || '';
   const labels = Array.from(content.matchAll(/\[([^\]]+)\]/g)).map((item) => item[1]);
   return labels.length ? labels.slice(0, 6) : imageResult.value?.solution_outline?.slice(0, 4) || [];
 });
+const imageStats = computed(() => {
+  if (!imageResult.value) return [];
+  return [
+    { label: '识别置信度', value: `${Math.round(imageResult.value.confidence * 100)}%` },
+    { label: '图解节点', value: `${diagramNodes.value.length} 项` },
+    { label: '解题步骤', value: `${imageResult.value.solution_outline.length} 步` },
+  ];
+});
+
+function hydrateFormsFromReport(snapshot: LearningReport | null) {
+  if (!snapshot) return;
+  const primaryWeakPoint = snapshot.weak_points?.[0] || '';
+  const primaryGoal = snapshot.current_goal || '';
+  const primarySubject = form.subject || gradeForm.subject || imageForm.subject || '';
+
+  if (!form.topic && primaryWeakPoint) form.topic = primaryWeakPoint;
+  if (!form.goal && primaryGoal) form.goal = primaryGoal;
+  if (!gradeForm.topic && primaryWeakPoint) gradeForm.topic = primaryWeakPoint;
+  if (!imageForm.subject && primarySubject) imageForm.subject = primarySubject;
+
+  if (!gradeForm.subject && form.subject) gradeForm.subject = form.subject;
+  if (!imageForm.subject && form.subject) imageForm.subject = form.subject;
+}
 
 function basisLabel(items: Array<{ value: number }>) {
   if (!items.length) return '画像构建中';
@@ -443,6 +690,7 @@ async function loadProfile(refresh = false) {
   loadingReport.value = true;
   try {
     report.value = await fetchLearningReport(refresh);
+    hydrateFormsFromReport(report.value);
   } catch (error) {
     Message.warning('画像数据暂不可用，可先按当前设置继续生成资源');
   } finally {
@@ -464,6 +712,9 @@ async function handleGeneratePackage() {
     gradeForm.subject = packageResult.value.subject;
     gradeForm.topic = packageResult.value.topic;
     imageForm.subject = packageResult.value.subject;
+    if (!imageForm.question_text.trim()) {
+      imageForm.question_text = `请结合 ${packageResult.value.topic} 的核心概念，对题目进行结构化讲解。`;
+    }
     Message.success('资源包已生成');
   } catch (error) {
     Message.error('资源包生成失败，请检查后端服务');
@@ -518,6 +769,13 @@ async function handleImageAnalyze() {
 onMounted(() => {
   loadProfile(false);
 });
+
+watch(
+  () => route.name,
+  (name) => {
+    activeMode.value = resolveRouteMode(name);
+  }
+);
 </script>
 
 <style scoped>
@@ -531,23 +789,37 @@ onMounted(() => {
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 16px;
-  padding: 24px 28px;
+  padding: 28px;
   color: #102033;
-  background: linear-gradient(135deg, #eef7ff 0%, #f7fbff 44%, #f4fff9 100%);
+  background:
+    radial-gradient(circle at right top, rgba(55, 122, 246, 0.15), transparent 28%),
+    linear-gradient(135deg, #eef7ff 0%, #f7fbff 44%, #f4fff9 100%);
   border: 1px solid #d7e9fb;
   border-radius: 8px;
 }
 
 .hero-band h2 {
   margin: 4px 0 8px;
-  font-size: 26px;
+  font-size: 28px;
 }
 
 .hero-band p {
-  max-width: 820px;
+  max-width: 760px;
   margin: 0;
   color: #50657b;
   line-height: 1.7;
+}
+
+.hero-copy {
+  display: grid;
+  gap: 12px;
+}
+
+.hero-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .eyebrow {
@@ -555,9 +827,208 @@ onMounted(() => {
   font-weight: 700;
 }
 
+.hero-scene {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  color: #0f5ca8;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid rgba(141, 182, 228, 0.9);
+  border-radius: 999px;
+}
+
+.hero-actions {
+  min-width: 210px;
+  display: grid;
+  gap: 12px;
+  justify-items: end;
+}
+
+.hero-status {
+  width: 100%;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(142, 181, 228, 0.8);
+  border-radius: 8px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.hero-status__label {
+  display: block;
+  margin-bottom: 4px;
+  color: #5f7388;
+  font-size: 12px;
+}
+
+.hero-status strong {
+  display: block;
+  color: #163a63;
+  font-size: 18px;
+}
+
+.hero-status small {
+  display: block;
+  margin-top: 4px;
+  color: #62758b;
+  line-height: 1.6;
+}
+
+.hero-status--empty {
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.hero-status__meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.hero-status__meta-item {
+  padding: 10px 12px;
+  background: rgba(241, 247, 255, 0.9);
+  border-radius: 8px;
+}
+
+.hero-status__meta-item span {
+  display: block;
+  color: #6c7f93;
+  font-size: 12px;
+}
+
+.hero-status__meta-item strong {
+  margin-top: 4px;
+  font-size: 15px;
+}
+
+.hero-highlights {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.hero-highlight {
+  min-height: 74px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.66);
+  border: 1px solid rgba(211, 227, 243, 0.95);
+  border-radius: 8px;
+}
+
+.hero-highlight span {
+  display: block;
+  color: #6a7c8e;
+  font-size: 12px;
+}
+
+.hero-highlight strong {
+  display: block;
+  margin-top: 8px;
+  color: #173a62;
+  line-height: 1.6;
+}
+
+.mode-switch-wrap {
+  display: grid;
+  gap: 10px;
+}
+
+.mode-switch {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.mode-switch__item {
+  padding: 14px 14px 12px;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid #d5e3f0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease;
+}
+
+.mode-switch__item:hover {
+  border-color: #9fc4ef;
+  transform: translateY(-1px);
+}
+
+.mode-switch__item--active {
+  background: #ffffff;
+  border-color: #4f92e8;
+  box-shadow: 0 10px 24px rgba(36, 96, 173, 0.12);
+}
+
+.mode-switch__item strong,
+.mode-switch__item span {
+  display: block;
+}
+
+.mode-switch__item em {
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: 10px;
+  padding: 2px 8px;
+  color: #1b5f9c;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+  background: #e9f4ff;
+  border-radius: 999px;
+}
+
+.mode-switch__item strong {
+  color: #163a63;
+  line-height: 1.4;
+}
+
+.mode-switch__item span {
+  margin-top: 6px;
+  color: #5f7388;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .panel-card {
   margin-bottom: 16px;
   border-radius: 8px;
+}
+
+.card-intro {
+  margin-bottom: 14px;
+  color: #62758b;
+  line-height: 1.7;
+}
+
+.section-note {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  background: #f6faff;
+  border: 1px solid #deebf8;
+  border-radius: 8px;
+}
+
+.section-note strong {
+  color: #193a5c;
+  line-height: 1.4;
+}
+
+.section-note span {
+  color: #62758b;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.section-note--light {
+  background: rgba(255, 255, 255, 0.6);
 }
 
 .profile-summary,
@@ -614,6 +1085,20 @@ onMounted(() => {
   margin-top: 14px;
 }
 
+.signal-box {
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: #f8fbff;
+  border: 1px solid #dfe9f4;
+  border-radius: 8px;
+}
+
+.signal-box__title {
+  margin-bottom: 8px;
+  color: #173447;
+  font-weight: 700;
+}
+
 .agent-flow {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -666,11 +1151,72 @@ onMounted(() => {
   margin-top: 14px;
 }
 
+.result-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.result-stat {
+  min-height: 84px;
+  padding: 14px;
+  background: #f8fbff;
+  border: 1px solid #dce9f5;
+  border-radius: 8px;
+}
+
+.result-stat span {
+  display: block;
+  color: #708295;
+  font-size: 12px;
+}
+
+.result-stat strong {
+  display: block;
+  margin-top: 10px;
+  color: #163a63;
+  line-height: 1.6;
+}
+
+.result-section {
+  margin-top: 16px;
+}
+
+.result-section__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.result-section__head h4 {
+  margin: 0;
+  color: #173a62;
+  font-size: 15px;
+}
+
+.result-section__head span {
+  color: #708295;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .resource-card {
+  position: relative;
   padding: 16px;
   background: #ffffff;
   border: 1px solid #e2ebf5;
   border-radius: 8px;
+}
+
+.resource-card__index {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  color: #9aaaba;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .resource-card h4 {
@@ -730,15 +1276,27 @@ onMounted(() => {
   color: #1d6fd6;
 }
 
+.result-empty {
+  margin-top: 18px;
+}
+
 .plain-list {
   padding-left: 18px;
   color: #526477;
   line-height: 1.8;
 }
 
+.plain-list--compact {
+  margin: 0;
+}
+
 .upload-line {
   justify-content: flex-start;
   margin-bottom: 12px;
+}
+
+.upload-placeholder {
+  color: #7a8b9c;
 }
 
 .image-result {
@@ -771,13 +1329,22 @@ onMounted(() => {
 
 @media (max-width: 900px) {
   .hero-band,
-  .package-head {
+  .package-head,
+  .result-section__head {
     align-items: flex-start;
     flex-direction: column;
   }
 
+  .hero-actions {
+    width: 100%;
+    justify-items: stretch;
+  }
+
+  .hero-highlights,
+  .mode-switch,
   .agent-flow,
-  .resource-grid {
+  .resource-grid,
+  .result-stats {
     grid-template-columns: 1fr;
   }
 
