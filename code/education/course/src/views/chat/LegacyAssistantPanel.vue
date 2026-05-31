@@ -6,7 +6,7 @@
   import { Plus } from '@element-plus/icons-vue';
   import 'animate.css';
   import { computed, nextTick, onActivated, onMounted, onUnmounted, ref, watch } from 'vue';
-  import { onBeforeRouteLeave } from 'vue-router';
+  import { onBeforeRouteLeave, useRoute } from 'vue-router';
 
   import ChatInput from './components/ChatInput.vue';
   import ChatMessage from './components/ChatMessage.vue';
@@ -18,6 +18,7 @@
 
   const chatStore = useChatStore();
   const settingStore = useSettingStore();
+  const route = useRoute();
   const {
     currentMessages,
     isLoading,
@@ -240,6 +241,8 @@
     document.removeEventListener('click', handleDocumentClick);
     document.removeEventListener('keydown', handleDeveloperShortcut);
   });
+
+  const initialPrompt = computed(() => String(route.query.prompt || ''));
 </script>
 
 <template>
@@ -317,7 +320,12 @@
     </div>
 
     <div class="chat-input-container">
-      <chat-input :loading="isLoading" @send="handleSend" @stop="handleStop" />
+      <chat-input
+        :loading="isLoading"
+        :initial-text="initialPrompt"
+        @send="handleSend"
+        @stop="handleStop"
+      />
     </div>
 
     <SettingsPanel ref="settingDrawer" />

@@ -122,6 +122,10 @@
           <div class="card-intro">
             设置本轮课程主题、目标与难度，系统将生成可直接用于教学的正式资源包。
           </div>
+          <div v-if="incomingSeedSummary" class="seed-banner">
+            <span class="seed-banner__label">本轮进入上下文</span>
+            <strong>{{ incomingSeedSummary }}</strong>
+          </div>
           <a-form :model="form" layout="vertical">
             <a-form-item field="subject" label="学科/课程">
               <a-input v-model="form.subject" placeholder="例如：数据库系统" />
@@ -226,6 +230,22 @@
                 </div>
                 <a-tag color="arcoblue">{{ packageResult.resources.length }} 类资源</a-tag>
               </div>
+              <div class="package-actions">
+                <a-button size="small" type="outline" @click="copyPackageSummary">
+                  复制摘要
+                </a-button>
+                <a-button size="small" type="outline" @click="downloadPackageSummary">
+                  下载资源包
+                </a-button>
+                <a-button
+                  v-if="videoScriptResource"
+                  size="small"
+                  type="primary"
+                  @click="() => goToDigitalHumanStudio()"
+                >
+                  生成数字人讲解
+                </a-button>
+              </div>
               <div class="result-stats">
                 <div
                   v-for="item in packageStats"
@@ -265,6 +285,19 @@
                   <h4>{{ item.title }}</h4>
                   <p>{{ item.description }}</p>
                   <div class="preview-text">{{ item.content_preview }}</div>
+                  <div class="resource-card__actions">
+                    <a-button size="mini" type="outline" @click="copyResourceItem(item)">
+                      复制
+                    </a-button>
+                    <a-button
+                      v-if="item.type === 'video_script'"
+                      size="mini"
+                      type="primary"
+                      @click="goToDigitalHumanStudio(item)"
+                    >
+                      去数字人
+                    </a-button>
+                  </div>
                 </article>
               </div>
             </template>
@@ -439,7 +472,7 @@
 
 <script lang="ts" setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { Message } from '@arco-design/web-vue';
 import { fetchLearningReport, LearningReport } from '@/api/rag';
 import {
@@ -454,6 +487,7 @@ import {
 import { renderMarkdown } from '@/utils/markdown';
 
 const route = useRoute();
+const router = useRouter();
 type WorkbenchMode = 'package' | 'exercise' | 'image';
 
 function resolveRouteMode(routeName: unknown): WorkbenchMode {
@@ -502,6 +536,7 @@ const imageForm = reactive({
   question_text: '',
   image_base64: '',
 });
+const lastSeedSignature = ref('');
 
 const agentSteps = [
   { name: '画像匹配', desc: '抽取基础与短板', icon: 'P1' },
@@ -613,6 +648,20 @@ const packageStats = computed(() => {
     { label: '匹配依据', value: `${packageResult.value.personalization_basis.length} 条` },
   ];
 });
+const videoScriptResource = computed(() =>
+  packageResult.value?.resources.find((item) => item.type === 'video_script') || null
+);
+const incomingSeedSummary = computed(() => {
+  const topic = String(route.query.topic || '').trim();
+  const goal = String(route.query.goal || '').trim();
+  const source = String(route.query.source || '').trim();
+  if (!topic && !goal && !source) return '';
+  const segments = [];
+  if (source) segments.push(`来自 ${source}`);
+  if (topic) segments.push(`主题：${topic}`);
+  if (goal) segments.push(`目标：${goal}`);
+  return segments.join(' / ');
+});
 const gradeStats = computed(() => {
   if (!gradeResult.value) return [];
   return [
@@ -656,6 +705,41 @@ function hydrateFormsFromReport(snapshot: LearningReport | null) {
   if (!imageForm.subject && form.subject) imageForm.subject = form.subject;
 }
 
+function hydrateFormsFromRoute() {
+  const seedMode = String(route.query.mode || '').trim();
+  const seedSubject = String(route.query.subject || '').trim();
+  const seedTopic = String(route.query.topic || '').trim();
+  const seedGoal = String(route.query.goal || '').trim();
+  const signature = JSON.stringify({
+    seedMode,
+    seedSubject,
+    seedTopic,
+    seedGoal,
+    routeName: String(route.name || ''),
+  });
+  if (signature === lastSeedSignature.value) return;
+  lastSeedSignature.value = signature;
+
+  if (seedMode === 'exercise' || seedMode === 'image' || seedMode === 'package') {
+    activeMode.value = seedMode as WorkbenchMode;
+  }
+  if (seedSubject) {
+    form.subject = seedSubject;
+    gradeForm.subject = seedSubject;
+    imageForm.subject = seedSubject;
+  }
+  if (seedTopic) {
+    form.topic = seedTopic;
+    gradeForm.topic = seedTopic;
+    if (!imageForm.question_text.trim()) {
+      imageForm.question_text = `请围绕“${seedTopic}”生成结构化题解与图示说明。`;
+    }
+  }
+  if (seedGoal) {
+    form.goal = seedGoal;
+  }
+}
+
 function basisLabel(items: Array<{ value: number }>) {
   if (!items.length) return '画像构建中';
   const avg = items.reduce((sum, item) => sum + item.value, 0) / items.length;
@@ -686,11 +770,88 @@ function resourceTypeLabel(type: ResourceItem['type']) {
   return map[type] || type;
 }
 
+function buildPackageExportText() {
+  if (!packageResult.value) return '';
+  const lines = [
+    `${packageResult.value.topic} 学习资源包`,
+    `课程：${packageResult.value.subject}`,
+    `目标：${packageResult.value.goal}`,
+    '',
+    '个性化匹配依据：',
+    ...packageResult.value.personalization_basis.map((item, index) => `${index + 1}. ${item}`),
+    '',
+    '资源清单：',
+    ...packageResult.value.resources.flatMap((item, index) => [
+      `${index + 1}. ${resourceTypeLabel(item.type)}｜${item.title}`,
+      `   用时：${item.estimated_minutes} 分钟`,
+      `   描述：${item.description}`,
+      `   预览：${item.content_preview}`,
+    ]),
+  ];
+  return lines.join('\n');
+}
+
+async function copyTextPayload(text: string, successText: string) {
+  if (!text) return;
+  await navigator.clipboard.writeText(text);
+  Message.success(successText);
+}
+
+async function copyPackageSummary() {
+  if (!packageResult.value) return;
+  try {
+    await copyTextPayload(buildPackageExportText(), '资源包摘要已复制');
+  } catch {
+    Message.error('复制失败，请检查浏览器剪贴板权限');
+  }
+}
+
+async function copyResourceItem(item: ResourceItem) {
+  try {
+    await copyTextPayload(
+      `${item.title}\n${item.description}\n\n${item.content_preview}`,
+      '资源内容已复制'
+    );
+  } catch {
+    Message.error('复制失败，请检查浏览器剪贴板权限');
+  }
+}
+
+function downloadPackageSummary() {
+  if (!packageResult.value) return;
+  const blob = new Blob([buildPackageExportText()], { type: 'text/plain;charset=utf-8' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `${packageResult.value.topic || '学习资源包'}.txt`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href);
+  Message.success('资源包文本已下载');
+}
+
+function goToDigitalHumanStudio(resource?: ResourceItem) {
+  const payload = resource || videoScriptResource.value;
+  if (!payload) {
+    Message.warning('当前资源包里还没有数字人脚本');
+    return;
+  }
+  router.push({
+    path: '/digital-human/text-to-video',
+    query: {
+      source: 'resource-workshop',
+      title: payload.title,
+      script: payload.content_preview,
+    },
+  });
+}
+
 async function loadProfile(refresh = false) {
   loadingReport.value = true;
   try {
     report.value = await fetchLearningReport(refresh);
     hydrateFormsFromReport(report.value);
+    hydrateFormsFromRoute();
   } catch (error) {
     Message.warning('画像数据暂不可用，可先按当前设置继续生成资源');
   } finally {
@@ -767,6 +928,7 @@ async function handleImageAnalyze() {
 }
 
 onMounted(() => {
+  hydrateFormsFromRoute();
   loadProfile(false);
 });
 
@@ -774,7 +936,16 @@ watch(
   () => route.name,
   (name) => {
     activeMode.value = resolveRouteMode(name);
+    hydrateFormsFromRoute();
   }
+);
+
+watch(
+  () => route.query,
+  () => {
+    hydrateFormsFromRoute();
+  },
+  { deep: true }
 );
 </script>
 
@@ -1099,6 +1270,26 @@ watch(
   font-weight: 700;
 }
 
+.seed-banner {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  background: #f8fbff;
+  border: 1px solid #dce9f5;
+  border-radius: 8px;
+}
+
+.seed-banner__label {
+  color: #708295;
+  font-size: 12px;
+}
+
+.seed-banner strong {
+  color: #173a62;
+  line-height: 1.7;
+}
+
 .agent-flow {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -1149,6 +1340,13 @@ watch(
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   margin-top: 14px;
+}
+
+.package-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
 }
 
 .result-stats {
@@ -1222,6 +1420,13 @@ watch(
 .resource-card h4 {
   margin: 12px 0 8px;
   font-size: 16px;
+}
+
+.resource-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
 }
 
 .preview-text {

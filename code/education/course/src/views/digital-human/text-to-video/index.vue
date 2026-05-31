@@ -130,8 +130,8 @@
 </template>
 
 <script lang="ts" setup>
-  import { computed, ref } from 'vue';
-  import { useRouter } from 'vue-router';
+  import { computed, onMounted, ref } from 'vue';
+  import { useRoute, useRouter } from 'vue-router';
   import { Message } from '@arco-design/web-vue';
   import teacherDigitalHumanImage from '@/assets/digital-human/teacher-digital-human.png';
   import { createTextToVideoJob } from '@/api/digital-human';
@@ -139,6 +139,7 @@
   import { resolveMediaUrl } from '@/utils/mediaUrl';
 
   const router = useRouter();
+  const route = useRoute();
   const scriptContent = ref('');
   const isGenerating = ref(false);
   const studioCoverImage = ref(teacherDigitalHumanImage);
@@ -182,6 +183,13 @@
   const goBack = () => {
     router.push('/digital-human');
   };
+
+  onMounted(() => {
+    const seedScript = String(route.query.script || '').trim();
+    if (seedScript && !scriptContent.value.trim()) {
+      scriptContent.value = seedScript;
+    }
+  });
 
   const generateVideo = async () => {
     const text = scriptContent.value.trim();

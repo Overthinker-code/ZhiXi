@@ -1,6 +1,31 @@
 <template>
   <div class="container">
     <Breadcrumb :items="['menu.profile', 'menu.profile.learningData']" />
+    <a-card class="card-block summary-banner">
+      <div class="summary-banner__main">
+        <div class="summary-banner__eyebrow">当前学习判断</div>
+        <h2>{{ headlineSummary }}</h2>
+        <p>{{ headlineDescription }}</p>
+      </div>
+      <div class="summary-banner__side">
+        <div class="summary-banner__risk" :class="`summary-banner__risk--${riskTone}`">
+          <span>风险等级</span>
+          <strong>{{ diagnosis ? riskLabel(diagnosis.risk_level) : '待诊断' }}</strong>
+        </div>
+        <div class="summary-banner__actions">
+          <a-button type="primary" :loading="loadingDiagnosis" @click="handleRunDiagnosis">
+            更新最新诊断
+          </a-button>
+          <a-button status="warning" :loading="loadingPlan" @click="handleGeneratePlan">
+            生成复习计划
+          </a-button>
+          <a-button status="success" :loading="loadingMistakes" @click="handleGenerateMistakes">
+            错题复盘
+          </a-button>
+        </div>
+      </div>
+    </a-card>
+
     <a-row :gutter="16">
       <a-col :xs="24" :xl="8">
         <a-card title="学情档案" class="card-block">
@@ -41,11 +66,22 @@
           </div>
         </a-card>
 
-        <a-card title="近期关注" class="card-block">
+        <a-card title="本周优先处理" class="card-block">
           <template v-if="focusItems.length">
             <div class="focus-list">
               <div v-for="item in focusItems" :key="item" class="focus-item">
-                {{ item }}
+                <div class="focus-item__copy">
+                  <strong>{{ item }}</strong>
+                  <span>可以直接生成针对性资源，或回到伴学中心继续追问。</span>
+                </div>
+                <div class="focus-item__actions">
+                  <a-button size="mini" type="outline" @click="jumpToAssistant(item)">
+                    去伴学追问
+                  </a-button>
+                  <a-button size="mini" type="primary" @click="jumpToResourceGeneration(item)">
+                    生成针对性资源
+                  </a-button>
+                </div>
               </div>
             </div>
           </template>
@@ -57,34 +93,18 @@
         <a-card class="card-block overview-card">
           <div class="overview-head">
             <div class="overview-copy">
-              <div class="overview-eyebrow">诊断总览</div>
-              <h3>围绕当前学习状态给出诊断、复盘和接下来的练习方向</h3>
+              <div class="overview-eyebrow">诊断依据</div>
+              <h3>本次结论不是静态标签，而是由近期问答、练习与课堂投入共同形成</h3>
               <p>
                 诊断结果会结合最近的问答、练习表现和课堂投入摘要持续更新，用于推动后续资源推荐与学习路径调整。
               </p>
             </div>
-            <div class="action-row">
-              <a-button
-                type="primary"
-                :loading="loadingDiagnosis"
-                @click="handleRunDiagnosis"
-              >
-                更新诊断
-              </a-button>
-              <a-button
-                status="success"
-                :loading="loadingMistakes"
-                @click="handleGenerateMistakes"
-              >
-                错题复盘
-              </a-button>
-              <a-button
-                status="warning"
-                :loading="loadingPlan"
-                @click="handleGeneratePlan"
-              >
-                生成计划
-              </a-button>
+            <div class="evidence-grid">
+              <article v-for="item in evidenceCards" :key="item.label" class="evidence-card">
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+                <small>{{ item.hint }}</small>
+              </article>
             </div>
           </div>
 
@@ -104,9 +124,13 @@
                 </span>
               </div>
               <div v-if="diagnosis.weak_points.length" class="tag-row">
-                <span v-for="item in diagnosis.weak_points" :key="item" class="info-tag">
-                  {{ item }}
-                </span>
+                <div v-for="item in diagnosis.weak_points" :key="item" class="topic-chip">
+                  <span class="info-tag">{{ item }}</span>
+                  <div class="topic-chip__actions">
+                    <button type="button" @click="jumpToAssistant(item)">追问</button>
+                    <button type="button" @click="jumpToResourceGeneration(item)">生成资源</button>
+                  </div>
+                </div>
               </div>
               <div class="dual-grid">
                 <div class="insight-box">
@@ -225,6 +249,7 @@
 
 <script lang="ts" setup>
   import { computed, onMounted, ref } from 'vue';
+  import { useRouter } from 'vue-router';
   import { Message } from '@arco-design/web-vue';
   import { useUserStore } from '@/store';
   import {
@@ -238,6 +263,7 @@
   } from '@/api/rag';
 
   const userStore = useUserStore();
+  const router = useRouter();
   const displayName = computed(() => userStore.name || '同学');
 
   const diagnosis = ref<LearningReport | null>(null);
@@ -252,6 +278,26 @@
     if (value === 'low') return '低风险';
     return '中风险';
   };
+
+  const riskTone = computed(() => {
+    if (!diagnosis.value) return 'neutral';
+    if (diagnosis.value.risk_level === 'high') return 'high';
+    if (diagnosis.value.risk_level === 'low') return 'low';
+    return 'medium';
+  });
+
+  const headlineSummary = computed(() => {
+    if (!diagnosis.value) return '先生成一次学情诊断，再决定下一步该补什么';
+    const weakPoint = diagnosis.value.weak_points?.[0] || '当前薄弱点';
+    return `当前处于${riskLabel(diagnosis.value.risk_level)}阶段，优先处理 ${weakPoint}`;
+  });
+
+  const headlineDescription = computed(() => {
+    if (!diagnosis.value) {
+      return '诊断完成后，这里会把当前状态、课堂投入和建议动作汇总成一句清晰结论。';
+    }
+    return diagnosis.value.summary;
+  });
 
   const masteryFocus = computed(() =>
     Object.entries(diagnosis.value?.mastery_map || {})
@@ -309,6 +355,33 @@
     return Array.from(new Set(items)).slice(0, 6);
   });
 
+  const evidenceCards = computed(() => {
+    const summary = diagnosis.value?.classroom_behavior_summary;
+    const latestMistake = mistakeDigest.value?.mistakes?.[0];
+    return [
+      {
+        label: '课堂专注率',
+        value:
+          typeof summary?.on_task_rate === 'number'
+            ? `${Math.round(summary.on_task_rate * 100)}%`
+            : '待课堂数据接入',
+        hint: typeof summary?.mind_wandering_rate === 'number'
+          ? `走神率 ${Math.round(summary.mind_wandering_rate * 100)}%`
+          : '课堂投入会自动纳入诊断参考',
+      },
+      {
+        label: '最近一次薄弱点',
+        value: diagnosis.value?.weak_points?.[0] || '待诊断',
+        hint: latestMistake?.title || '完成错题复盘后会同步更新',
+      },
+      {
+        label: '下一步追问方向',
+        value: diagnosis.value?.follow_up_questions?.[0] || '完成一轮诊断后生成',
+        hint: '可直接跳到伴学中心继续追问',
+      },
+    ];
+  });
+
   const behaviorCards = computed(() => {
     const summary = diagnosis.value?.classroom_behavior_summary;
     if (!summary) return [];
@@ -345,6 +418,27 @@
     }
     return '课堂投入会作为诊断参考，与问答和练习结果一起更新学习建议。';
   });
+
+  function jumpToResourceGeneration(topic: string) {
+    router.push({
+      path: '/course/resource-generation',
+      query: {
+        source: 'learning-data',
+        topic,
+        goal: diagnosis.value?.current_goal || '',
+      },
+    });
+  }
+
+  function jumpToAssistant(topic: string) {
+    router.push({
+      path: '/assistant/chat',
+      query: {
+        source: 'learning-data',
+        prompt: `我现在在“${topic}”这个知识点上比较薄弱，请先帮我讲清核心概念，再给我两道循序渐进的练习。`,
+      },
+    });
+  }
 
   async function loadInitialDiagnosis() {
     try {
@@ -403,6 +497,86 @@
   .card-block {
     margin-bottom: 16px;
     border-radius: 14px;
+  }
+
+  .summary-banner {
+    display: grid;
+    grid-template-columns: minmax(0, 1.7fr) minmax(280px, 0.9fr);
+    gap: 18px;
+    align-items: stretch;
+    background:
+      radial-gradient(circle at left top, rgba(59, 92, 204, 0.14), transparent 34%),
+      linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+  }
+
+  .summary-banner__main h2 {
+    margin: 6px 0 10px;
+    color: #0f172a;
+    font-size: 28px;
+    line-height: 1.35;
+  }
+
+  .summary-banner__main p {
+    margin: 0;
+    color: #475569;
+    line-height: 1.8;
+  }
+
+  .summary-banner__eyebrow {
+    color: #3b5ccc;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+  }
+
+  .summary-banner__side {
+    display: grid;
+    gap: 14px;
+    align-content: start;
+  }
+
+  .summary-banner__risk {
+    padding: 16px 18px;
+    border-radius: 14px;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    background: rgba(255, 255, 255, 0.86);
+  }
+
+  .summary-banner__risk span,
+  .summary-banner__risk strong {
+    display: block;
+  }
+
+  .summary-banner__risk span {
+    color: #64748b;
+    font-size: 12px;
+  }
+
+  .summary-banner__risk strong {
+    margin-top: 8px;
+    font-size: 24px;
+    line-height: 1.2;
+  }
+
+  .summary-banner__risk--high strong {
+    color: #dc2626;
+  }
+
+  .summary-banner__risk--medium strong {
+    color: #d97706;
+  }
+
+  .summary-banner__risk--low strong {
+    color: #16a34a;
+  }
+
+  .summary-banner__risk--neutral strong {
+    color: #3b5ccc;
+  }
+
+  .summary-banner__actions {
+    display: grid;
+    gap: 10px;
   }
 
   .profile-row {
@@ -487,8 +661,29 @@
     border: 1px solid rgba(37, 99, 235, 0.12);
     border-radius: 12px;
     background: linear-gradient(180deg, #f8fbff, #fff);
+  }
+
+  .focus-item__copy {
+    display: grid;
+    gap: 4px;
     color: #334155;
+  }
+
+  .focus-item__copy strong {
+    color: #0f172a;
+  }
+
+  .focus-item__copy span {
+    font-size: 13px;
     line-height: 1.7;
+    color: #64748b;
+  }
+
+  .focus-item__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
   }
 
   .overview-card {
@@ -507,6 +702,47 @@
 
   .overview-copy {
     max-width: 620px;
+  }
+
+  .evidence-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    min-width: min(100%, 380px);
+    flex: 1;
+  }
+
+  .evidence-card {
+    min-height: 120px;
+    padding: 14px;
+    background: rgba(255, 255, 255, 0.82);
+    border: 1px solid rgba(59, 92, 204, 0.1);
+    border-radius: 12px;
+    display: grid;
+    align-content: start;
+    gap: 8px;
+  }
+
+  .evidence-card span,
+  .evidence-card strong,
+  .evidence-card small {
+    display: block;
+  }
+
+  .evidence-card span {
+    color: #64748b;
+    font-size: 12px;
+  }
+
+  .evidence-card strong {
+    color: #0f172a;
+    font-size: 18px;
+    line-height: 1.45;
+  }
+
+  .evidence-card small {
+    color: #64748b;
+    line-height: 1.6;
   }
 
   .overview-eyebrow {
@@ -586,6 +822,40 @@
   .info-tag--warm {
     color: #b45309;
     background: rgba(245, 158, 11, 0.14);
+  }
+
+  .topic-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 6px 8px 6px 6px;
+    background: rgba(255, 255, 255, 0.86);
+    border: 1px solid rgba(99, 102, 241, 0.12);
+    border-radius: 999px;
+  }
+
+  .topic-chip__actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .topic-chip__actions button {
+    border: none;
+    border-radius: 999px;
+    padding: 5px 10px;
+    background: rgba(59, 92, 204, 0.08);
+    color: #3b5ccc;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s ease, color 0.2s ease;
+  }
+
+  .topic-chip__actions button:hover {
+    background: rgba(59, 92, 204, 0.14);
+    color: #2646ab;
   }
 
   .dual-grid {
@@ -672,8 +942,17 @@
   }
 
   @media (max-width: 1200px) {
+    .summary-banner {
+      grid-template-columns: 1fr;
+    }
+
     .overview-head {
       flex-direction: column;
+    }
+
+    .evidence-grid {
+      width: 100%;
+      grid-template-columns: 1fr;
     }
 
     .action-row {

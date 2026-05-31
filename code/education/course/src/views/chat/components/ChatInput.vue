@@ -1,6 +1,6 @@
 <script setup>
   import { Close, Document, Plus, Picture, UploadFilled } from '@element-plus/icons-vue';
-  import { computed, ref } from 'vue';
+  import { computed, ref, watch } from 'vue';
   import { ElMessage } from 'element-plus';
 
   const inputValue = ref('');
@@ -18,6 +18,10 @@
     loading: {
       type: Boolean,
       default: false,
+    },
+    initialText: {
+      type: String,
+      default: '',
     },
   });
 
@@ -165,6 +169,17 @@
     event.preventDefault();
     inputValue.value += '\n';
   };
+
+  watch(
+    () => props.initialText,
+    (value) => {
+      const text = String(value || '').trim();
+      if (!text) return;
+      if (inputValue.value.trim() || fileList.value.length > 0) return;
+      inputValue.value = text;
+    },
+    { immediate: true }
+  );
 </script>
 
 <template>
