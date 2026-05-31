@@ -180,6 +180,37 @@ def _fallback_reasoned_answer(subject: str, text: str) -> tuple[str, list[str], 
     )
 
 
+def _structured_result_from_plain_text(
+    request: "ImageAnalyzeRequest", content: str
+) -> dict[str, Any]:
+    image_bytes = _decode_image_bytes(request.image_base64)
+    ocr_text = _ocr_text_from_image_bytes(image_bytes)
+    extracted = (request.question_text or "").strip() or ocr_text
+    outline = [
+        line.strip(" -0123456789.、")
+        for line in str(content).splitlines()
+        if line.strip()
+    ]
+    outline = [line for line in outline if len(line) >= 4][:6]
+    if not outline:
+        outline = [
+            "先识别题干中的核心对象和条件。",
+            "再判断图片内容对应的知识点或考查目标。",
+            "最后结合题目要求整理成清晰结论。",
+        ]
+    return {
+        "subject": request.subject or "未知学科",
+        "problem_type": _guess_problem_type(extracted or content, request.subject or ""),
+        "extracted_text": extracted,
+        "answer_markdown": str(content).strip(),
+        "solution_outline": outline,
+        "answer_hint": "先确认图片中的关键对象、文字和题目要求，再继续细化步骤。",
+        "diagram": {},
+        "confidence": 0.64,
+        "limitations": ["视觉模型返回了自然语言结果，系统已自动包装为结构化输出。"],
+    }
+
+
 def _profile_for_user(db: Session, user_id: str) -> dict[str, Any]:
     profile = user_memory_profile_service.get_profile_dict(db, user_id)
     return profile if isinstance(profile, dict) else {}
@@ -596,8 +627,10 @@ async def _call_qwen3_vl(request: ImageAnalyzeRequest) -> dict[str, Any]:
                         for block in content
                     )
                 parsed = _extract_json_blob(str(content))
+                if not parsed and str(content or "").strip():
+                    return _structured_result_from_plain_text(request, str(content))
                 if not parsed:
-                    raise RuntimeError(f"{model} returned non-JSON content")
+                    raise RuntimeError(f"{model} returned empty content")
                 return parsed
             except Exception as exc:
                 last_error = exc
