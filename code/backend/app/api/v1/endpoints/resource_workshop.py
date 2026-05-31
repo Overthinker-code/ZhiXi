@@ -20,6 +20,7 @@ from sqlmodel import Session
 from app.api import deps
 from app.api.deps import CurrentUser
 from app.core.config import settings
+from app.services.model_aliases import resolve_model_name_for_base_url
 from app.services.user_memory_profile_service import (
     MemoryProfilePayload,
     user_memory_profile_service,
@@ -542,6 +543,7 @@ async def _call_qwen3_vl(request: ImageAnalyzeRequest) -> dict[str, Any]:
     fallback_model = os.getenv("QWEN_VL_FALLBACK_MODEL") or settings.MULTIMODAL_FALLBACK_MODEL
     models = []
     for candidate in (primary_model, fallback_model):
+        candidate = resolve_model_name_for_base_url(candidate, base_url)
         if candidate and candidate not in models:
             models.append(candidate)
     if not api_key:

@@ -34,6 +34,7 @@ from app.services.rag_service import RAGService
 from app.services.pending_actions import pending_action_store
 from app.services.ai_usage_logger import collect_usage_from_messages
 from app.services.chat_semantic_cache import chat_semantic_cache
+from app.services.model_aliases import resolve_model_name_for_base_url
 from app.services.user_memory_profile_service import user_memory_profile_service
 from sqlmodel import Session
 
@@ -1636,7 +1637,9 @@ def _build_image_context(request: ChatRequest) -> str:
                 f"{settings.MULTIMODAL_API_BASE.rstrip('/')}/chat/completions",
                 headers={"Authorization": f"Bearer {settings.MULTIMODAL_API_KEY or 'local-placeholder'}"},
                 json={
-                    "model": settings.MULTIMODAL_MODEL,
+                    "model": resolve_model_name_for_base_url(
+                        settings.MULTIMODAL_MODEL, settings.MULTIMODAL_API_BASE
+                    ),
                     "messages": [
                         {
                             "role": "user",

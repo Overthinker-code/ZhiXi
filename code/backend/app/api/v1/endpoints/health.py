@@ -4,6 +4,7 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.db import engine
+from app.services.model_aliases import resolve_model_name_for_base_url
 
 router = APIRouter()
 
@@ -49,6 +50,9 @@ def _build_model_checks() -> dict:
     multimodal_check = {
         "provider": settings.MULTIMODAL_PROVIDER,
         "model": settings.MULTIMODAL_MODEL,
+        "runtime_model": resolve_model_name_for_base_url(
+            settings.MULTIMODAL_MODEL, settings.MULTIMODAL_API_BASE
+        ),
         "fallback_model": settings.MULTIMODAL_FALLBACK_MODEL,
     }
     multimodal_check.update(_probe_openai_compatible(settings.MULTIMODAL_API_BASE))
