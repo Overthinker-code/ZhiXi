@@ -4,6 +4,7 @@ import { getToken } from '@/utils/auth';
 import { useChatStore } from '@/store/chat';
 import { useSettingStore } from '@/store/setting';
 import { messageHandler } from '@/utils/messageHandler';
+import { mergeAgentPhases } from '@/utils/agentDisplay';
 import { normalizeSuggestionList } from '@/utils/llmDisplay';
 import {
   createAssistantChat,
@@ -479,6 +480,12 @@ export function useChat() {
       if (shouldStream) {
         streamAbortController = new AbortController();
         const thoughts: string[] = [];
+        let agentPhases: Array<{
+          phase: string;
+          agent: string;
+          summary: string;
+          status?: string;
+        }> = [];
         let suggestions: string[] = [];
         let answer = '';
         let streamError = '';
@@ -488,6 +495,26 @@ export function useChat() {
         let confidence = '';
         let groundingMode = '';
         let metrics: Record<string, any> = {};
+
+        const pushStreamUpdate = () => {
+          const displayContent = sanitizeStreamingContent(answer);
+          chatStore.updateLastMessage(
+            displayContent,
+            '',
+            0,
+            0,
+            [...thoughts],
+            requiresConfirmation,
+            pendingActionId,
+            suggestions,
+            citations,
+            confidence,
+            groundingMode,
+            metrics,
+            [...agentPhases]
+          );
+        };
+
         await createAssistantChatStream(
           userTextForModel,
           currentThreadId.value,
@@ -499,65 +526,31 @@ export function useChat() {
             toolMode,
           },
           (event) => {
-            if (event.type === 'thought') {
+            if (event.type === 'phase') {
+              agentPhases = mergeAgentPhases(agentPhases, {
+                phase: String(event.phase || 'process'),
+                agent: String(event.agent || 'supervisor'),
+                summary: String(event.summary || ''),
+                status: String(event.status || 'running'),
+              });
+              pushStreamUpdate();
+            } else if (event.type === 'thought') {
               if (event.content) thoughts.push(event.content);
-              const displayContent = sanitizeStreamingContent(answer);
-              chatStore.updateLastMessage(
-                displayContent,
-                thoughts.join('\n\n'),
-                0,
-                0,
-                [...thoughts],
-                requiresConfirmation,
-                pendingActionId,
-                suggestions,
-                citations,
-                confidence,
-                groundingMode,
-                metrics
-              );
+              pushStreamUpdate();
             } else if (event.type === 'token') {
               answer += event.content || '';
-              const displayContent = sanitizeStreamingContent(answer);
-              chatStore.updateLastMessage(
-                displayContent,
-                thoughts.join('\n\n'),
-                0,
-                0,
-                [...thoughts],
-                requiresConfirmation,
-                pendingActionId,
-                suggestions,
-                citations,
-                confidence,
-                groundingMode,
-                metrics
-              );
+              pushStreamUpdate();
             } else if (event.type === 'suggestions') {
               suggestions = normalizeSuggestionList(event.data || []);
             } else if (event.type === 'final') {
               answer = event.content || answer;
-              const displayContent = sanitizeStreamingContent(answer);
               requiresConfirmation = Boolean(event.requires_confirmation);
               pendingActionId = event.pending_action_id || '';
               citations = Array.isArray(event.citations) ? event.citations : [];
               confidence = String(event.confidence || '');
               groundingMode = String(event.grounding_mode || '');
               metrics = event.metrics || {};
-              chatStore.updateLastMessage(
-                displayContent,
-                thoughts.join('\n\n'),
-                0,
-                0,
-                [...thoughts],
-                requiresConfirmation,
-                pendingActionId,
-                suggestions,
-                citations,
-                confidence,
-                groundingMode,
-                metrics
-              );
+              pushStreamUpdate();
             } else if (event.type === 'error') {
               streamError = event.content || 'Stream failed';
             }

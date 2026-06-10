@@ -1,7 +1,7 @@
 import { DEFAULT_LAYOUT } from '../base';
 import { AppRouteRecordRaw } from '../types';
 
-/** 独立「AI助理」菜单，与「个人中心」分离 */
+/** 伴学大厅：功能导航与欢迎页（不含主对话） */
 const ASSISTANT: AppRouteRecordRaw = {
   path: '/assistant',
   name: 'assistantHall',
@@ -9,8 +9,9 @@ const ASSISTANT: AppRouteRecordRaw = {
   meta: {
     locale: '伴学大厅',
     requiresAuth: true,
-    icon: 'icon-robot',
-    order: 1.8,
+    icon: 'icon-apps',
+    order: 1.5,
+    roles: ['student'],
   },
   children: [
     {
@@ -20,17 +21,18 @@ const ASSISTANT: AppRouteRecordRaw = {
       meta: {
         locale: '伴学大厅',
         requiresAuth: true,
-        roles: ['*'],
+        roles: ['student'],
       },
     },
     {
       path: 'chat',
       name: 'AssistantChat',
-      component: () => import('@/views/chat/ChatView.vue'),
+      redirect: '/tutor',
       meta: {
         locale: 'AI 对话',
         requiresAuth: true,
-        roles: ['*'],
+        hideInMenu: true,
+        roles: ['student'],
       },
     },
   ],

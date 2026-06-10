@@ -5,7 +5,24 @@
 
 ---
 
-## P0 — 阻塞答辩 / Demo（立即）
+## P0 — 第三轮已完成 / 待部署验证
+
+| ID | 任务 | 状态 |
+|----|------|------|
+| P0-RAG | `vector_store` 兼容无 `persist()` 的 langchain-chroma | 代码已修 |
+| P0-LINK | `Student.user_id` + `student_link_service` | 代码已修 |
+| P0-SEED | `scripts/seed_competition_demo.py` | 已新增 |
+
+## P1 — 第三轮体验（本轮）
+
+| ID | 任务 | 状态 |
+|----|------|------|
+| P1-CHAT | 学生 `/tutor` 独立 AI 伴学 + DeepSeek 式 UI | 已完成 |
+| P1-PHASE | SSE `phase` 事件 + `AgentCollaborationTimeline` | 已完成 |
+| P1-TEACHER | 教师 `/profile/class-insights` | 已完成 |
+| P1-VISUAL | `ZyMediaHero` + 伴学大厅/课程总览视觉 | 已完成 |
+
+## P0 — 阻塞答辩 / Demo（历史）
 
 | ID | 任务 | 负责模块 | 验收标准 |
 |----|------|----------|----------|

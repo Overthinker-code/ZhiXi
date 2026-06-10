@@ -29,15 +29,25 @@ IFLYTEK_SPARK_MODEL=generalv3.5
 ## Golden Path 演示脚本
 
 1. **Seed 演示数据**（后端目录）  
-   `python scripts/seed_demo_learning.py --email admin@example.com`
+   ```bash
+   python scripts/seed_demo_learning.py --email student@example.com
+   python scripts/seed_competition_demo.py --students 120 --behavior-days 30
+   ```
 
-2. **伴学对话** → 展示多 Agent 轨迹与流式输出
+2. **学生 AI 伴学** → `/tutor`：多智能体协作时间线 + 可折叠思考过程 + 流式输出
 
-3. **学情档案** `/profile/learning-data` → 诊断动画 → 雷达图 → 学习路径 Tab
+3. **学情档案** `/profile/learning-data`（仅学生）→ 诊断 → 雷达图 → 学习路径
 
-4. **资源工坊** `/course/resource-generation` → Agent 分步舞台 → 资源卡片
+4. **教师班级学情** `/profile/class-insights` → 汇总卡片 + 预警趋势
 
-5. **（可选）课堂监控** → 行为数据 → 学情页更新
+5. **资源工坊** `/course/resource-generation` → Agent 分步舞台 → 资源卡片
+
+6. **RAG 上传问答**：伴学侧栏上传讲义 → 提问 → 引用卡片
+
+7. **冒烟/Golden Path**  
+   ```bash
+   PYTHONPATH=. python3 scripts/golden_path_smoke.py --base-url http://127.0.0.1:8001
+   ```
 
 ## Mock 路由
 

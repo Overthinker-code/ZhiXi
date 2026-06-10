@@ -1,10 +1,11 @@
 <template>
   <div class="course-list-page">
-    <!-- ===== 页面标题 ===== -->
-    <div class="page-header">
-      <h1 class="page-title">课程中心</h1>
-      <p class="page-subtitle">探索智屿的知识岛屿，开启你的智慧航行 🏝️</p>
-    </div>
+    <ZyMediaHero
+      title="课程中心"
+      subtitle="探索智屿知识岛屿，按学院筛选并进入你的学习旅程"
+      :image="heroBanner"
+      height="200px"
+    />
 
     <!-- ===== 筛选栏 ===== -->
     <div class="filter-bar">
@@ -104,6 +105,8 @@ import LoadingState from '@/components/state/LoadingState.vue';
 import EmptyState from '@/components/state/EmptyState.vue';
 import ErrorState from '@/components/state/ErrorState.vue';
 import CourseCard from '@/components/CourseCard.vue';
+import ZyMediaHero from '@/components/zy/ZyMediaHero.vue';
+import heroBanner from '@/assets/banners/bannner3.png';
 
 
 import AIImg from '@/assets/images/AI.jpg';

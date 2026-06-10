@@ -37,7 +37,17 @@ const PROFILE: AppRouteRecordRaw = {
       meta: {
         locale: '学情档案',
         requiresAuth: true,
-        roles: ['*'],
+        roles: ['student'],
+      },
+    },
+    {
+      path: 'class-insights',
+      name: 'ProfileClassInsights',
+      component: () => import('@/views/profile/class-insights/index.vue'),
+      meta: {
+        locale: '班级学情',
+        requiresAuth: true,
+        roles: ['teacher'],
       },
     },
     {

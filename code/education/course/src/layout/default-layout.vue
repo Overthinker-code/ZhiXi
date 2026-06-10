@@ -210,7 +210,9 @@
   const handleCancel = () => {
     visible.value = false;
   };
-  const hideFloatUI = computed(() => route.path.startsWith('/assistant'));
+  const hideFloatUI = computed(
+    () => route.path.startsWith('/assistant') || route.path.startsWith('/tutor')
+  );
 
   const startDragRobot = (e: MouseEvent) => {
     dragState.value = {

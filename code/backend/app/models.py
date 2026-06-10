@@ -333,6 +333,7 @@ class StudentUpdate(SQLModel):
 class Student(StudentBase, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     ud_id: UUID = Field(foreign_key="ud.id")
+    user_id: Optional[UUID] = Field(default=None, foreign_key="user.id", index=True)
     ud: UD = Relationship(back_populates="students")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

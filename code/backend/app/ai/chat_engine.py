@@ -69,6 +69,60 @@ _TOOL_NODE_PIPELINE_MSG: dict[str, str] = {
     "quiz_master_tools": "【测验支持】测验官正在检索相关知识点用于出题与讲解。",
 }
 
+_STAGE_PHASE_MAP: dict[str, tuple[str, str, str]] = {
+    "pipeline_start": ("understand", "supervisor", "理解问题并启动多智能体协作"),
+    "kb_inject": ("retrieve", "retrieval_agent", "检索课程知识库并注入上下文"),
+    "tool_policy": ("plan", "supervisor", "配置本轮可用工具"),
+    "web_policy": ("research", "web_research_agent", "准备联网检索补充"),
+    "cache": ("finalize", "supervisor", "语义缓存命中，跳过协作图"),
+    "tool_run": ("execute", "retrieval_agent", "执行检索或分析工具"),
+    "vision_status": ("perceive", "tutor_agent", "解析上传图片内容"),
+    "demo_mode": ("finalize", "supervisor", "演示模式回答"),
+}
+
+_TAG_PHASE_RULES: list[tuple[re.Pattern[str], str, str, str]] = [
+    (re.compile(r"主管|拆解|流水线|策略|协作"), "understand", "supervisor", "协调任务分工"),
+    (re.compile(r"知识检索|RAG|检索|文档"), "retrieve", "retrieval_agent", "检索知识证据"),
+    (re.compile(r"联网|web", re.I), "research", "web_research_agent", "联网补充信息"),
+    (re.compile(r"学情|行为|画像"), "analyze", "analyst", "分析学习情况"),
+    (re.compile(r"测验|出题|练习"), "quiz", "quiz_master", "组织测验与讲解"),
+    (re.compile(r"代码|沙盒|debug", re.I), "code", "code_tutor", "代码分析与调试"),
+    (re.compile(r"汇总|合成|审查|安全"), "finalize", "safety_review_agent", "汇总并审查回答"),
+    (re.compile(r"视觉|图像|图片"), "perceive", "tutor_agent", "理解视觉输入"),
+]
+
+
+def _build_phase_event(content: str, stage: str | None = None) -> dict[str, Any] | None:
+    stage_key = (stage or "").strip()
+    if stage_key in _STAGE_PHASE_MAP:
+        phase, agent, default_summary = _STAGE_PHASE_MAP[stage_key]
+    else:
+        phase, agent, default_summary = "process", "supervisor", "协作处理中"
+        tag = content or ""
+        for pattern, p, a, s in _TAG_PHASE_RULES:
+            if pattern.search(tag):
+                phase, agent, default_summary = p, a, s
+                break
+    match = re.match(r"^【([^】]+)】([\s\S]*)$", content or "")
+    summary = (
+        (match.group(2) if match else content or default_summary).strip()[:160]
+        or default_summary
+    )
+    return {
+        "type": "phase",
+        "phase": phase,
+        "agent": agent,
+        "summary": summary,
+        "status": "running",
+    }
+
+
+def _stream_thought_events(content: str, stage: str | None = None):
+    yield {"type": "thought", "content": content, "stage": stage}
+    phase_evt = _build_phase_event(content, stage)
+    if phase_evt:
+        yield phase_evt
+
 _JSON_OBJ = re.compile(r"\{[\s\S]*\}")
 _DOC_QUERY_HINT = re.compile(
     r"(这篇|该|这个)?(论文|文档|报告|课件|pdf|PDF|word|Word|doc|DOC|章节|第[一二三四五六七八九十0-9]+章|摘要|方法|实验|结论|创新点|原文)"
@@ -1891,11 +1945,10 @@ def stream_chat_events(request: ChatRequest):
 
     if req.force_cache:
         demo = build_demo_chat_response(req.user_input)
-        yield {
-            "type": "thought",
-            "content": "【演示模式】已启用稳定兜底回答。",
-            "stage": "demo_mode",
-        }
+        yield from _stream_thought_events(
+            "【演示模式】已启用稳定兜底回答。",
+            "demo_mode",
+        )
         for i in range(0, len(demo.response), 24):
             if first_token_at is None:
                 first_token_at = time.perf_counter()
@@ -1919,34 +1972,29 @@ def stream_chat_events(request: ChatRequest):
         return
 
     enabled_tools, disabled_tools = _tool_status_text(req.active_tools)
-    yield {
-        "type": "thought",
-        "content": "【流水线】多智能体协作已启动（Supervisor + 专员 + 汇总）。",
-        "stage": "pipeline_start",
-    }
-    yield {
-        "type": "thought",
-        "content": "【知识检索】已根据当前问题检索知识库并将上下文注入协作线程（首条系统消息）。",
-        "stage": "kb_inject",
-    }
+    yield from _stream_thought_events(
+        "【流水线】多智能体协作已启动（Supervisor + 专员 + 汇总）。",
+        "pipeline_start",
+    )
+    yield from _stream_thought_events(
+        "【知识检索】已根据当前问题检索知识库并将上下文注入协作线程（首条系统消息）。",
+        "kb_inject",
+    )
     if req.active_tools is not None:
-        yield {
-            "type": "thought",
-            "content": f"【工具策略】启用工具：{enabled_tools or ['none']}；已关闭：{disabled_tools or ['none']}",
-            "stage": "tool_policy",
-        }
+        yield from _stream_thought_events(
+            f"【工具策略】启用工具：{enabled_tools or ['none']}；已关闭：{disabled_tools or ['none']}",
+            "tool_policy",
+        )
         if "web_search" in enabled_tools:
-            yield {
-                "type": "thought",
-                "content": "【联网搜索】本轮允许联网搜索；最终回答会区分课程资料、联网补充和模型推断。",
-                "stage": "web_policy",
-            }
+            yield from _stream_thought_events(
+                "【联网搜索】本轮允许联网搜索；最终回答会区分课程资料、联网补充和模型推断。",
+                "web_policy",
+            )
         if not enabled_tools:
-            yield {
-                "type": "thought",
-                "content": "【工具策略】当前过滤后无可用工具，专员将仅依赖模型能力。",
-                "stage": "tool_policy",
-            }
+            yield from _stream_thought_events(
+                "【工具策略】当前过滤后无可用工具，专员将仅依赖模型能力。",
+                "tool_policy",
+            )
 
     cache_hit = (
         chat_semantic_cache.get(req.user_input)
@@ -1954,11 +2002,10 @@ def stream_chat_events(request: ChatRequest):
         else None
     )
     if cache_hit:
-        yield {
-            "type": "thought",
-            "content": "【流水线】语义缓存命中，跳过协作图执行。",
-            "stage": "cache",
-        }
+        yield from _stream_thought_events(
+            "【流水线】语义缓存命中，跳过协作图执行。",
+            "cache",
+        )
         text = cache_hit.answer
         for i in range(0, len(text), 24):
             if first_token_at is None:
@@ -2009,15 +2056,14 @@ def stream_chat_events(request: ChatRequest):
         image_context_str, vision_meta = _resolve_image_context(req)
         if req.debug_mode and vision_meta is not None:
             summary = (vision_meta.text or "")[:160].replace("\n", " ")
-            yield {
-                "type": "thought",
-                "content": (
+            yield from _stream_thought_events(
+                (
                     f"【视觉识别】status={vision_meta.status} source={vision_meta.source or 'n/a'} "
                     f"model={vision_meta.model or 'n/a'} fields={vision_meta.field_summary or {}} "
                     f"summary={summary or 'empty'}"
                 ),
-                "stage": "vision_status",
-            }
+                "vision_status",
+            )
     initial = _initial_state(req, req.user_input, image_context=image_context_str or None)
 
     final_state: dict | None = None
@@ -2048,17 +2094,16 @@ def stream_chat_events(request: ChatRequest):
                     continue
                 if node_name.endswith("_tools") and node_name not in emitted_tool_nodes:
                     emitted_tool_nodes.add(node_name)
-                    yield {
-                        "type": "thought",
-                        "content": _TOOL_NODE_PIPELINE_MSG.get(
+                    yield from _stream_thought_events(
+                        _TOOL_NODE_PIPELINE_MSG.get(
                             node_name,
                             "【工具执行】正在运行后端工具节点。",
                         ),
-                        "stage": "tool_run",
-                    }
+                        "tool_run",
+                    )
                 if isinstance(data, dict):
                     for s in data.get("intermediate_steps") or []:
-                        yield {"type": "thought", "content": s}
+                        yield from _stream_thought_events(str(s))
 
         final_state = last_values_state
         if final_state is None:

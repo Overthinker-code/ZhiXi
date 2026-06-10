@@ -20,9 +20,16 @@ class VectorStore:
             embedding_function=self.embeddings,
         )
 
+    @staticmethod
+    def _persist_if_supported(db) -> None:
+        """langchain-chroma >=0.1 auto-persists; older wrappers expose persist()."""
+        persist_fn = getattr(db, "persist", None)
+        if callable(persist_fn):
+            persist_fn()
+
     def add_documents(self, documents: List[Document]) -> None:
         self.db.add_documents(documents)
-        self.db.persist()
+        self._persist_if_supported(self.db)
 
     def similarity_search(
         self,
@@ -77,7 +84,7 @@ class VectorStore:
         else:
             # Fallback for older wrappers.
             self.db._collection.delete(where={"file_id": file_id})
-        self.db.persist()
+        self._persist_if_supported(self.db)
         # Some versions return None; treat as success if delete was attempted.
         if deleted is None:
             return True

@@ -5,7 +5,7 @@ const STUDENT_TUTOR: AppRouteRecordRaw = {
   path: '/student-tutor',
   name: 'studentTutor',
   component: DEFAULT_LAYOUT,
-  redirect: '/assistant/chat',
+  redirect: '/tutor',
   meta: {
     locale: '智屿伴学中心',
     requiresAuth: true,
@@ -17,7 +17,7 @@ const STUDENT_TUTOR: AppRouteRecordRaw = {
     {
       path: '',
       name: 'StudentTutor',
-      redirect: '/assistant/chat',
+      redirect: '/tutor',
       meta: {
         locale: '智屿伴学中心',
         requiresAuth: true,

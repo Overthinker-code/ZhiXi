@@ -7,7 +7,7 @@ import isSessionInvalidError from '@/utils/authError';
 import type { RoleType } from '@/store/modules/user/types';
 
 function resolveAuthedHome(role?: string) {
-  return { name: role === 'teacher' ? 'Workplace' : 'AssistantHome' };
+  return { name: role === 'teacher' ? 'Workplace' : 'TutorChat' };
 }
 
 export default function setupUserLoginInfoGuard(router: Router) {

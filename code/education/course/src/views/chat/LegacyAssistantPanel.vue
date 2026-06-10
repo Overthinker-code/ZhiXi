@@ -491,7 +491,7 @@
     z-index: 1;
     flex: 1;
     overflow-y: auto;
-    width: min(100%, 940px);
+    width: min(100%, 860px);
     margin: 0 auto;
     padding: 1.2rem 1.1rem 1.5rem;
 
@@ -572,7 +572,7 @@
   .chat-input-container {
     position: relative;
     z-index: 2;
-    width: min(100%, 940px);
+    width: min(100%, 860px);
     margin: 0 auto;
     padding: 0 1.1rem 1.1rem;
   }

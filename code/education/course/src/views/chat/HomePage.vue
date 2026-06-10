@@ -4,6 +4,8 @@
   import { Search } from '@element-plus/icons-vue';
   import SearchDialog from './components/SearchDialog.vue';
   import WaveDivider from '@/components/WaveDivider.vue';
+  import ZyMediaHero from '@/components/zy/ZyMediaHero.vue';
+  import heroScene from '@/assets/banners/banner2.jpg';
 
   const searchText = ref('');
   const showSearchDialog = ref(false);
@@ -11,10 +13,10 @@
   const userStore = useUserStore();
   const isTeacher = computed(() => userStore.role === 'teacher');
   const primaryAction = computed(() =>
-    isTeacher.value ? '/dashboard/workplace' : '/student-tutor'
+    isTeacher.value ? '/dashboard/workplace' : '/tutor'
   );
   const primaryText = computed(() =>
-    isTeacher.value ? '进入教学 →' : '进入伴学 →'
+    isTeacher.value ? '进入教学 →' : '开始 AI 伴学 →'
   );
   const secondaryAction = computed(() =>
     isTeacher.value ? '/course/monitor' : '/course/list'
@@ -123,6 +125,13 @@
 
     <!-- ===== Hero 区（designup.md §2.1）===== -->
     <main class="main-content">
+      <ZyMediaHero
+        v-if="!isTeacher"
+        class="home-hero-media"
+        title="伴学大厅"
+        subtitle="从这里进入 AI 伴学、浏览课程资源，或查看你的学习路径"
+        :image="heroScene"
+      />
       <section class="hero-section">
         <!-- 左列：文字内容 -->
         <div class="hero-left zy-fade-up">
@@ -283,6 +292,13 @@
     min-height: 100vh;
     background: var(--zy-gradient-hero, linear-gradient(135deg, #f5f3ff 0%, #FFFFFF 100%));
     font-family: var(--zy-font-display, "PingFang SC", "Hiragino Sans GB", sans-serif);
+  }
+
+  .home-hero-media {
+    margin: 0 24px 8px;
+    max-width: 1120px;
+    margin-left: auto;
+    margin-right: auto;
   }
 
   /* ===== Header ===== */

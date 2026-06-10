@@ -122,6 +122,24 @@ def seed_education_demo(session: Session) -> None:
         session.commit()
 
 
+def ensure_demo_student_links(session: Session) -> None:
+    """Link demo login users to education Student rows when present."""
+    from app.models import Student
+
+    for email in (DEMO_STUDENT_EMAIL, *DEMO_STUDENT_ALIASES):
+        user = session.exec(select(User).where(User.email == email)).first()
+        if not user:
+            continue
+        student = session.exec(select(Student).where(Student.user_id == user.id)).first()
+        if student:
+            continue
+        student = session.exec(select(Student).limit(1)).first()
+        if student and not student.user_id:
+            student.user_id = user.id
+            session.add(student)
+    session.commit()
+
+
 def init_db(session: Session) -> None:
     # Tables should be created with Alembic migrations
     # But if you don't want to use migrations, create
@@ -172,3 +190,4 @@ def init_db(session: Session) -> None:
             session.commit()
 
     seed_education_demo(session)
+    ensure_demo_student_links(session)

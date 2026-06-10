@@ -289,12 +289,15 @@ export function createAssistantChat(
 }
 
 export interface ChatStreamEvent {
-  type: 'thought' | 'token' | 'final' | 'error' | 'suggestions';
+  type: 'thought' | 'phase' | 'token' | 'final' | 'error' | 'suggestions';
   content?: string;
-  data?: unknown[];
+  phase?: string;
+  agent?: string;
+  summary?: string;
+  status?: string;
   /** 后端可选：pipeline_start | kb_inject | tool_run | … */
   stage?: string;
-  agent?: string;
+  data?: unknown[];
   intent?: string;
   routing_reason?: string;
   tool_calls?: any[];

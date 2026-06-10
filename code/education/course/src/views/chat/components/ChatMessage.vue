@@ -17,7 +17,8 @@
   import dislikeActiveIcon from '@/assets/photo/踩2.png';
   import regenerateIcon from '@/assets/photo/重新生成.png';
   import humanizeAgentReasoning from '@/utils/humanizeAgentReasoning';
-  import AgentThoughtCard from '@/views/chat/components/AgentThoughtCard.vue';
+  import AgentCollaborationTimeline from '@/views/chat/components/AgentCollaborationTimeline.vue';
+  import ReasoningBlock from '@/views/chat/components/ReasoningBlock.vue';
   import CitationArea from '@/views/chat/components/CitationArea.vue';
   import FollowUpActions from '@/views/chat/components/FollowUpActions.vue';
 
@@ -313,27 +314,20 @@
     return renderMarkdown(raw);
   });
 
-  const hasAgentThoughts = computed(
+  const showAgentPipeline = computed(
     () =>
       props.message.role === 'assistant' &&
-      Array.isArray(props.message.thoughts) &&
-      props.message.thoughts.length > 0
+      ((props.message.agentPhases && props.message.agentPhases.length > 0) ||
+        (props.message.thoughts && props.message.thoughts.length > 0) ||
+        props.message.loading)
   );
 
-  /** 仅模型侧链式推理；多智能体流水线单独用 AgentThoughtCard（message.thoughts） */
+  /** 模型侧链式推理（与多智能体协作时间线分离） */
   const effectiveReasoning = computed(() => {
-    if (hasAgentThoughts.value) return '';
     const r = props.message.reasoning_content;
     if (r && String(r).trim()) return String(r);
     return '';
   });
-
-  const showAgentPipeline = computed(
-    () =>
-      props.message.role === 'assistant' &&
-      ((props.message.thoughts && props.message.thoughts.length > 0) ||
-        props.message.loading)
-  );
 
   const effectiveReasoningTrimmed = computed(() =>
     effectiveReasoning.value.trim()
@@ -355,8 +349,8 @@
   const showReasoningToggle = computed(
     () =>
       props.message.role === 'assistant' &&
-      !hasAgentThoughts.value &&
-      (effectiveReasoningTrimmed.value.length > 0 || props.message.loading)
+      (effectiveReasoningTrimmed.value.length > 0 ||
+        (props.message.loading && !showAgentPipeline.value))
   );
 
   const showMessageBubble = computed(() => {
@@ -438,68 +432,18 @@
         />
         <span>正在生成回答...</span>
       </div>
-      <!-- 多智能体流水线（与「深度思考」分离，随 SSE thought 实时追加） -->
-      <div
+      <AgentCollaborationTimeline
         v-if="showAgentPipeline"
-        class="pipeline-toggle"
-        @click="togglePipeline"
-      >
-        <span class="pipeline-dot" />
-        <span>{{
-          message.loading ? '正在整合回答' : '回答生成过程'
-        }}</span>
-        <el-icon
-          class="toggle-icon"
-          :class="{ 'is-expanded': isPipelineExpanded }"
-        >
-          <ArrowDown />
-        </el-icon>
-      </div>
-      <AgentThoughtCard
-        v-if="showAgentPipeline"
+        :phases="message.agentPhases || []"
         :thoughts="message.thoughts || []"
         :streaming="!!message.loading"
-        :collapsed="!isPipelineExpanded"
+        :metrics="message.metrics || {}"
       />
-      <!-- 仅保留「深度思考」：与技术向思维链卡片合并，避免重复 -->
-      <div
+      <ReasoningBlock
         v-if="showReasoningToggle"
-        class="reasoning-toggle"
-        @click="toggleReasoning"
-      >
-        <span
-          v-if="message.loading"
-          class="reasoning-spinner"
-          aria-hidden="true"
-        />
-        <img v-else :src="thinkingIcon" alt="" />
-        <span>{{
-          message.loading && !effectiveReasoningTrimmed
-            ? '正在梳理回答…'
-            : '回答整理思路'
-        }}</span>
-        <el-icon
-          class="toggle-icon"
-          :class="{ 'is-expanded': isReasoningExpanded }"
-        >
-          <ArrowDown />
-        </el-icon>
-      </div>
-      <div
-        v-if="showReasoningToggle && isReasoningExpanded"
-        class="reasoning markdown-body"
-      >
-        <div
-          v-if="message.loading && !effectiveReasoningTrimmed"
-          class="reasoning-wait"
-        >
-          <span class="wait-dot" />
-          <span class="wait-dot" />
-          <span class="wait-dot" />
-          <span class="wait-text">正在整理思路</span>
-        </div>
-        <div v-else-if="renderedReasoning" v-html="renderedReasoning"></div>
-      </div>
+        :content="effectiveReasoningTrimmed"
+        :streaming="!!message.loading && !effectiveReasoningTrimmed"
+      />
       <!-- content -->
       <div
         v-if="showMessageBubble"

@@ -21,6 +21,7 @@ from app.schemas.learning_report import (
 from app.services.chat_model_factory import ChatModelFactory
 from app.services.user_memory_profile_service import user_memory_profile_service
 from app.services.learning_path_service import learning_path_service
+from app.services.student_link_service import resolve_student_or_user_id
 
 # 教育学参数联动导入
 try:
@@ -219,10 +220,9 @@ class LearningReportService:
         try:
             from uuid import UUID
             from sqlalchemy import desc, or_
-            try:
-                uid = UUID(user_id) if isinstance(user_id, str) else user_id
-            except ValueError:
-                uid = None
+            uid = resolve_student_or_user_id(session, user_id)
+            if uid is None:
+                return ""
             # 优先查询该学生的个人记录；若无，则查询课堂整体记录（student_id=NULL）
             query = (
                 session.query(BehaviorSummaryRecord)
@@ -319,10 +319,9 @@ class LearningReportService:
         try:
             from uuid import UUID
             from sqlalchemy import desc, or_
-            try:
-                uid = UUID(user_id) if isinstance(user_id, str) else user_id
-            except ValueError:
-                uid = None
+            uid = resolve_student_or_user_id(session, user_id)
+            if uid is None:
+                return ""
             # 优先查询该学生的个人记录；若无，则查询课堂整体记录
             query = (
                 session.query(BehaviorSummaryRecord)
@@ -425,10 +424,9 @@ class LearningReportService:
         try:
             from uuid import UUID
             from sqlalchemy import desc, or_
-            try:
-                uid = UUID(user_id) if isinstance(user_id, str) else user_id
-            except ValueError:
-                uid = None
+            uid = resolve_student_or_user_id(session, user_id)
+            if uid is None:
+                return ""
             # 优先查询该学生的个人记录；若无，则查询课堂整体记录
             query = (
                 session.query(BehaviorSummaryRecord)
@@ -547,11 +545,9 @@ class LearningReportService:
             try:
                 from uuid import UUID
                 from sqlalchemy import desc
-                try:
-                    uid = UUID(user_id) if isinstance(user_id, str) else user_id
-                except ValueError:
-                    latest_record = None
-                else:
+                uid = resolve_student_or_user_id(session, user_id)
+                latest_record = None
+                if uid is not None:
                     from sqlalchemy import or_
                     latest_record = (
                         session.query(BehaviorSummaryRecord)

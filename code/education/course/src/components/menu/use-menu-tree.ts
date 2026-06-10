@@ -13,9 +13,10 @@ const ROLE_MENU_RULES: Record<
   }
 > = {
   student: {
-    topLevel: ['assistantHall', 'course', 'profile'],
+    topLevel: ['aiTutor', 'assistantHall', 'course', 'profile'],
     children: {
-      assistantHall: ['AssistantHome', 'AssistantChat'],
+      aiTutor: ['TutorChat'],
+      assistantHall: ['AssistantHome'],
       course: [
         'CourseList',
         'CourseOne',
@@ -37,7 +38,8 @@ const ROLE_MENU_RULES: Record<
         'CourseDetail',
         'CourseResourceGeneration',
       ],
-      profile: ['ProfileUserInfo', 'Basic', 'ProfileLearningData'],
+      digitalHuman: ['DigitalHumanTools'],
+      profile: ['ProfileClassInsights', 'ProfileUserInfo', 'Basic'],
     },
   },
 };
