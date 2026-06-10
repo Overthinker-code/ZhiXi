@@ -42,8 +42,29 @@ def normalize_image_ref(image_ref: str) -> str:
     if not ref:
         return ref
     if ref.startswith("data:"):
-        return ref
-    return f"data:image/png;base64,{ref}"
+        return _ensure_min_image_size(ref)
+    return _ensure_min_image_size(f"data:image/png;base64,{ref}")
+
+
+def _ensure_min_image_size(image_ref: str, min_size: int = 64) -> str:
+    """Qwen3-VL via Ollama rejects 1x1 images; upscale tiny probes/uploads."""
+    image_bytes = decode_image_bytes(image_ref)
+    if not image_bytes:
+        return image_ref
+    try:
+        image = Image.open(BytesIO(image_bytes))
+        width, height = image.size
+        if width >= min_size and height >= min_size:
+            return image_ref
+        scale = max(min_size / max(width, 1), min_size / max(height, 1))
+        new_size = (max(int(width * scale), min_size), max(int(height * scale), min_size))
+        resized = image.convert("RGB").resize(new_size)
+        buf = BytesIO()
+        resized.save(buf, format="PNG")
+        encoded = base64.b64encode(buf.getvalue()).decode("ascii")
+        return f"data:image/png;base64,{encoded}"
+    except Exception:
+        return image_ref
 
 
 def decode_image_bytes(image_ref: str | None) -> bytes | None:
