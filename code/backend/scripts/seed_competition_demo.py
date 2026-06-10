@@ -40,7 +40,7 @@ from app.models import (
 from app.models.chat import Chat
 from app.models.chat_thread import ChatThread
 from app.models.learning_path import LearningPath
-from app.models.user import UserCreate
+from app.schemas.user import UserCreate
 from app.models.user_memory_profile import UserMemoryProfile
 
 EXTRA_COURSES: list[tuple[str, str, str, str]] = [
