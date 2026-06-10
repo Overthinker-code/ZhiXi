@@ -124,7 +124,16 @@ def seed_education_demo(session: Session) -> None:
 
 def ensure_demo_student_links(session: Session) -> None:
     """Link demo login users to education Student rows when present."""
+    from sqlalchemy import inspect
+
     from app.models import Student
+
+    try:
+        cols = {c["name"] for c in inspect(session.bind).get_columns("student")}
+    except Exception:
+        return
+    if "user_id" not in cols:
+        return
 
     for email in (DEMO_STUDENT_EMAIL, *DEMO_STUDENT_ALIASES):
         user = session.exec(select(User).where(User.email == email)).first()
