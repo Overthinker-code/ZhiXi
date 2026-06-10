@@ -25,6 +25,22 @@ class ChatModelFactory:
             settings.CHAT_TEMPERATURE if temperature is None else temperature
         )
 
+        if provider == "iflytek":
+            api_password = settings.IFLYTEK_API_SECRET or settings.IFLYTEK_API_KEY
+            if api_password and settings.IFLYTEK_APP_ID:
+                from langchain_openai import ChatOpenAI
+
+                kwargs = {
+                    "model": settings.IFLYTEK_SPARK_MODEL,
+                    "temperature": effective_temperature,
+                    "openai_api_key": api_password,
+                    "openai_api_base": "https://spark-api-open.xf-yun.com/v1",
+                }
+                if max_tokens is not None:
+                    kwargs["max_tokens"] = max_tokens
+                return _with_optional_timeout(ChatOpenAI(**kwargs))
+            provider = "ollama"
+
         if provider == "ollama":
             from langchain_ollama import ChatOllama
 

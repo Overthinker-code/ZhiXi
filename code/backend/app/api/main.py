@@ -18,6 +18,7 @@ from app.api.v1.endpoints import (
     user_center_mock,
     health,
     learning_report,
+    learning_path,
     ai_metrics,
     digital_human_assistant,
     alerts,
@@ -36,10 +37,12 @@ api_router.include_router(rag.router, prefix="/rag", tags=["rag"])
 api_router.include_router(
     digital_human.router, prefix="/digital-human", tags=["digital-human"]
 )
-api_router.include_router(dashboard_mock.router, tags=["dashboard"])
+if settings.ENABLE_MOCK_ROUTES:
+    api_router.include_router(dashboard_mock.router, tags=["dashboard"])
+    api_router.include_router(user_center_mock.router, tags=["user-center"])
 api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
-api_router.include_router(user_center_mock.router, tags=["user-center"])
 api_router.include_router(learning_report.router, prefix="/learning-report", tags=["learning-report"])
+api_router.include_router(learning_path.router, prefix="/learning-path", tags=["learning-path"])
 api_router.include_router(ai_metrics.router, prefix="/ai-metrics", tags=["ai-metrics"])
 api_router.include_router(resource_workshop.router, prefix="/resource-workshop", tags=["resource-workshop"])
 api_router.include_router(resource_generation.router, prefix="/resource-generation", tags=["resource-generation"])

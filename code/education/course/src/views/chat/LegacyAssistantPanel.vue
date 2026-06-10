@@ -283,7 +283,7 @@
       ref="messagesContainer"
       @scroll="syncAutoStickStatus"
     >
-      <template v-if="currentMessages.length > 0">
+      <TransitionGroup name="msg-slide" tag="div" class="messages-list">
         <chat-message
           v-for="(message, index) in currentMessages"
           :key="message.id"
@@ -295,8 +295,8 @@
           @resume-action="handleResumeAction"
           @suggestion="handleSuggestion"
         />
-      </template>
-      <div v-else class="empty-state">
+      </TransitionGroup>
+      <div v-if="currentMessages.length === 0" class="empty-state">
         <div class="empty-content">
           <img src="@/assets/photo/对话.png" alt="chat" class="empty-icon" />
           <h2>开始对话吧</h2>
@@ -509,6 +509,25 @@
     &::-webkit-scrollbar-track {
       background: transparent;
     }
+  }
+
+  .messages-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .msg-slide-enter-active {
+    transition: all var(--zy-duration-normal, 280ms) cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  }
+
+  .msg-slide-enter-from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+
+  .msg-slide-move {
+    transition: transform var(--zy-duration-normal, 280ms) ease;
   }
 
   .empty-state {

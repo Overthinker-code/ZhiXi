@@ -119,8 +119,9 @@
 </template>
 
 <script setup lang="ts">
-  import { ref } from 'vue';
+  import { ref, onMounted } from 'vue';
   import { onBeforeRouteLeave } from 'vue-router';
+  import { fetchLearningReport } from '@/api/rag';
   import { RELATION_DB_CLASSROOM_NOTES } from '@/constants/relationDbClassroomNotes';
   import {
     MIND_MAP_CONTEXT_TEXT,
@@ -139,6 +140,19 @@
   const mindDone = ref(false);
   const graphActive = ref(false);
   const graphDone = ref(false);
+  const weakPointContext = ref('');
+
+  onMounted(async () => {
+    try {
+      const report = await fetchLearningReport(false);
+      const weak = report?.weak_points?.slice(0, 4) || [];
+      if (weak.length) {
+        weakPointContext.value = weak.join(' ');
+      }
+    } catch {
+      weakPointContext.value = '';
+    }
+  });
 
   const {
     text: notesLive,
@@ -167,7 +181,9 @@
     if (notesComplete.value) s += RELATION_DB_CLASSROOM_NOTES;
     else if (notesStarted.value) s += notesLive.value;
     if (mindDone.value) s += ` ${MIND_MAP_CONTEXT_TEXT}`;
-    if (graphDone.value) s += ` ${KNOWLEDGE_GRAPH_CONTEXT_TEXT}`;
+    if (graphDone.value) {
+      s += ` ${weakPointContext.value || ''} ${KNOWLEDGE_GRAPH_CONTEXT_TEXT}`;
+    }
     return s;
   });
 

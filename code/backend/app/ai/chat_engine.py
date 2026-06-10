@@ -34,7 +34,6 @@ from app.services.rag_service import RAGService
 from app.services.pending_actions import pending_action_store
 from app.services.ai_usage_logger import collect_usage_from_messages
 from app.services.chat_semantic_cache import chat_semantic_cache
-from app.services.model_aliases import resolve_model_name_for_base_url
 from app.services.user_memory_profile_service import user_memory_profile_service
 from sqlmodel import Session
 
@@ -1613,63 +1612,18 @@ def _tool_status_text(
     return enabled, disabled
 
 
-def _build_image_context(request: ChatRequest) -> str:
+def _resolve_image_context(request: ChatRequest):
+    from app.services.vision_client import VisionCallResult, build_chat_image_context
+
     images = [img for img in (request.image_base64_list or []) if img]
     if not images:
-        return ""
-    if not settings.MULTIMODAL_API_BASE:
-        return (
-            f"【图片上下文】学生上传了 {len(images)} 张图片。当前完全本地部署尚未配置视觉模型服务，"
-            "请结合学生补充文字进行讲解，并明确提示图片细节需要学生确认。"
-        )
-    image_ref = images[0]
-    if image_ref and not image_ref.startswith("data:"):
-        image_ref = f"data:image/png;base64,{image_ref}"
-    try:
-        import httpx
+        return "", VisionCallResult(status="empty")
+    return build_chat_image_context(images, user_hint=request.user_input or "")
 
-        prompt = (
-            "你是本地视觉题目识别助手。请识别图片中的题干、图表、选项、公式和已知条件；"
-            "只输出中文要点，不要编造看不清的内容。"
-        )
-        with httpx.Client(timeout=settings.MULTIMODAL_TIMEOUT_SECONDS) as client:
-            resp = client.post(
-                f"{settings.MULTIMODAL_API_BASE.rstrip('/')}/chat/completions",
-                headers={"Authorization": f"Bearer {settings.MULTIMODAL_API_KEY or 'local-placeholder'}"},
-                json={
-                    "model": resolve_model_name_for_base_url(
-                        settings.MULTIMODAL_MODEL, settings.MULTIMODAL_API_BASE
-                    ),
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": prompt},
-                                {"type": "image_url", "image_url": {"url": image_ref}},
-                            ],
-                        }
-                    ],
-                    "temperature": 0.1,
-                    "max_tokens": 900,
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-            if isinstance(content, list):
-                content = "\n".join(
-                    str(block.get("text", "")) if isinstance(block, dict) else str(block)
-                    for block in content
-                )
-            text = str(content or "").strip()
-            if text:
-                return f"【本地视觉模型识别结果】\n{text[:2500]}"
-    except Exception as exc:
-        return (
-            f"【图片上下文】学生上传了 {len(images)} 张图片，但本地视觉模型调用失败：{str(exc)[:240]}。"
-            "请基于学生补充文字继续回答，并明确说明图片细节未能稳定识别。"
-        )
-    return "【图片上下文】已收到图片，但视觉模型未返回有效内容。请要求学生补充题干文字。"
+
+def _build_image_context(request: ChatRequest) -> str:
+    context, _ = _resolve_image_context(request)
+    return context
 
 
 def _normalize_structured_citations(
@@ -1740,11 +1694,14 @@ def _build_metrics(
     }
 
 
-def _initial_state(request: ChatRequest, user_text: str) -> State:
+def _initial_state(
+    request: ChatRequest, user_text: str, *, image_context: str | None = None
+) -> State:
     rag_msg, rag_results = _build_rag_context(request)
     preset = resolve_system_prompt(request.prompt_key, request.system_prompt)
     memory_context = _load_user_memory_context(request.user_id)
-    image_context = _build_image_context(request)
+    if image_context is None:
+        image_context = _build_image_context(request)
     messages: list = [rag_msg]
     if image_context:
         messages.append(SystemMessage(content=image_context))
@@ -2046,7 +2003,22 @@ def stream_chat_events(request: ChatRequest):
         current_file_id=req.current_file_id,
     )
     thread_config = {"configurable": {"thread_id": str(req.thread_id)}}
-    initial = _initial_state(req, req.user_input)
+    image_context_str = ""
+    vision_meta = None
+    if req.image_base64_list:
+        image_context_str, vision_meta = _resolve_image_context(req)
+        if req.debug_mode and vision_meta is not None:
+            summary = (vision_meta.text or "")[:160].replace("\n", " ")
+            yield {
+                "type": "thought",
+                "content": (
+                    f"【视觉识别】status={vision_meta.status} source={vision_meta.source or 'n/a'} "
+                    f"model={vision_meta.model or 'n/a'} fields={vision_meta.field_summary or {}} "
+                    f"summary={summary or 'empty'}"
+                ),
+                "stage": "vision_status",
+            }
+    initial = _initial_state(req, req.user_input, image_context=image_context_str or None)
 
     final_state: dict | None = None
     last_values_state: dict | None = None

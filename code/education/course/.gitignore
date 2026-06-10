@@ -9,6 +9,7 @@ dist-ssr
 
 .DS_Store
 .env.*
+!.env.development.example
 
 
 components.d.ts
@@ -18,5 +19,4 @@ auto-imports.d.ts
 package-lock.json
 yarn.lock
 pnpm-lock.yaml
-
 

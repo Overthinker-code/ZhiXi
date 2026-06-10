@@ -4,6 +4,12 @@
 
 ## 当前运行方式
 
+### 环境准备
+
+- 后端配置文件路径固定为 `code/.env`，可参考新增的 `code/.env.example`。
+- 前端开发代理配置可参考 `code/education/course/.env.development.example`。
+- 仓库当前仍存在历史环境文件痕迹；在用于比赛答辩或对外分发前，应统一轮换已有密钥并清理已跟踪的敏感配置。
+
 ### 本地前端
 
 ```bash
@@ -12,7 +18,7 @@ npm install
 npm run dev
 ```
 
-前端开发服务会读取 `code/education/course/.env.development`，通过 Vite 代理把 `/api` 转发到后端的 `/api/v1`。如需切换后端地址，修改：
+前端开发服务会读取 `code/education/course/.env.development`，通过 Vite 代理把 `/api` 转发到后端的 `/api/v1`。本地直连或 SSH 隧道都通过 `VITE_DEV_API_PROXY_TARGET` 控制：
 
 ```env
 VITE_DEV_API_PROXY_TARGET=http://<backend-host>:8001
@@ -26,6 +32,19 @@ VITE_AXIOS_TIMEOUT_MS=120000
 ```bash
 cd code/backend
 python run_backend_stack.py
+```
+
+后端启动前至少需要准备这些变量：
+
+```env
+PROJECT_NAME=ZhiXi
+POSTGRES_SERVER=127.0.0.1
+POSTGRES_PORT=5432
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=<your-password>
+POSTGRES_DB=zhixi
+FIRST_SUPERUSER=admin@example.com
+FIRST_SUPERUSER_PASSWORD=<your-password>
 ```
 
 该入口会统一拉起：
@@ -148,15 +167,27 @@ ZhiXi/
 位置：
 
 - `code/education/course/src/views/profile/learning-data`
-- `code/education/course/src/views/user/study`
 - `code/backend/app/services/learning_report_service.py`
 
 能力：
 
-- 学情摘要
+- 学情摘要（KPI + 雷达图 + Agent 诊断时间线）
 - 薄弱点分析
-- 复习建议
-- AI 生成复习计划
+- 复习建议 / 三天计划 / 错题复盘
+- 个性化学习路径（`/api/v1/learning-path/me`）
+
+### 演示数据 Seed
+
+```bash
+cd code/backend
+python scripts/seed_demo_learning.py --email admin@example.com
+```
+
+为指定用户写入示例对话历史与学习画像，便于答辩冷启动演示。
+
+### Mock 路由开关
+
+`ENABLE_MOCK_ROUTES=false`（默认）时不挂载 `dashboard_mock` / `user_center_mock`。开发调试可设为 `true`，见 `code/.env.example`。
 
 ### 数字人创作舱
 
@@ -216,6 +247,8 @@ npm run build
 python -m py_compile $(git ls-files 'code/backend/app/**/*.py' 'code/backend/*.py' ':!:code/backend/app/tests/**')
 ```
 
+如需执行 pytest，先在已安装 `code/requirements.txt` 依赖、且具备 `code/.env` 基础配置的 Python 环境中运行；当前裸环境下直接执行会因为缺少 `fastapi` 等依赖而失败。
+
 ### 服务器健康检查
 
 ```bash
@@ -236,6 +269,7 @@ curl http://127.0.0.1:8002/health
    - `code/backend/models/`
 4. 数字人、YOLO、RAG 这类重服务优先保持单入口可启动，避免分散脚本。
 5. 清理旧文档时，以本 README 为主文档；专项文档只保留仍然有部署或接口价值的内容。
+6. 不要在源码或已跟踪环境文件中放真实密钥、邮箱授权码或外部服务凭据。
 
 ## 当前已知事项
 

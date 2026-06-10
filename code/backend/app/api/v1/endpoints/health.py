@@ -5,6 +5,7 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.core.db import engine
 from app.services.model_aliases import resolve_model_name_for_base_url
+from app.services.vision_client import probe_multimodal_health
 
 router = APIRouter()
 
@@ -56,6 +57,14 @@ def _build_model_checks() -> dict:
         "fallback_model": settings.MULTIMODAL_FALLBACK_MODEL,
     }
     multimodal_check.update(_probe_openai_compatible(settings.MULTIMODAL_API_BASE))
+    try:
+        multimodal_check["vision_probe"] = probe_multimodal_health(timeout=30.0)
+    except Exception as exc:
+        multimodal_check["vision_probe"] = {
+            "configured": bool(settings.MULTIMODAL_API_BASE),
+            "probe_ok": False,
+            "detail": str(exc)[:240],
+        }
     return {"chat_model": chat_check, "multimodal_model": multimodal_check}
 
 

@@ -12,9 +12,7 @@
         </a-avatar>
         <h2 class="name">{{ displayName }}</h2>
         <div class="tags">
-          <a-tag>计算机学院</a-tag>
-          <a-tag color="arcoblue">计算机科学与技术</a-tag>
-          <a-tag color="arcoblue">武汉</a-tag>
+          <a-tag>{{ userStore.role === 'teacher' ? '教师' : '学生' }}</a-tag>
         </div>
       </div>
     </div>
@@ -22,49 +20,41 @@
     <a-row :gutter="16" class="main-row">
       <a-col :xs="24" :lg="16">
         <a-card title="我的课程" class="card-block">
-          <a-row :gutter="[12, 12]">
-            <a-col
-              v-for="c in courses"
-              :key="c.title"
-              :xs="24"
-              :sm="12"
-              :md="8"
-            >
-              <div class="course-card">
-                <div class="course-title">{{ c.title }}</div>
-                <div class="course-sub">{{ c.sub }}</div>
-                <div class="course-meta">
-                  <IconUser /> {{ c.count }} 人
+          <LoadingState v-if="loadingCourses" skeleton :skeleton-rows="3" />
+          <template v-else-if="courses.length">
+            <a-row :gutter="[12, 12]">
+              <a-col
+                v-for="c in courses"
+                :key="c.id"
+                :xs="24"
+                :sm="12"
+                :md="8"
+              >
+                <div class="course-card" @click="goCourse(c.id)">
+                  <div class="course-title">{{ c.name }}</div>
+                  <div class="course-sub">{{ c.course_type || c.identifier }}</div>
                 </div>
-              </div>
-            </a-col>
-          </a-row>
+              </a-col>
+            </a-row>
+          </template>
+          <EmptyState
+            v-else
+            compact
+            text="暂无课程"
+            action-text="浏览课程"
+            @action="router.push('/course/list')"
+          />
         </a-card>
         <a-card title="最新动态" class="card-block">
-          <a-timeline>
-            <a-timeline-item
-              v-for="(d, i) in dynamics"
-              :key="i"
-              :label="d.time"
-            >
-              {{ d.text }}
-            </a-timeline-item>
-          </a-timeline>
+          <EmptyState compact text="暂无动态" description="学习活动将在此展示" />
         </a-card>
       </a-col>
       <a-col :xs="24" :lg="8">
         <a-card title="我的小组" class="card-block">
-          <a-list :bordered="false">
-            <a-list-item v-for="g in groups" :key="g.name">
-              <a-list-item-meta :title="g.name" :description="g.desc" />
-              <template #actions>
-                <span class="muted">{{ g.members }} 人</span>
-              </template>
-            </a-list-item>
-          </a-list>
+          <EmptyState compact text="暂无小组" description="加入课程小组后将在此展示" />
         </a-card>
         <a-card title="站内通知" class="card-block notify">
-          <p class="muted">实验报告批改、作业截止提醒将在此展示。</p>
+          <EmptyState compact text="暂无通知" />
         </a-card>
       </a-col>
     </a-row>
@@ -72,34 +62,32 @@
 </template>
 
 <script lang="ts" setup>
-  import { computed } from 'vue';
-  import { IconUser } from '@arco-design/web-vue/es/icon';
+  import { computed, onMounted, ref } from 'vue';
+  import { useRouter } from 'vue-router';
   import { useUserStore } from '@/store';
+  import { fetchCourses, type Course } from '@/api/course';
 
   const userStore = useUserStore();
+  const router = useRouter();
   const displayName = computed(() => userStore.name || '同学');
+  const courses = ref<Course[]>([]);
+  const loadingCourses = ref(false);
 
-  const courses = [
-    { title: '高等数学', sub: 'Advanced Mathematics', count: 539 },
-    { title: '智能引擎应用', sub: 'The Volcano Engine', count: 975 },
-    { title: '算法设计与分析', sub: 'Algorithm Design', count: 330 },
-    { title: '数据结构', sub: 'Data Structure', count: 477 },
-    { title: '计算机网络', sub: 'Computer Network', count: 349 },
-    { title: '智能机器人', sub: 'Intelligent Robot', count: 218 },
-  ];
+  function goCourse(id: string) {
+    router.push(`/course/course-content?courseId=${id}`);
+  }
 
-  const groups = [
-    { name: '智能应用小组', desc: '课程项目协作', members: 12 },
-    { name: '产品设计队', desc: 'UX 与原型', members: 8 },
-    { name: '算法兴趣组', desc: '周赛与题解', members: 25 },
-    { name: '数据库助教组', desc: '答疑与实验', members: 6 },
-  ];
-
-  const dynamics = [
-    { time: '今天 10:20', text: '发布了新实验：0-1 背包问题进阶练习。' },
-    { time: '昨天', text: '图遍历算法专题讨论区有新回复。' },
-    { time: '本周', text: '操作系统课程签到已全部完成。' },
-  ];
+  onMounted(async () => {
+    loadingCourses.value = true;
+    try {
+      const res = await fetchCourses({ limit: 12 });
+      courses.value = res.data || [];
+    } catch {
+      courses.value = [];
+    } finally {
+      loadingCourses.value = false;
+    }
+  });
 </script>
 
 <style scoped lang="less">
@@ -163,6 +151,12 @@
     border: 1px solid rgba(99, 102, 241, 0.15);
     background: #fafdfb;
     height: 100%;
+    cursor: pointer;
+    transition: box-shadow var(--zy-duration-fast, 150ms) ease;
+
+    &:hover {
+      box-shadow: var(--zy-shadow-card-hover);
+    }
   }
 
   .course-title {
@@ -174,17 +168,7 @@
   .course-sub {
     font-size: 12px;
     color: #6b7a72;
-    margin: 4px 0 8px;
-  }
-
-  .course-meta {
-    font-size: 13px;
-    color: #6366f1;
-  }
-
-  .muted {
-    color: var(--color-text-3);
-    font-size: 13px;
+    margin-top: 4px;
   }
 
   .notify {

@@ -1,0 +1,13 @@
+{
+  "note": "Local code regression (unit tests). Remote server not yet deployed with vision fix.",
+  "generated_at": "2026-06-10",
+  "unit_tests": {
+    "tests/services/test_vision_response.py": "4 passed"
+  },
+  "expected_after_deploy": [
+    "healthz.models.multimodal_model.vision_probe.probe_ok === true",
+    "chat_stream_multimodal smoke status === pass",
+    "resource_workshop_image source === qwen3-vl or meaningful OCR"
+  ],
+  "baseline_remote_smoke": "../smoke_report_baseline.json"
+}

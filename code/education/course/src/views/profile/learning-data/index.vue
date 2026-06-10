@@ -1,488 +1,330 @@
 <template>
   <div class="container">
     <Breadcrumb :items="['menu.profile', 'menu.profile.learningData']" />
-    <a-card class="card-block summary-banner">
-      <div class="summary-banner__main">
-        <div class="summary-banner__eyebrow">当前学习判断</div>
-        <h2>{{ headlineSummary }}</h2>
-        <p>{{ headlineDescription }}</p>
-      </div>
-      <div class="summary-banner__side">
-        <div class="summary-banner__risk" :class="`summary-banner__risk--${riskTone}`">
-          <span>风险等级</span>
-          <strong>{{ diagnosis ? riskLabel(diagnosis.risk_level) : '待诊断' }}</strong>
+
+    <ZyPageEnter>
+      <!-- KPI 条 -->
+      <div class="zy-stagger-child kpi-bar">
+        <div class="kpi-item" :class="`kpi-item--${riskTone}`">
+          <span class="kpi-label">风险等级</span>
+          <strong class="kpi-value">
+            {{ diagnosis ? riskLabel(diagnosis.risk_level) : '—' }}
+          </strong>
         </div>
-        <div class="summary-banner__actions">
+        <div class="kpi-item">
+          <span class="kpi-label">平均掌握度</span>
+          <strong class="kpi-value">
+            <MetricCountUp v-if="avgMastery" :value="avgMastery" suffix="%" />
+            <template v-else>—</template>
+          </strong>
+        </div>
+        <div class="kpi-item">
+          <span class="kpi-label">待办关注</span>
+          <strong class="kpi-value">
+            <MetricCountUp :value="kpiTodos" suffix=" 项" />
+          </strong>
+        </div>
+        <div class="kpi-item kpi-item--actions">
           <a-button type="primary" :loading="loadingDiagnosis" @click="handleRunDiagnosis">
-            更新最新诊断
+            更新诊断
           </a-button>
-          <a-button status="warning" :loading="loadingPlan" @click="handleGeneratePlan">
-            生成复习计划
-          </a-button>
-          <a-button status="success" :loading="loadingMistakes" @click="handleGenerateMistakes">
-            错题复盘
-          </a-button>
+          <a-button :loading="loadingPlan" @click="handleGeneratePlan">复习计划</a-button>
+          <a-button :loading="loadingMistakes" @click="handleGenerateMistakes">错题复盘</a-button>
         </div>
       </div>
-    </a-card>
 
-    <a-row :gutter="16">
-      <a-col :xs="24" :xl="8">
-        <a-card title="学情档案" class="card-block">
-          <div class="profile-row">
-            <a-avatar :size="72">
-              {{ displayName.slice(0, 1) }}
-            </a-avatar>
-            <div class="profile-meta">
-              <div><strong>姓名</strong> {{ displayName }}</div>
-              <div>
-                <strong>当前目标</strong>
-                {{ diagnosis?.current_goal || '继续提问或完成一轮练习后自动收敛' }}
-              </div>
-              <div>
-                <strong>学习偏好</strong>
-                {{ diagnosis?.learning_style || '系统将结合互动方式持续识别' }}
+      <!-- 诊断 Banner -->
+      <a-card
+        class="zy-stagger-child card-block summary-banner"
+        :class="{ 'zy-scanning': isScanning }"
+      >
+        <template v-if="diagnosis">
+          <h2 class="summary-title">
+            {{ diagnosis.weak_points?.[0] ? `优先巩固：${diagnosis.weak_points[0]}` : '学情诊断' }}
+          </h2>
+          <p class="summary-desc">{{ diagnosis.summary }}</p>
+          <div v-if="diagnosis.weak_points?.length" class="tag-row">
+            <div
+              v-for="item in diagnosis.weak_points"
+              :key="item"
+              class="topic-chip zy-flip-in"
+            >
+              <span class="info-tag">{{ item }}</span>
+              <div class="topic-chip__actions">
+                <button type="button" @click="jumpToAssistant(item)">追问</button>
+                <button type="button" @click="jumpToResourceGeneration(item)">生成资源</button>
               </div>
             </div>
           </div>
-          <a-divider />
-          <div class="portrait-grid">
-            <div v-for="item in portraitDimensions" :key="item.label" class="portrait-card">
-              <span>{{ item.label }}</span>
-              <strong>{{ item.value }}</strong>
-            </div>
-          </div>
-          <div v-if="masteryFocus.length" class="mastery-box">
-            <div class="section-title">掌握度关注点</div>
-            <div class="mastery-list">
-              <div v-for="item in masteryFocus" :key="item.topic" class="mastery-row">
-                <div class="mastery-head">
-                  <span>{{ item.topic }}</span>
-                  <span>{{ item.percent }}%</span>
+        </template>
+        <ZyEmptyGuide
+          v-else
+          title="暂无学情诊断"
+          description="完成一次诊断，获取个性化学习建议"
+          primary-text="开始学情诊断"
+          secondary-text="去伴学中心"
+          @primary="handleRunDiagnosis"
+          @secondary="jumpTo('/assistant/chat')"
+        />
+      </a-card>
+
+      <a-row :gutter="16">
+        <!-- 左栏：雷达 + 档案 -->
+        <a-col :xs="24" :xl="8">
+          <a-card title="学习画像" class="zy-stagger-child card-block">
+            <LoadingState v-if="loadingInitial" skeleton :skeleton-rows="4" />
+            <template v-else>
+              <PortraitRadarChart :dimensions="radarDimensions" height="260px" />
+              <div class="profile-meta">
+                <div><strong>当前目标</strong> {{ diagnosis?.current_goal || '—' }}</div>
+                <div><strong>学习偏好</strong> {{ diagnosis?.learning_style || '—' }}</div>
+              </div>
+              <div v-if="masteryFocus.length" class="mastery-box">
+                <div class="section-title">掌握度</div>
+                <div class="mastery-list">
+                  <div v-for="item in masteryFocus" :key="item.topic" class="mastery-row">
+                    <div class="mastery-head">
+                      <span>{{ item.topic }}</span>
+                      <span>{{ item.percent }}%</span>
+                    </div>
+                    <a-progress :percent="item.percent" size="small" :show-text="false" />
+                  </div>
                 </div>
-                <a-progress :percent="item.percent" size="small" :show-text="false" />
               </div>
-            </div>
-          </div>
-        </a-card>
+            </template>
+          </a-card>
 
-        <a-card title="本周优先处理" class="card-block">
-          <template v-if="focusItems.length">
-            <div class="focus-list">
+          <a-card title="本周优先" class="zy-stagger-child card-block">
+            <ResultReveal v-if="focusItems.length">
               <div v-for="item in focusItems" :key="item" class="focus-item">
-                <div class="focus-item__copy">
-                  <strong>{{ item }}</strong>
-                  <span>可以直接生成针对性资源，或回到伴学中心继续追问。</span>
-                </div>
+                <strong>{{ item }}</strong>
                 <div class="focus-item__actions">
                   <a-button size="mini" type="outline" @click="jumpToAssistant(item)">
-                    去伴学追问
+                    追问
                   </a-button>
                   <a-button size="mini" type="primary" @click="jumpToResourceGeneration(item)">
-                    生成针对性资源
+                    生成资源
                   </a-button>
                 </div>
               </div>
-            </div>
-          </template>
-          <a-empty v-else description="完成一轮诊断或练习后，这里会自动汇总近期关注点" />
-        </a-card>
-      </a-col>
+            </ResultReveal>
+            <EmptyState v-else compact text="暂无待办" action-text="开始诊断" @action="handleRunDiagnosis" />
+          </a-card>
+        </a-col>
 
-      <a-col :xs="24" :xl="16">
-        <a-card class="card-block overview-card">
-          <div class="overview-head">
-            <div class="overview-copy">
-              <div class="overview-eyebrow">诊断依据</div>
-              <h3>本次结论不是静态标签，而是由近期问答、练习与课堂投入共同形成</h3>
-              <p>
-                诊断结果会结合最近的问答、练习表现和课堂投入摘要持续更新，用于推动后续资源推荐与学习路径调整。
-              </p>
-            </div>
+        <!-- 右栏：Timeline + 诊断详情 + Tabs -->
+        <a-col :xs="24" :xl="16">
+          <a-card class="zy-stagger-child card-block overview-card">
             <div class="evidence-grid">
               <article v-for="item in evidenceCards" :key="item.label" class="evidence-card">
                 <span>{{ item.label }}</span>
                 <strong>{{ item.value }}</strong>
-                <small>{{ item.hint }}</small>
+                <a-link v-if="item.value === '—'" @click="jumpTo(item.link)">
+                  {{ item.linkText }}
+                </a-link>
               </article>
             </div>
-          </div>
 
-          <a-spin :loading="loadingDiagnosis" style="width: 100%">
-            <template v-if="diagnosis">
-              <div class="report-summary">{{ diagnosis.summary }}</div>
-              <div class="meta-line">
-                <span class="meta-pill">{{ riskLabel(diagnosis.risk_level) }}</span>
-                <span v-if="diagnosis.current_goal" class="meta-pill meta-pill--soft">
-                  当前目标：{{ diagnosis.current_goal }}
-                </span>
-                <span
-                  v-if="diagnosis.learning_style"
-                  class="meta-pill meta-pill--soft"
-                >
-                  学习偏好：{{ diagnosis.learning_style }}
-                </span>
-              </div>
-              <div v-if="diagnosis.weak_points.length" class="tag-row">
-                <div v-for="item in diagnosis.weak_points" :key="item" class="topic-chip">
-                  <span class="info-tag">{{ item }}</span>
-                  <div class="topic-chip__actions">
-                    <button type="button" @click="jumpToAssistant(item)">追问</button>
-                    <button type="button" @click="jumpToResourceGeneration(item)">生成资源</button>
-                  </div>
-                </div>
-              </div>
-              <div class="dual-grid">
-                <div class="insight-box">
-                  <div class="box-title">优势表现</div>
-                  <ul class="plain-list">
-                    <li v-for="item in diagnosis.strengths" :key="item">{{ item }}</li>
-                  </ul>
-                </div>
-                <div class="insight-box">
-                  <div class="box-title">建议动作</div>
-                  <ul class="plain-list">
-                    <li v-for="item in diagnosis.recommended_actions" :key="item">
-                      {{ item }}
-                    </li>
-                  </ul>
-                </div>
-              </div>
-            </template>
-            <a-empty v-else description="点击“更新诊断”生成最新学情结论" />
-          </a-spin>
-        </a-card>
+            <AiProcessTimeline
+              v-if="timelineSteps.length || loadingDiagnosis"
+              :steps="timelineSteps.length ? timelineSteps : defaultTimeline"
+              compact
+            />
 
-        <a-card v-if="behaviorCards.length" title="课堂投入摘要" class="card-block">
-          <a-row :gutter="12">
-            <a-col v-for="item in behaviorCards" :key="item.label" :span="8">
-              <div class="stat-box">
-                <div class="stat-num">{{ item.value }}</div>
-                <div class="stat-label">{{ item.label }}</div>
-              </div>
-            </a-col>
-          </a-row>
-          <div v-if="behaviorInsight" class="behavior-note">
-            {{ behaviorInsight }}
-          </div>
-        </a-card>
-
-        <a-row :gutter="16">
-          <a-col :xs="24" :lg="12">
-            <a-card title="错题复盘" class="card-block fill-card">
-              <a-spin :loading="loadingMistakes" style="width: 100%">
-                <template v-if="mistakeDigest">
-                  <div class="report-summary">{{ mistakeDigest.summary }}</div>
-                  <div class="mistake-list">
-                    <div
-                      v-for="item in mistakeDigest.mistakes"
-                      :key="item.title"
-                      class="mistake-card"
-                    >
-                      <div class="mistake-title">{{ item.title }}</div>
-                      <div class="mistake-line">
-                        <strong>常见表现：</strong>{{ item.symptom }}
-                      </div>
-                      <div class="mistake-line">
-                        <strong>诊断依据：</strong>{{ item.evidence }}
-                      </div>
-                      <div class="mistake-line">
-                        <strong>修正建议：</strong>{{ item.fix_strategy }}
-                      </div>
-                    </div>
-                  </div>
-                  <div v-if="mistakeDigest.flashcards.length" class="flashcard-box">
-                    <div class="box-title">速记卡片</div>
-                    <ul class="plain-list">
-                      <li v-for="item in mistakeDigest.flashcards" :key="item">{{ item }}</li>
+            <a-spin :loading="loadingDiagnosis" style="width: 100%">
+              <ResultReveal v-if="diagnosis">
+                <div class="dual-grid">
+                  <div class="insight-box">
+                    <div class="box-title">优势表现</div>
+                    <ul v-if="diagnosis.strengths?.length" class="plain-list">
+                      <li v-for="item in diagnosis.strengths" :key="item">{{ item }}</li>
                     </ul>
+                    <span v-else class="muted">—</span>
                   </div>
-                </template>
-                <a-empty v-else description="完成一轮错题复盘后，这里会汇总典型失分点" />
-              </a-spin>
-            </a-card>
-          </a-col>
-
-          <a-col :xs="24" :lg="12">
-            <a-card title="三天复习计划" class="card-block fill-card">
-              <a-spin :loading="loadingPlan" style="width: 100%">
-                <template v-if="reviewPlan">
-                  <div class="report-summary">{{ reviewPlan.summary }}</div>
-                  <div v-if="reviewPlan.focus_topics.length" class="tag-row">
-                    <span
-                      v-for="item in reviewPlan.focus_topics"
-                      :key="item"
-                      class="info-tag info-tag--warm"
-                    >
-                      {{ item }}
-                    </span>
-                  </div>
-                  <div class="plan-grid">
-                    <div
-                      v-for="item in reviewPlan.daily_plan"
-                      :key="item.day_label"
-                      class="plan-card"
-                    >
-                      <div class="plan-day">{{ item.day_label }}</div>
-                      <div class="plan-focus">{{ item.focus }}</div>
-                      <ul class="plain-list">
-                        <li v-for="task in item.tasks" :key="task">{{ task }}</li>
-                      </ul>
-                    </div>
-                  </div>
-                  <div v-if="reviewPlan.checkpoints.length" class="flashcard-box">
-                    <div class="box-title">检查点</div>
-                    <ul class="plain-list">
-                      <li v-for="item in reviewPlan.checkpoints" :key="item">{{ item }}</li>
+                  <div class="insight-box">
+                    <div class="box-title">建议动作</div>
+                    <ul v-if="diagnosis.recommended_actions?.length" class="plain-list">
+                      <li v-for="item in diagnosis.recommended_actions" :key="item">
+                        {{ item }}
+                      </li>
                     </ul>
+                    <span v-else class="muted">—</span>
                   </div>
-                </template>
-                <a-empty v-else description="生成复习计划后，这里会给出接下来三天的学习安排" />
-              </a-spin>
-            </a-card>
-          </a-col>
-        </a-row>
-      </a-col>
-    </a-row>
+                </div>
+              </ResultReveal>
+            </a-spin>
+          </a-card>
+
+          <a-card class="zy-stagger-child card-block">
+            <SegmentTabs v-model="activeTab" :tabs="detailTabs">
+              <template #default="{ active }">
+                <!-- 错题复盘 -->
+                <div v-show="active === 'mistakes'">
+                  <a-spin :loading="loadingMistakes" style="width: 100%">
+                    <template v-if="mistakeDigest">
+                      <div class="report-summary">{{ mistakeDigest.summary }}</div>
+                      <div class="mistake-list">
+                        <div
+                          v-for="item in mistakeDigest.mistakes"
+                          :key="item.title"
+                          class="mistake-card zy-flip-in"
+                        >
+                          <div class="mistake-title">{{ item.title }}</div>
+                          <div class="mistake-line"><strong>表现：</strong>{{ item.symptom }}</div>
+                          <div class="mistake-line"><strong>依据：</strong>{{ item.evidence }}</div>
+                          <div class="mistake-line"><strong>建议：</strong>{{ item.fix_strategy }}</div>
+                        </div>
+                      </div>
+                    </template>
+                    <EmptyState
+                      v-else
+                      compact
+                      text="暂无错题复盘"
+                      action-text="生成复盘"
+                      @action="handleGenerateMistakes"
+                    />
+                  </a-spin>
+                </div>
+
+                <!-- 复习计划 -->
+                <div v-show="active === 'plan'">
+                  <a-spin :loading="loadingPlan" style="width: 100%">
+                    <template v-if="reviewPlan">
+                      <div class="report-summary">{{ reviewPlan.summary }}</div>
+                      <div class="plan-grid">
+                        <div
+                          v-for="item in reviewPlan.daily_plan"
+                          :key="item.day_label"
+                          class="plan-card zy-flip-in"
+                        >
+                          <div class="plan-day">{{ item.day_label }}</div>
+                          <div class="plan-focus">{{ item.focus }}</div>
+                          <ul class="plain-list">
+                            <li v-for="task in item.tasks" :key="task">{{ task }}</li>
+                          </ul>
+                        </div>
+                      </div>
+                    </template>
+                    <EmptyState
+                      v-else
+                      compact
+                      text="暂无复习计划"
+                      action-text="生成计划"
+                      @action="handleGeneratePlan"
+                    />
+                  </a-spin>
+                </div>
+
+                <!-- 课堂投入 -->
+                <div v-show="active === 'behavior'">
+                  <template v-if="behaviorCards.length">
+                    <a-row :gutter="12">
+                      <a-col v-for="item in behaviorCards" :key="item.label" :span="8">
+                        <div class="stat-box">
+                          <div class="stat-num">{{ item.value }}</div>
+                          <div class="stat-label">{{ item.label }}</div>
+                        </div>
+                      </a-col>
+                    </a-row>
+                  </template>
+                  <EmptyState
+                    v-else
+                    compact
+                    text="暂无课堂数据"
+                    action-text="去课堂监控"
+                    @action="jumpTo('/course/monitor')"
+                  />
+                </div>
+
+                <!-- 学习路径 -->
+                <div v-show="active === 'path'">
+                  <template v-if="learningPath?.nodes?.length">
+                    <div class="report-summary">{{ learningPath.summary }}</div>
+                    <AiProcessTimeline
+                      :steps="
+                        learningPath.nodes.map((n, i) => ({
+                          key: `path-${i}`,
+                          label: n.title,
+                          message: n.action || n.topic,
+                          status:
+                            n.status === 'done'
+                              ? 'done'
+                              : n.status === 'in_progress'
+                                ? 'running'
+                                : 'idle',
+                        }))
+                      "
+                      compact
+                    />
+                  </template>
+                  <EmptyState
+                    v-else
+                    compact
+                    text="暂无学习路径"
+                    action-text="开始诊断"
+                    @action="handleRunDiagnosis"
+                  />
+                </div>
+              </template>
+            </SegmentTabs>
+          </a-card>
+        </a-col>
+      </a-row>
+    </ZyPageEnter>
   </div>
 </template>
 
 <script lang="ts" setup>
-  import { computed, onMounted, ref } from 'vue';
-  import { useRouter } from 'vue-router';
-  import { Message } from '@arco-design/web-vue';
+  import { computed, onMounted } from 'vue';
   import { useUserStore } from '@/store';
-  import {
-    fetchLearningReport,
-    generateMistakeDigest,
-    generateReviewPlan,
-    runLearningDiagnosis,
-    type LearningReport,
-    type MistakeDigest,
-    type ReviewPlan,
-  } from '@/api/rag';
+  import { useLearningData } from '@/composables/useLearningData';
+  import type { TimelineStep } from '@/components/zy/AiProcessTimeline.vue';
 
   const userStore = useUserStore();
-  const router = useRouter();
   const displayName = computed(() => userStore.name || '同学');
 
-  const diagnosis = ref<LearningReport | null>(null);
-  const reviewPlan = ref<ReviewPlan | null>(null);
-  const mistakeDigest = ref<MistakeDigest | null>(null);
-  const loadingDiagnosis = ref(false);
-  const loadingPlan = ref(false);
-  const loadingMistakes = ref(false);
+  const {
+    diagnosis,
+    reviewPlan,
+    mistakeDigest,
+    loadingDiagnosis,
+    loadingPlan,
+    loadingMistakes,
+    loadingInitial,
+    activeTab,
+    timelineSteps,
+    isScanning,
+    riskTone,
+    masteryFocus,
+    avgMastery,
+    radarDimensions,
+    focusItems,
+    kpiTodos,
+    evidenceCards,
+    behaviorCards,
+    riskLabel,
+    jumpToResourceGeneration,
+    jumpToAssistant,
+    jumpTo,
+    learningPath,
+    loadInitialDiagnosis,
+    handleRunDiagnosis,
+    handleGeneratePlan,
+    handleGenerateMistakes,
+  } = useLearningData();
 
-  const riskLabel = (value: string) => {
-    if (value === 'high') return '高风险';
-    if (value === 'low') return '低风险';
-    return '中风险';
-  };
+  const detailTabs = [
+    { label: '错题复盘', value: 'mistakes' },
+    { label: '三天计划', value: 'plan' },
+    { label: '课堂投入', value: 'behavior' },
+    { label: '学习路径', value: 'path' },
+  ];
 
-  const riskTone = computed(() => {
-    if (!diagnosis.value) return 'neutral';
-    if (diagnosis.value.risk_level === 'high') return 'high';
-    if (diagnosis.value.risk_level === 'low') return 'low';
-    return 'medium';
-  });
-
-  const headlineSummary = computed(() => {
-    if (!diagnosis.value) return '先生成一次学情诊断，再决定下一步该补什么';
-    const weakPoint = diagnosis.value.weak_points?.[0] || '当前薄弱点';
-    return `当前处于${riskLabel(diagnosis.value.risk_level)}阶段，优先处理 ${weakPoint}`;
-  });
-
-  const headlineDescription = computed(() => {
-    if (!diagnosis.value) {
-      return '诊断完成后，这里会把当前状态、课堂投入和建议动作汇总成一句清晰结论。';
-    }
-    return diagnosis.value.summary;
-  });
-
-  const masteryFocus = computed(() =>
-    Object.entries(diagnosis.value?.mastery_map || {})
-      .map(([topic, value]) => ({
-        topic,
-        percent: Math.round(Math.max(0, Math.min(1, Number(value) || 0)) * 100),
-      }))
-      .sort((a, b) => a.percent - b.percent)
-      .slice(0, 5)
-  );
-
-  const portraitDimensions = computed(() => {
-    const masteryAvg = masteryFocus.value.length
-      ? `${Math.round(
-          masteryFocus.value.reduce((sum, item) => sum + item.percent, 0) /
-            masteryFocus.value.length
-        )}%`
-      : '诊断后更新';
-    return [
-      { label: '知识基础', value: masteryAvg },
-      { label: '薄弱点', value: diagnosis.value?.weak_points?.[0] || '待识别' },
-      {
-        label: '风险等级',
-        value: diagnosis.value ? riskLabel(diagnosis.value.risk_level) : '待评估',
-      },
-      {
-        label: '认知投入',
-        value:
-          typeof diagnosis.value?.classroom_behavior_summary?.cognitive_engagement === 'number'
-            ? `${Math.round(
-                diagnosis.value.classroom_behavior_summary.cognitive_engagement * 100
-              )}%`
-            : '待课堂数据接入',
-      },
-      {
-        label: '易错偏好',
-        value: mistakeDigest.value?.mistakes?.[0]?.title || '待从错题复盘更新',
-      },
-      {
-        label: '下一步动作',
-        value:
-          diagnosis.value?.recommended_actions?.[0] ||
-          reviewPlan.value?.daily_plan?.[0]?.focus ||
-          '先完成一轮诊断或练习',
-      },
-    ];
-  });
-
-  const focusItems = computed(() => {
-    const items = [
-      ...(diagnosis.value?.weak_points || []),
-      ...(reviewPlan.value?.focus_topics || []),
-      ...(mistakeDigest.value?.mistakes?.map((item) => item.title) || []),
-    ];
-    return Array.from(new Set(items)).slice(0, 6);
-  });
-
-  const evidenceCards = computed(() => {
-    const summary = diagnosis.value?.classroom_behavior_summary;
-    const latestMistake = mistakeDigest.value?.mistakes?.[0];
-    return [
-      {
-        label: '课堂专注率',
-        value:
-          typeof summary?.on_task_rate === 'number'
-            ? `${Math.round(summary.on_task_rate * 100)}%`
-            : '待课堂数据接入',
-        hint: typeof summary?.mind_wandering_rate === 'number'
-          ? `走神率 ${Math.round(summary.mind_wandering_rate * 100)}%`
-          : '课堂投入会自动纳入诊断参考',
-      },
-      {
-        label: '最近一次薄弱点',
-        value: diagnosis.value?.weak_points?.[0] || '待诊断',
-        hint: latestMistake?.title || '完成错题复盘后会同步更新',
-      },
-      {
-        label: '下一步追问方向',
-        value: diagnosis.value?.follow_up_questions?.[0] || '完成一轮诊断后生成',
-        hint: '可直接跳到伴学中心继续追问',
-      },
-    ];
-  });
-
-  const behaviorCards = computed(() => {
-    const summary = diagnosis.value?.classroom_behavior_summary;
-    if (!summary) return [];
-    const rows: Array<{ label: string; value: string }> = [];
-    if (typeof summary.recent_avg_lei === 'number') {
-      rows.push({
-        label: '学习投入指数',
-        value: `${Math.round(summary.recent_avg_lei * 100)}%`,
-      });
-    }
-    if (typeof summary.on_task_rate === 'number') {
-      rows.push({
-        label: '专注率',
-        value: `${Math.round(summary.on_task_rate * 100)}%`,
-      });
-    }
-    if (typeof summary.mind_wandering_rate === 'number') {
-      rows.push({
-        label: '走神率',
-        value: `${Math.round(summary.mind_wandering_rate * 100)}%`,
-      });
-    }
-    return rows.slice(0, 3);
-  });
-
-  const behaviorInsight = computed(() => {
-    const summary = diagnosis.value?.classroom_behavior_summary;
-    if (!summary) return '';
-    if (typeof summary.recent_avg_lei === 'number' && summary.recent_avg_lei < 0.5) {
-      return '近期课堂投入偏低，建议先从短时复盘和分步练习开始，降低重新进入状态的门槛。';
-    }
-    if (typeof summary.on_task_rate === 'number' && summary.on_task_rate >= 0.75) {
-      return '近期课堂专注度较稳定，适合在当前节奏上增加一轮针对薄弱点的强化练习。';
-    }
-    return '课堂投入会作为诊断参考，与问答和练习结果一起更新学习建议。';
-  });
-
-  function jumpToResourceGeneration(topic: string) {
-    router.push({
-      path: '/course/resource-generation',
-      query: {
-        source: 'learning-data',
-        topic,
-        goal: diagnosis.value?.current_goal || '',
-      },
-    });
-  }
-
-  function jumpToAssistant(topic: string) {
-    router.push({
-      path: '/assistant/chat',
-      query: {
-        source: 'learning-data',
-        prompt: `我现在在“${topic}”这个知识点上比较薄弱，请先帮我讲清核心概念，再给我两道循序渐进的练习。`,
-      },
-    });
-  }
-
-  async function loadInitialDiagnosis() {
-    try {
-      diagnosis.value = await fetchLearningReport(false);
-    } catch {
-      // keep page interactive even when backend response is temporarily unavailable
-    }
-  }
-
-  async function handleRunDiagnosis() {
-    loadingDiagnosis.value = true;
-    try {
-      diagnosis.value = await runLearningDiagnosis(true);
-      Message.success('已生成最新学情诊断');
-    } catch (error: any) {
-      Message.error(error?.message || '生成学情诊断失败');
-    } finally {
-      loadingDiagnosis.value = false;
-    }
-  }
-
-  async function handleGeneratePlan() {
-    loadingPlan.value = true;
-    try {
-      reviewPlan.value = await generateReviewPlan(true);
-      Message.success('复习计划已生成');
-    } catch (error: any) {
-      Message.error(error?.message || '生成复习计划失败');
-    } finally {
-      loadingPlan.value = false;
-    }
-  }
-
-  async function handleGenerateMistakes() {
-    loadingMistakes.value = true;
-    try {
-      mistakeDigest.value = await generateMistakeDigest(true);
-      Message.success('错题复盘已完成');
-    } catch (error: any) {
-      Message.error(error?.message || '整理错题失败');
-    } finally {
-      loadingMistakes.value = false;
-    }
-  }
+  const defaultTimeline: TimelineStep[] = [
+    { key: 'profile', label: '读取学习画像', status: 'running' },
+    { key: 'behavior', label: '汇总课堂投入', status: 'idle' },
+    { key: 'infer', label: '生成诊断结论', status: 'idle' },
+  ];
 
   onMounted(() => {
     void loadInitialDiagnosis();
@@ -496,128 +338,88 @@
 
   .card-block {
     margin-bottom: 16px;
-    border-radius: 14px;
+    border-radius: var(--zy-radius-card, 14px);
+  }
+
+  .kpi-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: stretch;
+    margin-bottom: 16px;
+    padding: 16px 20px;
+    background: var(--zy-bg-card, rgba(255, 255, 255, 0.82));
+    border: 1px solid rgba(99, 102, 241, 0.12);
+    border-radius: var(--zy-radius-card, 16px);
+    box-shadow: var(--zy-shadow-card);
+  }
+
+  .kpi-item {
+    flex: 1;
+    min-width: 100px;
+    padding: 8px 12px;
+  }
+
+  .kpi-item--actions {
+    flex: 2;
+    min-width: 240px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    justify-content: flex-end;
+  }
+
+  .kpi-label {
+    display: block;
+    font-size: 12px;
+    color: var(--zy-color-text-secondary, #64748b);
+  }
+
+  .kpi-value {
+    display: block;
+    margin-top: 4px;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--zy-color-text-primary, #0f172a);
+  }
+
+  .kpi-item--high .kpi-value {
+    color: #dc2626;
+  }
+  .kpi-item--medium .kpi-value {
+    color: #d97706;
+  }
+  .kpi-item--low .kpi-value {
+    color: #16a34a;
+  }
+  .kpi-item--neutral .kpi-value {
+    color: var(--zy-color-brand, #6366f1);
   }
 
   .summary-banner {
-    display: grid;
-    grid-template-columns: minmax(0, 1.7fr) minmax(280px, 0.9fr);
-    gap: 18px;
-    align-items: stretch;
     background:
-      radial-gradient(circle at left top, rgba(59, 92, 204, 0.14), transparent 34%),
-      linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+      radial-gradient(circle at left top, rgba(99, 102, 241, 0.1), transparent 40%),
+      linear-gradient(180deg, #f8fafc 0%, #fff 100%);
   }
 
-  .summary-banner__main h2 {
-    margin: 6px 0 10px;
-    color: #0f172a;
-    font-size: 28px;
-    line-height: 1.35;
-  }
-
-  .summary-banner__main p {
-    margin: 0;
-    color: #475569;
-    line-height: 1.8;
-  }
-
-  .summary-banner__eyebrow {
-    color: #3b5ccc;
-    font-size: 12px;
+  .summary-title {
+    margin: 0 0 8px;
+    font-size: 22px;
     font-weight: 700;
-    letter-spacing: 0.08em;
+    color: #0f172a;
   }
 
-  .summary-banner__side {
-    display: grid;
-    gap: 14px;
-    align-content: start;
-  }
-
-  .summary-banner__risk {
-    padding: 16px 18px;
-    border-radius: 14px;
-    border: 1px solid rgba(148, 163, 184, 0.2);
-    background: rgba(255, 255, 255, 0.86);
-  }
-
-  .summary-banner__risk span,
-  .summary-banner__risk strong {
-    display: block;
-  }
-
-  .summary-banner__risk span {
-    color: #64748b;
-    font-size: 12px;
-  }
-
-  .summary-banner__risk strong {
-    margin-top: 8px;
-    font-size: 24px;
-    line-height: 1.2;
-  }
-
-  .summary-banner__risk--high strong {
-    color: #dc2626;
-  }
-
-  .summary-banner__risk--medium strong {
-    color: #d97706;
-  }
-
-  .summary-banner__risk--low strong {
-    color: #16a34a;
-  }
-
-  .summary-banner__risk--neutral strong {
-    color: #3b5ccc;
-  }
-
-  .summary-banner__actions {
-    display: grid;
-    gap: 10px;
-  }
-
-  .profile-row {
-    display: flex;
-    gap: 16px;
-    align-items: center;
+  .summary-desc {
+    margin: 0 0 16px;
+    color: #475569;
+    line-height: 1.75;
   }
 
   .profile-meta {
+    margin-top: 16px;
     line-height: 1.9;
     font-size: 14px;
-  }
-
-  .portrait-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
-  }
-
-  .portrait-card {
-    min-height: 82px;
-    padding: 12px;
-    background: linear-gradient(180deg, #f8fbff, #fff);
-    border: 1px solid rgba(37, 99, 235, 0.12);
-    border-radius: 12px;
-
-    span,
-    strong {
-      display: block;
-    }
-
-    span {
-      color: #64748b;
-      font-size: 12px;
-    }
-
-    strong {
-      margin-top: 10px;
-      color: #0f172a;
-      line-height: 1.6;
-    }
   }
 
   .section-title,
@@ -627,10 +429,9 @@
   }
 
   .mastery-box {
-    margin-top: 18px;
+    margin-top: 16px;
     padding: 14px;
-    background: #fbfdff;
-    border: 1px solid rgba(37, 99, 235, 0.1);
+    background: #f8fafc;
     border-radius: 12px;
   }
 
@@ -639,179 +440,70 @@
     gap: 10px;
   }
 
-  .mastery-row {
-    display: grid;
-    gap: 6px;
-  }
-
   .mastery-head {
     display: flex;
     justify-content: space-between;
-    color: #334155;
     font-size: 13px;
-  }
-
-  .focus-list {
-    display: grid;
-    gap: 10px;
+    color: #334155;
   }
 
   .focus-item {
     padding: 12px 14px;
-    border: 1px solid rgba(37, 99, 235, 0.12);
+    border: 1px solid rgba(99, 102, 241, 0.12);
     border-radius: 12px;
-    background: linear-gradient(180deg, #f8fbff, #fff);
-  }
-
-  .focus-item__copy {
-    display: grid;
-    gap: 4px;
-    color: #334155;
-  }
-
-  .focus-item__copy strong {
-    color: #0f172a;
-  }
-
-  .focus-item__copy span {
-    font-size: 13px;
-    line-height: 1.7;
-    color: #64748b;
+    background: #fff;
   }
 
   .focus-item__actions {
     display: flex;
-    flex-wrap: wrap;
     gap: 8px;
-    margin-top: 12px;
+    margin-top: 10px;
   }
 
   .overview-card {
     background:
-      radial-gradient(circle at top left, rgba(99, 102, 241, 0.12), transparent 38%),
-      linear-gradient(180deg, #f8fbff, #fff);
-  }
-
-  .overview-head {
-    display: flex;
-    gap: 16px;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 16px;
-  }
-
-  .overview-copy {
-    max-width: 620px;
+      radial-gradient(circle at top left, rgba(99, 102, 241, 0.08), transparent 38%),
+      #fff;
   }
 
   .evidence-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(3, 1fr);
     gap: 12px;
-    min-width: min(100%, 380px);
-    flex: 1;
+    margin-bottom: 16px;
   }
 
   .evidence-card {
-    min-height: 120px;
     padding: 14px;
-    background: rgba(255, 255, 255, 0.82);
-    border: 1px solid rgba(59, 92, 204, 0.1);
+    background: #f8fafc;
     border-radius: 12px;
-    display: grid;
-    align-content: start;
-    gap: 8px;
-  }
 
-  .evidence-card span,
-  .evidence-card strong,
-  .evidence-card small {
-    display: block;
-  }
+    span,
+    strong {
+      display: block;
+    }
 
-  .evidence-card span {
-    color: #64748b;
-    font-size: 12px;
-  }
+    span {
+      font-size: 12px;
+      color: #64748b;
+    }
 
-  .evidence-card strong {
-    color: #0f172a;
-    font-size: 18px;
-    line-height: 1.45;
-  }
-
-  .evidence-card small {
-    color: #64748b;
-    line-height: 1.6;
-  }
-
-  .overview-eyebrow {
-    margin-bottom: 10px;
-    color: #2563eb;
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-  }
-
-  .overview-copy h3 {
-    margin: 0 0 6px;
-    color: #0f172a;
-    font-size: 22px;
-    line-height: 1.45;
-  }
-
-  .overview-copy p {
-    margin: 0;
-    color: #64748b;
-    line-height: 1.75;
-  }
-
-  .action-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    justify-content: flex-end;
-  }
-
-  .report-summary {
-    margin-bottom: 16px;
-    color: #0f172a;
-    font-size: 15px;
-    line-height: 1.8;
-  }
-
-  .meta-line {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    margin-bottom: 14px;
-  }
-
-  .meta-pill {
-    display: inline-flex;
-    align-items: center;
-    padding: 6px 12px;
-    color: #1d4ed8;
-    font-size: 12px;
-    font-weight: 600;
-    background: rgba(59, 130, 246, 0.1);
-    border-radius: 999px;
-  }
-
-  .meta-pill--soft {
-    color: #475569;
-    background: #eef2ff;
+    strong {
+      margin-top: 6px;
+      font-size: 16px;
+      color: #0f172a;
+      line-height: 1.4;
+    }
   }
 
   .tag-row {
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
-    margin-bottom: 16px;
   }
 
   .info-tag {
-    padding: 7px 12px;
+    padding: 6px 12px;
     color: #4338ca;
     font-size: 12px;
     font-weight: 600;
@@ -819,55 +511,42 @@
     border-radius: 999px;
   }
 
-  .info-tag--warm {
-    color: #b45309;
-    background: rgba(245, 158, 11, 0.14);
-  }
-
   .topic-chip {
     display: inline-flex;
     align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-    padding: 6px 8px 6px 6px;
-    background: rgba(255, 255, 255, 0.86);
-    border: 1px solid rgba(99, 102, 241, 0.12);
+    gap: 8px;
+    padding: 4px 8px 4px 4px;
+    background: #fff;
+    border: 1px solid rgba(99, 102, 241, 0.15);
     border-radius: 999px;
-  }
-
-  .topic-chip__actions {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
   }
 
   .topic-chip__actions button {
     border: none;
     border-radius: 999px;
-    padding: 5px 10px;
-    background: rgba(59, 92, 204, 0.08);
-    color: #3b5ccc;
+    padding: 4px 10px;
+    background: rgba(99, 102, 241, 0.08);
+    color: #6366f1;
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
-    transition: background 0.2s ease, color 0.2s ease;
-  }
+    transition: background var(--zy-duration-fast, 150ms) ease;
 
-  .topic-chip__actions button:hover {
-    background: rgba(59, 92, 204, 0.14);
-    color: #2646ab;
+    &:hover {
+      background: rgba(99, 102, 241, 0.16);
+    }
   }
 
   .dual-grid {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(2, 1fr);
     gap: 12px;
+    margin-top: 16px;
   }
 
   .insight-box {
-    padding: 14px 16px;
-    background: rgba(255, 255, 255, 0.76);
-    border: 1px solid rgba(37, 99, 235, 0.1);
+    padding: 14px;
+    background: #f8fafc;
     border-radius: 12px;
   }
 
@@ -875,37 +554,17 @@
     margin: 0;
     padding-left: 1.2em;
     color: #475569;
-    line-height: 1.8;
+    line-height: 1.75;
   }
 
-  .stat-box {
-    padding: 14px 8px;
-    border: 1px solid rgba(37, 99, 235, 0.12);
-    border-radius: 12px;
-    background: linear-gradient(180deg, #eff6ff, #fff);
-    text-align: center;
+  .muted {
+    color: #94a3b8;
   }
 
-  .stat-num {
-    color: #2563eb;
-    font-size: 22px;
-    font-weight: 700;
-  }
-
-  .stat-label {
-    margin-top: 6px;
-    color: #64748b;
-    font-size: 13px;
-  }
-
-  .behavior-note {
-    margin-top: 14px;
-    color: #475569;
-    line-height: 1.8;
-  }
-
-  .fill-card {
-    height: 100%;
+  .report-summary {
+    margin-bottom: 12px;
+    line-height: 1.75;
+    color: #0f172a;
   }
 
   .mistake-list,
@@ -915,24 +574,22 @@
   }
 
   .mistake-card,
-  .plan-card,
-  .flashcard-box {
-    padding: 14px 16px;
-    background: #fbfdff;
-    border: 1px solid rgba(37, 99, 235, 0.1);
+  .plan-card {
+    padding: 14px;
+    background: #f8fafc;
     border-radius: 12px;
   }
 
   .mistake-title,
   .plan-day {
-    margin-bottom: 8px;
-    color: #0f172a;
     font-weight: 600;
+    margin-bottom: 6px;
   }
 
   .mistake-line {
     color: #475569;
-    line-height: 1.75;
+    line-height: 1.7;
+    font-size: 13px;
   }
 
   .plan-focus {
@@ -941,37 +598,37 @@
     font-weight: 500;
   }
 
-  @media (max-width: 1200px) {
-    .summary-banner {
-      grid-template-columns: 1fr;
-    }
+  .stat-box {
+    padding: 14px;
+    text-align: center;
+    background: #f8fafc;
+    border-radius: 12px;
+  }
 
-    .overview-head {
-      flex-direction: column;
-    }
+  .stat-num {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--zy-color-brand, #6366f1);
+  }
 
-    .evidence-grid {
-      width: 100%;
-      grid-template-columns: 1fr;
-    }
-
-    .action-row {
-      justify-content: flex-start;
-    }
+  .stat-label {
+    margin-top: 4px;
+    font-size: 12px;
+    color: #64748b;
   }
 
   @media (max-width: 768px) {
-    .container {
-      padding: 0 12px 20px;
+    .kpi-bar {
+      flex-direction: column;
     }
 
-    .portrait-grid,
+    .kpi-item--actions {
+      justify-content: flex-start;
+    }
+
+    .evidence-grid,
     .dual-grid {
       grid-template-columns: 1fr;
-    }
-
-    .overview-copy h3 {
-      font-size: 19px;
     }
   }
 </style>

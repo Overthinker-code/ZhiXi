@@ -28,6 +28,14 @@ export interface ResourceItem {
   content_preview: string;
 }
 
+export interface AgentStep {
+  agent: string;
+  label: string;
+  message?: string;
+  status?: 'idle' | 'running' | 'done' | 'error';
+  ts?: string;
+}
+
 export interface ResourcePackageResponse {
   package_id: string;
   subject: string;
@@ -40,6 +48,8 @@ export interface ResourcePackageResponse {
     endpoint: string;
     target_mastery_delta: number;
   };
+  agent_steps?: AgentStep[];
+  generation_mode?: string;
 }
 
 export interface ExerciseGradeRequest {

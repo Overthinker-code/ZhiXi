@@ -74,10 +74,10 @@ class Settings(BaseSettings):
     SMTP_TLS: bool = True
     SMTP_SSL: bool = True
     SMTP_PORT: int = 465
-    SMTP_HOST: str | None = "smtp.qq.com"
-    SMTP_USER: str | None = "2312671282@qq.com"
-    SMTP_PASSWORD: str | None = "fxmfxlrbprhbeacb"
-    EMAILS_FROM_EMAIL: EmailStr | None = "2312671282@qq.com"
+    SMTP_HOST: str | None = None
+    SMTP_USER: str | None = None
+    SMTP_PASSWORD: str | None = None
+    EMAILS_FROM_EMAIL: EmailStr | None = None
     EMAILS_FROM_NAME: EmailStr | None = None
 
     @model_validator(mode="after")
@@ -215,6 +215,13 @@ class Settings(BaseSettings):
     DEMO_MODE: bool = False
     DEMO_FAKE_CHAT_CACHE: bool = False
     DEVELOPER_PANEL_ENABLED: bool = True
+    ENABLE_MOCK_ROUTES: bool = False
+
+    # 讯飞/星火 API 预留（赛题合规项，未配置时回退 CHAT_PROVIDER）
+    IFLYTEK_APP_ID: str | None = None
+    IFLYTEK_API_KEY: str | None = None
+    IFLYTEK_API_SECRET: str | None = None
+    IFLYTEK_SPARK_MODEL: str = "generalv3.5"
 
 
 settings = Settings()  # type: ignore

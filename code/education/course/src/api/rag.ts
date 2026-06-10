@@ -335,6 +335,7 @@ function normalizeLearningReport(raw: any): LearningReport {
           content: normalizeDisplayText(section?.content),
         }))
       : [],
+    process_steps: Array.isArray(raw?.process_steps) ? raw.process_steps : [],
   } as LearningReport;
 }
 
@@ -673,6 +674,13 @@ export interface ClassroomBehaviorSummary {
   student_count?: number;
 }
 
+export interface ProcessStep {
+  key: string;
+  label: string;
+  message?: string;
+  status?: 'idle' | 'running' | 'done' | 'error';
+}
+
 export interface LearningReport {
   learner_id: string;
   generated_at: string;
@@ -691,6 +699,7 @@ export interface LearningReport {
   follow_up_questions: string[];
   sections: LearningReportSection[];
   classroom_behavior_summary?: ClassroomBehaviorSummary;
+  process_steps?: ProcessStep[];
 }
 
 export interface ReviewPlanDay {

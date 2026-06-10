@@ -28,12 +28,9 @@ const USER: AppRouteRecordRaw = {
     },
     {
       path: 'study',
-      name: 'Study',
-      component: () => import('@/views/user/study/index.vue'),
+      redirect: '/profile/learning-data',
       meta: {
-        locale: '学习数据',
         requiresAuth: true,
-        roles: ['*'],
         hideInMenu: true,
       },
     },

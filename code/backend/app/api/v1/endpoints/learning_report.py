@@ -30,7 +30,7 @@ def run_learning_diagnosis(
     refresh: bool = Query(default=True),
 ) -> Any:
     user_id = str(current_user.id)
-    return learning_report_service.build_report(db, user_id, refresh_profile=refresh)
+    return learning_report_service.build_report_and_sync_path(db, user_id, refresh_profile=refresh)
 
 
 @router.post("/actions/review-plan", response_model=ReviewPlan)

@@ -12,6 +12,7 @@ from app.models.chat_thread import ChatThread
 from app.schemas.learning_report import (
     LearningReport,
     LearningReportSection,
+    ProcessStep,
     ReviewPlan,
     ReviewPlanDay,
     MistakeDigest,
@@ -19,6 +20,7 @@ from app.schemas.learning_report import (
 )
 from app.services.chat_model_factory import ChatModelFactory
 from app.services.user_memory_profile_service import user_memory_profile_service
+from app.services.learning_path_service import learning_path_service
 
 # 教育学参数联动导入
 try:
@@ -597,6 +599,31 @@ class LearningReportService:
             except Exception:
                 pass
         
+        process_steps = [
+            ProcessStep(
+                key="profile",
+                label="读取学习画像",
+                message=f"已加载 {len(weak_points)} 个薄弱点" if weak_points else "画像待通过对话建立",
+                status="done",
+            ),
+            ProcessStep(
+                key="behavior",
+                label="汇总课堂投入",
+                message=(
+                    "已纳入近期课堂行为数据"
+                    if classroom_behavior_summary
+                    else "暂无课堂行为记录"
+                ),
+                status="done" if classroom_behavior_summary else "idle",
+            ),
+            ProcessStep(
+                key="infer",
+                label="生成诊断结论",
+                message=payload.summary[:80] if payload.summary else "诊断完成",
+                status="done",
+            ),
+        ]
+
         return LearningReport(
             learner_id=user_id,
             generated_at=datetime.utcnow().isoformat(),
@@ -614,7 +641,18 @@ class LearningReportService:
             follow_up_questions=payload.follow_up_questions,
             sections=sections,
             classroom_behavior_summary=classroom_behavior_summary,
+            process_steps=process_steps,
         )
+
+    def build_report_and_sync_path(
+        self, session: Session, user_id: str, *, refresh_profile: bool = False
+    ) -> LearningReport:
+        report = self.build_report(session, user_id, refresh_profile=refresh_profile)
+        try:
+            learning_path_service.upsert_from_report(session, user_id, report)
+        except Exception:
+            pass
+        return report
 
     def build_review_plan(
         self, session: Session, user_id: str, *, refresh_profile: bool = False

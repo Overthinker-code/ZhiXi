@@ -56,18 +56,18 @@
     return [
       {
         label: '当前目标',
-        value: report?.current_goal || '待通过对话逐步收敛',
-        hint: report?.summary || '系统会结合问答与练习持续更新目标。',
+        value: report?.current_goal || '—',
+        hint: report?.summary || '完成对话后将自动更新',
       },
       {
         label: '学习偏好',
-        value: report?.learning_style || '待分析',
-        hint: strengths[0] || '将根据互动方式自动提炼偏好。',
+        value: report?.learning_style || '—',
+        hint: strengths[0] || '—',
       },
       {
         label: '薄弱点',
-        value: weakPoints.length ? weakPoints.slice(0, 2).join(' / ') : '暂无高风险薄弱点',
-        hint: insights[0] || '系统会在批改与问答后更新掌握度。',
+        value: weakPoints.length ? weakPoints.slice(0, 2).join(' / ') : '—',
+        hint: insights[0] || '—',
       },
       {
         label: '风险等级',
@@ -78,26 +78,26 @@
               ? '较低'
               : '中等',
         hint: Array.isArray(report?.recommended_actions)
-          ? report.recommended_actions[0] || '按当前节奏推进。'
-          : '按当前节奏推进。',
+          ? report.recommended_actions[0] || '—'
+          : '—',
       },
       {
         label: '课堂投入',
         value:
           typeof behavior?.recent_avg_lei === 'number'
             ? `${Math.round(behavior.recent_avg_lei * 100)}%`
-            : '暂无数据',
-        hint: behavior?.teacher_note || '课堂行为数据接入后会在这里显示。',
+            : '—',
+        hint: behavior?.teacher_note || '—',
       },
       {
         label: '推荐资源',
         value:
           Array.isArray(report?.recommended_resources) && report.recommended_resources.length
             ? report.recommended_resources.slice(0, 2).join(' / ')
-            : '优先从课程资料库检索',
+            : '—',
         hint: Array.isArray(report?.follow_up_questions)
-          ? report.follow_up_questions[0] || '继续追问会推动画像、资源和路径一起更新。'
-          : '继续追问会推动画像、资源和路径一起更新。',
+          ? report.follow_up_questions[0] || '—'
+          : '—',
       },
     ];
   });
@@ -204,6 +204,16 @@
       loadingFiles.value = false;
     }
   }
+
+  const masteryRings = computed(() => {
+    const map = learningReport.value?.mastery_map || {};
+    return Object.entries(map)
+      .slice(0, 4)
+      .map(([topic, value]) => ({
+        topic,
+        percent: Math.round(Math.max(0, Math.min(1, Number(value) || 0)) * 100),
+      }));
+  });
 
   async function loadLearningReport(refresh = false) {
     loadingReport.value = true;
@@ -337,10 +347,21 @@
     >
       <section v-if="activeDrawer === 'profile'" class="drawer-section">
         <div class="drawer-toolbar drawer-toolbar--profile">
-          <span class="drawer-meta">{{ loadingReport ? '学习画像更新中…' : '画像已接入真实学情与掌握度更新链路' }}</span>
+          <span class="drawer-meta">{{ loadingReport ? '更新中…' : '基于最近对话与练习' }}</span>
           <a-button size="small" :loading="loadingReport" @click="loadLearningReport(true)">
             刷新画像
           </a-button>
+        </div>
+        <div v-if="masteryRings.length" class="mastery-rings">
+          <div v-for="item in masteryRings" :key="item.topic" class="mastery-ring-item">
+            <a-progress
+              type="circle"
+              :percent="item.percent"
+              size="small"
+              :width="56"
+            />
+            <span>{{ item.topic }}</span>
+          </div>
         </div>
         <div class="profile-grid">
           <article v-for="item in profileItems" :key="item.label">
@@ -584,6 +605,27 @@
       color: var(--assistant-text);
       font-size: 15px;
     }
+  }
+
+  .mastery-rings {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 16px;
+    padding: 12px;
+    background: #f8fafc;
+    border-radius: 12px;
+  }
+
+  .mastery-ring-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: #64748b;
+    text-align: center;
+    max-width: 72px;
   }
 
   .profile-grid {

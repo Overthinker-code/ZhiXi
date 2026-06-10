@@ -123,3 +123,110 @@
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
+
+/* ============================================
+   Motion Design Tokens
+============================================ */
+:root {
+  --zy-duration-fast: 150ms;
+  --zy-duration-normal: 280ms;
+  --zy-duration-slow: 480ms;
+  --zy-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --zy-ease-spring: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  --zy-stagger-step: 80ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* 页面路由过渡 */
+.page-fade-enter-active,
+.page-fade-leave-active {
+  transition:
+    opacity var(--zy-duration-normal) var(--zy-ease-out),
+    transform var(--zy-duration-normal) var(--zy-ease-out);
+}
+
+.page-fade-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.page-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+/* stagger 入场子项 */
+.zy-stagger-item {
+  animation: zy-fade-up var(--zy-duration-slow) var(--zy-ease-out) both;
+  animation-delay: calc(var(--i, 0) * var(--zy-stagger-step));
+}
+
+/* 诊断扫描态 */
+@keyframes zy-scan-sweep {
+  0% {
+    background-position: -100% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.zy-scanning {
+  position: relative;
+  overflow: hidden;
+}
+
+.zy-scanning::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 30%,
+    rgba(99, 102, 241, 0.12) 50%,
+    transparent 70%
+  );
+  background-size: 200% 100%;
+  animation: zy-scan-sweep 1.8s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Agent 节点脉冲 */
+@keyframes zy-node-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(99, 102, 241, 0);
+  }
+}
+
+.zy-node-pulse {
+  animation: zy-node-pulse 1.6s ease-in-out infinite;
+}
+
+/* 卡片 flip 入场 */
+@keyframes zy-flip-in {
+  from {
+    opacity: 0;
+    transform: perspective(600px) rotateX(-12deg) translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: perspective(600px) rotateX(0) translateY(0);
+  }
+}
+
+.zy-flip-in {
+  animation: zy-flip-in var(--zy-duration-slow) var(--zy-ease-spring) both;
+}

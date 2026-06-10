@@ -207,18 +207,7 @@
             <div class="card-intro">
               从画像匹配到结果校对，生成流程会按教学可用性逐步组织内容。
             </div>
-            <div class="agent-flow">
-              <div
-                v-for="(agent, index) in agentSteps"
-                :key="agent.name"
-                class="agent-node"
-                :class="{ active: packageResult && index <= 4 }"
-              >
-                <div class="agent-icon">{{ agent.icon }}</div>
-                <strong>{{ agent.name }}</strong>
-                <span>{{ agent.desc }}</span>
-              </div>
-            </div>
+            <AgentStagePanel :nodes="agentStageNodes" />
           </a-card>
 
           <a-card class="panel-card" title="资源生成结果">
@@ -275,7 +264,8 @@
                 <article
                   v-for="(item, index) in packageResult.resources"
                   :key="item.title"
-                  class="resource-card"
+                  class="resource-card zy-flip-in"
+                  :style="{ animationDelay: `${index * 0.08}s` }"
                 >
                   <div class="resource-card__index">0{{ index + 1 }}</div>
                   <div class="resource-meta">
@@ -538,13 +528,33 @@ const imageForm = reactive({
 });
 const lastSeedSignature = ref('');
 
-const agentSteps = [
-  { name: '画像匹配', desc: '抽取基础与短板', icon: 'P1' },
-  { name: '讲解组织', desc: '整理概念讲解', icon: 'D1' },
-  { name: '练习设计', desc: '生成分层练习', icon: 'Q1' },
-  { name: '路径安排', desc: '排列学习顺序', icon: 'R1' },
-  { name: '结果校对', desc: '整理可用资源', icon: 'A1' },
-];
+const agentStageNodes = computed(() => {
+  if (packageResult.value?.agent_steps?.length) {
+    return packageResult.value.agent_steps.map((step, index) => ({
+      key: step.agent || `step-${index}`,
+      label: step.label,
+      sub: step.message,
+      message: step.message,
+      status: (step.status || 'done') as 'idle' | 'running' | 'done' | 'error',
+    }));
+  }
+  if (loadingPackage.value) {
+    return [
+      { key: 'profile', label: '学习画像分析师', status: 'running' as const, sub: '读取画像…' },
+      { key: 'retrieval', label: '课程证据检索员', status: 'idle' as const },
+      { key: 'content', label: '内容生成专员', status: 'idle' as const },
+      { key: 'safety', label: '事实审查员', status: 'idle' as const },
+      { key: 'assembler', label: '资源组装专员', status: 'idle' as const },
+    ];
+  }
+  return [
+    { key: 'profile', label: '学习画像分析师', status: 'idle' as const, sub: '点击生成启动' },
+    { key: 'retrieval', label: '课程证据检索员', status: 'idle' as const },
+    { key: 'content', label: '内容生成专员', status: 'idle' as const },
+    { key: 'safety', label: '事实审查员', status: 'idle' as const },
+    { key: 'assembler', label: '资源组装专员', status: 'idle' as const },
+  ];
+});
 
 const mode = computed(() => String(route.name || 'ResourcePackageBuilder'));
 const isUnifiedWorkbench = computed(() => mode.value === 'CourseResourceGeneration');
@@ -616,16 +626,16 @@ const masteryBars = computed(() =>
 const profileDimensions = computed(() => {
   const behavior = report.value?.classroom_behavior_summary;
   return [
-    { label: '当前目标', value: report.value?.current_goal || '待从对话中更新' },
-    { label: '学习偏好', value: report.value?.learning_style || '结构化讲解' },
+    { label: '当前目标', value: report.value?.current_goal || '—' },
+    { label: '学习偏好', value: report.value?.learning_style || '—' },
     { label: '风险等级', value: riskLabel(report.value?.risk_level) },
     { label: '知识基础', value: basisLabel(masteryBars.value) },
-    { label: '易错点', value: weakPoints.value[0] || '暂无明显薄弱点' },
+    { label: '易错点', value: weakPoints.value[0] || '—' },
     {
       label: '课堂投入',
       value: behavior?.on_task_rate
         ? `${Math.round(behavior.on_task_rate * 100)}%`
-        : '等待课堂数据',
+        : '—',
     },
   ];
 });

@@ -9,6 +9,13 @@ class LearningReportSection(BaseModel):
     content: str
 
 
+class ProcessStep(BaseModel):
+    key: str
+    label: str
+    message: str = ""
+    status: str = "done"
+
+
 class LearningReport(BaseModel):
     learner_id: str
     generated_at: str
@@ -27,6 +34,8 @@ class LearningReport(BaseModel):
     sections: list[LearningReportSection] = Field(default_factory=list)
     # 教育学参数联动：课堂行为摘要
     classroom_behavior_summary: Optional[dict] = None
+    # 诊断过程步骤（供前端 Timeline 展示）
+    process_steps: list[ProcessStep] = Field(default_factory=list)
 
 
 class ReviewPlanDay(BaseModel):

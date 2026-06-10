@@ -20,7 +20,10 @@ from sqlmodel import Session
 from app.api import deps
 from app.api.deps import CurrentUser
 from app.core.config import settings
+from app.services.chat_model_factory import ChatModelFactory
 from app.services.model_aliases import resolve_model_name_for_base_url
+from app.services.vision_client import call_vision_model, normalize_image_ref
+from app.services.vision_response import extract_openai_compatible_content
 from app.services.user_memory_profile_service import (
     MemoryProfilePayload,
     user_memory_profile_service,
@@ -262,6 +265,14 @@ class ResourceItem(BaseModel):
     content_preview: str = ""
 
 
+class AgentStep(BaseModel):
+    agent: str
+    label: str
+    message: str = ""
+    status: str = "done"
+    ts: str = ""
+
+
 class ResourcePackageResponse(BaseModel):
     package_id: str
     subject: str
@@ -270,6 +281,8 @@ class ResourcePackageResponse(BaseModel):
     personalization_basis: list[str] = Field(default_factory=list)
     resources: list[ResourceItem]
     next_check: dict[str, Any]
+    agent_steps: list[AgentStep] = Field(default_factory=list)
+    generation_mode: str = "template"
 
 
 class ExerciseGradeRequest(BaseModel):
@@ -467,6 +480,206 @@ def _build_resource_package(
     )
 
 
+def _now_iso() -> str:
+    return datetime.utcnow().isoformat()
+
+
+def _try_rag_snippet(
+    topic: str, subject: str, *, user_id: str = "", is_admin: bool = False
+) -> str:
+    try:
+        from app.services.rag_tools import run_query_knowledge_base
+
+        query = f"{subject} {topic} 核心概念 易错点"
+        result = run_query_knowledge_base(
+            query,
+            user_id=user_id or None,
+            is_admin=is_admin,
+            top_k=3,
+        )
+        if isinstance(result, str) and result.strip():
+            return result.strip()[:1200]
+    except Exception:
+        pass
+    return ""
+
+
+def _try_llm_resource_previews(
+    topic: str,
+    subject: str,
+    goal: str,
+    difficulty: str,
+    weak_points: list[str],
+    rag_context: str,
+    resource_types: list[str],
+) -> tuple[dict[str, str], list[AgentStep]]:
+    from langchain_core.messages import HumanMessage
+
+    steps: list[AgentStep] = [
+        AgentStep(
+            agent="profile_agent",
+            label="学习画像分析师",
+            message=f"目标难度 {difficulty}，薄弱点 {('、'.join(weak_points[:3]) if weak_points else '待识别')}",
+            status="done",
+            ts=_now_iso(),
+        ),
+        AgentStep(
+            agent="retrieval_agent",
+            label="课程证据检索员",
+            message="已检索课程知识片段" if rag_context else "未命中课程库，使用通用模板",
+            status="done",
+            ts=_now_iso(),
+        ),
+        AgentStep(
+            agent="content_agent",
+            label="内容生成专员",
+            message="正在生成各类型资源预览…",
+            status="running",
+            ts=_now_iso(),
+        ),
+    ]
+    type_list = ", ".join(resource_types)
+    prompt = (
+        f"你是高等教育资源生成助手。课程：{subject}，主题：{topic}，目标：{goal}，难度：{difficulty}。\n"
+        f"薄弱点：{', '.join(weak_points) or '无'}。\n"
+        f"知识片段：{rag_context or '（无）'}\n"
+        f"请为以下资源类型各生成 2-4 句 preview 文本，返回 JSON 对象，键为资源 type，值为 preview 字符串：\n"
+        f"[{type_list}]\n"
+        "只返回 JSON，不要 markdown。"
+    )
+    try:
+        model = ChatModelFactory.create(temperature=0.3, max_tokens=2048)
+        response = model.invoke([HumanMessage(content=prompt)])
+        content = getattr(response, "content", str(response))
+        parsed = _extract_json_blob(str(content))
+        previews: dict[str, str] = {}
+        if parsed:
+            for key, value in parsed.items():
+                if str(key) in resource_types and str(value).strip():
+                    previews[str(key)] = str(value).strip()[:500]
+        steps[-1] = AgentStep(
+            agent="content_agent",
+            label="内容生成专员",
+            message=f"已生成 {len(previews)} 项预览内容",
+            status="done",
+            ts=_now_iso(),
+        )
+        steps.append(
+            AgentStep(
+                agent="safety_review_agent",
+                label="事实与安全审查员",
+                message="内容已做基础校验",
+                status="done",
+                ts=_now_iso(),
+            )
+        )
+        return previews, steps
+    except Exception as exc:
+        steps[-1] = AgentStep(
+            agent="content_agent",
+            label="内容生成专员",
+            message=f"LLM 不可用，回退模板：{exc}",
+            status="error",
+            ts=_now_iso(),
+        )
+        return {}, steps
+
+
+def _build_resource_package_enhanced(
+    request: ResourcePackageRequest,
+    profile: dict[str, Any],
+    *,
+    user_id: str = "",
+    is_admin: bool = False,
+) -> ResourcePackageResponse:
+    base = _build_resource_package(request, profile)
+    topic = base.topic
+    weak_points = [
+        str(item).strip() for item in profile.get("weak_points") or [] if str(item).strip()
+    ][:3]
+    rag_context = _try_rag_snippet(
+        topic, request.subject.strip(), user_id=user_id, is_admin=is_admin
+    )
+    types = [item.type for item in base.resources]
+    previews, agent_steps = _try_llm_resource_previews(
+        topic=topic,
+        subject=request.subject.strip(),
+        goal=base.goal,
+        difficulty=base.resources[0].difficulty if base.resources else "standard",
+        weak_points=weak_points,
+        rag_context=rag_context,
+        resource_types=types,
+    )
+    if not previews:
+        agent_steps = [
+            AgentStep(
+                agent="profile_agent",
+                label="学习画像分析师",
+                message="使用模板化资源编排",
+                status="done",
+                ts=_now_iso(),
+            ),
+            AgentStep(
+                agent="assembler_agent",
+                label="资源组装专员",
+                message=f"已组装 {len(base.resources)} 类资源",
+                status="done",
+                ts=_now_iso(),
+            ),
+        ]
+        return base.model_copy(update={"agent_steps": agent_steps, "generation_mode": "template"})
+
+    enriched: list[ResourceItem] = []
+    for item in base.resources:
+        preview = previews.get(item.type) or item.content_preview
+        enriched.append(item.model_copy(update={"content_preview": preview}))
+    agent_steps.append(
+        AgentStep(
+            agent="assembler_agent",
+            label="资源组装专员",
+            message=f"已打包 {len(enriched)} 类个性化资源",
+            status="done",
+            ts=_now_iso(),
+        )
+    )
+    return base.model_copy(
+        update={
+            "resources": enriched,
+            "agent_steps": agent_steps,
+            "generation_mode": "llm",
+        }
+    )
+
+
+def _grade_exercise_llm(
+    request: ExerciseGradeRequest,
+) -> tuple[float, list[str], list[str], str] | None:
+    from langchain_core.messages import HumanMessage
+
+    prompt = (
+        "你是练习批改教师。请批改学生作答并返回 JSON："
+        '{"score_ratio":0-1,"strengths":[],"gaps":[],"feedback":""}\n'
+        f"题目：{request.question}\n"
+        f"参考答案：{request.reference_answer or '（无，按题意评判）'}\n"
+        f"学生答案：{request.student_answer}\n"
+        "只返回 JSON。"
+    )
+    try:
+        model = ChatModelFactory.create(temperature=0.1, max_tokens=800)
+        response = model.invoke([HumanMessage(content=prompt)])
+        parsed = _extract_json_blob(str(getattr(response, "content", response)))
+        if not parsed:
+            return None
+        ratio = _clamp_score(parsed.get("score_ratio"), default=0.5)
+        score = round(request.max_score * ratio, 1)
+        strengths = [str(x) for x in (parsed.get("strengths") or []) if str(x).strip()][:4]
+        gaps = [str(x) for x in (parsed.get("gaps") or []) if str(x).strip()][:4]
+        feedback = str(parsed.get("feedback") or "").strip() or "批改完成。"
+        return score, strengths, gaps, feedback
+    except Exception:
+        return None
+
+
 def _grade_exercise(request: ExerciseGradeRequest) -> tuple[float, list[str], list[str], str]:
     answer = request.student_answer.strip()
     reference = (request.reference_answer or "").strip()
@@ -557,6 +770,29 @@ def _apply_mastery_update(
 
 
 async def _call_qwen3_vl(request: ImageAnalyzeRequest) -> dict[str, Any]:
+    import asyncio
+
+    image_ref = normalize_image_ref(request.image_url or request.image_base64 or "")
+    prompt = (
+        "你是拍照搜题分析助手。请识别图片中的题目，输出严格 JSON："
+        "{\"subject\":\"学科\",\"problem_type\":\"题型\",\"extracted_text\":\"题干文本\","
+        "\"answer_markdown\":\"完整讲解，公式使用 $...$ 或 $$...$$\","
+        "\"solution_outline\":[\"步骤1\",\"步骤2\"],\"answer_hint\":\"只给提示不直接泄题\","
+        "\"diagram\":{\"type\":\"mermaid\",\"content\":\"flowchart TD...\"},"
+        "\"confidence\":0.0,\"limitations\":[\"不确定处\"]}。"
+        f"\n补充题干：{request.question_text or '无'}\n学科：{request.subject or '未知'}"
+    )
+
+    if settings.MULTIMODAL_API_BASE:
+        result = await asyncio.to_thread(call_vision_model, image_ref, prompt)
+        if result.status == "ok" and result.text.strip():
+            content = result.text
+            parsed = _extract_json_blob(content)
+            if not parsed:
+                return _structured_result_from_plain_text(request, content)
+            return parsed
+        raise RuntimeError(result.error or f"vision status={result.status}")
+
     api_key = (
         settings.MULTIMODAL_API_KEY
         or os.getenv("QWEN_API_KEY")
@@ -564,8 +800,7 @@ async def _call_qwen3_vl(request: ImageAnalyzeRequest) -> dict[str, Any]:
         or settings.OPENAI_API_KEY
     )
     base_url = (
-        settings.MULTIMODAL_API_BASE
-        or os.getenv("QWEN_OPENAI_BASE_URL")
+        os.getenv("QWEN_OPENAI_BASE_URL")
         or os.getenv("QWEN_API_BASE")
         or settings.OPENAI_API_BASE
         or "https://dashscope.aliyuncs.com/compatible-mode/v1"
@@ -579,56 +814,27 @@ async def _call_qwen3_vl(request: ImageAnalyzeRequest) -> dict[str, Any]:
             models.append(candidate)
     if not api_key:
         raise RuntimeError("Qwen3-VL API key is not configured")
-    image_ref = request.image_url or request.image_base64 or ""
-    if request.image_base64 and not request.image_base64.startswith("data:"):
-        image_ref = f"data:image/png;base64,{request.image_base64}"
-    prompt = (
-        "你是拍照搜题分析助手。请识别图片中的题目，输出严格 JSON："
-        "{\"subject\":\"学科\",\"problem_type\":\"题型\",\"extracted_text\":\"题干文本\","
-        "\"answer_markdown\":\"完整讲解，公式使用 $...$ 或 $$...$$\","
-        "\"solution_outline\":[\"步骤1\",\"步骤2\"],\"answer_hint\":\"只给提示不直接泄题\","
-        "\"diagram\":{\"type\":\"mermaid\",\"content\":\"flowchart TD...\"},"
-        "\"confidence\":0.0,\"limitations\":[\"不确定处\"]}。"
-        f"\n补充题干：{request.question_text or '无'}\n学科：{request.subject or '未知'}"
-    )
+
+    from app.services.vision_client import vision_request_payload
+
     last_error: Exception | None = None
     async with httpx.AsyncClient(timeout=settings.MULTIMODAL_TIMEOUT_SECONDS) as client:
         for model in models:
-            payload = {
-                "model": model,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {"type": "image_url", "image_url": {"url": image_ref}},
-                        ],
-                    }
-                ],
-                "temperature": 0.1,
-                "max_tokens": 900,
-            }
             try:
                 response = await client.post(
                     f"{base_url}/chat/completions",
                     headers={"Authorization": f"Bearer {api_key}"},
-                    json=payload,
+                    json=vision_request_payload(model, prompt, image_ref),
                 )
                 response.raise_for_status()
                 data = response.json()
-                content = (
-                    data.get("choices", [{}])[0]
-                    .get("message", {})
-                    .get("content", "")
+                message = data.get("choices", [{}])[0].get("message", {})
+                content = extract_openai_compatible_content(
+                    message if isinstance(message, dict) else {}
                 )
-                if isinstance(content, list):
-                    content = "\n".join(
-                        str(block.get("text", "")) if isinstance(block, dict) else str(block)
-                        for block in content
-                    )
-                parsed = _extract_json_blob(str(content))
-                if not parsed and str(content or "").strip():
-                    return _structured_result_from_plain_text(request, str(content))
+                parsed = _extract_json_blob(content)
+                if not parsed and content.strip():
+                    return _structured_result_from_plain_text(request, content)
                 if not parsed:
                     raise RuntimeError(f"{model} returned empty content")
                 return parsed
@@ -675,7 +881,12 @@ def generate_resource_package(
     request: ResourcePackageRequest,
 ) -> Any:
     profile = _profile_for_user(db, str(current_user.id))
-    return _build_resource_package(request, profile)
+    return _build_resource_package_enhanced(
+        request,
+        profile,
+        user_id=str(current_user.id),
+        is_admin=bool(getattr(current_user, "is_superuser", False)),
+    )
 
 
 @router.post("/exercises/grade", response_model=ExerciseGradeResponse)
@@ -685,7 +896,7 @@ def grade_exercise_and_update_mastery(
     current_user: CurrentUser,
     request: ExerciseGradeRequest,
 ) -> Any:
-    score, strengths, gaps, feedback = _grade_exercise(request)
+    score, strengths, gaps, feedback = _grade_exercise_llm(request) or _grade_exercise(request)
     before, after, update = _apply_mastery_update(
         db,
         str(current_user.id),

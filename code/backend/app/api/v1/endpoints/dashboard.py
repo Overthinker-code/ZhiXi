@@ -224,17 +224,6 @@ def dashboard_teacher_popular(
     elif type in POPULAR_DEMO_MAP:
         result = POPULAR_DEMO_MAP[type][:limit]
 
-    # 如果结果为空，返回示例数据
-    if not result:
-        result = [
-            {
-                "key": 1,
-                "title": "示例课程",
-                "click_number": 1820,
-                "increases": 14,
-            }
-        ]
-    
     return result
 
 

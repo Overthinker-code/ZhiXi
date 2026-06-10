@@ -34,10 +34,11 @@
 <template>
   <div v-if="displaySuggestions.length === 3" class="follow-up-row">
     <button
-      v-for="item in displaySuggestions"
+      v-for="(item, index) in displaySuggestions"
       :key="item"
       type="button"
-      class="follow-up-pill"
+      class="follow-up-pill zy-stagger-item"
+      :style="{ '--i': index }"
       @click="emit('pick', item)"
     >
       {{ item }}
