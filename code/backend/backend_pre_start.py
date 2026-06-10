@@ -34,6 +34,8 @@ def init() -> None:
         Student,
         StudentTC,
         Video,
+        LearningPath,
+        UserMemoryProfile,
     )
 
     SQLModel.metadata.create_all(engine)

@@ -2,14 +2,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import JSON, Column
-from sqlmodel import Field, Relationship, SQLModel
-
-if TYPE_CHECKING:
-    from app.models.user import User
+from sqlmodel import Field, SQLModel
 
 
 class LearningPathNode(SQLModel):
@@ -30,5 +26,3 @@ class LearningPath(SQLModel, table=True):
     nodes: list[dict] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
-
-    user: "User" = Relationship()
