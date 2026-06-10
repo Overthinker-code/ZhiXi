@@ -1,0 +1,252 @@
+{
+  "generated_at": "2026-06-10T14:17:16.599834+00:00",
+  "base_url": "http://127.0.0.1:8001",
+  "elapsed_seconds": 225.09,
+  "summary": {
+    "pass": 21,
+    "fail": 0,
+    "degraded": 0,
+    "skip": 0
+  },
+  "environment": {
+    "healthz": {
+      "status": 200,
+      "body": {
+        "service": "backend",
+        "status": "ok",
+        "models": {
+          "chat_model": {
+            "provider": "ollama",
+            "model": "qwen3:14b",
+            "reachable": true,
+            "base_url": "http://127.0.0.1:11434"
+          },
+          "multimodal_model": {
+            "provider": "openai_compatible",
+            "model": "Qwen3-VL-8B-Instruct",
+            "runtime_model": "qwen3-vl:8b",
+            "fallback_model": "Qwen3-VL-4B-Instruct",
+            "configured": true,
+            "reachable": true,
+            "base_url": "http://127.0.0.1:11434/v1",
+            "vision_probe": {
+              "configured": true,
+              "probe_ok": true,
+              "status": "ok",
+              "model": "qwen3-vl:8b",
+              "field_summary": {
+                "content": 11,
+                "reasoning": 690
+              },
+              "sample": "这是一张纯红色的图片。"
+            }
+          }
+        }
+      }
+    },
+    "readyz": {
+      "status": 200,
+      "body": {
+        "service": "backend",
+        "status": "ready",
+        "db": "ok",
+        "models": {
+          "chat_model": {
+            "provider": "ollama",
+            "model": "qwen3:14b",
+            "reachable": true,
+            "base_url": "http://127.0.0.1:11434"
+          },
+          "multimodal_model": {
+            "provider": "openai_compatible",
+            "model": "Qwen3-VL-8B-Instruct",
+            "runtime_model": "qwen3-vl:8b",
+            "fallback_model": "Qwen3-VL-4B-Instruct",
+            "configured": true,
+            "reachable": true,
+            "base_url": "http://127.0.0.1:11434/v1",
+            "vision_probe": {
+              "configured": true,
+              "probe_ok": true,
+              "status": "ok",
+              "model": "qwen3-vl:8b",
+              "field_summary": {
+                "content": 11,
+                "reasoning": 226
+              },
+              "sample": "这是一张纯红色的图片。"
+            }
+          }
+        }
+      }
+    }
+  },
+  "results": [
+    {
+      "name": "healthz",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {}
+    },
+    {
+      "name": "readyz",
+      "status": "pass",
+      "detail": "http 200 db=ok",
+      "meta": {}
+    },
+    {
+      "name": "login",
+      "status": "pass",
+      "detail": "token acquired",
+      "meta": {}
+    },
+    {
+      "name": "users/me",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "email": "admin@example.com"
+      }
+    },
+    {
+      "name": "chat_stream_text",
+      "status": "pass",
+      "detail": "最终确定：索引是数据库中用于加速数据检索的数据结构，通过有序存储关键字段的值，使查询操作能够快速定位到目标数据。这样既简洁又准确，符合用户需求。\n\n\n索引是数据库中用于加速数据检索的数据结构，通过有序存储关键字段的值，使查询操作能够快速定位到目标数据。\n\n**补充说明**（若需扩展）：\n1. **核心作用**：类似书籍目录，通过减少全表扫描的需要来提升查询效率\n2. **典型实现**：B树/B+树结构（适用于范围查询），哈希表（适用于等值查询）\n3. **代价**：占用额外存",
+      "meta": {
+        "thoughts": 17
+      }
+    },
+    {
+      "name": "chat_stream_multimodal",
+      "status": "pass",
+      "detail": "根据您的学习目标和当前问题，我将从图像分析基础和操作规范两个层面为您讲解：\n\n一、图像内容识别基础\n当前图片呈现纯红色背景，经系统检测未发现任何可识别的视觉元素（如文字、图表、公式等）。图像分析通常需要满足以下条件：\n1. 图像清晰度：建议分辨率≥300dpi\n2. 内容可见性：需包含可辨识的视觉元素\n3. 文件格式：支持jpg/png/pdf等常见格式\n\n二、操作步骤与规范\n1",
+      "meta": {
+        "vision_thoughts": [
+          "【视觉识别】status=ok source=multimodal model=qwen3-vl:8b fields={'content': 29, 'reasoning': 125} summary=图片中只有纯红色背景，无题干、图表、选项、公式和已知条件。"
+        ],
+        "unrecognized_template": false
+      }
+    },
+    {
+      "name": "learning_report_me",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "has_summary": true
+      }
+    },
+    {
+      "name": "learning_report_diagnose",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "possibly_template": true
+      }
+    },
+    {
+      "name": "learning_report_review-plan",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "possibly_template": false
+      }
+    },
+    {
+      "name": "learning_report_mistake-digest",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "possibly_template": false
+      }
+    },
+    {
+      "name": "learning_path_me",
+      "status": "pass",
+      "detail": "has_path",
+      "meta": {
+        "degraded": false
+      }
+    },
+    {
+      "name": "resource_workshop_packages",
+      "status": "pass",
+      "detail": "http 200 mode=llm",
+      "meta": {
+        "generation_mode": "llm"
+      }
+    },
+    {
+      "name": "resource_workshop_grade",
+      "status": "pass",
+      "detail": "http 200 score=8.0",
+      "meta": {}
+    },
+    {
+      "name": "resource_workshop_image",
+      "status": "pass",
+      "detail": "http 200 source=qwen3-vl status=success",
+      "meta": {}
+    },
+    {
+      "name": "rag_upload",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "file_id": "be5719eb-98ca-438f-8d8a-9fb12897592b"
+      }
+    },
+    {
+      "name": "behavior_analyze_image",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "source": null
+      }
+    },
+    {
+      "name": "dashboard_teacher_stats",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {}
+    },
+    {
+      "name": "dashboard_teacher_alerts-trend",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {}
+    },
+    {
+      "name": "dashboard_teacher_popular",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {}
+    },
+    {
+      "name": "dashboard_teacher_content-distribution",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {}
+    },
+    {
+      "name": "digital_human_health",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "body": {
+          "engine": "musetalk",
+          "checks": {
+            "celery_enabled": true,
+            "ffmpeg": true,
+            "fallback_renderer": true,
+            "musetalk_dir": true,
+            "musetalk_unet": true,
+            "musetalk_config": true,
+            "wav2lip_dir": false,
+            "default_asset": true
+          },
+          "ready": true
+        }
+      }
+    }
+  ]
+}
