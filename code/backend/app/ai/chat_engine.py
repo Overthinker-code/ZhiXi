@@ -34,6 +34,15 @@ from app.services.rag_service import RAGService
 from app.services.pending_actions import pending_action_store
 from app.services.ai_usage_logger import collect_usage_from_messages
 from app.services.chat_semantic_cache import chat_semantic_cache
+from app.ai.reasoning_stream import (
+    ReasoningStreamController,
+    reset_reasoning_controller,
+    reset_reasoning_emitter,
+    set_reasoning_controller,
+    set_reasoning_emitter,
+    stream_thought_events as _stream_thought_events_impl,
+)
+from app.services.math_markdown import normalize_math_delimiters
 from app.services.user_memory_profile_service import user_memory_profile_service
 from sqlmodel import Session
 
@@ -117,64 +126,42 @@ def _build_phase_event(content: str, stage: str | None = None) -> dict[str, Any]
     }
 
 
-def _thought_to_narrative(content: str, stage: str | None = None) -> str:
-    """Pipeline 事件 → DeepSeek 式第一人称思考独白（纯文字，无重复阶段标签）。"""
-    trimmed = (content or "").strip()
-    if not trimmed:
-        return ""
-    stage_key = (stage or "").strip()
-    stage_openers: dict[str, str] = {
-        "pipeline_start": "用户刚发来一个问题，我先判断它属于哪类学习场景，再决定要不要走检索或多步推理。",
-        "kb_inject": "课程知识库里应该有相关段落，我先检索并核对，确保后面的解释有依据。",
-        "tool_policy": "我会按需启用检索、联网或代码沙盒，用不上的能力先关掉，避免干扰回答。",
-        "web_policy": "可能需要较新的外部信息，我准备补充联网检索，和知识库内容交叉验证。",
-        "tool_run": "正在调用后端工具获取中间结果，拿到数据后再组织语言。",
-        "vision_status": "用户附带了图片，我先理解画面里的关键信息，再结合文字问题分析。",
-        "demo_mode": "当前处于演示模式，我会用稳定的示例回答保证展示效果。",
-        "cache": "这个问题和之前的很相似，可以直接复用已验证过的回答要点。",
-    }
-    if stage_key in stage_openers:
-        base = stage_openers[stage_key]
-        m = re.match(r"^【([^】]+)】([\s\S]*)$", trimmed)
-        body = (m.group(2) if m else trimmed).strip()
-        if body and len(body) > 10 and body not in base:
-            return f"{base} {body}"
-        return base
-    m = re.match(r"^【([^】]+)】([\s\S]*)$", trimmed)
-    tag = m.group(1).strip() if m else ""
-    body = (m.group(2) if m else trimmed).strip()
-    if re.search(r"流水线|主管|协作|策略|拆解", tag):
-        return body or "我先梳理整体思路，把任务拆成几步来完成。"
-    if re.search(r"知识检索|RAG|检索|文档|知识库", tag):
-        return body or "我去知识库里找与问题相关的知识点和教材片段。"
-    if re.search(r"联网|web", tag, re.I):
-        return body or "可能需要联网查一下最新资料，和已有知识对照一下。"
-    if re.search(r"学情|行为|画像", tag):
-        return body or "我会参考这位同学的学习行为和掌握情况来定制回答。"
-    if re.search(r"测验|出题|练习", tag):
-        return body or "用户可能想练手，我先准备合适的题目和讲解思路。"
-    if re.search(r"代码|沙盒|debug", tag, re.I):
-        return body or "这像是编程题，我需要在沙盒里验证逻辑再给出解释。"
-    if re.search(r"汇总|审查|安全|合成", tag):
-        return body or "各模块的结果都齐了，我来做最后一遍核对和润色。"
-    if body and len(body) > 4:
-        return body
-    return trimmed
-
-
-def _stream_thought_events(content: str, stage: str | None = None):
-    narrative = _thought_to_narrative(content, stage)
-    if narrative:
-        chunk_size = 6
-        for i in range(0, len(narrative), chunk_size):
-            yield {
-                "type": "reasoning_token",
-                "content": narrative[i : i + chunk_size],
-            }
-    yield {"type": "thought", "content": content, "stage": stage}
+def _stream_thought_events(
+    content: str,
+    stage: str | None = None,
+    *,
+    user_visible: bool = True,
+    user_input: str = "",
+    controller: ReasoningStreamController | None = None,
+):
+    yield from _stream_thought_events_impl(
+        content,
+        stage,
+        user_visible=user_visible,
+        user_input=user_input,
+        controller=controller,
+    )
+    if not user_visible:
+        return
     phase_evt = _build_phase_event(content, stage)
     if phase_evt:
         yield phase_evt
+
+
+def _drain_reasoning_queue(queue: list[dict[str, Any]]):
+    while queue:
+        yield queue.pop(0)
+
+
+def _normalize_answer_text(text: str) -> str:
+    return normalize_math_delimiters(text or "")
+
+
+def _stream_answer_tokens(text: str, chunk_size: int = 24):
+    normalized = _normalize_answer_text(text)
+    for i in range(0, len(normalized), chunk_size):
+        yield {"type": "token", "content": normalized[i : i + chunk_size]}
+
 
 _JSON_OBJ = re.compile(r"\{[\s\S]*\}")
 _DOC_QUERY_HINT = re.compile(
@@ -1995,269 +1982,299 @@ def stream_chat_events(request: ChatRequest):
     req = request.model_copy(update={"user_input": user_input})
     started_at = time.perf_counter()
     first_token_at: float | None = None
+    reasoning_queue: list[dict[str, Any]] = []
+    reasoning = ReasoningStreamController(req.user_input)
+    emitter_token = set_reasoning_emitter(reasoning_queue.append)
+    controller_token = set_reasoning_controller(reasoning)
 
-    if req.force_cache:
-        demo = build_demo_chat_response(req.user_input)
-        yield from _stream_thought_events(
-            "【演示模式】已启用稳定兜底回答。",
-            "demo_mode",
-        )
-        for i in range(0, len(demo.response), 24):
-            if first_token_at is None:
-                first_token_at = time.perf_counter()
-            yield {"type": "token", "content": demo.response[i : i + 24]}
-        yield {"type": "suggestions", "data": demo.suggestions}
-        yield {
-            "type": "final",
-            "content": demo.response,
-            "agent": demo.agent,
-            "intent": demo.intent,
-            "routing_reason": demo.routing_reason,
-            "tool_calls": demo.tool_calls,
-            "requires_confirmation": False,
-            "pending_action_id": None,
-            "citations": demo.citations,
-            "confidence": demo.confidence,
-            "grounding_mode": demo.grounding_mode,
-            "suggestions": demo.suggestions,
-            "metrics": demo.metrics,
-        }
-        return
+    def _flush_reasoning():
+        yield from _drain_reasoning_queue(reasoning_queue)
 
-    enabled_tools, disabled_tools = _tool_status_text(req.active_tools)
-    yield from _stream_thought_events(
-        "【流水线】多智能体协作已启动（Supervisor + 专员 + 汇总）。",
-        "pipeline_start",
-    )
-    yield from _stream_thought_events(
-        "【知识检索】已根据当前问题检索知识库并将上下文注入协作线程（首条系统消息）。",
-        "kb_inject",
-    )
-    if req.active_tools is not None:
-        yield from _stream_thought_events(
-            f"【工具策略】启用工具：{enabled_tools or ['none']}；已关闭：{disabled_tools or ['none']}",
-            "tool_policy",
-        )
-        if "web_search" in enabled_tools:
+    try:
+        if req.force_cache:
             yield from _stream_thought_events(
-                "【联网搜索】本轮允许联网搜索；最终回答会区分课程资料、联网补充和模型推断。",
-                "web_policy",
+                "【演示模式】已启用稳定兜底回答。",
+                "demo_mode",
+                user_visible=False,
             )
-        if not enabled_tools:
+            yield from reasoning.initial_thought()
+            yield from _flush_reasoning()
+            demo = build_demo_chat_response(req.user_input)
+            demo_text = _normalize_answer_text(demo.response)
+            for chunk in _stream_answer_tokens(demo_text):
+                if first_token_at is None:
+                    first_token_at = time.perf_counter()
+                yield chunk
+            yield {"type": "suggestions", "data": demo.suggestions}
+            yield {
+                "type": "final",
+                "content": demo_text,
+                "agent": demo.agent,
+                "intent": demo.intent,
+                "routing_reason": demo.routing_reason,
+                "tool_calls": demo.tool_calls,
+                "requires_confirmation": False,
+                "pending_action_id": None,
+                "citations": demo.citations,
+                "confidence": demo.confidence,
+                "grounding_mode": demo.grounding_mode,
+                "suggestions": demo.suggestions,
+                "metrics": demo.metrics,
+            }
+            return
+
+        enabled_tools, disabled_tools = _tool_status_text(req.active_tools)
+        yield from _stream_thought_events(
+            "【流水线】多智能体协作已启动（Supervisor + 专员 + 汇总）。",
+            "pipeline_start",
+            user_visible=False,
+        )
+        yield from _stream_thought_events(
+            "【知识检索】已根据当前问题检索知识库并将上下文注入协作线程（首条系统消息）。",
+            "kb_inject",
+            user_visible=False,
+        )
+        if req.active_tools is not None:
             yield from _stream_thought_events(
-                "【工具策略】当前过滤后无可用工具，专员将仅依赖模型能力。",
+                f"【工具策略】启用工具：{enabled_tools or ['none']}；已关闭：{disabled_tools or ['none']}",
                 "tool_policy",
+                user_visible=False,
             )
+            if "web_search" in enabled_tools:
+                yield from _stream_thought_events(
+                    "【联网搜索】本轮允许联网搜索；最终回答会区分课程资料、联网补充和模型推断。",
+                    "web_policy",
+                    user_visible=False,
+                )
+            if not enabled_tools:
+                yield from _stream_thought_events(
+                    "【工具策略】当前过滤后无可用工具，专员将仅依赖模型能力。",
+                    "tool_policy",
+                    user_visible=False,
+                )
 
-    cache_hit = (
-        chat_semantic_cache.get(req.user_input)
-        if _should_use_semantic_cache(req)
-        else None
-    )
-    if cache_hit:
-        yield from _stream_thought_events(
-            "【流水线】语义缓存命中，跳过协作图执行。",
-            "cache",
+        yield from reasoning.initial_thought()
+        yield from _flush_reasoning()
+
+        cache_hit = (
+            chat_semantic_cache.get(req.user_input)
+            if _should_use_semantic_cache(req)
+            else None
         )
-        text = cache_hit.answer
-        for i in range(0, len(text), 24):
+        if cache_hit:
+            yield from _stream_thought_events(
+                "【流水线】语义缓存命中，跳过协作图执行。",
+                "cache",
+                user_visible=False,
+            )
+            text = _normalize_answer_text(cache_hit.answer)
+            for chunk in _stream_answer_tokens(text):
+                if first_token_at is None:
+                    first_token_at = time.perf_counter()
+                yield chunk
+            sug = _normalize_followups(req.user_input, text, [])
+            yield {"type": "suggestions", "data": sug}
+            yield {
+                "type": "final",
+                "content": text,
+                "agent": "supervisor",
+                "intent": "semantic_cache",
+                "routing_reason": "语义缓存",
+                "tool_calls": [],
+                "requires_confirmation": False,
+                "pending_action_id": None,
+                "citations": [],
+                "confidence": "high",
+                "grounding_mode": "general",
+                "metrics": {
+                    "ttft_ms": 0,
+                    "latency_ms": 0,
+                    "prompt_tokens": None,
+                    "completion_tokens": None,
+                    "total_tokens": None,
+                    "estimated_tokens": False,
+                    "agent_hops": 1,
+                    "cache_hit": True,
+                    "rag_hit_count": 0,
+                    "tool_calls_count": 0,
+                    "route_trace": ["semantic_cache"],
+                },
+            }
+            return
+
+        graph = _build_supervisor_graph(
+            req.active_tools,
+            rag_user_id=req.user_id,
+            rag_is_admin=req.is_admin,
+            rag_k=int(req.rag_k),
+            thread_id=str(req.thread_id),
+            current_file_id=req.current_file_id,
+        )
+        thread_config = {"configurable": {"thread_id": str(req.thread_id)}}
+        image_context_str = ""
+        vision_meta = None
+        if req.image_base64_list:
+            image_context_str, vision_meta = _resolve_image_context(req)
+            if vision_meta is not None and (vision_meta.text or "").strip():
+                reasoning.on_vision((vision_meta.text or "")[:160])
+                yield from _flush_reasoning()
+            if req.debug_mode and vision_meta is not None:
+                summary = (vision_meta.text or "")[:160].replace("\n", " ")
+                yield from _stream_thought_events(
+                    (
+                        f"【视觉识别】status={vision_meta.status} source={vision_meta.source or 'n/a'} "
+                        f"model={vision_meta.model or 'n/a'} fields={vision_meta.field_summary or {}} "
+                        f"summary={summary or 'empty'}"
+                    ),
+                    "vision_status",
+                    user_visible=False,
+                )
+        initial = _initial_state(req, req.user_input, image_context=image_context_str or None)
+
+        final_state: dict | None = None
+        last_values_state: dict | None = None
+        emitted_tool_nodes: set[str] = set()
+        try:
+            try:
+                stream_iter = graph.stream(
+                    initial,
+                    config=thread_config,
+                    stream_mode=["updates", "values"],
+                )
+            except TypeError:
+                stream_iter = graph.stream(
+                    initial, config=thread_config, stream_mode="updates"
+                )
+
+            for event in stream_iter:
+                mode, chunk = _normalize_graph_stream_event(event)
+                if mode == "values" and isinstance(chunk, dict):
+                    last_values_state = chunk
+                    continue
+                if mode != "updates" or not isinstance(chunk, dict):
+                    continue
+                for node_name, data in chunk.items():
+                    if not isinstance(node_name, str):
+                        continue
+                    if node_name.endswith("_tools") and node_name not in emitted_tool_nodes:
+                        emitted_tool_nodes.add(node_name)
+                        yield from _stream_thought_events(
+                            _TOOL_NODE_PIPELINE_MSG.get(
+                                node_name,
+                                "【工具执行】正在运行后端工具节点。",
+                            ),
+                            "tool_run",
+                            user_visible=False,
+                        )
+                    if isinstance(data, dict):
+                        for s in data.get("intermediate_steps") or []:
+                            step = str(s)
+                            yield from reasoning.from_intermediate_step(step)
+                            yield {"type": "thought", "content": step}
+                yield from _flush_reasoning()
+
+            final_state = last_values_state
+            if final_state is None:
+                try:
+                    snap = graph.get_state(thread_config)
+                    if snap is not None and getattr(snap, "values", None) is not None:
+                        final_state = dict(snap.values)
+                except Exception:
+                    final_state = None
+        except Exception as exc:
+            yield {"type": "error", "content": f"处理失败：{exc}"}
+            return
+
+        if not final_state:
+            yield {"type": "error", "content": "协作图未返回状态"}
+            return
+
+        msgs = final_state.get("messages") or []
+        text = _normalize_answer_text(_last_meaningful_assistant_text(msgs))
+        text, suggestions = _split_suggestions(text)
+        if not (text or "").strip():
+            yield {
+                "type": "error",
+                "content": "协作图已结束但未生成可展示的助手正文，请重试或检查模型输出。",
+            }
+            return
+
+        if _should_use_semantic_cache(req):
+            chat_semantic_cache.put(req.user_input, text)
+
+        for chunk in _stream_answer_tokens(text):
             if first_token_at is None:
                 first_token_at = time.perf_counter()
-            yield {"type": "token", "content": text[i : i + 24]}
-        sug = _normalize_followups(req.user_input, text, [])
-        yield {"type": "suggestions", "data": sug}
+            yield chunk
+        dynamic_suggestions = _normalize_followups(
+            req.user_input,
+            text,
+            list(final_state.get("final_follow_ups") or []) or suggestions,
+        )
+        yield {"type": "suggestions", "data": dynamic_suggestions}
+
+        tool_calls = collect_tool_calls(final_state.get("messages", []))
+        citations = list(final_state.get("final_citations") or [])
+        route_trace = list(final_state.get("agent_route_trace") or [])
+        ttft_ms = (
+            max(1, round((first_token_at - started_at) * 1000))
+            if first_token_at is not None
+            else None
+        )
+        latency_ms = max(1, round((time.perf_counter() - started_at) * 1000))
+        resp = ChatResponse(
+            response=text,
+            tool_calls=tool_calls,
+            agent=final_state.get("selected_agent", "supervisor"),
+            intent=final_state.get("intent", "collaborative_supervisor"),
+            routing_reason=final_state.get("routing_reason", "") or "协作完成",
+            thoughts=list(final_state.get("intermediate_steps") or []),
+            citations=citations,
+            confidence=normalize_confidence(final_state.get("final_confidence")),
+            grounding_mode=normalize_grounding_mode(
+                final_state.get("final_grounding_mode"),
+                has_citations=bool(citations),
+            ),
+            suggestions=dynamic_suggestions[:3],
+            metrics=_build_metrics(
+                messages=final_state.get("messages") or [],
+                route_trace=route_trace,
+                cache_hit=False,
+                rag_hit_count=len(final_state.get("rag_results") or []),
+                tool_calls_count=len(tool_calls),
+                ttft_ms=ttft_ms,
+                latency_ms=latency_ms,
+            ),
+        )
+        if _requires_hitl(
+            resp.intent,
+            req.user_input,
+            final_state.get("task_breakdown") or "",
+            final_state.get("collaboration_last_worker") or "",
+        ):
+            action = pending_action_store.create(
+                user_id=req.user_id or "anonymous",
+                thread_id=req.thread_id,
+                plan_text=resp.response,
+            )
+            resp.requires_confirmation = True
+            resp.pending_action_id = action.action_id
+
         yield {
             "type": "final",
             "content": text,
-            "agent": "supervisor",
-            "intent": "semantic_cache",
-            "routing_reason": "语义缓存",
-            "tool_calls": [],
-            "requires_confirmation": False,
-            "pending_action_id": None,
-            "citations": [],
-            "confidence": "high",
-            "grounding_mode": "general",
-            "metrics": {
-                "ttft_ms": 0,
-                "latency_ms": 0,
-                "prompt_tokens": None,
-                "completion_tokens": None,
-                "total_tokens": None,
-                "estimated_tokens": False,
-                "agent_hops": 1,
-                "cache_hit": True,
-                "rag_hit_count": 0,
-                "tool_calls_count": 0,
-                "route_trace": ["semantic_cache"],
-            },
+            "agent": resp.agent,
+            "intent": resp.intent,
+            "routing_reason": resp.routing_reason,
+            "tool_calls": resp.tool_calls,
+            "requires_confirmation": resp.requires_confirmation,
+            "pending_action_id": resp.pending_action_id,
+            "citations": resp.citations,
+            "confidence": resp.confidence,
+            "grounding_mode": resp.grounding_mode,
+            "suggestions": resp.suggestions,
+            "metrics": resp.metrics,
         }
-        return
-
-    graph = _build_supervisor_graph(
-        req.active_tools,
-        rag_user_id=req.user_id,
-        rag_is_admin=req.is_admin,
-        rag_k=int(req.rag_k),
-        thread_id=str(req.thread_id),
-        current_file_id=req.current_file_id,
-    )
-    thread_config = {"configurable": {"thread_id": str(req.thread_id)}}
-    image_context_str = ""
-    vision_meta = None
-    if req.image_base64_list:
-        image_context_str, vision_meta = _resolve_image_context(req)
-        if req.debug_mode and vision_meta is not None:
-            summary = (vision_meta.text or "")[:160].replace("\n", " ")
-            yield from _stream_thought_events(
-                (
-                    f"【视觉识别】status={vision_meta.status} source={vision_meta.source or 'n/a'} "
-                    f"model={vision_meta.model or 'n/a'} fields={vision_meta.field_summary or {}} "
-                    f"summary={summary or 'empty'}"
-                ),
-                "vision_status",
-            )
-    initial = _initial_state(req, req.user_input, image_context=image_context_str or None)
-
-    final_state: dict | None = None
-    last_values_state: dict | None = None
-    emitted_tool_nodes: set[str] = set()
-    try:
-        # 同时订阅 updates（流水线 thought）与 values（每步完整 State，最后一步含 finalize 的 messages）
-        try:
-            stream_iter = graph.stream(
-                initial,
-                config=thread_config,
-                stream_mode=["updates", "values"],
-            )
-        except TypeError:
-            stream_iter = graph.stream(
-                initial, config=thread_config, stream_mode="updates"
-            )
-
-        for event in stream_iter:
-            mode, chunk = _normalize_graph_stream_event(event)
-            if mode == "values" and isinstance(chunk, dict):
-                last_values_state = chunk
-                continue
-            if mode != "updates" or not isinstance(chunk, dict):
-                continue
-            for node_name, data in chunk.items():
-                if not isinstance(node_name, str):
-                    continue
-                if node_name.endswith("_tools") and node_name not in emitted_tool_nodes:
-                    emitted_tool_nodes.add(node_name)
-                    yield from _stream_thought_events(
-                        _TOOL_NODE_PIPELINE_MSG.get(
-                            node_name,
-                            "【工具执行】正在运行后端工具节点。",
-                        ),
-                        "tool_run",
-                    )
-                if isinstance(data, dict):
-                    for s in data.get("intermediate_steps") or []:
-                        yield from _stream_thought_events(str(s))
-
-        final_state = last_values_state
-        if final_state is None:
-            try:
-                snap = graph.get_state(thread_config)
-                if snap is not None and getattr(snap, "values", None) is not None:
-                    final_state = dict(snap.values)
-            except Exception:
-                final_state = None
-    except Exception as exc:
-        yield {"type": "error", "content": f"处理失败：{exc}"}
-        return
-
-    if not final_state:
-        yield {"type": "error", "content": "协作图未返回状态"}
-        return
-
-    msgs = final_state.get("messages") or []
-    text = _last_meaningful_assistant_text(msgs)
-    text, suggestions = _split_suggestions(text)
-    if not (text or "").strip():
-        yield {
-            "type": "error",
-            "content": "协作图已结束但未生成可展示的助手正文，请重试或检查模型输出。",
-        }
-        return
-
-    if _should_use_semantic_cache(req):
-        chat_semantic_cache.put(req.user_input, text)
-
-    chunk_size = 24
-    for i in range(0, len(text), chunk_size):
-        if first_token_at is None:
-            first_token_at = time.perf_counter()
-        yield {"type": "token", "content": text[i : i + chunk_size]}
-    dynamic_suggestions = _normalize_followups(
-        req.user_input,
-        text,
-        list(final_state.get("final_follow_ups") or []) or suggestions,
-    )
-    yield {"type": "suggestions", "data": dynamic_suggestions}
-
-    tool_calls = collect_tool_calls(final_state.get("messages", []))
-    citations = list(final_state.get("final_citations") or [])
-    route_trace = list(final_state.get("agent_route_trace") or [])
-    ttft_ms = (
-        max(1, round((first_token_at - started_at) * 1000))
-        if first_token_at is not None
-        else None
-    )
-    latency_ms = max(1, round((time.perf_counter() - started_at) * 1000))
-    resp = ChatResponse(
-        response=text,
-        tool_calls=tool_calls,
-        agent=final_state.get("selected_agent", "supervisor"),
-        intent=final_state.get("intent", "collaborative_supervisor"),
-        routing_reason=final_state.get("routing_reason", "") or "协作完成",
-        thoughts=list(final_state.get("intermediate_steps") or []),
-        citations=citations,
-        confidence=normalize_confidence(final_state.get("final_confidence")),
-        grounding_mode=normalize_grounding_mode(
-            final_state.get("final_grounding_mode"),
-            has_citations=bool(citations),
-        ),
-        suggestions=dynamic_suggestions[:3],
-        metrics=_build_metrics(
-            messages=final_state.get("messages") or [],
-            route_trace=route_trace,
-            cache_hit=False,
-            rag_hit_count=len(final_state.get("rag_results") or []),
-            tool_calls_count=len(tool_calls),
-            ttft_ms=ttft_ms,
-            latency_ms=latency_ms,
-        ),
-    )
-    if _requires_hitl(
-        resp.intent,
-        req.user_input,
-        final_state.get("task_breakdown") or "",
-        final_state.get("collaboration_last_worker") or "",
-    ):
-        action = pending_action_store.create(
-            user_id=req.user_id or "anonymous",
-            thread_id=req.thread_id,
-            plan_text=resp.response,
-        )
-        resp.requires_confirmation = True
-        resp.pending_action_id = action.action_id
-
-    yield {
-        "type": "final",
-        "content": text,
-        "agent": resp.agent,
-        "intent": resp.intent,
-        "routing_reason": resp.routing_reason,
-        "tool_calls": resp.tool_calls,
-        "requires_confirmation": resp.requires_confirmation,
-        "pending_action_id": resp.pending_action_id,
-        "citations": resp.citations,
-        "confidence": resp.confidence,
-        "grounding_mode": resp.grounding_mode,
-        "suggestions": resp.suggestions,
-        "metrics": resp.metrics,
-    }
+    finally:
+        reset_reasoning_emitter(emitter_token)
+        reset_reasoning_controller(controller_token)

@@ -144,7 +144,7 @@ class DocumentProcessor:
         else:
             return "unknown"
 
-    def process_document(self, file_path: str) -> List[Document]:
+    def process_document_legacy(self, file_path: str) -> List[Document]:
         file_extension = Path(file_path).suffix.lower()
 
         processors = {
@@ -170,3 +170,13 @@ class DocumentProcessor:
             raise ValueError(f"Unsupported file type: {file_extension}")
 
         return processor(file_path)
+
+    def process_document(self, file_path: str) -> List[Document]:
+        from app.services.document_ingestion import DocumentIngestionPipeline
+
+        file_extension = Path(file_path).suffix.lower()
+        if file_extension in {".pdf", ".docx", ".doc", ".pptx", ".ppt"}:
+            pipeline = DocumentIngestionPipeline(self)
+            documents, _meta = pipeline.ingest(file_path)
+            return documents
+        return self.process_document_legacy(file_path)

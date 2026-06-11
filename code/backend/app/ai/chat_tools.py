@@ -9,9 +9,10 @@ from langchain_community.tools import DuckDuckGoSearchRun
 
 from app.core.config import settings
 from app.services.chat_model_factory import ChatModelFactory
-from app.services.rag_tools import run_query_knowledge_base
+from app.services.rag_tools import format_knowledge_base_results
 from app.services.behavior_analysis import behavior_service
 from app.services.rag_service import RAGService
+from app.ai.reasoning_stream import get_reasoning_controller
 
 search = DuckDuckGoSearchRun()
 _base_llm = ChatModelFactory.create()
@@ -23,7 +24,11 @@ def search_web(query: str) -> str:
     """Search the web and return a brief summary."""
     try:
         results = search.run(query)
-        return f"搜索结果：{results}"
+        text = f"搜索结果：{results}"
+        ctrl = get_reasoning_controller()
+        if ctrl is not None:
+            ctrl.on_web_search(query, text)
+        return text
     except Exception as e:
         return f"搜索出错：{str(e)}"
 
@@ -49,8 +54,16 @@ def execute_code_sandbox(code: str, language: str = "python") -> str:
         stdout = (result.stdout or "").strip()
         stderr = (result.stderr or "").strip()
         if result.returncode != 0:
-            return f"沙盒执行失败（code={result.returncode}）：{stderr[:800]}"
-        return f"沙盒执行成功：\n{stdout[:1200] or '(无输出)'}"
+            msg = f"沙盒执行失败（code={result.returncode}）：{stderr[:800]}"
+            ctrl = get_reasoning_controller()
+            if ctrl is not None:
+                ctrl.on_code_sandbox(False, stderr[:100])
+            return msg
+        out = f"沙盒执行成功：\n{stdout[:1200] or '(无输出)'}"
+        ctrl = get_reasoning_controller()
+        if ctrl is not None:
+            ctrl.on_code_sandbox(True, stdout[:100])
+        return out
     except subprocess.TimeoutExpired:
         return "沙盒执行超时（>5秒），已终止。"
     except Exception as exc:
@@ -122,12 +135,23 @@ def make_query_knowledge_base_tool(
     @tool
     def query_knowledge_base(question: str) -> str:
         """RAG retrieval tool. Returns retrieved chunks with citation labels."""
-        return run_query_knowledge_base(
-            question,
-            user_id=user_id,
-            is_admin=is_admin,
-            top_k=rag_top_k,
-        )
+        try:
+            results = rag_service.query_knowledge_base(
+                query=question,
+                k=max(1, int(rag_top_k)),
+                user_id=user_id,
+                is_admin=is_admin,
+            )
+            ctrl = get_reasoning_controller()
+            if ctrl is not None:
+                snippets = [
+                    str(item.get("content") or "")[:120]
+                    for item in results[:4]
+                ]
+                ctrl.on_knowledge_retrieve(question, len(results), snippets)
+            return format_knowledge_base_results(question, results)
+        except Exception as exc:
+            return f"工具执行失败（知识库检索）：{exc!s}"
 
     return query_knowledge_base
 
@@ -160,6 +184,10 @@ def make_search_uploaded_document_tool(
             is_admin=is_admin,
             top_k=max(1, min(int(top_k or 3), 8)),
         )
+        ctrl = get_reasoning_controller()
+        if ctrl is not None:
+            snippets = [str(item.get("content") or "")[:120] for item in hits[:4]]
+            ctrl.on_document_retrieve(query, len(hits), snippets)
         if not hits:
             return "未在该文档中检索到相关内容。"
         lines = []

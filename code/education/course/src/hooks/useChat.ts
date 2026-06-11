@@ -19,6 +19,7 @@ import {
   resumeChatAction,
   generateChatTitle,
   uploadThreadFile,
+  type ReasoningActionItem,
 } from '@/api/rag';
 
 /**
@@ -501,6 +502,7 @@ export function useChat() {
         let metrics: Record<string, any> = {};
 
         let reasoningText = '';
+        let reasoningActions: ReasoningActionItem[] = [];
         let streamFinished = false;
         let sawReasoningToken = false;
 
@@ -521,6 +523,10 @@ export function useChat() {
             metrics,
             streamFinished ? [...agentPhases] : []
           );
+          const last = chatStore.getLastMessage();
+          if (last) {
+            last.reasoningActions = [...reasoningActions];
+          }
         };
 
         await createAssistantChatStream(
@@ -537,6 +543,14 @@ export function useChat() {
             if (event.type === 'reasoning_token') {
               sawReasoningToken = true;
               reasoningText += event.content || '';
+              pushStreamUpdate();
+            } else if (event.type === 'reasoning_action') {
+              reasoningActions.push({
+                action: event.action,
+                title: event.title,
+                detail: event.detail,
+                items: Array.isArray(event.items) ? event.items : [],
+              });
               pushStreamUpdate();
             } else if (event.type === 'phase') {
               agentPhases = mergeAgentPhases(agentPhases, {

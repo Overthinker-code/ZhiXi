@@ -44,6 +44,8 @@ pdfplumber
 python-pptx
 aiofiles
 typing-extensions
+docling
+pymupdf
 
 # Video and image processing
 opencv-python

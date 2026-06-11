@@ -288,9 +288,28 @@ export function createAssistantChat(
     .then((res: any) => normalizeChatRecord(res.data));
 }
 
+export interface ReasoningActionItem {
+  action?: 'retrieve' | 'web_search' | 'code' | 'vision' | string;
+  title?: string;
+  detail?: string;
+  items?: string[];
+}
+
 export interface ChatStreamEvent {
-  type: 'thought' | 'phase' | 'reasoning_token' | 'token' | 'final' | 'error' | 'suggestions';
+  type:
+    | 'thought'
+    | 'phase'
+    | 'reasoning_token'
+    | 'reasoning_action'
+    | 'token'
+    | 'final'
+    | 'error'
+    | 'suggestions';
   content?: string;
+  action?: string;
+  title?: string;
+  detail?: string;
+  items?: string[];
   phase?: string;
   agent?: string;
   summary?: string;

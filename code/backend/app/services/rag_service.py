@@ -141,6 +141,8 @@ class RAGService:
                 )
             documents = non_empty
 
+            ingest_meta = dict(documents[0].metadata or {})
+
             for idx, doc in enumerate(documents):
                 metadata = dict(doc.metadata or {})
                 metadata["file_id"] = file_id
@@ -165,6 +167,9 @@ class RAGService:
                 "chunks": len(documents),
                 "scope": normalized_scope,
                 "thread_id": str(thread_id or ""),
+                "extraction_method": ingest_meta.get("extraction_method", "legacy"),
+                "ocr_pages": int(ingest_meta.get("ocr_pages") or 0),
+                "preview_snippet": str(ingest_meta.get("preview_snippet") or "")[:280],
             }
         finally:
             if os.path.exists(file_path):
