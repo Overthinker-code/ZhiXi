@@ -1,18 +1,22 @@
 <script setup lang="ts">
-  import { computed, ref, watch, onUnmounted } from 'vue';
+  import { computed, ref, watch } from 'vue';
   import { IconDown, IconRight } from '@arco-design/web-vue/es/icon';
+  import type { ReasoningActionItem } from '@/api/rag';
 
   const props = defineProps<{
     content?: string;
+    actions?: ReasoningActionItem[];
     streaming?: boolean;
     defaultExpanded?: boolean;
   }>();
 
   const expanded = ref(Boolean(props.defaultExpanded ?? true));
-  const streamLen = ref(0);
-  let streamTick: ReturnType<typeof setInterval> | null = null;
 
   const displayText = computed(() => (props.content || '').trim());
+
+  const actionCards = computed(() =>
+    (props.actions || []).filter((a) => a && (a.title || a.detail))
+  );
 
   watch(
     () => props.streaming,
@@ -22,49 +26,18 @@
     { immediate: true }
   );
 
-  watch(
-    () => [displayText.value, props.streaming] as const,
-    () => {
-      const full = displayText.value.length;
-      if (!props.streaming) {
-        streamLen.value = full;
-        if (streamTick) {
-          clearInterval(streamTick);
-          streamTick = null;
-        }
-        return;
-      }
-      if (streamLen.value > full) streamLen.value = 0;
-      if (!streamTick) {
-        streamTick = setInterval(() => {
-          const target = displayText.value.length;
-          if (streamLen.value < target) {
-            const behind = target - streamLen.value;
-            const step = Math.max(1, Math.min(32, Math.ceil(behind / 3)));
-            streamLen.value = Math.min(target, streamLen.value + step);
-          }
-        }, 22);
-      }
-    },
-    { immediate: true }
-  );
-
-  onUnmounted(() => {
-    if (streamTick) clearInterval(streamTick);
-  });
-
   const visibleText = computed(() => {
     if (!displayText.value) {
       return props.streaming ? '正在组织思路…' : '';
-    }
-    if (props.streaming) {
-      return displayText.value.slice(0, streamLen.value);
     }
     return displayText.value;
   });
 
   const hasContent = computed(
-    () => displayText.value.length > 0 || Boolean(props.streaming)
+    () =>
+      displayText.value.length > 0 ||
+      actionCards.value.length > 0 ||
+      Boolean(props.streaming)
   );
 </script>
 
@@ -80,7 +53,16 @@
     </button>
     <Transition name="rb-fold">
       <div v-show="expanded" class="rb-body">
-        <p class="rb-text">
+        <div v-if="actionCards.length" class="rb-actions">
+          <div v-for="(card, idx) in actionCards" :key="idx" class="rb-action-card">
+            <div class="rb-action-title">{{ card.title || card.action }}</div>
+            <div v-if="card.detail" class="rb-action-detail">{{ card.detail }}</div>
+            <ul v-if="card.items?.length" class="rb-action-items">
+              <li v-for="(item, i) in card.items" :key="i">{{ item }}</li>
+            </ul>
+          </div>
+        </div>
+        <p v-if="visibleText" class="rb-text">
           {{ visibleText }}
           <span v-if="streaming" class="rb-caret" aria-hidden="true" />
         </p>
@@ -152,6 +134,40 @@
   .rb-body {
     padding: 0 14px 14px;
     border-top: 1px solid rgba(148, 163, 184, 0.2);
+  }
+
+  .rb-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .rb-action-card {
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: rgba(99, 102, 241, 0.06);
+    border: 1px solid rgba(99, 102, 241, 0.15);
+  }
+
+  .rb-action-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #4f46e5;
+  }
+
+  .rb-action-detail {
+    margin-top: 4px;
+    font-size: 12px;
+    color: #64748b;
+    line-height: 1.5;
+  }
+
+  .rb-action-items {
+    margin: 6px 0 0;
+    padding-left: 18px;
+    font-size: 11.5px;
+    color: #64748b;
   }
 
   .rb-text {

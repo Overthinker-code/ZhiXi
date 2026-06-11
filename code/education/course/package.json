@@ -31,6 +31,7 @@
   },
   "dependencies": {
     "@arco-design/web-vue": "^2.57.0",
+    "@mdit/plugin-katex": "^0.25.2",
     "@vue/runtime-core": "^3.5.13",
     "@vue/runtime-dom": "^3.5.13",
     "@vueuse/core": "^9.3.0",
@@ -47,7 +48,6 @@
     "lucide-vue-next": "^1.0.0",
     "markdown-it": "^14.1.0",
     "markdown-it-emoji": "^3.0.0",
-    "markdown-it-katex": "^2.0.3",
     "markdown-it-link-attributes": "^4.0.1",
     "mitt": "^3.0.0",
     "nprogress": "^0.2.0",

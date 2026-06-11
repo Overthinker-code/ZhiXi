@@ -522,12 +522,9 @@ export function useChat() {
             confidence,
             groundingMode,
             metrics,
-            streamFinished ? [...agentPhases] : []
+            streamFinished ? [...agentPhases] : [],
+            [...reasoningActions]
           );
-          const last = chatStore.getLastMessage();
-          if (last) {
-            last.reasoningActions = [...reasoningActions];
-          }
         };
 
         await createAssistantChatStream(

@@ -2,20 +2,17 @@ import MarkdownIt from 'markdown-it';
 import hljs from 'highlight.js';
 import mdLinkAttributes from 'markdown-it-link-attributes';
 import { full as emoji } from 'markdown-it-emoji';
-import markdownItKatex from 'markdown-it-katex';
-// import 'highlight.js/styles/github.css'
-// 使用 atom-one-dark 主题
-import 'highlight.js/styles/atom-one-dark.css';
-import 'katex/dist/katex.min.css';
+import { katex as mditKatex } from '@mdit/plugin-katex';
 import copyIcon from '@/assets/photo/复制.png';
 import darkIcon from '@/assets/photo/暗黑模式.png';
 import lightIcon from '@/assets/photo/明亮模式.png';
+import 'highlight.js/styles/atom-one-dark.css';
+import 'katex/dist/katex.min.css';
 
-// 创建 markdown-it 实例
 const md = new MarkdownIt({
-  html: true, // 启用 HTML 标签
-  breaks: true, // 转换换行符为 <br>
-  linkify: true, // 自动转换 URL 为链接
+  html: true,
+  breaks: true,
+  linkify: true,
   highlight(str, lang) {
     if (lang && hljs.getLanguage(lang)) {
       try {
@@ -24,14 +21,14 @@ const md = new MarkdownIt({
           ignoreIllegals: true,
         }).value;
         return `<div class="code-block"><div class="code-header"><span class="code-lang">${lang}</span><div class="code-actions"><button class="code-action-btn" data-action="copy" data-tooltip="复制"><img src="${copyIcon}" alt="copy" /></button><button class="code-action-btn" data-action="theme" data-tooltip="切换主题"><img src="${darkIcon}" alt="theme" data-light-icon="${lightIcon}" data-dark-icon="${darkIcon}" /></button></div></div><pre class="hljs"><code>${highlighted}</code></pre></div>`;
-        // eslint-disable-next-line no-unused-vars, no-empty
-      } catch (__) {}
+      } catch {
+        /* ignore */
+      }
     }
     return `<pre class="hljs"><code>${md.utils.escapeHtml(str)}</code></pre>`;
   },
 });
 
-// 配置链接在新标签页打开
 md.use(mdLinkAttributes, {
   attrs: {
     target: '_blank',
@@ -39,25 +36,40 @@ md.use(mdLinkAttributes, {
   },
 });
 
-// 启用 emoji 支持
 md.use(emoji);
 
-// 渲染行内 $...$ 与块级 $$...$$ 公式，避免学生端看到裸 LaTeX 代码
-md.use(markdownItKatex, {
+md.use(mditKatex, {
+  delimiters: 'all',
+  allowInlineWithSpace: false,
   throwOnError: false,
   errorColor: '#ef4444',
 });
 
-// 导出渲染函数
+/**
+ * During streaming, hide unclosed math blocks so KaTeX never renders half a formula.
+ */
 export function bufferIncompleteMath(content) {
   if (!content) return '';
   let s = String(content);
-  const dollarCount = (s.match(/\$/g) || []).length;
-  if (dollarCount % 2 === 1) {
+
+  const dblCount = (s.match(/\$\$/g) || []).length;
+  if (dblCount % 2 === 1) {
+    const last = s.lastIndexOf('$$');
+    if (last >= 0) s = s.slice(0, last);
+  }
+
+  const withoutDbl = s.replace(/\$\$/g, '\0\0');
+  const singleCount = (withoutDbl.match(/\$/g) || []).length;
+  if (singleCount % 2 === 1) {
     const last = s.lastIndexOf('$');
     if (last >= 0) s = s.slice(0, last);
   }
+
   s = s.replace(/\\[a-zA-Z]*$/, '');
+  const tail = s.match(/[{(][^})]*$/);
+  if (tail && tail[0].length > 48) {
+    s = s.slice(0, -tail[0].length);
+  }
   return s;
 }
 
@@ -68,11 +80,9 @@ export const renderMarkdown = (content, options = {}) => {
   return md.render(raw);
 };
 
-/** 去掉代码块头部操作区（复制/主题 PNG），避免在窄浮窗内被放大错位 */
 export function stripMarkdownCodeToolbar(html) {
   if (!html) return '';
   return html.replace(/<div class="code-actions">[\s\S]*?<\/div>/g, '');
 }
 
-// 导出 markdown-it 实例，以便需要时进行更多配置
 export { md };

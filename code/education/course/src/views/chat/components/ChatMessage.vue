@@ -445,6 +445,7 @@
       <ReasoningBlock
         v-if="showReasoningToggle"
         :content="displayReasoningPlain"
+        :actions="message.reasoningActions || []"
         :streaming="!!message.loading && isLastAssistantMessage"
         :default-expanded="true"
       />

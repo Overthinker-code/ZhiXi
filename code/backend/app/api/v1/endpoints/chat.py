@@ -10,6 +10,22 @@ from pydantic import BaseModel
 from langchain_core.messages import HumanMessage
 
 from app.api import deps
+
+_SSE_HEADERS = {
+    "Cache-Control": "no-cache, no-transform",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
+
+
+def _sse_response(event_stream):
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers=_SSE_HEADERS,
+    )
+
+
 from app.api.deps import CurrentUser
 from app.providers.chat_provider import chat_provider
 from app.providers.chat_thread_provider import chat_thread_provider
@@ -479,7 +495,7 @@ def stream_chat(
             error_payload = {"type": "error", "content": str(exc)}
             yield f"data: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return _sse_response(event_stream)
 
 
 @router.post("/selection-query")
@@ -636,7 +652,7 @@ def stream_events(current_user: CurrentUser):
                     yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
             await asyncio.sleep(1.0)
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return _sse_response(event_stream)
 
 
 @router.get("/history/{thread_id}", response_model=List[Chat])

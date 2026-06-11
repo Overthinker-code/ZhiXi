@@ -210,25 +210,33 @@ const useChatStore = defineStore(
       confidence = '',
       groundingMode = '',
       metrics = {},
-      agentPhases = []
+      agentPhases = [],
+      reasoningActions = undefined
     ) => {
       const key = activeConvKey();
       const msgs = _messagesMap.value[key];
       if (msgs && msgs.length > 0) {
-        const lastMessage = msgs[msgs.length - 1];
-        lastMessage.content = content;
-        lastMessage.reasoning_content = reasoning_content;
-        lastMessage.completion_tokens = completion_tokens;
-        lastMessage.speed = speed;
-        lastMessage.thoughts = thoughts;
-        lastMessage.agentPhases = agentPhases;
-        lastMessage.requires_confirmation = requiresConfirmation;
-        lastMessage.pending_action_id = pendingActionId;
-        lastMessage.suggestions = suggestions;
-        lastMessage.citations = citations;
-        lastMessage.confidence = confidence;
-        lastMessage.grounding_mode = groundingMode;
-        lastMessage.metrics = metrics;
+        const idx = msgs.length - 1;
+        const prev = msgs[idx];
+        msgs[idx] = {
+          ...prev,
+          content,
+          reasoning_content,
+          completion_tokens,
+          speed,
+          thoughts,
+          agentPhases,
+          requires_confirmation: requiresConfirmation,
+          pending_action_id: pendingActionId,
+          suggestions,
+          citations,
+          confidence,
+          grounding_mode: groundingMode,
+          metrics,
+          ...(reasoningActions !== undefined
+            ? { reasoningActions: [...reasoningActions] }
+            : {}),
+        };
       }
     };
 

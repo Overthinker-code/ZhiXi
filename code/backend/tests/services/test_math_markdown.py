@@ -20,14 +20,13 @@ def test_bracket_to_dollar_block():
 
 
 def test_repair_tab_corrupted_tan():
-    corrupted = "$\tan x$"  # \t is TAB in Python source
+    corrupted = "$\tan x$"
     out = repair_latex_backslashes(corrupted)
     assert "\\tan" in out
-    assert "\tan" not in out or out.index("\\tan") >= 0
 
 
 def test_repair_formfeed_corrupted_frac():
-    corrupted = "$\frac{a}{b}$"  # \f is form feed
+    corrupted = "$\frac{a}{b}$"
     out = repair_latex_backslashes(corrupted)
     assert "\\frac" in out
 
@@ -35,6 +34,16 @@ def test_repair_formfeed_corrupted_frac():
 def test_repair_bare_ext():
     out = repair_latex_backslashes("$ ext{lim}_{x o 0}$")
     assert "\\text{lim}" in out
+
+
+def test_wrap_prime_function():
+    out = normalize_math_delimiters("导数 f'(x) 定义")
+    assert "$f'(x)$" in out
+
+
+def test_fix_subscript_exponent_in_frac():
+    out = normalize_math_delimiters("$$\\frac{(x+h)_2 - x_2}{h}$$")
+    assert "^{2}" in out or "^2" in out
 
 
 def test_strip_incomplete_math():

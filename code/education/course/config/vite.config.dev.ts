@@ -34,6 +34,14 @@ export default defineConfig(({ mode }) => {
       changeOrigin: true,
       ws: true,
       rewrite: rewriteApiPath,
+      configure: (proxyServer) => {
+        proxyServer.on('proxyRes', (proxyRes, req) => {
+          if (req.url && /\/stream\b/.test(req.url)) {
+            proxyRes.headers['cache-control'] = 'no-cache, no-transform';
+            proxyRes.headers['x-accel-buffering'] = 'no';
+          }
+        });
+      },
     },
   };
   for (const prefix of apiV1Prefixes) {
@@ -42,6 +50,14 @@ export default defineConfig(({ mode }) => {
       changeOrigin: true,
       ws: true,
       rewrite: (path: string) => proxyToApiV1(path),
+      configure: (proxyServer) => {
+        proxyServer.on('proxyRes', (proxyRes, req) => {
+          if (req.url && /\/stream\b/.test(req.url)) {
+            proxyRes.headers['cache-control'] = 'no-cache, no-transform';
+            proxyRes.headers['x-accel-buffering'] = 'no';
+          }
+        });
+      },
     };
   }
 
