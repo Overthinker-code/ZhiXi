@@ -5,6 +5,7 @@ import {
   appendThoughtToReasoning,
   thoughtToNarrative,
 } from '@/utils/thoughtToNarrative';
+import { isPipelineThought } from '@/utils/streamReasoning';
 
 export default function humanizeAgentReasoning(raw: string): string {
   if (!raw || !String(raw).trim()) return '';
@@ -13,6 +14,7 @@ export default function humanizeAgentReasoning(raw: string): string {
   const lines = text.split(/\r?\n+/).filter((l) => l.trim());
   let out = '';
   for (const line of lines) {
+    if (isPipelineThought(line)) continue;
     out = appendThoughtToReasoning(out, line);
   }
   return out || text;

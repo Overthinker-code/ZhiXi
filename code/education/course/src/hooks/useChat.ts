@@ -9,6 +9,7 @@ import {
   appendThoughtToReasoning,
   phaseSummaryToNarrative,
 } from '@/utils/thoughtToNarrative';
+import { shouldAppendThoughtToReasoning } from '@/utils/streamReasoning';
 import { normalizeSuggestionList } from '@/utils/llmDisplay';
 import {
   createAssistantChat,
@@ -560,7 +561,14 @@ export function useChat() {
                 status: String(event.status || 'running'),
               });
               const narrative = phaseSummaryToNarrative(event);
-              if (narrative) {
+              if (
+                narrative &&
+                shouldAppendThoughtToReasoning(
+                  narrative,
+                  event.phase,
+                  sawReasoningToken
+                )
+              ) {
                 reasoningText = appendThoughtToReasoning(
                   reasoningText,
                   narrative
@@ -569,7 +577,13 @@ export function useChat() {
               pushStreamUpdate();
             } else if (event.type === 'thought') {
               if (event.content) thoughts.push(event.content);
-              if (!sawReasoningToken) {
+              if (
+                shouldAppendThoughtToReasoning(
+                  event.content || '',
+                  event.stage,
+                  sawReasoningToken
+                )
+              ) {
                 reasoningText = appendThoughtToReasoning(
                   reasoningText,
                   event.content || '',

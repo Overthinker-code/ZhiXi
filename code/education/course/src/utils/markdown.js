@@ -49,9 +49,23 @@ md.use(markdownItKatex, {
 });
 
 // 导出渲染函数
-export const renderMarkdown = (content) => {
+export function bufferIncompleteMath(content) {
   if (!content) return '';
-  return md.render(content);
+  let s = String(content);
+  const dollarCount = (s.match(/\$/g) || []).length;
+  if (dollarCount % 2 === 1) {
+    const last = s.lastIndexOf('$');
+    if (last >= 0) s = s.slice(0, last);
+  }
+  s = s.replace(/\\[a-zA-Z]*$/, '');
+  return s;
+}
+
+export const renderMarkdown = (content, options = {}) => {
+  if (!content) return '';
+  const streaming = Boolean(options.streaming);
+  const raw = streaming ? bufferIncompleteMath(content) : content;
+  return md.render(raw);
 };
 
 /** 去掉代码块头部操作区（复制/主题 PNG），避免在窄浮窗内被放大错位 */

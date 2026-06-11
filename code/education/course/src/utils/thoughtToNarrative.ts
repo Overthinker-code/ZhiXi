@@ -2,6 +2,8 @@
  * 将后端流水线 thought / phase 转为 DeepSeek 式第一人称思考独白（纯文字，无阶段标签重复）。
  */
 
+import { SILENT_REASONING_STAGES } from '@/utils/streamReasoning';
+
 function stripTag(raw: string): { tag: string; body: string } {
   const m = String(raw).trim().match(/^【([^】]+)】([\s\S]*)$/);
   if (m) return { tag: m[1].trim(), body: m[2].trim() };
@@ -9,18 +11,7 @@ function stripTag(raw: string): { tag: string; body: string } {
 }
 
 const STAGE_NARRATIVE: Record<string, string> = {
-  pipeline_start:
-    '用户刚发来一个问题。我先快速判断它属于哪类学习场景，再决定要不要走检索、联网或多步推理。',
-  kb_inject:
-    '课程知识库里应该有相关段落，我先去检索并核对，确保后面的解释有依据、不凭空编造。',
-  tool_policy:
-    '根据问题类型，我会按需启用检索、联网或代码沙盒等工具，用不上的能力先关掉，避免干扰回答。',
-  web_policy:
-    '这道题可能需要较新的外部信息，我准备补充一次联网检索，和知识库内容交叉验证。',
   tool_run: '正在调用后端工具获取中间结果，拿到数据后再组织语言。',
-  vision_status: '用户附带了图片，我先理解画面里的关键信息，再结合文字问题一起分析。',
-  demo_mode: '当前处于演示模式，我会用稳定的示例回答保证展示效果。',
-  cache: '这个问题和之前的很相似，可以直接复用已验证过的回答要点。',
 };
 
 function tagNarrative(tag: string, body: string): string | null {
@@ -81,6 +72,9 @@ export function thoughtToNarrative(
   if (!trimmed) return null;
 
   const stageKey = String(stage || '').trim();
+  if (stageKey && SILENT_REASONING_STAGES.has(stageKey)) {
+    return null;
+  }
   if (stageKey && STAGE_NARRATIVE[stageKey]) {
     const base = STAGE_NARRATIVE[stageKey];
     const { body } = stripTag(trimmed);

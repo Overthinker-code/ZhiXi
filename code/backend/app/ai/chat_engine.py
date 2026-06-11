@@ -159,7 +159,8 @@ def _normalize_answer_text(text: str) -> str:
 def _stream_answer_tokens(text: str, chunk_size: int = 24):
     normalized = _normalize_answer_text(text)
     for i in range(0, len(normalized), chunk_size):
-        yield {"type": "token", "content": normalized[i : i + chunk_size]}
+        chunk = normalized[i : i + chunk_size]
+        yield {"type": "token", "content": chunk}
 
 
 _JSON_OBJ = re.compile(r"\{[\s\S]*\}")

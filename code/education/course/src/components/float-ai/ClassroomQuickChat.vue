@@ -169,6 +169,7 @@
   import { renderMarkdown, stripMarkdownCodeToolbar } from '@/utils/markdown';
   import humanizeAgentReasoning from '@/utils/humanizeAgentReasoning';
   import { appendThoughtToReasoning } from '@/utils/thoughtToNarrative';
+  import { shouldAppendThoughtToReasoning } from '@/utils/streamReasoning';
   import { normalizeSuggestionList } from '@/utils/llmDisplay';
 
   interface ChatItem {
@@ -544,7 +545,13 @@
             msg.reasoning = (msg.reasoning || '') + (event.content || '');
           } else if (event.type === 'thought') {
             if (event.content) thoughts.push(event.content);
-            if (!sawReasoningToken) {
+            if (
+              shouldAppendThoughtToReasoning(
+                event.content || '',
+                event.stage,
+                sawReasoningToken
+              )
+            ) {
               msg.reasoning = appendThoughtToReasoning(
                 msg.reasoning || '',
                 event.content || '',
