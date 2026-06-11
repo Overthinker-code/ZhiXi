@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { computed, ref, watch } from 'vue';
+  import { computed, ref, watch, onUnmounted } from 'vue';
   import { IconDown, IconRight } from '@arco-design/web-vue/es/icon';
 
   const props = defineProps<{
@@ -8,31 +8,82 @@
     defaultExpanded?: boolean;
   }>();
 
-  const expanded = ref(Boolean(props.defaultExpanded));
+  const expanded = ref(Boolean(props.defaultExpanded ?? true));
+  const streamLen = ref(0);
+  let streamTick: ReturnType<typeof setInterval> | null = null;
+
+  const displayText = computed(() => (props.content || '').trim());
 
   watch(
     () => props.streaming,
     (v) => {
       if (v) expanded.value = true;
-    }
+    },
+    { immediate: true }
   );
 
-  const displayText = computed(() => (props.content || '').trim());
-  const hasContent = computed(() => displayText.value.length > 0);
+  watch(
+    () => [displayText.value, props.streaming] as const,
+    () => {
+      const full = displayText.value.length;
+      if (!props.streaming) {
+        streamLen.value = full;
+        if (streamTick) {
+          clearInterval(streamTick);
+          streamTick = null;
+        }
+        return;
+      }
+      if (streamLen.value > full) streamLen.value = 0;
+      if (!streamTick) {
+        streamTick = setInterval(() => {
+          const target = displayText.value.length;
+          if (streamLen.value < target) {
+            const behind = target - streamLen.value;
+            const step = Math.max(1, Math.min(32, Math.ceil(behind / 3)));
+            streamLen.value = Math.min(target, streamLen.value + step);
+          }
+        }, 22);
+      }
+    },
+    { immediate: true }
+  );
+
+  onUnmounted(() => {
+    if (streamTick) clearInterval(streamTick);
+  });
+
+  const visibleText = computed(() => {
+    if (!displayText.value) {
+      return props.streaming ? '正在组织思路…' : '';
+    }
+    if (props.streaming) {
+      return displayText.value.slice(0, streamLen.value);
+    }
+    return displayText.value;
+  });
+
+  const hasContent = computed(
+    () => displayText.value.length > 0 || Boolean(props.streaming)
+  );
 </script>
 
 <template>
-  <div v-if="hasContent || streaming" class="rb">
+  <div v-if="hasContent" class="rb">
     <button type="button" class="rb-toggle" @click="expanded = !expanded">
-      <span class="rb-icon" :class="{ 'rb-icon--spin': streaming }" />
+      <span class="rb-icon" :class="{ 'rb-icon--pulse': streaming }" />
       <span class="rb-label">
-        {{ streaming ? '思考中…' : '思考过程' }}
+        {{ streaming ? '深度思考' : '已完成思考' }}
       </span>
+      <span v-if="streaming" class="rb-live">思考中</span>
       <component :is="expanded ? IconDown : IconRight" class="rb-chevron" />
     </button>
     <Transition name="rb-fold">
       <div v-show="expanded" class="rb-body">
-        <pre class="rb-text">{{ displayText || '正在组织思路…' }}</pre>
+        <p class="rb-text">
+          {{ visibleText }}
+          <span v-if="streaming" class="rb-caret" aria-hidden="true" />
+        </p>
       </div>
     </Transition>
   </div>
@@ -40,10 +91,14 @@
 
 <style scoped lang="less">
   .rb {
-    margin: 8px 0 10px;
-    border: 1px solid var(--color-border-2, #e5e6eb);
-    border-radius: 10px;
-    background: var(--color-fill-1, #f7f8fa);
+    margin: 8px 0 12px;
+    border-radius: 12px;
+    background: linear-gradient(
+      180deg,
+      rgba(248, 250, 252, 0.98) 0%,
+      rgba(241, 245, 249, 0.92) 100%
+    );
+    border: 1px solid rgba(148, 163, 184, 0.35);
     overflow: hidden;
   }
 
@@ -52,52 +107,73 @@
     align-items: center;
     gap: 8px;
     width: 100%;
-    padding: 10px 12px;
+    padding: 10px 14px;
     border: none;
     background: transparent;
     cursor: pointer;
-    color: var(--color-text-2, #4e5969);
+    color: #64748b;
     font-size: 13px;
     text-align: left;
   }
 
   .rb-icon {
-    width: 14px;
-    height: 14px;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
-    border: 2px solid var(--color-text-4, #c9cdd4);
-    border-top-color: rgb(var(--primary-6, 22, 93, 255));
+    background: #94a3b8;
     flex-shrink: 0;
 
-    &--spin {
-      animation: rb-spin 0.8s linear infinite;
+    &--pulse {
+      background: #6366f1;
+      box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.45);
+      animation: rb-pulse 1.4s ease-out infinite;
     }
   }
 
   .rb-label {
     flex: 1;
-    font-weight: 500;
+    font-weight: 600;
+    color: #475569;
+  }
+
+  .rb-live {
+    font-size: 11px;
+    color: #6366f1;
+    background: rgba(99, 102, 241, 0.1);
+    padding: 2px 8px;
+    border-radius: 999px;
   }
 
   .rb-chevron {
     font-size: 12px;
-    opacity: 0.55;
+    opacity: 0.5;
   }
 
   .rb-body {
-    padding: 0 12px 12px;
+    padding: 0 14px 14px;
+    border-top: 1px solid rgba(148, 163, 184, 0.2);
   }
 
   .rb-text {
-    margin: 0;
+    margin: 12px 0 0;
     white-space: pre-wrap;
     word-break: break-word;
     font-family: inherit;
-    font-size: 13px;
-    line-height: 1.65;
-    color: var(--color-text-3, #86909c);
-    max-height: 280px;
+    font-size: 13.5px;
+    line-height: 1.75;
+    color: #64748b;
+    max-height: 320px;
     overflow-y: auto;
+  }
+
+  .rb-caret {
+    display: inline-block;
+    width: 2px;
+    height: 1em;
+    margin-left: 2px;
+    vertical-align: text-bottom;
+    background: #6366f1;
+    animation: rb-blink 0.9s step-end infinite;
   }
 
   .rb-fold-enter-active,
@@ -111,9 +187,21 @@
     max-height: 0;
   }
 
-  @keyframes rb-spin {
-    to {
-      transform: rotate(360deg);
+  @keyframes rb-pulse {
+    0% {
+      box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.45);
+    }
+    70% {
+      box-shadow: 0 0 0 8px rgba(99, 102, 241, 0);
+    }
+    100% {
+      box-shadow: 0 0 0 0 rgba(99, 102, 241, 0);
+    }
+  }
+
+  @keyframes rb-blink {
+    50% {
+      opacity: 0;
     }
   }
 </style>

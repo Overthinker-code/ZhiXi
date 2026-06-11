@@ -5,6 +5,10 @@ import { useChatStore } from '@/store/chat';
 import { useSettingStore } from '@/store/setting';
 import { messageHandler } from '@/utils/messageHandler';
 import { mergeAgentPhases } from '@/utils/agentDisplay';
+import {
+  appendThoughtToReasoning,
+  phaseSummaryToNarrative,
+} from '@/utils/thoughtToNarrative';
 import { normalizeSuggestionList } from '@/utils/llmDisplay';
 import {
   createAssistantChat,
@@ -496,11 +500,15 @@ export function useChat() {
         let groundingMode = '';
         let metrics: Record<string, any> = {};
 
+        let reasoningText = '';
+        let streamFinished = false;
+        let sawReasoningToken = false;
+
         const pushStreamUpdate = () => {
           const displayContent = sanitizeStreamingContent(answer);
           chatStore.updateLastMessage(
             displayContent,
-            '',
+            reasoningText,
             0,
             0,
             [...thoughts],
@@ -511,7 +519,7 @@ export function useChat() {
             confidence,
             groundingMode,
             metrics,
-            [...agentPhases]
+            streamFinished ? [...agentPhases] : []
           );
         };
 
@@ -526,16 +534,34 @@ export function useChat() {
             toolMode,
           },
           (event) => {
-            if (event.type === 'phase') {
+            if (event.type === 'reasoning_token') {
+              sawReasoningToken = true;
+              reasoningText += event.content || '';
+              pushStreamUpdate();
+            } else if (event.type === 'phase') {
               agentPhases = mergeAgentPhases(agentPhases, {
                 phase: String(event.phase || 'process'),
                 agent: String(event.agent || 'supervisor'),
                 summary: String(event.summary || ''),
                 status: String(event.status || 'running'),
               });
+              const narrative = phaseSummaryToNarrative(event);
+              if (narrative) {
+                reasoningText = appendThoughtToReasoning(
+                  reasoningText,
+                  narrative
+                );
+              }
               pushStreamUpdate();
             } else if (event.type === 'thought') {
               if (event.content) thoughts.push(event.content);
+              if (!sawReasoningToken) {
+                reasoningText = appendThoughtToReasoning(
+                  reasoningText,
+                  event.content || '',
+                  event.stage
+                );
+              }
               pushStreamUpdate();
             } else if (event.type === 'token') {
               answer += event.content || '';
@@ -543,6 +569,7 @@ export function useChat() {
             } else if (event.type === 'suggestions') {
               suggestions = normalizeSuggestionList(event.data || []);
             } else if (event.type === 'final') {
+              streamFinished = true;
               answer = event.content || answer;
               requiresConfirmation = Boolean(event.requires_confirmation);
               pendingActionId = event.pending_action_id || '';

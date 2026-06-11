@@ -168,6 +168,7 @@
   import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
   import { renderMarkdown, stripMarkdownCodeToolbar } from '@/utils/markdown';
   import humanizeAgentReasoning from '@/utils/humanizeAgentReasoning';
+  import { appendThoughtToReasoning } from '@/utils/thoughtToNarrative';
   import { normalizeSuggestionList } from '@/utils/llmDisplay';
 
   interface ChatItem {
@@ -469,6 +470,7 @@
     let streamError = '';
     let answer = '';
     const thoughts: string[] = [];
+    let sawReasoningToken = false;
 
     try {
       let mountedFile:
@@ -537,9 +539,18 @@
           if (event.type === 'token') {
             answer += event.content || '';
             msg.content = sanitizeStreamingContent(answer);
+          } else if (event.type === 'reasoning_token') {
+            sawReasoningToken = true;
+            msg.reasoning = (msg.reasoning || '') + (event.content || '');
           } else if (event.type === 'thought') {
             if (event.content) thoughts.push(event.content);
-            msg.reasoning = humanizeAgentReasoning(thoughts.join('\n\n'));
+            if (!sawReasoningToken) {
+              msg.reasoning = appendThoughtToReasoning(
+                msg.reasoning || '',
+                event.content || '',
+                event.stage
+              );
+            }
           } else if (event.type === 'suggestions') {
             suggestions.value = normalizeSuggestionList(event.data || []);
           } else if (event.type === 'final') {

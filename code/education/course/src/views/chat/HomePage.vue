@@ -4,8 +4,11 @@
   import { Search } from '@element-plus/icons-vue';
   import SearchDialog from './components/SearchDialog.vue';
   import WaveDivider from '@/components/WaveDivider.vue';
+  import HomeBanner from '@/components/HomeBanner.vue';
   import ZyMediaHero from '@/components/zy/ZyMediaHero.vue';
-  import heroScene from '@/assets/banners/banner2.jpg';
+  import { landingHeroPhotos, featureThumbnails } from '@/data/mediaCatalog';
+
+  const heroScene = landingHeroPhotos.primary;
 
   const searchText = ref('');
   const showSearchDialog = ref(false);
@@ -32,12 +35,12 @@
 
   // 功能亮点卡片数据（designup.md §2.2）
   const features = [
-    { icon: '🧠', title: 'AI 智能问答', desc: '基于 RAG 的精准知识检索，告别无效搜索，直达答案核心' },
-    { icon: '🎯', title: '个性化学习路径', desc: '基于行为分析的专属推荐，让每位同学走最适合的路' },
-    { icon: '👁️', title: '行为智能分析', desc: 'YOLO 实时识别，专注度可视化，帮助教师精准关注学生' },
-    { icon: '📚', title: '多模态资源', desc: '视频、文档、PPT 统一检索，跨格式知识触手可得' },
-    { icon: '⚡', title: '4 种 AI 模式', desc: '导师 / 考试 / 简洁 / 苏格拉底，场景切换一键完成' },
-    { icon: '🔔', title: '智能预警', desc: '学习风险提前识别，教师及时介入，不让任何学生掉队' },
+    { icon: '🧠', title: 'AI 智能问答', desc: '基于 RAG 的精准知识检索，告别无效搜索，直达答案核心', image: featureThumbnails.ai },
+    { icon: '🎯', title: '个性化学习路径', desc: '基于行为分析的专属推荐，让每位同学走最适合的路', image: featureThumbnails.path },
+    { icon: '👁️', title: '行为智能分析', desc: 'YOLO 实时识别，专注度可视化，帮助教师精准关注学生', image: featureThumbnails.behavior },
+    { icon: '📚', title: '多模态资源', desc: '视频、文档、PPT 统一检索，跨格式知识触手可得', image: featureThumbnails.resource },
+    { icon: '⚡', title: '4 种 AI 模式', desc: '导师 / 考试 / 简洁 / 苏格拉底，场景切换一键完成', image: featureThumbnails.modes },
+    { icon: '🔔', title: '智能预警', desc: '学习风险提前识别，教师及时介入，不让任何学生掉队', image: featureThumbnails.alert },
   ];
 
   // 处理搜索框点击
@@ -181,67 +184,47 @@
           </div>
         </div>
 
-        <!-- 右列：插画 + 浮动卡片 -->
+        <!-- 右列：真实学习场景照片拼贴 -->
         <div class="hero-right">
-          <!-- 主体插画：抽象岛屿知识图谱 -->
-          <div class="hero-illustration">
-            <svg viewBox="0 0 400 320" fill="none" xmlns="http://www.w3.org/2000/svg" class="zy-float">
-              <!-- 海洋背景圆 -->
-              <circle cx="200" cy="200" r="130" fill="url(#ocean-grad)" opacity="0.12"/>
-              <!-- 岛屿 -->
-              <ellipse cx="200" cy="240" rx="100" ry="40" fill="#C8956C" opacity="0.7"/>
-              <ellipse cx="200" cy="235" rx="90" ry="30" fill="#D4A574"/>
-              <!-- 树干 -->
-              <rect x="193" y="170" width="14" height="70" rx="7" fill="#A0714A"/>
-              <!-- 树冠大圆 -->
-              <circle cx="200" cy="140" r="68" fill="url(#brand-grad)"/>
-              <!-- 神经网络节点 -->
-              <circle cx="200" cy="88" r="10" fill="white" opacity="0.95"/>
-              <circle cx="252" cy="162" r="9" fill="white" opacity="0.90"/>
-              <circle cx="148" cy="162" r="9" fill="white" opacity="0.90"/>
-              <circle cx="230" cy="108" r="7" fill="white" opacity="0.80"/>
-              <circle cx="170" cy="108" r="7" fill="white" opacity="0.80"/>
-              <!-- 连接线 -->
-              <line x1="200" y1="98" x2="200" y2="115" stroke="white" stroke-width="2" opacity="0.6"/>
-              <line x1="244" y1="155" x2="228" y2="145" stroke="white" stroke-width="2" opacity="0.6"/>
-              <line x1="156" y1="155" x2="172" y2="145" stroke="white" stroke-width="2" opacity="0.6"/>
-              <line x1="208" y1="96" x2="225" y2="112" stroke="white" stroke-width="1.5" opacity="0.5"/>
-              <line x1="192" y1="96" x2="175" y2="112" stroke="white" stroke-width="1.5" opacity="0.5"/>
-              <!-- 装饰波浪 -->
-              <path d="M100,265 Q150,250 200,265 Q250,280 300,265" stroke="#3B82F6" stroke-width="3" stroke-linecap="round" fill="none" opacity="0.35"/>
-              <path d="M80,285 Q160,268 240,285 Q300,298 320,278" stroke="#6366f1" stroke-width="2" stroke-linecap="round" fill="none" opacity="0.25"/>
-              <!-- 渐变定义 -->
-              <defs>
-                <linearGradient id="brand-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stop-color="#818cf8"/>
-                  <stop offset="100%" stop-color="#3b82f6"/>
-                </linearGradient>
-                <linearGradient id="ocean-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stop-color="#3B82F6"/>
-                  <stop offset="100%" stop-color="#6366f1"/>
-                </linearGradient>
-              </defs>
-            </svg>
+          <div class="hero-photo-collage">
+            <img
+              :src="landingHeroPhotos.primary"
+              alt="学生在课堂中学习"
+              class="hero-photo hero-photo--main"
+            />
+            <img
+              :src="landingHeroPhotos.secondary"
+              alt="图书馆自习"
+              class="hero-photo hero-photo--sub hero-photo--tl"
+            />
+            <img
+              :src="landingHeroPhotos.accent"
+              alt="编程学习"
+              class="hero-photo hero-photo--sub hero-photo--br"
+            />
+            <div class="hero-photo-glow" aria-hidden="true" />
+          </div>
 
-            <!-- 浮动卡片 1（左上） -->
-            <div class="float-card float-card--tl zy-float" style="animation-delay: 0.4s">
-              <span class="float-card-icon">🎯</span>
-              <span class="float-card-text">AI 个性化推荐</span>
-            </div>
+          <div class="float-card float-card--tl zy-float" style="animation-delay: 0.4s">
+            <img :src="landingHeroPhotos.teamwork" alt="" class="float-card-thumb" />
+            <span class="float-card-text">AI 个性化推荐</span>
+          </div>
 
-            <!-- 浮动卡片 2（右中） -->
-            <div class="float-card float-card--rm zy-float" style="animation-delay: 1s">
-              <span class="float-card-icon">📊</span>
-              <span class="float-card-text">行为实时分析</span>
-            </div>
+          <div class="float-card float-card--rm zy-float" style="animation-delay: 1s">
+            <span class="float-card-icon">📊</span>
+            <span class="float-card-text">行为实时分析</span>
+          </div>
 
-            <!-- 浮动卡片 3（左下） -->
-            <div class="float-card float-card--bl zy-float" style="animation-delay: 1.8s">
-              <span class="float-card-icon">💬</span>
-              <span class="float-card-text">智能问答助手</span>
-            </div>
+          <div class="float-card float-card--bl zy-float" style="animation-delay: 1.8s">
+            <span class="float-card-icon">💬</span>
+            <span class="float-card-text">DeepSeek 式思考伴学</span>
           </div>
         </div>
+      </section>
+
+      <!-- 真实场景轮播 Banner -->
+      <section class="banner-section">
+        <HomeBanner />
       </section>
 
       <!-- ===== 波浪分隔线 ===== -->
@@ -255,10 +238,16 @@
         </div>
 
         <div class="features-grid">
-          <div v-for="feat in features" :key="feat.icon" class="feature-card">
-            <div class="feat-icon">{{ feat.icon }}</div>
-            <h3 class="feat-title">{{ feat.title }}</h3>
-            <p class="feat-desc">{{ feat.desc }}</p>
+          <div v-for="feat in features" :key="feat.title" class="feature-card">
+            <div class="feat-cover">
+              <img :src="feat.image" :alt="feat.title" loading="lazy" />
+              <div class="feat-cover-overlay" />
+            </div>
+            <div class="feat-body">
+              <div class="feat-icon">{{ feat.icon }}</div>
+              <h3 class="feat-title">{{ feat.title }}</h3>
+              <p class="feat-desc">{{ feat.desc }}</p>
+            </div>
             <div class="feat-hover-bar"></div>
           </div>
         </div>
@@ -559,22 +548,67 @@
     background: rgba(99, 102, 241, 0.25);
   }
 
-  /* ---- 右列：插画区 ---- */
+  /* ---- 右列：真实照片拼贴 ---- */
   .hero-right {
+    position: relative;
     display: flex;
     justify-content: center;
     align-items: center;
+    min-height: 420px;
   }
 
-  .hero-illustration {
+  .hero-photo-collage {
     position: relative;
     width: 100%;
-    max-width: 440px;
+    max-width: 460px;
+    aspect-ratio: 4 / 5;
+  }
 
-    svg {
-      width: 100%;
-      height: auto;
-    }
+  .hero-photo {
+    object-fit: cover;
+    border-radius: 20px;
+    box-shadow: 0 20px 50px rgba(15, 23, 42, 0.18);
+    border: 3px solid rgba(255, 255, 255, 0.85);
+  }
+
+  .hero-photo--main {
+    width: 78%;
+    height: 72%;
+    position: absolute;
+    right: 0;
+    top: 8%;
+    z-index: 2;
+  }
+
+  .hero-photo--sub {
+    width: 46%;
+    height: 34%;
+    position: absolute;
+    z-index: 3;
+  }
+
+  .hero-photo--tl {
+    left: 0;
+    top: 0;
+  }
+
+  .hero-photo--br {
+    left: 6%;
+    bottom: 0;
+  }
+
+  .hero-photo-glow {
+    position: absolute;
+    inset: 10% 5% 5% 10%;
+    background: radial-gradient(circle at 60% 40%, rgba(99, 102, 241, 0.28), transparent 65%);
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  .banner-section {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 40px 20px;
   }
 
   /* 浮动卡片 */
@@ -584,11 +618,20 @@
     align-items: center;
     gap: 8px;
     padding: 10px 14px;
-    background: white;
+    background: rgba(255, 255, 255, 0.94);
+    backdrop-filter: blur(8px);
     border-radius: 12px;
     border-left: 3px solid #6366f1;
     box-shadow: 0 6px 24px rgba(99, 102, 241, 0.15);
     white-space: nowrap;
+    z-index: 5;
+  }
+
+  .float-card-thumb {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    object-fit: cover;
   }
 
   .float-card-icon { font-size: 18px; }
@@ -643,7 +686,6 @@
 
   .feature-card {
     position: relative;
-    padding: 28px 24px;
     background: #FFFFFF;
     border-radius: 16px;
     border: 1px solid rgba(99, 102, 241, 0.08);
@@ -659,7 +701,34 @@
       .feat-hover-bar {
         opacity: 1;
       }
+
+      .feat-cover img {
+        transform: scale(1.06);
+      }
     }
+  }
+
+  .feat-cover {
+    position: relative;
+    height: 140px;
+    overflow: hidden;
+
+    img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transition: transform 0.45s ease;
+    }
+  }
+
+  .feat-cover-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, transparent 30%, rgba(15, 23, 42, 0.55) 100%);
+  }
+
+  .feat-body {
+    padding: 20px 22px 24px;
   }
 
   /* 底部绿色 hover 边条 */
@@ -729,10 +798,15 @@
       padding: 48px 24px;
     }
 
-    .hero-right { display: none; }
+    .hero-right {
+      min-height: 320px;
+      margin-top: 12px;
+    }
 
     .hero-title { font-size: 36px; }
 
     .header { padding: 0 24px; }
+
+    .banner-section { padding: 0 24px 20px; }
   }
 </style>

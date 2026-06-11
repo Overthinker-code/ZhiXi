@@ -106,7 +106,7 @@ import EmptyState from '@/components/state/EmptyState.vue';
 import ErrorState from '@/components/state/ErrorState.vue';
 import CourseCard from '@/components/CourseCard.vue';
 import ZyMediaHero from '@/components/zy/ZyMediaHero.vue';
-import heroBanner from '@/assets/banners/bannner3.png';
+import heroBanner from '@/assets/media/banner-lecture.jpg';
 
 
 import AIImg from '@/assets/images/AI.jpg';

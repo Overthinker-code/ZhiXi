@@ -62,41 +62,12 @@
 
 <script setup lang="ts">
 import { useRouter } from 'vue-router';
-
-// ── Banner 图片（按实际文件名导入）─────────────────────────
-import banner1 from '@/assets/banners/banner1.png';
-import banner2 from '@/assets/banners/banner2.jpg';
-import banner3 from '@/assets/banners/bannner3.png'; // 原文件名多一个 n
-
-// ── 快捷按钮图标 ─────────────────────────────────────────
+import { landingBanners } from '@/data/mediaCatalog';
 import panIcon from '@/assets/icons/pan.jpg';
 
 const router = useRouter();
 
-// ── Banner 数据（可增减，与 bannerList 数组保持一致即可）──
-const bannerList = [
-  {
-    id: 1,
-    image: banner1,
-    tag: '平台公告',
-    title: '2025年「智屿」AI 智能教学平台正式上线',
-    desc: '融合大模型、RAG 检索与行为分析，为高等教育提供智慧化解决方案。',
-  },
-  {
-    id: 2,
-    image: banner2,
-    tag: 'AI 功能',
-    title: '全新 AI 助手上线：支持 4 种教学模式',
-    desc: '导师模式、考试模式、简洁模式、苏格拉底模式，满足不同学习场景。',
-  },
-  {
-    id: 3,
-    image: banner3,
-    tag: '行为分析',
-    title: '课堂行为智能分析系统 Beta 版开放',
-    desc: '基于 YOLO 的实时专注度识别，帮助教师掌握课堂动态。',
-  },
-];
+const bannerList = landingBanners;
 
 // ── 右侧快捷操作（2×2）──────────────────────────────────
 const quickActions = [
@@ -125,7 +96,7 @@ const categories = [
   box-shadow:
     0 4px 32px rgba(99, 102, 241, 0.12),
     0 1px 4px rgba(0, 0, 0, 0.06);
-  margin-top: 40px;
+  margin-top: 0;
   background: #ffffff;
   border: 1px solid rgba(99, 102, 241, 0.10);
   transition: box-shadow 0.3s ease;

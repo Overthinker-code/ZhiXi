@@ -289,7 +289,7 @@ export function createAssistantChat(
 }
 
 export interface ChatStreamEvent {
-  type: 'thought' | 'phase' | 'token' | 'final' | 'error' | 'suggestions';
+  type: 'thought' | 'phase' | 'reasoning_token' | 'token' | 'final' | 'error' | 'suggestions';
   content?: string;
   phase?: string;
   agent?: string;

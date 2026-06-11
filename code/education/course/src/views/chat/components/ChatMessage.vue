@@ -317,9 +317,9 @@
   const showAgentPipeline = computed(
     () =>
       props.message.role === 'assistant' &&
+      !props.message.loading &&
       ((props.message.agentPhases && props.message.agentPhases.length > 0) ||
-        (props.message.thoughts && props.message.thoughts.length > 0) ||
-        props.message.loading)
+        (props.message.thoughts && props.message.thoughts.length > 0))
   );
 
   /** 模型侧链式推理（与多智能体协作时间线分离） */
@@ -350,7 +350,7 @@
     () =>
       props.message.role === 'assistant' &&
       (effectiveReasoningTrimmed.value.length > 0 ||
-        (props.message.loading && !showAgentPipeline.value))
+        (props.message.loading && props.isLastAssistantMessage))
   );
 
   const showMessageBubble = computed(() => {
@@ -421,7 +421,8 @@
         v-if="
           message.loading &&
           message.role === 'assistant' &&
-          !showMessageBubble
+          !showMessageBubble &&
+          !effectiveReasoningTrimmed
         "
         class="thinking-text"
       >
@@ -441,8 +442,9 @@
       />
       <ReasoningBlock
         v-if="showReasoningToggle"
-        :content="effectiveReasoningTrimmed"
-        :streaming="!!message.loading && !effectiveReasoningTrimmed"
+        :content="displayReasoningPlain"
+        :streaming="!!message.loading && isLastAssistantMessage"
+        :default-expanded="true"
       />
       <!-- content -->
       <div

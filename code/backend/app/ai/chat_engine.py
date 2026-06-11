@@ -117,7 +117,60 @@ def _build_phase_event(content: str, stage: str | None = None) -> dict[str, Any]
     }
 
 
+def _thought_to_narrative(content: str, stage: str | None = None) -> str:
+    """Pipeline 事件 → DeepSeek 式第一人称思考独白（纯文字，无重复阶段标签）。"""
+    trimmed = (content or "").strip()
+    if not trimmed:
+        return ""
+    stage_key = (stage or "").strip()
+    stage_openers: dict[str, str] = {
+        "pipeline_start": "用户刚发来一个问题，我先判断它属于哪类学习场景，再决定要不要走检索或多步推理。",
+        "kb_inject": "课程知识库里应该有相关段落，我先检索并核对，确保后面的解释有依据。",
+        "tool_policy": "我会按需启用检索、联网或代码沙盒，用不上的能力先关掉，避免干扰回答。",
+        "web_policy": "可能需要较新的外部信息，我准备补充联网检索，和知识库内容交叉验证。",
+        "tool_run": "正在调用后端工具获取中间结果，拿到数据后再组织语言。",
+        "vision_status": "用户附带了图片，我先理解画面里的关键信息，再结合文字问题分析。",
+        "demo_mode": "当前处于演示模式，我会用稳定的示例回答保证展示效果。",
+        "cache": "这个问题和之前的很相似，可以直接复用已验证过的回答要点。",
+    }
+    if stage_key in stage_openers:
+        base = stage_openers[stage_key]
+        m = re.match(r"^【([^】]+)】([\s\S]*)$", trimmed)
+        body = (m.group(2) if m else trimmed).strip()
+        if body and len(body) > 10 and body not in base:
+            return f"{base} {body}"
+        return base
+    m = re.match(r"^【([^】]+)】([\s\S]*)$", trimmed)
+    tag = m.group(1).strip() if m else ""
+    body = (m.group(2) if m else trimmed).strip()
+    if re.search(r"流水线|主管|协作|策略|拆解", tag):
+        return body or "我先梳理整体思路，把任务拆成几步来完成。"
+    if re.search(r"知识检索|RAG|检索|文档|知识库", tag):
+        return body or "我去知识库里找与问题相关的知识点和教材片段。"
+    if re.search(r"联网|web", tag, re.I):
+        return body or "可能需要联网查一下最新资料，和已有知识对照一下。"
+    if re.search(r"学情|行为|画像", tag):
+        return body or "我会参考这位同学的学习行为和掌握情况来定制回答。"
+    if re.search(r"测验|出题|练习", tag):
+        return body or "用户可能想练手，我先准备合适的题目和讲解思路。"
+    if re.search(r"代码|沙盒|debug", tag, re.I):
+        return body or "这像是编程题，我需要在沙盒里验证逻辑再给出解释。"
+    if re.search(r"汇总|审查|安全|合成", tag):
+        return body or "各模块的结果都齐了，我来做最后一遍核对和润色。"
+    if body and len(body) > 4:
+        return body
+    return trimmed
+
+
 def _stream_thought_events(content: str, stage: str | None = None):
+    narrative = _thought_to_narrative(content, stage)
+    if narrative:
+        chunk_size = 6
+        for i in range(0, len(narrative), chunk_size):
+            yield {
+                "type": "reasoning_token",
+                "content": narrative[i : i + chunk_size],
+            }
     yield {"type": "thought", "content": content, "stage": stage}
     phase_evt = _build_phase_event(content, stage)
     if phase_evt:
