@@ -311,7 +311,9 @@
     if (isStreamingAssistantBubble()) {
       raw = raw.slice(0, streamTypeLen.value);
     }
-    return renderMarkdown(raw);
+    return renderMarkdown(raw, {
+      streaming: isStreamingAssistantBubble(),
+    });
   });
 
   const showAgentPipeline = computed(
