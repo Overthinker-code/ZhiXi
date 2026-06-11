@@ -182,6 +182,24 @@ def reset_reasoning_controller(token: contextvars.Token) -> None:
     _reasoning_controller.reset(token)
 
 
+def clear_reasoning_context(
+    emitter_token: contextvars.Token | None = None,
+    controller_token: contextvars.Token | None = None,
+) -> None:
+    """Restore reasoning contextvars; tolerate cross-task generator cleanup."""
+    for var, reset_fn, token in (
+        (_reasoning_emitter, reset_reasoning_emitter, emitter_token),
+        (_reasoning_controller, reset_reasoning_controller, controller_token),
+    ):
+        if token is None:
+            var.set(None)
+            continue
+        try:
+            reset_fn(token)
+        except ValueError:
+            var.set(None)
+
+
 def get_reasoning_controller() -> ReasoningStreamController | None:
     return _reasoning_controller.get()
 

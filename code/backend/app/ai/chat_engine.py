@@ -36,8 +36,7 @@ from app.services.ai_usage_logger import collect_usage_from_messages
 from app.services.chat_semantic_cache import chat_semantic_cache
 from app.ai.reasoning_stream import (
     ReasoningStreamController,
-    reset_reasoning_controller,
-    reset_reasoning_emitter,
+    clear_reasoning_context,
     set_reasoning_controller,
     set_reasoning_emitter,
     stream_thought_events as _stream_thought_events_impl,
@@ -2276,5 +2275,4 @@ def stream_chat_events(request: ChatRequest):
             "metrics": resp.metrics,
         }
     finally:
-        reset_reasoning_emitter(emitter_token)
-        reset_reasoning_controller(controller_token)
+        clear_reasoning_context(emitter_token, controller_token)

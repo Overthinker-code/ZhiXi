@@ -51,10 +51,21 @@ def test_reasoning_action_via_controller():
         assert ctrl is not None
         ctrl.on_knowledge_retrieve("积分", 2, ["定积分定义"])
     finally:
-        reasoning_stream.reset_reasoning_emitter(token)
-        reasoning_stream.reset_reasoning_controller(ctrl_token)
+        reasoning_stream.clear_reasoning_context(token, ctrl_token)
 
     assert captured
     assert captured[0]["type"] == "reasoning_action"
     assert captured[0]["action"] == "retrieve"
     assert "2" in captured[0]["detail"]
+
+
+def test_clear_reasoning_context_tolerates_cross_context():
+    import asyncio
+    from app.ai import reasoning_stream
+
+    async def _worker():
+        token = reasoning_stream.set_reasoning_emitter(lambda _e: None)
+        reasoning_stream.clear_reasoning_context(token, None)
+
+    asyncio.run(_worker())
+    assert reasoning_stream.get_reasoning_controller() is None
