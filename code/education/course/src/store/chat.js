@@ -197,6 +197,22 @@ const useChatStore = defineStore(
       isLoading.value = value;
     };
 
+    /**
+     * @param {string} content
+     * @param {string=} reasoning_content
+     * @param {number=} completion_tokens
+     * @param {number=} speed
+     * @param {Array<any>=} thoughts
+     * @param {boolean=} requiresConfirmation
+     * @param {string=} pendingActionId
+     * @param {Array<any>=} suggestions
+     * @param {Array<any>=} citations
+     * @param {string=} confidence
+     * @param {string=} groundingMode
+     * @param {Record<string, any>=} metrics
+     * @param {Array<any>=} agentPhases
+     * @param {Array<any>=} reasoningActions
+     */
     const updateLastMessage = (
       content,
       reasoning_content,

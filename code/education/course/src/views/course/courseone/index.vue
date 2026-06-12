@@ -1,199 +1,239 @@
 <template>
-  <div>
-    <el-container>
-      <el-main>
-        <div class="main">
-          <LoadingState v-if="loading" text="加载课程详情..." />
+  <ZyPageShell title="" max-width="1320px">
+    <nav class="page-breadcrumb" aria-label="面包屑">
+      <router-link to="/course/list" class="crumb-link">课程中心</router-link>
+      <span class="crumb-sep">/</span>
+      <span class="crumb-current">课程信息</span>
+    </nav>
 
-          <ErrorState
-            v-else-if="error"
-            :text="error"
-            @retry="loadCourseDetail"
-            @back="goBack"
-            back-text="返回列表"
-          />
+    <header class="page-header">
+      <div>
+        <h1 class="page-title">课程信息</h1>
+        <p v-if="course" class="page-subtitle">{{ course.name }}</p>
+      </div>
+      <a-button type="outline" class="export-btn" @click="handleExport">
+        <template #icon><icon-download /></template>
+        导出数据
+      </a-button>
+    </header>
 
-          <template v-else-if="course">
-            <div class="left">
-              <div class="Course-info">
-                <p class="title-div">课程信息</p>
-                <div class="bar"></div>
-                <p class="course-title">{{ course.name }}</p>
-                <p class="course-description">
-                  {{ course.description || '暂无课程描述' }}
-                </p>
-                <div class="course-meta">
-                  <div class="meta-item">
-                    <p class="meta-label">课程标识</p>
-                    <p class="meta-value">{{ course.identifier }}</p>
-                  </div>
-                  <div class="meta-item">
-                    <p class="meta-label">课程类型</p>
-                    <p class="meta-value">{{ course.course_type || '专业课程' }}</p>
-                  </div>
-                  <div class="meta-item">
-                    <p class="meta-label">创建时间</p>
-                    <p class="meta-value">{{ formatDate(course.created_at) }}</p>
-                  </div>
-                </div>
-                <div class="bar"></div>
-                <div class="bottom1">
-                  <div class="title1">
-                    <div class="class-info">
-                      <p class="info-label">授课老师</p>
-                    </div>
-                    <div class="class-info">
-                      <p class="info-label">教学班名称</p>
-                    </div>
-                    <div class="class-info">
-                      <p class="info-label">创建时间</p>
-                    </div>
-                  </div>
-                  <LoadingState v-if="loadingClasses" text="加载教学班..." :size="24" />
-                  <EmptyState
-                    v-else-if="teachingClasses.length === 0"
-                    text="暂无教学班"
-                    :icon-size="32"
-                  />
-                  <div
-                    v-for="(classInfo, index) in teachingClasses"
-                    :key="index"
-                    class="all-classes"
-                  >
-                    <div class="class-info">
-                      <p>{{ classInfo.lecturer_id }}</p>
-                    </div>
-                    <div class="class-info">
-                      <p>{{ classInfo.name || '未命名' }}</p>
-                    </div>
-                    <div class="class-info">
-                      <p>{{ formatDate(classInfo.created_at) }}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div class="course-mode">
-                <p class="title-div">课程模式</p>
-                <div class="mode-content">
-                  <div class="class-type">
-                    <p>
-                      <span class="mode-percent">67%</span>
-                      <span class="mode-label">讲授型</span>
-                    </p>
-                    <p>
-                      <span class="mode-percent">52%</span>
-                      <span class="mode-label">混合型</span>
-                    </p>
-                    <p>
-                      <span class="mode-percent">43%</span>
-                      <span class="mode-label">对话型</span>
-                    </p>
-                    <p>
-                      <span class="mode-percent">17%</span>
-                      <span class="mode-label">练习型</span>
-                    </p>
-                  </div>
-                  <div class="radar-graphic">
-                    <ClassMode />
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div class="right">
-              <div class="homework-finish">
-                <p class="title-div">学生作业完成情况</p>
-                <div class="homework-content">
-                  <table class="homework-table">
-                    <tr>
-                      <th>排名</th>
-                      <th>姓名</th>
-                      <th>作业综合评价</th>
-                    </tr>
-                    <tr>
-                      <td>1</td>
-                      <td>张三</td>
-                      <td>99.62</td>
-                    </tr>
-                    <tr>
-                      <td>2</td>
-                      <td>李四</td>
-                      <td>98.42</td>
-                    </tr>
-                    <tr>
-                      <td>3</td>
-                      <td>陈晨</td>
-                      <td>96.17</td>
-                    </tr>
-                    <tr>
-                      <td>……</td>
-                      <td></td>
-                      <td class="view-more">查看更多</td>
-                    </tr>
-                  </table>
-                  <div class="activity-feed">
-                    <p><span class="name-color">潘*瑞</span> 提交了作业</p>
-                    <p><span class="name-color">陈*</span> 老师批改了作业</p>
-                    <p><span class="name-color">王*楚</span> 提交了作业</p>
-                    <p>……</p>
-                  </div>
-                </div>
-              </div>
-              <div class="course-resource">
-                <p class="title-div">课程资源占比</p>
-                <div class="resource-content">
-                  <ResorceRationVue />
-                  <div class="right-resource">
-                    <div class="resource-list">
-                      <div class="resource-item">
-                        <img src="@/assets/icons/teenyicons--ms-word-outline.png" alt="文档" />
-                        <div class="resource-text">
-                          <div class="resource-type">文档</div>
-                          <div class="resource-size">{{ resourceAnalysis.document_size }}GB</div>
-                          <div class="resource-count">{{ resourceAnalysis.document_count }}</div>
-                        </div>
-                      </div>
-                      <div class="resource-item">
-                        <img src="@/assets/icons/mingcute--video-line.png" alt="视频" />
-                        <div class="resource-text">
-                          <div class="resource-type">视频</div>
-                          <div class="resource-size">{{ resourceAnalysis.video_size }}GB</div>
-                          <div class="resource-count">{{ resourceAnalysis.video_count }}</div>
-                        </div>
-                      </div>
-                      <div class="resource-item">
-                        <img src="@/assets/icons/mingcute--pic-ai-fill.png" alt="图片" />
-                        <div class="resource-text">
-                          <div class="resource-type">图片</div>
-                          <div class="resource-size">{{ resourceAnalysis.image_size }}GB</div>
-                          <div class="resource-count">{{ resourceAnalysis.image_count }}</div>
-                        </div>
-                      </div>
-                      <div class="resource-item">
-                        <img src="@/assets/icons/ph--exam.png" alt="作业" />
-                        <div class="resource-text">
-                          <div class="resource-type">作业/测验</div>
-                          <div class="resource-count">{{ resourceAnalysis.homework_count }}</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div class="platform-use">
-                <p class="title-div">课程资源访问量（近七日）</p>
-                <PlatUseVue />
-              </div>
-            </div>
-          </template>
+    <LoadingState v-if="loading" text="加载课程详情..." />
+
+    <ErrorState
+      v-else-if="error"
+      :text="error"
+      @retry="loadCourseDetail"
+      @back="goBack"
+      back-text="返回列表"
+    />
+
+    <div v-else-if="course" class="dashboard-grid">
+      <!-- 1. 课程详情卡 -->
+      <a-card class="grid-card grid-card--detail" :bordered="false">
+        <template #title>
+          <div class="card-title">
+            <icon-book />
+            <span>课程详情</span>
+          </div>
+        </template>
+        <h2 class="course-name">{{ course.name }}</h2>
+        <p class="course-desc">{{ course.description || '暂无课程描述' }}</p>
+        <div class="detail-chips">
+          <div class="detail-chip">
+            <span class="detail-chip__label">课程标识</span>
+            <span class="detail-chip__value">{{ course.identifier }}</span>
+          </div>
+          <div class="detail-chip">
+            <span class="detail-chip__label">课程类型</span>
+            <span class="detail-chip__value">{{ course.course_type || '专业核心' }}</span>
+          </div>
+          <div class="detail-chip">
+            <span class="detail-chip__label">创建时间</span>
+            <span class="detail-chip__value">{{ formatDate(course.created_at) }}</span>
+          </div>
         </div>
-      </el-main>
-    </el-container>
-  </div>
+        <a-divider />
+        <div class="class-section">
+          <div class="class-header">
+            <span>授课老师</span>
+            <span>教学班名称</span>
+            <span>创建时间</span>
+          </div>
+          <LoadingState v-if="loadingClasses" text="加载教学班..." :size="24" />
+          <EmptyState
+            v-else-if="teachingClasses.length === 0"
+            text="暂无教学班"
+            :icon-size="32"
+          />
+          <div
+            v-for="(classInfo, index) in teachingClasses"
+            :key="index"
+            class="class-row"
+          >
+            <span>{{ classInfo.lecturer_id }}</span>
+            <span>{{ classInfo.name || '未命名' }}</span>
+            <span>{{ formatDate(classInfo.created_at) }}</span>
+          </div>
+        </div>
+      </a-card>
+
+      <!-- 2. 学生作业排名表 -->
+      <a-card class="grid-card grid-card--homework" :bordered="false">
+        <template #title>
+          <div class="card-title">
+            <icon-file />
+            <span>学生作业排名</span>
+          </div>
+        </template>
+        <a-table
+          :columns="homeworkColumns"
+          :data="homeworkData"
+          :pagination="false"
+          :bordered="false"
+          size="small"
+          class="homework-table"
+        />
+      </a-card>
+
+      <!-- 3. 最新动态时间线 -->
+      <a-card class="grid-card grid-card--timeline" :bordered="false">
+        <template #title>
+          <div class="card-title">
+            <icon-notification />
+            <span>最新动态</span>
+          </div>
+        </template>
+        <a-timeline class="activity-timeline">
+          <a-timeline-item dot-color="#6366f1">
+            <span class="name-highlight">潘*瑞</span> 提交了作业「SQL 查询练习」
+            <div class="timeline-time">10 分钟前</div>
+          </a-timeline-item>
+          <a-timeline-item dot-color="#8b5cf6">
+            <span class="name-highlight">林老师</span> 批改了 3 份作业
+            <div class="timeline-time">1 小时前</div>
+          </a-timeline-item>
+          <a-timeline-item dot-color="#6366f1">
+            <span class="name-highlight">王*楚</span> 完成了第 1 章测验
+            <div class="timeline-time">2 小时前</div>
+          </a-timeline-item>
+          <a-timeline-item dot-color="#a78bfa">
+            <span class="name-highlight">陈*</span> 上传了课堂笔记
+            <div class="timeline-time">昨天 16:30</div>
+          </a-timeline-item>
+        </a-timeline>
+        <a-link class="view-more">查看更多</a-link>
+      </a-card>
+
+      <!-- 4. 资源占比环形图 -->
+      <a-card class="grid-card grid-card--resource" :bordered="false">
+        <template #title>
+          <div class="card-title">
+            <icon-storage />
+            <span>资源占比</span>
+          </div>
+        </template>
+        <div class="resource-layout">
+          <div class="resource-chart">
+            <ResorceRationVue />
+          </div>
+          <div class="resource-list">
+            <div class="resource-item">
+              <img src="@/assets/icons/teenyicons--ms-word-outline.png" alt="文档" />
+              <div>
+                <div class="resource-type">文档</div>
+                <div class="resource-size">{{ resourceAnalysis.document_size }}GB</div>
+                <div class="resource-count">{{ resourceAnalysis.document_count }} 个</div>
+              </div>
+            </div>
+            <div class="resource-item">
+              <img src="@/assets/icons/mingcute--video-line.png" alt="视频" />
+              <div>
+                <div class="resource-type">视频</div>
+                <div class="resource-size">{{ resourceAnalysis.video_size }}GB</div>
+                <div class="resource-count">{{ resourceAnalysis.video_count }} 个</div>
+              </div>
+            </div>
+            <div class="resource-item">
+              <img src="@/assets/icons/mingcute--pic-ai-fill.png" alt="图片" />
+              <div>
+                <div class="resource-type">图片</div>
+                <div class="resource-size">{{ resourceAnalysis.image_size }}GB</div>
+                <div class="resource-count">{{ resourceAnalysis.image_count }} 个</div>
+              </div>
+            </div>
+            <div class="resource-item">
+              <img src="@/assets/icons/ph--exam.png" alt="作业" />
+              <div>
+                <div class="resource-type">作业/测验</div>
+                <div class="resource-count">{{ resourceAnalysis.homework_count }} 份</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </a-card>
+
+      <!-- 5. 课程模式雷达图 -->
+      <a-card class="grid-card grid-card--mode" :bordered="false">
+        <template #title>
+          <div class="card-title">
+            <icon-apps />
+            <span>课程模式</span>
+          </div>
+        </template>
+        <div class="mode-layout">
+          <div class="mode-stats">
+            <div class="mode-stat">
+              <span class="mode-stat__pct">67%</span>
+              <span class="mode-stat__label">讲授型</span>
+            </div>
+            <div class="mode-stat">
+              <span class="mode-stat__pct">52%</span>
+              <span class="mode-stat__label">混合型</span>
+            </div>
+            <div class="mode-stat">
+              <span class="mode-stat__pct">43%</span>
+              <span class="mode-stat__label">对话型</span>
+            </div>
+            <div class="mode-stat">
+              <span class="mode-stat__pct">17%</span>
+              <span class="mode-stat__label">练习型</span>
+            </div>
+          </div>
+          <div class="mode-chart">
+            <ClassMode />
+          </div>
+        </div>
+      </a-card>
+
+      <!-- 6. 近7日访问量折线图 -->
+      <a-card class="grid-card grid-card--traffic" :bordered="false">
+        <template #title>
+          <div class="card-title">
+            <icon-bar-chart />
+            <span>近 7 日访问量</span>
+          </div>
+        </template>
+        <div class="traffic-chart">
+          <PlatUseVue />
+        </div>
+      </a-card>
+    </div>
+  </ZyPageShell>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { Message } from '@arco-design/web-vue';
+import {
+  IconBook,
+  IconApps,
+  IconFile,
+  IconStorage,
+  IconBarChart,
+  IconDownload,
+  IconNotification,
+} from '@arco-design/web-vue/es/icon';
 import {
   fetchCourseById,
   fetchCourses,
@@ -212,6 +252,7 @@ import {
 import LoadingState from '@/components/state/LoadingState.vue';
 import EmptyState from '@/components/state/EmptyState.vue';
 import ErrorState from '@/components/state/ErrorState.vue';
+import ZyPageShell from '@/components/zy/ZyPageShell.vue';
 import ClassMode from './components/ClassMode.vue';
 import PlatUseVue from './components/PlatUse.vue';
 import ResorceRationVue from './components/ResorceRation.vue';
@@ -225,12 +266,30 @@ const course = ref<Course | null>(null);
 const teachingClasses = ref<TeachingClass[]>([]);
 const loadingClasses = ref(false);
 
+const homeworkColumns = [
+  { title: '排名', dataIndex: 'rank', width: 64 },
+  { title: '姓名', dataIndex: 'name' },
+  { title: '作业综合评价', dataIndex: 'score' },
+];
+
+const homeworkData = [
+  { rank: 1, name: '张三', score: '99.62' },
+  { rank: 2, name: '李四', score: '98.42' },
+  { rank: 3, name: '陈晨', score: '96.17' },
+  { rank: 4, name: '王五', score: '95.08' },
+  { rank: 5, name: '赵六', score: '93.51' },
+];
+
 const resourceAnalysis = ref<CourseResourceAnalysis>({
   ...getScenarioResourceAnalysis(SCENARIO_COURSE_IDS[0]),
 });
 
 function formatDate(dateStr: string) {
   return new Date(dateStr).toLocaleDateString('zh-CN');
+}
+
+function handleExport() {
+  Message.info('课程数据导出功能开发中');
 }
 
 async function loadTeachingClasses(courseId: string, useDemoFallback: boolean) {
@@ -320,331 +379,326 @@ watch(
 );
 </script>
 
-<style scoped>
-  /* ===== 智屿课程详情页 — 品牌化改造 ===== */
-  .main {
-    display: flex;
-    flex-direction: row;
-    width: 100%;
-    height: 1100px;
-    padding: 10px;
-    overflow-y: hidden;
-    /* 品牌浅绿背景（原灰色 #e8e8e8）*/
-    background: var(--zy-bg-page, #f5f3ff);
-    gap: 10px;
+<style scoped lang="less">
+.page-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.crumb-link {
+  color: var(--zy-color-text-secondary, #64748b);
+  text-decoration: none;
+  transition: color 0.15s ease;
+
+  &:hover {
+    color: var(--zy-color-brand, #6366f1);
+  }
+}
+
+.crumb-sep {
+  color: #cbd5e1;
+}
+
+.crumb-current {
+  color: var(--zy-color-text-primary, #0f172a);
+  font-weight: 500;
+}
+
+.page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--zy-color-text-primary, #0f172a);
+  letter-spacing: -0.02em;
+}
+
+.page-subtitle {
+  margin: 6px 0 0;
+  font-size: 14px;
+  color: var(--zy-color-text-secondary, #64748b);
+}
+
+.export-btn {
+  border-color: rgba(99, 102, 241, 0.35) !important;
+  color: var(--zy-color-brand, #6366f1) !important;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+/* ===== 6 宫格 ===== */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 900px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.grid-card {
+  border-radius: var(--zy-radius-card, 16px);
+  box-shadow: var(--zy-shadow-card);
+  border: 1px solid rgba(99, 102, 241, 0.1);
+  transition: box-shadow 0.2s ease;
+
+  &:hover {
+    box-shadow: var(--zy-shadow-card-hover);
   }
 
-  .left {
-    display: flex;
-    flex-direction: column;
-    width: 50%;
-    height: 100%;
+  &--detail {
+    grid-column: 1;
+    grid-row: span 1;
   }
 
-  .right {
-    display: flex;
-    flex-direction: column;
-    width: 60%;
-    height: 100%;
+  &--homework {
+    grid-column: 2;
   }
 
-  /* 卡片加品牌绿边框 */
-  .Course-info {
-    height: 70%;
-    margin: 10px;
-    background: #fff;
-    border-radius: 16px;
-    border: 1px solid rgba(99, 102, 241, 0.12);
-    box-shadow: 0 4px 24px rgba(99, 102, 241, 0.08);
-    overflow: hidden;
+  &--timeline {
+    grid-column: 1;
   }
 
-  .course-mode {
-    height: 35%;
-    margin: 10px;
-    background: #fff;
-    border-radius: 16px;
-    border: 1px solid rgba(99, 102, 241, 0.12);
-    box-shadow: 0 4px 24px rgba(99, 102, 241, 0.08);
-    overflow: hidden;
+  &--resource {
+    grid-column: 2;
   }
 
-  .homework-finish {
-    height: 33%;
-    margin: 10px;
-    background: #fff;
-    border-radius: 16px;
-    border: 1px solid rgba(99, 102, 241, 0.12);
-    box-shadow: 0 4px 24px rgba(99, 102, 241, 0.08);
-    overflow: hidden;
+  &--mode {
+    grid-column: 1;
   }
 
-  .course-resource {
-    height: 33%;
-    margin: 10px;
-    background: #fff;
-    border-radius: 16px;
-    border: 1px solid rgba(99, 102, 241, 0.12);
-    box-shadow: 0 4px 24px rgba(99, 102, 241, 0.08);
-    overflow: hidden;
+  &--traffic {
+    grid-column: 2;
   }
+}
 
-  .platform-use {
-    height: 33%;
-    margin: 10px;
-    background: #fff;
-    border-radius: 16px;
-    border: 1px solid rgba(99, 102, 241, 0.12);
-    box-shadow: 0 4px 24px rgba(99, 102, 241, 0.08);
-    overflow: hidden;
+@media (max-width: 900px) {
+  .grid-card {
+    grid-column: 1 !important;
   }
+}
 
-  /* 卡片标题（品牌绿左边条）*/
-  .title-div {
-    margin: 20px;
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--zy-color-text-primary, #0f172a);
+}
+
+.course-name {
+  margin: 0 0 8px;
+  font-size: var(--zy-text-xl, 20px);
+  font-weight: 700;
+  color: var(--zy-color-brand, #6366f1);
+  line-height: 1.3;
+}
+
+.course-desc {
+  margin: 0 0 16px;
+  font-size: var(--zy-text-sm, 14px);
+  color: var(--zy-color-text-secondary, #64748b);
+  line-height: 1.6;
+}
+
+.detail-chips {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.detail-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border-radius: var(--zy-radius-sm, 8px);
+  background: var(--zy-bg-tag, #eef2ff);
+  text-align: center;
+
+  &__label {
+    font-size: var(--zy-text-xs, 12px);
+    color: var(--zy-color-brand, #6366f1);
     font-weight: 600;
-    font-size: 18px;
-    color: #0f172a;
-    padding-left: 12px;
-    border-left: 3px solid #6366f1;
   }
 
-  .bar {
-    width: 90%;
-    margin-left: 5%;
-    border: 1px solid rgba(99, 102, 241, 0.12);
-  }
-
-  /* 课程标题：从蓝色改为品牌绿 */
-  .course-title {
-    margin: 15px 20px;
-    color: #6366f1;
+  &__value {
+    font-size: var(--zy-text-sm, 14px);
     font-weight: 600;
+    color: var(--zy-color-text-primary, #0f172a);
+  }
+}
+
+.class-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.class-header,
+.class-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  text-align: center;
+  font-size: var(--zy-text-sm, 14px);
+}
+
+.class-header {
+  font-weight: 600;
+  color: var(--zy-color-brand, #6366f1);
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.12);
+}
+
+.class-row {
+  padding: 12px 8px;
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  border-radius: var(--zy-radius-sm, 8px);
+  color: var(--zy-color-text-primary, #0f172a);
+  transition: box-shadow 0.2s ease;
+
+  &:hover {
+    box-shadow: 0 4px 16px rgba(99, 102, 241, 0.1);
+  }
+}
+
+.homework-table {
+  :deep(.arco-table-th) {
+    background: var(--zy-bg-tag, #eef2ff);
+    color: var(--zy-color-text-primary, #0f172a);
+    font-weight: 600;
+  }
+}
+
+.activity-timeline {
+  margin-top: 4px;
+}
+
+.timeline-time {
+  font-size: 12px;
+  color: var(--zy-color-text-secondary, #64748b);
+  margin-top: 4px;
+}
+
+.name-highlight {
+  color: var(--zy-color-brand, #6366f1);
+  font-weight: 600;
+}
+
+.view-more {
+  margin-top: 12px;
+  font-size: var(--zy-text-sm, 14px);
+}
+
+.mode-layout {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-height: 260px;
+}
+
+.mode-stats {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mode-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  justify-content: center;
+
+  &__pct {
     font-size: 24px;
-  }
-
-  .course-description {
-    margin: 10px;
-    padding: 0 20px 10px;
-    line-height: 20px;
-    color: #64748b;
-  }
-
-  .course-meta {
-    display: flex;
-    flex-direction: row;
-    width: 100%;
-  }
-
-  .meta-item {
-    width: 33.33%;
-  }
-
-  /* 元数据标签：蓝色 → 品牌绿 */
-  .meta-label {
-    color: #6366f1;
-    font-weight: 600;
-    font-size: 14px;
-    text-align: center;
-  }
-
-  .meta-value {
-    font-weight: 600;
-    font-size: 14px;
-    text-align: center;
-    color: #0f172a;
-  }
-
-  .bottom1 {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    margin-top: 10px;
-  }
-
-  .title1 {
-    display: flex;
-    flex-direction: row;
-    width: 90%;
-  }
-
-  .all-classes {
-    display: flex;
-    flex-direction: row;
-    width: 90%;
-    height: 80px;
-    margin-bottom: 15px;
-    border: 1.5px solid rgba(99, 102, 241, 0.20);
-    border-radius: 12px;
-    transition: box-shadow 0.2s ease;
-  }
-
-  .all-classes:hover {
-    box-shadow: 0 4px 16px rgba(99, 102, 241, 0.12);
-  }
-
-  .class-info {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 33.33%;
-    text-align: center;
-  }
-
-  /* 教学班标签：蓝色 → 品牌绿 */
-  .info-label {
-    color: #6366f1;
-    font-weight: 600;
-    font-size: 14px;
-  }
-
-  .mode-content {
-    display: flex;
-    flex-direction: row;
-    width: 100%;
-    height: 90%;
-  }
-
-  .class-type {
-    width: 50%;
-    height: 100%;
-    text-align: center;
-  }
-
-  .class-type p {
-    display: flex;
-    flex-direction: row;
-    gap: 10px;
-    align-items: center;
-    justify-content: center;
-  }
-
-  /* 模式百分比：原蓝色 #4ed6ff → 品牌绿 */
-  .mode-percent {
-    color: #6366f1;
     font-weight: 700;
-    font-size: 32px;
+    color: var(--zy-color-brand, #6366f1);
+    min-width: 56px;
+    text-align: right;
   }
 
-  .mode-label {
-    color: #64748b;
-    font-size: 18px;
+  &__label {
+    font-size: var(--zy-text-base, 14px);
+    color: var(--zy-color-text-secondary, #64748b);
   }
+}
 
-  .radar-graphic {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 50%;
-    height: 105%;
-  }
+.mode-chart {
+  flex: 1;
+  min-width: 0;
+}
 
-  .homework-content {
-    display: flex;
-    flex-direction: row;
-  }
+.resource-layout {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
 
-  .homework-table {
-    width: 100%;
-    margin-left: 30px;
-    padding: 0;
-    font-size: 12px;
-    text-align: center;
-    border-collapse: collapse;
-  }
+.resource-chart {
+  flex: 1;
+  min-width: 180px;
+}
 
-  .homework-table th {
-    width: 25%;
-    padding-bottom: 3px;
-    font-size: 13px;
-    background: #f5f3ff;
-    border-bottom: 1px solid rgba(99, 102, 241, 0.15);
-    height: 40px;
-    color: #0f172a;
-  }
+.resource-list {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  min-width: 200px;
+}
 
-  .homework-table td {
-    border-bottom: 1px solid rgba(99, 102, 241, 0.10);
-    height: 40px;
-    color: #0f172a;
-  }
+.resource-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border-radius: var(--zy-radius-sm, 8px);
+  background: var(--zy-bg-tag, #eef2ff);
 
-  /* 查看更多：品牌绿 */
-  .view-more {
-    color: #6366f1;
-    cursor: pointer;
-    font-weight: 500;
+  img {
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
   }
+}
 
-  .view-more:hover {
-    text-decoration: underline;
-  }
+.resource-type {
+  font-size: var(--zy-text-xs, 12px);
+  color: var(--zy-color-text-secondary, #64748b);
+}
 
-  .activity-feed {
-    margin-left: 90px;
-    text-align: center;
-    color: #64748b;
-  }
+.resource-size {
+  font-weight: 600;
+  color: var(--zy-color-brand, #6366f1);
+  font-size: var(--zy-text-sm, 14px);
+}
 
-  /* 学生姓名：品牌绿 */
-  .name-color {
-    color: #6366f1;
-    font-weight: 600;
-  }
+.resource-count {
+  font-size: var(--zy-text-xs, 12px);
+  color: var(--zy-color-text-secondary, #64748b);
+}
 
-  .resource-content {
-    display: flex;
-    flex-direction: row;
-    width: 100%;
-    height: 100%;
-  }
+.traffic-chart {
+  min-height: 220px;
+}
 
-  .right-resource {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    height: 100%;
-  }
-
-  .resource-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-  }
-
-  .resource-item {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    width: 150px;
-    margin-top: 20px;
-  }
-
-  .resource-item img {
-    width: 55px;
-    height: 55px;
-    margin: 5px;
-  }
-
-  .resource-text {
-    width: 50%;
-    line-height: 25px;
-  }
-
-  .resource-type {
-    color: #64748b;
-    font-size: 13px;
-  }
-
-  .resource-size {
-    font-weight: 600;
-    color: #6366f1;
-  }
-
-  .resource-count {
-    color: #64748b;
-    font-size: 12px;
-  }
+:deep(.arco-card-header) {
+  border-bottom: 1px solid rgba(99, 102, 241, 0.1);
+}
 </style>

@@ -15,6 +15,7 @@ import LoadingState from './state/LoadingState.vue';
 import EmptyState from './state/EmptyState.vue';
 import ErrorState from './state/ErrorState.vue';
 import ZyPageEnter from './zy/ZyPageEnter.vue';
+import ZyPageShell from './zy/ZyPageShell.vue';
 import ZySkeleton from './zy/ZySkeleton.vue';
 import ZyEmptyGuide from './zy/ZyEmptyGuide.vue';
 import AiProcessTimeline from './zy/AiProcessTimeline.vue';
@@ -23,6 +24,7 @@ import ResultReveal from './zy/ResultReveal.vue';
 import SegmentTabs from './zy/SegmentTabs.vue';
 import PortraitRadarChart from './zy/PortraitRadarChart.vue';
 import AgentStagePanel from './zy/AgentStagePanel.vue';
+import ZyMediaHero from './zy/ZyMediaHero.vue';
 
 use([
   CanvasRenderer,
@@ -45,6 +47,7 @@ export default {
     Vue.component('EmptyState', EmptyState);
     Vue.component('ErrorState', ErrorState);
     Vue.component('ZyPageEnter', ZyPageEnter);
+    Vue.component('ZyPageShell', ZyPageShell);
     Vue.component('ZySkeleton', ZySkeleton);
     Vue.component('ZyEmptyGuide', ZyEmptyGuide);
     Vue.component('AiProcessTimeline', AiProcessTimeline);
@@ -53,5 +56,6 @@ export default {
     Vue.component('SegmentTabs', SegmentTabs);
     Vue.component('PortraitRadarChart', PortraitRadarChart);
     Vue.component('AgentStagePanel', AgentStagePanel);
+    Vue.component('ZyMediaHero', ZyMediaHero);
   },
 };

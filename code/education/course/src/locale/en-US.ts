@@ -42,6 +42,8 @@ export default {
   'menu.profile.learningData': 'Learning Data',
   'menu.visualization': 'Data Visualization',
   'menu.course': 'Course Center',
+  'menu.resourceWorkshop': 'Learning Resource Workshop',
+  'menu.resourceGeneration': 'Resource Generation Center',
   'menu.digitalHuman': 'Digital Human',
   'menu.digitalHuman.tools': 'Digital Human Tools',
   'menu.digitalHuman.pptToVideo': 'PPT to Video',

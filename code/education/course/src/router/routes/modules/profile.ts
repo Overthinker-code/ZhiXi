@@ -3,7 +3,6 @@ import { AppRouteRecordRaw } from '../types';
 
 const PROFILE: AppRouteRecordRaw = {
   path: '/profile',
-  name: 'profile',
   component: DEFAULT_LAYOUT,
   meta: {
     locale: '个人中心',
@@ -14,10 +13,40 @@ const PROFILE: AppRouteRecordRaw = {
   children: [
     {
       path: '',
-      redirect: '/profile/user-info',
+      redirect: '/profile/dashboard',
       meta: {
         requiresAuth: true,
         hideInMenu: true,
+      },
+    },
+    {
+      path: 'dashboard',
+      name: 'ProfileDashboard',
+      component: () => import('@/views/profile/dashboard/index.vue'),
+      meta: {
+        locale: '个人中心',
+        requiresAuth: true,
+        roles: ['student'],
+      },
+    },
+    {
+      path: 'achievements',
+      name: 'ProfileAchievements',
+      component: () => import('@/views/profile/achievements/index.vue'),
+      meta: {
+        locale: '成就与积分',
+        requiresAuth: true,
+        roles: ['student'],
+      },
+    },
+    {
+      path: 'messages',
+      name: 'ProfileMessages',
+      component: () => import('@/views/profile/messages/index.vue'),
+      meta: {
+        locale: '消息中心',
+        requiresAuth: true,
+        roles: ['*'],
       },
     },
     {

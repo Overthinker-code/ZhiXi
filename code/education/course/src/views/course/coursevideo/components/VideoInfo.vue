@@ -1,117 +1,235 @@
 <template>
   <div
-    ref="videoLineChart"
-    style="width: 100%; height: 400px; margin-bottom: 10px"
+    ref="chartContainer"
+    class="focus-chart"
+    role="img"
+    aria-label="全天专注度曲线"
   ></div>
 </template>
 
-<script>
+<script setup lang="ts">
   import * as echarts from 'echarts';
-  import { defineComponent, onMounted, ref } from 'vue';
+  import type { EChartsOption, EChartsType } from 'echarts';
+  import { onBeforeUnmount, onMounted, ref } from 'vue';
 
-  export default defineComponent({
-    name: 'VideoLineChart',
-    setup() {
-      const videoLineChart = ref(null);
-      const timePoints = [
-        '00:00',
-        '00:10',
-        '00:20',
-        '00:30',
-        '00:40',
-        '00:50',
-        '01:10',
-        '01:20',
-        '01:30',
-        '01:40',
-        '01:50',
-        '02:00',
-        '02:10',
-        '02:20',
-        '02:30',
-        '02:40',
-        '02:50',
-      ];
-      const importanceData = [
-        10, 20, 30, 25, 35, 45, 50, 40, 55, 60, 70, 40, 55, 60, 70, 35, 45, 50,
-      ];
-      const videoInfo = [
-        { time: '00:00', content: '视频开始', keyInfo: '开场介绍' },
-        { time: '00:10', content: '内容介绍', keyInfo: '介绍主题' },
-        { time: '00:20', content: '核心观点', keyInfo: '详细讲解' },
-        { time: '00:30', content: '案例分析', keyInfo: '实际应用' },
-        { time: '00:40', content: '总结回顾', keyInfo: '重点总结' },
-        { time: '00:50', content: '视频结束', keyInfo: '结束语' },
-      ];
+  interface TooltipItem {
+    axisValueLabel?: string;
+    marker?: string;
+    value?: number;
+  }
 
-      onMounted(() => {
-        const chart = echarts.init(videoLineChart.value);
-        const option = {
-          tooltip: {
-            trigger: 'axis',
-            formatter: (params) => {
-              const time = params[0].name;
-              const info = videoInfo.find((item) => item.time === time) || {};
-              return `
-                <div>
-                  <h4>时间: ${time}</h4>
-                  <p>内容: ${info.content || '无具体信息'}</p>
-                  <p>关键信息: ${info.keyInfo || '无'}</p>
-                </div>
-              `;
-            },
-            backgroundColor: '#fff',
-            borderColor: '#ccc',
-            borderWidth: 2,
-            textStyle: {
-              color: '#000',
-            },
-            padding: [10, 15],
-          },
-          xAxis: {
-            type: 'category',
-            data: timePoints,
-            boundaryGap: false,
-          },
-          yAxis: {
-            type: 'value',
-            min: 0,
-            max: 100,
-            axisLabel: {
-              formatter: '{value} %',
-            },
-          },
-          series: [
-            {
-              name: '重要度',
-              type: 'line',
-              smooth: true, // 开启平滑曲线
-              data: importanceData,
-              areaStyle: {
-                color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                  { offset: 0, color: '#daebff' },
-                  { offset: 1, color: '#ffffff' },
-                ]),
-              },
-              itemStyle: {
-                color: '#1890ff',
-              },
-              lineStyle: {
-                width: 4,
-              },
-            },
-          ],
-        };
-        chart.setOption(option);
-      });
+  const chartContainer = ref<HTMLDivElement | null>(null);
+  let chart: EChartsType | null = null;
+  let resizeObserver: ResizeObserver | null = null;
 
-      return {
-        videoLineChart,
-      };
+  const timePoints = Array.from({ length: 96 }, (_, index) => {
+    const totalMinutes = index * 15;
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(
+      2,
+      '0'
+    )}`;
+  });
+
+  const focusAnchors = [
+    8, 23, 49, 38, 55, 72, 78, 51, 76, 94, 50, 72, 75, 92, 51, 66, 36, 49,
+  ];
+
+  const focusData = timePoints.map((_, index) => {
+    const position =
+      (index / (timePoints.length - 1)) * (focusAnchors.length - 1);
+    const leftIndex = Math.floor(position);
+    const rightIndex = Math.min(leftIndex + 1, focusAnchors.length - 1);
+    const progress = position - leftIndex;
+    const easedProgress = (1 - Math.cos(Math.PI * progress)) / 2;
+    return Math.round(
+      focusAnchors[leftIndex] +
+        (focusAnchors[rightIndex] - focusAnchors[leftIndex]) * easedProgress
+    );
+  });
+
+  const visibleTimeLabels = new Set([
+    '00:00',
+    '02:30',
+    '05:00',
+    '07:30',
+    '10:00',
+    '12:30',
+    '15:00',
+    '17:30',
+    '20:00',
+    '22:30',
+    '23:45',
+  ]);
+
+  const option: EChartsOption = {
+    animationDuration: 700,
+    animationEasing: 'cubicOut',
+    grid: {
+      top: 8,
+      right: 14,
+      bottom: 24,
+      left: 44,
+      containLabel: false,
     },
+    tooltip: {
+      trigger: 'axis',
+      confine: true,
+      backgroundColor: 'rgba(255, 255, 255, 0.98)',
+      borderColor: '#dce3f4',
+      borderWidth: 1,
+      padding: [7, 10],
+      extraCssText:
+        'border-radius: 7px; box-shadow: 0 6px 18px rgba(47, 70, 132, 0.12);',
+      textStyle: {
+        color: '#26324b',
+        fontSize: 11,
+      },
+      axisPointer: {
+        type: 'line',
+        snap: true,
+        lineStyle: {
+          color: '#8c9df7',
+          width: 1,
+          type: 'dashed',
+        },
+      },
+      formatter: (params) => {
+        const item = (
+          Array.isArray(params) ? params[0] : params
+        ) as TooltipItem;
+        return [
+          `<div style="color:#8992a8;font-size:10px;line-height:16px">${
+            item.axisValueLabel ?? ''
+          }</div>`,
+          `<div style="display:flex;align-items:center;gap:6px;white-space:nowrap;font-weight:600;line-height:18px">`,
+          `${
+            item.marker ?? ''
+          }<span>专注度</span><span style="margin-left:6px;color:#5665e8">${
+            item.value ?? 0
+          }%</span>`,
+          '</div>',
+        ].join('');
+      },
+    },
+    xAxis: {
+      type: 'category',
+      boundaryGap: false,
+      data: timePoints,
+      axisLine: {
+        lineStyle: {
+          color: '#dfe5f1',
+          width: 1,
+        },
+      },
+      axisTick: {
+        show: false,
+      },
+      axisLabel: {
+        interval: 0,
+        color: '#8791a8',
+        fontSize: 9,
+        margin: 8,
+        formatter: (value: string) =>
+          visibleTimeLabels.has(value) ? value : '',
+      },
+      splitLine: {
+        show: true,
+        interval: 9,
+        lineStyle: {
+          color: '#edf1f8',
+          width: 1,
+          type: 'dashed',
+        },
+      },
+    },
+    yAxis: {
+      type: 'value',
+      min: 0,
+      max: 100,
+      interval: 25,
+      axisLine: {
+        show: false,
+      },
+      axisTick: {
+        show: false,
+      },
+      axisLabel: {
+        color: '#8791a8',
+        fontSize: 9,
+        margin: 8,
+        formatter: '{value}%',
+      },
+      splitLine: {
+        lineStyle: {
+          color: '#e9edf5',
+          width: 1,
+        },
+      },
+    },
+    series: [
+      {
+        name: '专注度',
+        type: 'line',
+        data: focusData,
+        smooth: 0.42,
+        symbol: 'circle',
+        symbolSize: 3,
+        showSymbol: false,
+        emphasis: {
+          scale: 1.8,
+          itemStyle: {
+            borderColor: '#ffffff',
+            borderWidth: 2,
+          },
+        },
+        lineStyle: {
+          color: '#5969ef',
+          width: 2,
+          cap: 'round',
+          shadowColor: 'rgba(93, 105, 239, 0.18)',
+          shadowBlur: 4,
+          shadowOffsetY: 2,
+        },
+        itemStyle: {
+          color: '#5969ef',
+        },
+        areaStyle: {
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: 'rgba(99, 116, 239, 0.28)' },
+            { offset: 0.7, color: 'rgba(128, 153, 246, 0.08)' },
+            { offset: 1, color: 'rgba(255, 255, 255, 0)' },
+          ]),
+        },
+      },
+    ],
+  };
+
+  onMounted(() => {
+    if (!chartContainer.value) return;
+
+    chart = echarts.init(chartContainer.value);
+    chart.setOption(option);
+
+    resizeObserver = new ResizeObserver(() => {
+      chart?.resize();
+    });
+    resizeObserver.observe(chartContainer.value);
+  });
+
+  onBeforeUnmount(() => {
+    resizeObserver?.disconnect();
+    resizeObserver = null;
+    chart?.dispose();
+    chart = null;
   });
 </script>
 
 <style scoped>
-  /* 可以根据需要添加样式 */
+  .focus-chart {
+    width: 100%;
+    height: 142px;
+    min-width: 0;
+  }
 </style>

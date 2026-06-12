@@ -91,6 +91,8 @@ temp/
 # Cache
 .cache/
 .parcel-cache/
+.omx/
+.playwright-cli/
 
 # Test coverage
 coverage/

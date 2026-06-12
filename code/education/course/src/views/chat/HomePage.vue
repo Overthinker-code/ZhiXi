@@ -1,61 +1,160 @@
 <script setup>
-  import { ref, onMounted, onUnmounted, computed } from 'vue';
+  import { computed, onMounted, onUnmounted, ref } from 'vue';
+  import {
+    BadgeCheck,
+    Bell,
+    BookOpen,
+    Bot,
+    Brain,
+    GraduationCap,
+    Layers3,
+    Library,
+    LineChart,
+    LockKeyhole,
+    Route,
+    SearchCheck,
+    ShieldCheck,
+    Sparkles,
+    Target,
+    UsersRound,
+    Zap,
+  } from 'lucide-vue-next';
   import { useUserStore } from '@/store';
-  import { Search } from '@element-plus/icons-vue';
   import SearchDialog from './components/SearchDialog.vue';
-  import WaveDivider from '@/components/WaveDivider.vue';
-  import HomeBanner from '@/components/HomeBanner.vue';
-  import ZyMediaHero from '@/components/zy/ZyMediaHero.vue';
-  import { landingHeroPhotos, featureThumbnails } from '@/data/mediaCatalog';
+  import SiteFooter from '@/components/zy/SiteFooter.vue';
+  import { landingHeroPhotos } from '@/data/mediaCatalog';
 
-  const heroScene = landingHeroPhotos.primary;
-
-  const searchText = ref('');
   const showSearchDialog = ref(false);
-  const isHeaderScrolled = ref(false);
   const userStore = useUserStore();
   const isTeacher = computed(() => userStore.role === 'teacher');
   const primaryAction = computed(() =>
     isTeacher.value ? '/dashboard/workplace' : '/tutor'
   );
   const primaryText = computed(() =>
-    isTeacher.value ? '进入教学 →' : '开始 AI 伴学 →'
+    isTeacher.value ? '进入教学' : '开始 AI 伴学'
   );
   const secondaryAction = computed(() =>
-    isTeacher.value ? '/course/monitor' : '/course/list'
+    isTeacher.value ? '/course/resource-generation' : '/course/list'
   );
   const secondaryText = computed(() =>
-    isTeacher.value ? '实时课堂' : '我的课程'
+    isTeacher.value ? '资源生成中心' : '我的课程'
   );
 
-  // Header 滚动变色
-  const handleHeaderScroll = () => {
-    isHeaderScrolled.value = window.scrollY > 20;
-  };
-
-  // 功能亮点卡片数据（designup.md §2.2）
-  const features = [
-    { icon: '🧠', title: 'AI 智能问答', desc: '基于 RAG 的精准知识检索，告别无效搜索，直达答案核心', image: featureThumbnails.ai },
-    { icon: '🎯', title: '个性化学习路径', desc: '基于行为分析的专属推荐，让每位同学走最适合的路', image: featureThumbnails.path },
-    { icon: '👁️', title: '行为智能分析', desc: 'YOLO 实时识别，专注度可视化，帮助教师精准关注学生', image: featureThumbnails.behavior },
-    { icon: '📚', title: '多模态资源', desc: '视频、文档、PPT 统一检索，跨格式知识触手可得', image: featureThumbnails.resource },
-    { icon: '⚡', title: '4 种 AI 模式', desc: '导师 / 考试 / 简洁 / 苏格拉底，场景切换一键完成', image: featureThumbnails.modes },
-    { icon: '🔔', title: '智能预警', desc: '学习风险提前识别，教师及时介入，不让任何学生掉队', image: featureThumbnails.alert },
+  const trustBadges = [
+    { icon: ShieldCheck, label: '安全可靠' },
+    { icon: LockKeyhole, label: '隐私保护' },
+    { icon: GraduationCap, label: '教育专属优化' },
   ];
 
-  // 处理搜索框点击
-  const handleSearchClick = () => {
-    showSearchDialog.value = true;
-  };
+  const statsBar = [
+    { icon: BookOpen, tone: 'blue', value: '1200+', label: '优质课程资源' },
+    { icon: BadgeCheck, tone: 'green', value: '98%', label: '学生满意度' },
+    { icon: UsersRound, tone: 'violet', value: '50+', label: '合作院校' },
+    { icon: ShieldCheck, tone: 'orange', value: '10万+', label: '活跃学习者' },
+  ];
 
-  // 添加点击遮罩层关闭对话框的处理
+  const features = [
+    {
+      icon: Brain,
+      tone: 'violet',
+      title: 'AI 智能问答',
+      desc: '基于 RAG 精准知识检索，告别无效搜索，直达答案核心。',
+      link: '/tutor',
+      action: '立即体验',
+    },
+    {
+      icon: Target,
+      tone: 'green',
+      title: '个性化学习路径',
+      desc: '基于画像与掌握度的专属推荐，让每位同学走适合自己的路。',
+      link: '/profile/learning-data',
+      action: '了解更多',
+    },
+    {
+      icon: SearchCheck,
+      tone: 'blue',
+      title: '学习画像分析',
+      desc: '通过对话抽取目标、基础、风格与薄弱点，随学随新。',
+      link: '/profile/learning-data',
+      action: '查看示例',
+    },
+    {
+      icon: Layers3,
+      tone: 'amber',
+      title: '多模态资源',
+      desc: '讲解、文档、题库、导图与案例统一生成，跨格式知识触手可得。',
+      link: '/course/resource-generation',
+      action: '探索资源',
+    },
+    {
+      icon: Zap,
+      tone: 'cyan',
+      title: '4 种 AI 模式',
+      desc: '导师 / 考试 / 简洁 / 苏格拉底，场景切换一键完成。',
+      link: '/tutor',
+      action: '了解模式',
+    },
+    {
+      icon: Bell,
+      tone: 'rose',
+      title: '智能预警',
+      desc: '学习风险提前识别，及时调整资源与计划，不让问题持续积累。',
+      link: '/profile/messages',
+      action: '了解预警',
+    },
+  ];
+
+  const courseCategories = [
+    {
+      name: '计算机科学',
+      icon: Library,
+      tone: 'blue',
+      count: 368,
+      topics: '人工智能 · 编程 · 数据结构',
+    },
+    {
+      name: '经济管理',
+      icon: LineChart,
+      tone: 'green',
+      count: 256,
+      topics: '经管学 · 管理学 · 金融学',
+    },
+    {
+      name: '人文社科',
+      icon: BookOpen,
+      tone: 'amber',
+      count: 198,
+      topics: '文学 · 历史 · 心理学',
+    },
+    {
+      name: '理工科',
+      icon: Sparkles,
+      tone: 'violet',
+      count: 312,
+      topics: '数学 · 物理 · 化学',
+    },
+    {
+      name: '语言学习',
+      icon: Bot,
+      tone: 'cyan',
+      count: 156,
+      topics: '英语 · 日语 · 其他语言',
+    },
+    {
+      name: '职业技能',
+      icon: Route,
+      tone: 'rose',
+      count: 210,
+      topics: '设计 · 营销 · 办公软件',
+    },
+  ];
+
   const handleOverlayClick = (event) => {
     if (event.target.classList.contains('search-dialog-overlay')) {
       showSearchDialog.value = false;
     }
   };
 
-  // 处理点击外部关闭对话框
   const handleClickOutside = (event) => {
     const searchDialog = document.querySelector('.search-dialog');
     if (
@@ -67,12 +166,11 @@
     }
   };
 
-  // 处理快捷键
   const handleKeydown = (event) => {
     if (event.key === 'Escape') {
       showSearchDialog.value = false;
     }
-    if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
       event.preventDefault();
       showSearchDialog.value = true;
     }
@@ -81,180 +179,187 @@
   onMounted(() => {
     document.addEventListener('click', handleClickOutside);
     document.addEventListener('keydown', handleKeydown);
-    window.addEventListener('scroll', handleHeaderScroll, { passive: true });
   });
 
   onUnmounted(() => {
     document.removeEventListener('click', handleClickOutside);
     document.removeEventListener('keydown', handleKeydown);
-    window.removeEventListener('scroll', handleHeaderScroll);
   });
 </script>
 
-
 <template>
   <div class="home-page">
-
-    <!-- ===== Header（保留搜索交互逻辑）===== -->
-    <header class="header" :class="{ 'header--scrolled': isHeaderScrolled }">
-      <div class="header-left">
-        <!-- 智屿品牌 Logo -->
-        <div class="brand-logo">
-          <svg width="32" height="32" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <ellipse cx="18" cy="29" rx="12" ry="5" fill="#C8956C"/>
-            <rect x="16.5" y="18" width="3" height="11" rx="1.5" fill="#A0714A"/>
-            <circle cx="18" cy="14" r="8" fill="#6366f1"/>
-            <circle cx="18" cy="7" r="1.8" fill="white" opacity="0.9"/>
-            <circle cx="24.2" cy="17.5" r="1.8" fill="white" opacity="0.9"/>
-            <circle cx="11.8" cy="17.5" r="1.8" fill="white" opacity="0.9"/>
-          </svg>
-          <div class="brand-text">
-            <span class="brand-name">智屿</span>
-            <span class="brand-sub">智能教育平台</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="header-right">
-        <div class="search-container" @click="handleSearchClick">
-          <div class="search-input-box">
-            <el-icon class="search-icon"><Search /></el-icon>
-            <input type="text" placeholder="搜索课程、知识点..." readonly v-model="searchText" />
-            <div class="shortcut-key">⌘ K</div>
-          </div>
-        </div>
-      </div>
-    </header>
-
-    <!-- ===== Hero 区（designup.md §2.1）===== -->
     <main class="main-content">
-      <ZyMediaHero
-        v-if="!isTeacher"
-        class="home-hero-media"
-        title="伴学大厅"
-        subtitle="从这里进入 AI 伴学、浏览课程资源，或查看你的学习路径"
-        :image="heroScene"
-      />
       <section class="hero-section">
-        <!-- 左列：文字内容 -->
-        <div class="hero-left zy-fade-up">
-          <!-- 1. 胶囊标签 -->
-          <div class="hero-tag">
-            🤖 AI 驱动 · 智慧教学
-          </div>
+        <div class="hero-orbit hero-orbit--one" aria-hidden="true" />
+        <div class="hero-orbit hero-orbit--two" aria-hidden="true" />
 
-          <!-- 2. 主标题 H1 -->
+        <div class="hero-left">
           <h1 class="hero-title">
-            在知识的岛屿上<br>
-            <span class="hero-title-gradient">开启智慧航行</span>
+            在知识的岛屿上<br />
+            <span>开启智慧航行</span>
           </h1>
 
-          <!-- 3. 副标题 -->
           <p class="hero-desc">
-            智屿融合 AI 大模型、RAG 知识检索与行为分析，<br>
-            为每位学生提供专属学习路径。
+            智屿融合 AI 大模型、RAG 知识检索与行为分析，<br />
+            为每位学生提供专属学习路径，让学习更高效、更有趣。
           </p>
 
-          <!-- 4. 按钮组 -->
           <div class="hero-actions">
             <router-link :to="primaryAction" class="btn-primary">
               {{ primaryText }}
+              <span aria-hidden="true">→</span>
             </router-link>
             <router-link :to="secondaryAction" class="btn-outline">
               {{ secondaryText }}
             </router-link>
           </div>
 
-          <!-- 5. 数据展示行 -->
-          <div class="hero-stats">
-            <div class="stat-item">
-              <span class="stat-num">1200+</span>
-              <span class="stat-label">课程资源</span>
-            </div>
-            <div class="stat-divider"></div>
-            <div class="stat-item">
-              <span class="stat-num">98%</span>
-              <span class="stat-label">学生满意度</span>
-            </div>
-            <div class="stat-divider"></div>
-            <div class="stat-item">
-              <span class="stat-num">50+</span>
-              <span class="stat-label">合作院校</span>
+          <div class="trust-badges">
+            <div v-for="badge in trustBadges" :key="badge.label" class="trust-badge">
+              <component :is="badge.icon" :size="16" :stroke-width="1.9" />
+              <span>{{ badge.label }}</span>
             </div>
           </div>
         </div>
 
-        <!-- 右列：真实学习场景照片拼贴 -->
         <div class="hero-right">
-          <div class="hero-photo-collage">
-            <img
-              :src="landingHeroPhotos.primary"
-              alt="学生在课堂中学习"
-              class="hero-photo hero-photo--main"
-            />
+          <div class="visual-stage">
             <img
               :src="landingHeroPhotos.secondary"
-              alt="图书馆自习"
-              class="hero-photo hero-photo--sub hero-photo--tl"
+              alt="图书馆学习场景"
+              class="hero-photo hero-photo--library"
             />
             <img
               :src="landingHeroPhotos.accent"
-              alt="编程学习"
-              class="hero-photo hero-photo--sub hero-photo--br"
+              alt="AI 学习控制台"
+              class="hero-photo hero-photo--console"
             />
-            <div class="hero-photo-glow" aria-hidden="true" />
-          </div>
+            <img
+              :src="landingHeroPhotos.primary"
+              alt="小组学习讨论"
+              class="hero-photo hero-photo--team"
+            />
 
-          <div class="float-card float-card--tl zy-float" style="animation-delay: 0.4s">
-            <img :src="landingHeroPhotos.teamwork" alt="" class="float-card-thumb" />
-            <span class="float-card-text">AI 个性化推荐</span>
-          </div>
+            <div class="floating-card floating-card--assistant">
+              <span class="floating-card__icon">
+                <Bot :size="18" />
+              </span>
+              <div>
+                <strong>AI 伴学助手</strong>
+                <small>智能问答 · 个性推荐</small>
+              </div>
+            </div>
 
-          <div class="float-card float-card--rm zy-float" style="animation-delay: 1s">
-            <span class="float-card-icon">📊</span>
-            <span class="float-card-text">行为实时分析</span>
-          </div>
+            <div class="floating-card floating-card--analysis">
+              <span class="floating-card__icon floating-card__icon--chart">
+                <LineChart :size="18" />
+              </span>
+              <div class="analysis-body">
+                <strong>学习行为分析</strong>
+                <small>专注度 92%</small>
+                <div class="mini-chart" aria-hidden="true">
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                </div>
+              </div>
+            </div>
 
-          <div class="float-card float-card--bl zy-float" style="animation-delay: 1.8s">
-            <span class="float-card-icon">💬</span>
-            <span class="float-card-text">DeepSeek 式思考伴学</span>
+            <div class="floating-card floating-card--rag">
+              <span class="rag-avatar">
+                <Bot :size="18" />
+              </span>
+              <div>
+                <strong>DeepSeek RAG</strong>
+                <small>知识检索 · 精准回答</small>
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
-      <!-- 真实场景轮播 Banner -->
-      <section class="banner-section">
-        <HomeBanner />
+      <section class="stats-section" aria-label="平台数据">
+        <div class="stats-card">
+          <div
+            v-for="stat in statsBar"
+            :key="stat.label"
+            class="stats-card__item"
+            :class="`stats-card__item--${stat.tone}`"
+          >
+            <span class="stats-card__icon">
+              <component :is="stat.icon" :size="25" />
+            </span>
+            <div class="stats-card__text">
+              <strong>{{ stat.value }}</strong>
+              <span>{{ stat.label }}</span>
+            </div>
+          </div>
+        </div>
       </section>
 
-      <!-- ===== 波浪分隔线 ===== -->
-      <WaveDivider fill="rgba(99, 102, 241,0.06)" />
-
-      <!-- ===== 功能亮点区（designup.md §2.2）===== -->
       <section class="features-section">
-        <div class="section-header">
+        <div class="section-header section-header--center">
           <h2 class="section-title">为什么选择智屿？</h2>
-          <div class="section-line"></div>
+          <p class="section-subtitle">AI 驱动教育创新，助力每一位学习者成长</p>
         </div>
 
         <div class="features-grid">
-          <div v-for="feat in features" :key="feat.title" class="feature-card">
-            <div class="feat-cover">
-              <img :src="feat.image" :alt="feat.title" loading="lazy" />
-              <div class="feat-cover-overlay" />
+          <router-link
+            v-for="feat in features"
+            :key="feat.title"
+            :to="feat.link"
+            class="feature-card"
+            :class="`feature-card--${feat.tone}`"
+          >
+            <div class="feat-icon">
+              <component :is="feat.icon" :size="28" :stroke-width="1.8" />
             </div>
-            <div class="feat-body">
-              <div class="feat-icon">{{ feat.icon }}</div>
-              <h3 class="feat-title">{{ feat.title }}</h3>
-              <p class="feat-desc">{{ feat.desc }}</p>
-            </div>
-            <div class="feat-hover-bar"></div>
-          </div>
+            <h3 class="feat-title">{{ feat.title }}</h3>
+            <p class="feat-desc">{{ feat.desc }}</p>
+            <span class="feat-link">{{ feat.action }} →</span>
+          </router-link>
         </div>
       </section>
+
+      <section class="course-hub-section">
+        <div class="section-header section-header--course">
+          <div class="course-title-center">
+            <h2 class="section-title">课程资源中心</h2>
+            <p class="section-subtitle">覆盖多学科领域，满足不同学习需求</p>
+          </div>
+          <router-link to="/course/list" class="section-link">
+            浏览全部课程
+            <span aria-hidden="true">→</span>
+          </router-link>
+        </div>
+
+        <div class="course-cat-grid">
+          <router-link
+            v-for="cat in courseCategories"
+            :key="cat.name"
+            to="/course/list"
+            class="course-cat-card"
+            :class="`course-cat-card--${cat.tone}`"
+          >
+            <span class="course-cat-icon">
+              <component :is="cat.icon" :size="22" />
+            </span>
+            <div>
+              <strong>{{ cat.name }}</strong>
+              <small>{{ cat.topics }}</small>
+              <em>{{ cat.count }} 门课程</em>
+            </div>
+          </router-link>
+        </div>
+      </section>
+
+      <SiteFooter />
     </main>
 
-    <!-- ===== 搜索对话框（逻辑保持不变）===== -->
     <Transition name="fade">
       <div
         v-if="showSearchDialog"
@@ -269,544 +374,704 @@
   </div>
 </template>
 
-
 <style lang="scss" scoped>
-  /**
-   * 智屿 首页 - 品牌化视觉升级
-   * 规格：designup.md §2
-   * Hero 区左文右图，两列，功能亮点 6 卡片
-   */
-
   .home-page {
     min-height: 100vh;
-    background: var(--zy-gradient-hero, linear-gradient(135deg, #f5f3ff 0%, #FFFFFF 100%));
-    font-family: var(--zy-font-display, "PingFang SC", "Hiragino Sans GB", sans-serif);
+    background:
+      radial-gradient(circle at 72% 7%, rgba(129, 140, 248, 0.14), transparent 24%),
+      linear-gradient(180deg, #f8faff 0%, #ffffff 45%, #fbfdff 100%);
+    color: #15213b;
+    font-family:
+      'PingFang SC',
+      'Hiragino Sans GB',
+      'Microsoft YaHei',
+      sans-serif;
   }
 
-  .home-hero-media {
-    margin: 0 24px 8px;
-    max-width: 1120px;
-    margin-left: auto;
-    margin-right: auto;
-  }
-
-  /* ===== Header ===== */
-  .header {
-    position: sticky;
-    top: 0;
-    z-index: 100;
-    height: 64px;
-    padding: 0 40px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background-color: rgba(255, 255, 255, 0.92);
-    border-bottom: 1px solid rgba(99, 102, 241, 0.12);
-    transition: box-shadow 0.3s ease, backdrop-filter 0.3s ease;
-  }
-
-  .header--scrolled {
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    box-shadow: 0 2px 16px rgba(99, 102, 241, 0.10);
-  }
-
-  /* Logo */
-  .brand-logo {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    cursor: pointer;
-    text-decoration: none;
-    flex-shrink: 0;
-  }
-
-  .brand-text {
-    display: flex;
-    flex-direction: column;
-    line-height: 1;
-  }
-
-  .brand-name {
-    font-size: 18px;
-    font-weight: 700;
-    color: #0f172a;
-    letter-spacing: 0.02em;
-  }
-
-  .brand-sub {
-    font-size: 11px;
-    color: #64748b;
-    margin-top: 2px;
-  }
-
-  /* Header 右侧搜索 */
-  .header-right {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    flex: 1;
-    justify-content: flex-end;
-  }
-
-  .search-container {
-    flex: 1;
-    max-width: 280px;
-    cursor: pointer;
-  }
-
-  .search-input-box {
-    display: flex;
-    align-items: center;
-    height: 36px;
-    padding: 0 12px;
-    border-radius: 9999px;
-    background: rgba(99, 102, 241, 0.06);
-    border: 1px solid rgba(99, 102, 241, 0.20);
-    transition: all 0.2s ease;
-
-    &:hover {
-      border-color: rgba(99, 102, 241, 0.40);
-      background: rgba(99, 102, 241, 0.10);
-    }
-
-    .search-icon {
-      flex-shrink: 0;
-      font-size: 14px;
-      color: #64748b;
-      margin-right: 8px;
-    }
-
-    input {
-      flex: 1;
-      width: 0;
-      min-width: 0;
-      border: none;
-      outline: none;
-      background: none;
-      font-size: 13px;
-      color: #0f172a;
-      cursor: pointer;
-
-      &::placeholder {
-        color: #64748b;
-      }
-    }
-
-    .shortcut-key {
-      flex-shrink: 0;
-      font-size: 11px;
-      color: #64748b;
-      background: rgba(99, 102, 241, 0.10);
-      padding: 2px 6px;
-      border-radius: 4px;
-      border: 1px solid rgba(99, 102, 241, 0.25);
-    }
-  }
-
-  /* ===== 主内容 ===== */
   .main-content {
     width: 100%;
+    overflow: hidden;
   }
 
-  /* ===== Hero 区 ===== */
   .hero-section {
+    position: relative;
     display: grid;
-    grid-template-columns: 55% 45%;
+    grid-template-columns: 0.9fr 1.1fr;
     align-items: center;
-    min-height: calc(100vh - 64px);
-    max-width: 1280px;
+    max-width: 1232px;
+    min-height: 418px;
     margin: 0 auto;
-    padding: 60px 40px;
-    gap: 40px;
+    padding: 54px 24px 34px;
+    gap: 42px;
   }
 
-  /* ---- 左列 ---- */
+  .hero-orbit {
+    position: absolute;
+    pointer-events: none;
+    border: 1px dashed rgba(99, 102, 241, 0.18);
+    border-radius: 999px;
+    transform: rotate(-12deg);
+  }
+
+  .hero-orbit--one {
+    width: 540px;
+    height: 260px;
+    right: 28px;
+    top: 66px;
+  }
+
+  .hero-orbit--two {
+    width: 720px;
+    height: 330px;
+    right: -82px;
+    top: 18px;
+    opacity: 0.72;
+  }
+
   .hero-left {
+    position: relative;
+    z-index: 2;
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    align-items: flex-start;
   }
 
-  /* 胶囊标签 */
-  .hero-tag {
-    display: inline-flex;
-    align-items: center;
-    padding: 5px 14px;
-    border: 1px solid #6366f1;
-    color: #6366f1;
-    background: #eef2ff;
-    border-radius: 9999px;
-    font-size: 13px;
-    font-weight: 500;
-    width: fit-content;
-    letter-spacing: 0.03em;
-    animation: zy-fade-up 0.5s ease 0.1s both;
-  }
-
-  /* 主标题 */
   .hero-title {
-    font-size: 48px;
-    font-weight: 700;
-    color: #0f172a;
-    line-height: 1.2;
     margin: 0;
-    animation: zy-fade-up 0.5s ease 0.25s both;
+    color: #111a33;
+    font-size: 45px;
+    font-weight: 800;
+    line-height: 1.22;
+
+    span {
+      color: #4f5dfb;
+    }
   }
 
-  .hero-title-gradient {
-    background: linear-gradient(135deg, #6366f1, #3B82F6);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-
-  /* 副标题 */
   .hero-desc {
+    margin: 22px 0 0;
+    max-width: 500px;
+    color: #69758d;
     font-size: 16px;
-    color: #64748b;
-    line-height: 1.7;
-    max-width: 480px;
-    margin: 0;
-    animation: zy-fade-up 0.5s ease 0.4s both;
+    line-height: 1.78;
   }
 
-  /* 按钮组 */
   .hero-actions {
     display: flex;
-    gap: 12px;
+    gap: 14px;
+    margin-top: 31px;
     flex-wrap: wrap;
-    animation: zy-fade-up 0.5s ease 0.55s both;
+  }
+
+  .btn-primary,
+  .btn-outline {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 128px;
+    height: 48px;
+    padding: 0 25px;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 700;
+    text-decoration: none;
+    transition:
+      transform 0.18s ease,
+      box-shadow 0.18s ease,
+      border-color 0.18s ease;
   }
 
   .btn-primary {
-    display: inline-flex;
-    align-items: center;
-    padding: 14px 32px;
-    background: linear-gradient(135deg, #6366f1, #4f46e5);
+    gap: 8px;
+    background: linear-gradient(135deg, #5662ff 0%, #4053f4 100%);
     color: #fff;
-    border-radius: 9999px;
-    font-size: 16px;
-    font-weight: 600;
-    text-decoration: none;
-    box-shadow: 0 6px 24px rgba(99, 102, 241, 0.35);
-    transition: all 0.25s ease;
+    box-shadow: 0 14px 28px rgba(72, 86, 241, 0.25);
 
     &:hover {
+      color: #fff;
       transform: translateY(-2px);
-      box-shadow: 0 10px 32px rgba(99, 102, 241, 0.45);
+      box-shadow: 0 18px 34px rgba(72, 86, 241, 0.34);
     }
   }
 
   .btn-outline {
-    display: inline-flex;
-    align-items: center;
-    padding: 14px 32px;
-    border: 2px solid #6366f1;
-    color: #6366f1;
-    border-radius: 9999px;
-    font-size: 16px;
-    font-weight: 600;
-    text-decoration: none;
-    background: transparent;
-    transition: all 0.25s ease;
+    border: 1px solid #6977ff;
+    background: rgba(255, 255, 255, 0.78);
+    color: #4c5cf6;
 
     &:hover {
-      background: rgba(99, 102, 241, 0.08);
+      color: #3c48e5;
+      border-color: #4c5cf6;
       transform: translateY(-2px);
+      box-shadow: 0 12px 24px rgba(76, 92, 246, 0.13);
     }
   }
 
-  /* 数据展示行 */
-  .hero-stats {
+  .trust-badges {
     display: flex;
+    gap: 31px;
+    margin-top: 26px;
+    flex-wrap: wrap;
+  }
+
+  .trust-badge {
+    display: inline-flex;
     align-items: center;
-    gap: 20px;
-    animation: zy-fade-up 0.5s ease 0.7s both;
+    gap: 8px;
+    color: #66728a;
+    font-size: 13px;
+    font-weight: 600;
+
+    svg {
+      color: #596273;
+    }
   }
 
-  .stat-item {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .stat-num {
-    font-size: 22px;
-    font-weight: 700;
-    color: #6366f1;
-  }
-
-  .stat-label {
-    font-size: 12px;
-    color: #64748b;
-  }
-
-  .stat-divider {
-    width: 1px;
-    height: 36px;
-    background: rgba(99, 102, 241, 0.25);
-  }
-
-  /* ---- 右列：真实照片拼贴 ---- */
   .hero-right {
     position: relative;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    min-height: 420px;
+    z-index: 2;
+    min-height: 345px;
   }
 
-  .hero-photo-collage {
+  .visual-stage {
     position: relative;
-    width: 100%;
-    max-width: 460px;
-    aspect-ratio: 4 / 5;
+    width: min(100%, 658px);
+    height: 344px;
+    margin-left: auto;
   }
 
   .hero-photo {
+    position: absolute;
     object-fit: cover;
-    border-radius: 20px;
-    box-shadow: 0 20px 50px rgba(15, 23, 42, 0.18);
-    border: 3px solid rgba(255, 255, 255, 0.85);
+    border: 3px solid rgba(255, 255, 255, 0.92);
+    box-shadow: 0 22px 46px rgba(25, 37, 73, 0.16);
   }
 
-  .hero-photo--main {
-    width: 78%;
-    height: 72%;
-    position: absolute;
-    right: 0;
-    top: 8%;
+  .hero-photo--library {
+    top: 0;
+    left: 133px;
+    width: 294px;
+    height: 168px;
+    border-radius: 18px 18px 5px 5px;
+  }
+
+  .hero-photo--console {
+    top: 118px;
+    left: 0;
+    width: 220px;
+    height: 126px;
+    border-radius: 14px;
     z-index: 2;
   }
 
-  .hero-photo--sub {
-    width: 46%;
-    height: 34%;
-    position: absolute;
+  .hero-photo--team {
+    right: 64px;
+    bottom: 0;
+    width: 316px;
+    height: 181px;
+    border-radius: 4px 18px 18px 18px;
     z-index: 3;
   }
 
-  .hero-photo--tl {
-    left: 0;
-    top: 0;
-  }
-
-  .hero-photo--br {
-    left: 6%;
-    bottom: 0;
-  }
-
-  .hero-photo-glow {
+  .floating-card {
     position: absolute;
-    inset: 10% 5% 5% 10%;
-    background: radial-gradient(circle at 60% 40%, rgba(99, 102, 241, 0.28), transparent 65%);
-    z-index: 1;
-    pointer-events: none;
-  }
-
-  .banner-section {
-    max-width: 1280px;
-    margin: 0 auto;
-    padding: 0 40px 20px;
-  }
-
-  /* 浮动卡片 */
-  .float-card {
-    position: absolute;
+    z-index: 5;
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 10px 14px;
-    background: rgba(255, 255, 255, 0.94);
-    backdrop-filter: blur(8px);
+    gap: 10px;
+    min-width: 166px;
+    padding: 13px 15px;
+    border: 1px solid rgba(226, 232, 255, 0.9);
     border-radius: 12px;
-    border-left: 3px solid #6366f1;
-    box-shadow: 0 6px 24px rgba(99, 102, 241, 0.15);
-    white-space: nowrap;
-    z-index: 5;
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: 0 16px 42px rgba(42, 55, 104, 0.12);
+    backdrop-filter: blur(10px);
+
+    strong {
+      display: block;
+      color: #1b2540;
+      font-size: 13px;
+      font-weight: 800;
+      line-height: 1.2;
+      white-space: nowrap;
+    }
+
+    small {
+      display: block;
+      margin-top: 5px;
+      color: #718095;
+      font-size: 11px;
+      line-height: 1.2;
+      white-space: nowrap;
+    }
   }
 
-  .float-card-thumb {
-    width: 28px;
+  .floating-card__icon,
+  .rag-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    background: #eef3ff;
+    color: #4d63f7;
+  }
+
+  .floating-card__icon--chart {
+    background: #eff6ff;
+    color: #3182ff;
+  }
+
+  .rag-avatar {
+    background: linear-gradient(145deg, #dbeafe, #edf2ff);
+    color: #2f63f4;
+  }
+
+  .floating-card--assistant {
+    left: 103px;
+    top: 211px;
+  }
+
+  .floating-card--analysis {
+    top: 22px;
+    right: 0;
+    width: 183px;
+    align-items: flex-start;
+  }
+
+  .floating-card--rag {
+    right: 4px;
+    bottom: -2px;
+  }
+
+  .analysis-body {
+    flex: 1;
+  }
+
+  .mini-chart {
+    display: flex;
+    align-items: flex-end;
+    gap: 7px;
     height: 28px;
-    border-radius: 8px;
-    object-fit: cover;
+    margin-top: 8px;
+
+    i {
+      display: block;
+      width: 3px;
+      border-radius: 4px;
+      background: #4c63ff;
+
+      &:nth-child(1) { height: 17px; opacity: 0.7; }
+      &:nth-child(2) { height: 12px; opacity: 0.48; }
+      &:nth-child(3) { height: 10px; opacity: 0.42; }
+      &:nth-child(4) { height: 22px; opacity: 0.88; }
+      &:nth-child(5) { height: 15px; opacity: 0.62; }
+      &:nth-child(6) { height: 26px; }
+    }
   }
 
-  .float-card-icon { font-size: 18px; }
-  .float-card-text { font-size: 13px; font-weight: 600; color: #0f172a; }
-
-  /* 卡片位置 */
-  .float-card--tl { top: 10%; left: -8%; }
-  .float-card--rm { top: 42%; right: -10%; }
-  .float-card--bl { bottom: 12%; left: -5%; }
-
-  /* ===== 功能亮点区 ===== */
-  .features-section {
-    max-width: 1280px;
+  .stats-section {
+    max-width: 1232px;
     margin: 0 auto;
-    padding: 80px 40px 100px;
+    padding: 0 24px;
+  }
+
+  .stats-card {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    min-height: 84px;
+    border: 1px solid #e2e8f7;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: 0 18px 46px rgba(42, 55, 104, 0.06);
+  }
+
+  .stats-card__item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    min-width: 0;
+    padding: 15px 18px;
+
+    & + &::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 24px;
+      bottom: 24px;
+      width: 1px;
+      background: #e7ebf6;
+    }
+  }
+
+  .stats-card__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+  }
+
+  .stats-card__item--blue .stats-card__icon {
+    background: #e9efff;
+    color: #3568ff;
+  }
+
+  .stats-card__item--green .stats-card__icon {
+    background: #e8fbee;
+    color: #19bf68;
+  }
+
+  .stats-card__item--violet .stats-card__icon {
+    background: #efeaff;
+    color: #7258ff;
+  }
+
+  .stats-card__item--orange .stats-card__icon {
+    background: #fff2df;
+    color: #ff9d24;
+  }
+
+  .stats-card__text {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+
+    strong {
+      color: #16213a;
+      font-size: 26px;
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    span {
+      color: #66728a;
+      font-size: 13px;
+    }
+  }
+
+  .features-section {
+    max-width: 1232px;
+    margin: 0 auto;
+    padding: 39px 24px 10px;
   }
 
   .section-header {
+    margin-bottom: 21px;
+  }
+
+  .section-header--center {
     text-align: center;
-    margin-bottom: 56px;
   }
 
   .section-title {
-    font-size: 32px;
-    font-weight: 700;
-    color: #0f172a;
-    margin: 0 0 12px;
+    margin: 0;
+    color: #111a33;
+    font-size: 25px;
+    font-weight: 800;
+    line-height: 1.25;
   }
 
-  .section-line {
-    width: 48px;
-    height: 4px;
-    background: linear-gradient(90deg, #6366f1, #3B82F6);
-    border-radius: 9999px;
-    margin: 0 auto;
+  .section-subtitle {
+    margin: 9px 0 0;
+    color: #7a879c;
+    font-size: 14px;
   }
 
-  /* 功能卡片 6 列 Grid */
   .features-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 24px;
-  }
-
-  @media (max-width: 900px) {
-    .features-grid { grid-template-columns: repeat(2, 1fr); }
-  }
-
-  @media (max-width: 560px) {
-    .features-grid { grid-template-columns: 1fr; }
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 16px;
   }
 
   .feature-card {
-    position: relative;
-    background: #FFFFFF;
-    border-radius: 16px;
-    border: 1px solid rgba(99, 102, 241, 0.08);
-    box-shadow: 0 4px 24px rgba(99, 102, 241, 0.06);
-    overflow: hidden;
-    cursor: default;
-    transition: transform 0.25s ease, box-shadow 0.25s ease;
+    display: flex;
+    min-height: 178px;
+    flex-direction: column;
+    padding: 20px 18px 18px;
+    border: 1px solid #e9edf7;
+    border-radius: 12px;
+    background: #fff;
+    color: inherit;
+    text-decoration: none;
+    box-shadow: 0 14px 34px rgba(45, 55, 93, 0.045);
+    transition:
+      transform 0.18s ease,
+      border-color 0.18s ease,
+      box-shadow 0.18s ease;
 
     &:hover {
-      transform: translateY(-4px);
-      box-shadow: 0 8px 32px rgba(99, 102, 241, 0.15);
-
-      .feat-hover-bar {
-        opacity: 1;
-      }
-
-      .feat-cover img {
-        transform: scale(1.06);
-      }
+      transform: translateY(-3px);
+      border-color: rgba(99, 102, 241, 0.28);
+      box-shadow: 0 20px 42px rgba(45, 55, 93, 0.09);
     }
-  }
-
-  .feat-cover {
-    position: relative;
-    height: 140px;
-    overflow: hidden;
-
-    img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      transition: transform 0.45s ease;
-    }
-  }
-
-  .feat-cover-overlay {
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(180deg, transparent 30%, rgba(15, 23, 42, 0.55) 100%);
-  }
-
-  .feat-body {
-    padding: 20px 22px 24px;
-  }
-
-  /* 底部绿色 hover 边条 */
-  .feat-hover-bar {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 3px;
-    background: linear-gradient(90deg, #6366f1, #3B82F6);
-    border-radius: 0 0 16px 16px;
-    opacity: 0;
-    transition: opacity 0.3s ease;
   }
 
   .feat-icon {
-    font-size: 36px;
-    margin-bottom: 16px;
-    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    margin-bottom: 14px;
+    border-radius: 50%;
   }
 
+  .feature-card--violet .feat-icon { background: #f0edff; color: #745cff; }
+  .feature-card--green .feat-icon { background: #e9faef; color: #1fbf67; }
+  .feature-card--blue .feat-icon { background: #eaf1ff; color: #3b6dff; }
+  .feature-card--amber .feat-icon { background: #fff3df; color: #f59a23; }
+  .feature-card--cyan .feat-icon { background: #e8fbff; color: #17a9d5; }
+  .feature-card--rose .feat-icon { background: #ffedf3; color: #ef4d79; }
+
   .feat-title {
-    font-size: 17px;
-    font-weight: 600;
-    color: #0f172a;
-    margin: 0 0 10px;
+    margin: 0 0 13px;
+    color: #1a2440;
+    font-size: 15px;
+    font-weight: 800;
   }
 
   .feat-desc {
-    font-size: 14px;
-    color: #64748b;
-    line-height: 1.6;
+    flex: 1;
     margin: 0;
+    color: #6f7c92;
+    font-size: 12px;
+    line-height: 1.78;
   }
 
-  /* ===== 搜索对话框 ===== */
+  .feat-link {
+    margin-top: 13px;
+    color: #5162f5;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .course-hub-section {
+    max-width: 1232px;
+    margin: 0 auto;
+    padding: 3px 24px 29px;
+  }
+
+  .section-header--course {
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+  }
+
+  .course-title-center {
+    text-align: center;
+  }
+
+  .section-link {
+    position: absolute;
+    right: 0;
+    bottom: 4px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: #5362f6;
+    font-size: 13px;
+    font-weight: 700;
+    text-decoration: none;
+
+    &:hover {
+      color: #3545e6;
+    }
+  }
+
+  .course-cat-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .course-cat-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 72px;
+    padding: 13px 14px;
+    border: 1px solid #e9edf7;
+    border-radius: 9px;
+    color: inherit;
+    text-decoration: none;
+    transition:
+      transform 0.18s ease,
+      box-shadow 0.18s ease,
+      border-color 0.18s ease;
+
+    &:hover {
+      transform: translateY(-2px);
+      border-color: rgba(86, 98, 255, 0.26);
+      box-shadow: 0 14px 28px rgba(42, 55, 104, 0.08);
+    }
+
+    strong,
+    small,
+    em {
+      display: block;
+    }
+
+    strong {
+      color: #202a44;
+      font-size: 13px;
+      font-weight: 800;
+      line-height: 1.2;
+    }
+
+    small {
+      margin-top: 5px;
+      color: #69758b;
+      font-size: 11px;
+      line-height: 1.2;
+      white-space: nowrap;
+    }
+
+    em {
+      margin-top: 5px;
+      color: #7a86a0;
+      font-size: 11px;
+      font-style: normal;
+    }
+  }
+
+  .course-cat-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    flex: 0 0 auto;
+    border-radius: 10px;
+  }
+
+  .course-cat-card--blue { background: linear-gradient(135deg, #f0f4ff, #ffffff); }
+  .course-cat-card--green { background: linear-gradient(135deg, #edfbf4, #ffffff); }
+  .course-cat-card--amber { background: linear-gradient(135deg, #fff6e9, #ffffff); }
+  .course-cat-card--violet { background: linear-gradient(135deg, #f4efff, #ffffff); }
+  .course-cat-card--cyan { background: linear-gradient(135deg, #ecfbff, #ffffff); }
+  .course-cat-card--rose { background: linear-gradient(135deg, #fff0f5, #ffffff); }
+
+  .course-cat-card--blue .course-cat-icon { background: #e9efff; color: #3568ff; }
+  .course-cat-card--green .course-cat-icon { background: #e6faee; color: #16b962; }
+  .course-cat-card--amber .course-cat-icon { background: #fff0d7; color: #f59a23; }
+  .course-cat-card--violet .course-cat-icon { background: #efe9ff; color: #735aff; }
+  .course-cat-card--cyan .course-cat-icon { background: #e4faff; color: #0ea7cf; }
+  .course-cat-card--rose .course-cat-icon { background: #ffebf2; color: #ee4a78; }
+
   .search-dialog-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(15, 23, 42, 0.45);
+    z-index: 1000;
     display: flex;
     justify-content: center;
-    z-index: 1000;
+    background: rgba(15, 23, 42, 0.45);
     backdrop-filter: blur(4px);
   }
 
   .search-dialog-container {
-    margin-top: 15vh;
     width: 640px;
     max-width: 92vw;
+    margin-top: 15vh;
   }
 
-  /* ===== 过渡动画 ===== */
-  .fade-enter-active, .fade-leave-active {
+  .fade-enter-active,
+  .fade-leave-active {
     transition: opacity 0.2s ease;
   }
 
-  .fade-enter-from, .fade-leave-to {
+  .fade-enter-from,
+  .fade-leave-to {
     opacity: 0;
   }
 
-  /* ===== 响应式 ===== */
-  @media (max-width: 900px) {
+  @media (max-width: 1180px) {
     .hero-section {
       grid-template-columns: 1fr;
       min-height: auto;
-      padding: 48px 24px;
+      padding-top: 46px;
     }
 
-    .hero-right {
-      min-height: 320px;
-      margin-top: 12px;
+    .visual-stage {
+      margin: 0 auto;
     }
 
-    .hero-title { font-size: 36px; }
+    .features-grid,
+    .course-cat-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
 
-    .header { padding: 0 24px; }
+  @media (max-width: 820px) {
+    .hero-title {
+      font-size: 36px;
+    }
 
-    .banner-section { padding: 0 24px 20px; }
+    .stats-card {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .stats-card__item:nth-child(3)::before {
+      display: none;
+    }
+
+    .section-header--course {
+      align-items: center;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .section-link {
+      position: static;
+    }
+
+    .features-grid,
+    .course-cat-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 560px) {
+    .hero-section {
+      padding: 34px 16px 24px;
+    }
+
+    .hero-title {
+      font-size: 31px;
+    }
+
+    .hero-desc br {
+      display: none;
+    }
+
+    .visual-stage {
+      height: 300px;
+      transform: scale(0.86);
+      transform-origin: center top;
+      margin-bottom: -40px;
+    }
+
+    .stats-section,
+    .features-section,
+    .course-hub-section {
+      padding-left: 16px;
+      padding-right: 16px;
+    }
+
+    .stats-card,
+    .features-grid,
+    .course-cat-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .stats-card__item::before {
+      display: none;
+    }
   }
 </style>

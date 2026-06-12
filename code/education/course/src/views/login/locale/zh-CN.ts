@@ -6,7 +6,7 @@ export default {
   'login.form.login.errMsg': '登录出错，轻刷新重试',
   'login.form.login.success': '欢迎使用',
   'login.form.userName.placeholder': "用户名：admin{'@'}example.com / student{'@'}example.com",
-  'login.form.password.placeholder': '密码：admin123456 / student',
+  'login.form.password.placeholder': '密码：admin123456 / student123456',
   'login.form.rememberPassword': '记住密码',
   'login.form.forgetPassword': '忘记密码',
   'login.form.login': '登录',

@@ -40,6 +40,8 @@ export default {
   'menu.profile': '个人中心',
   'menu.visualization': '数据可视化',
   'menu.course': '课程中心',
+  'menu.resourceWorkshop': '学习资源工坊',
+  'menu.resourceGeneration': '资源生成中心',
   'menu.digitalHuman': '数字人',
   'menu.digitalHuman.tools': '数字人工具',
   'menu.digitalHuman.pptToVideo': 'PPT 转视频',

@@ -1,4 +1,5 @@
 export { default as ZyPageEnter } from './ZyPageEnter.vue';
+export { default as ZyPageShell } from './ZyPageShell.vue';
 export { default as ZySkeleton } from './ZySkeleton.vue';
 export { default as ZyEmptyGuide } from './ZyEmptyGuide.vue';
 export { default as AiProcessTimeline } from './AiProcessTimeline.vue';

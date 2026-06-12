@@ -1,20 +1,37 @@
 <template>
   <div class="classroom-ai">
-    <div class="ai-head">
-      <div class="title-row">
-        <span class="name">小智</span>
-        <span class="course">当前课程：数据库原理</span>
-      </div>
+    <header class="mobile-topbar">
+      <button type="button" class="back-btn" aria-label="返回">
+        <icon-left />
+      </button>
+      <h1>课堂 AI 助理</h1>
+      <span class="topbar-spacer" />
+    </header>
+
+    <div class="course-card">
+      <span class="course-badge">当前课程</span>
+      <strong>数据库原理</strong>
+      <span class="course-meta">第 5 章 · 事务与并发控制</span>
     </div>
+
     <div ref="messagePanel" class="message-panel" @scroll="handlePanelScroll">
       <div class="assistant-card">
-        <div class="intro">
-          Hi，我是小智，在数据库原理课程学习中，我可以为你提供以下帮助：
-          <br />
-          1. 回答数据库学习中的知识点问题
-          <br />
-          2. 讲解练习/测验里不会的题目和易错点
+        <div class="xiaozhi-head">
+          <div class="xiaozhi-avatar">智</div>
+          <div>
+            <strong>小智</strong>
+            <span>课堂 AI 助教</span>
+          </div>
         </div>
+        <p class="intro-lead">
+          Hi，我是小智！在数据库原理课程中，我可以帮你：
+        </p>
+        <ul class="feature-list">
+          <li><icon-book /> 讲解知识点与考试要点</li>
+          <li><icon-edit /> 批改练习与测验作答</li>
+          <li><icon-image /> 解析图片题目与 ER 图</li>
+          <li><icon-bulb /> 生成复习提纲与易错提醒</li>
+        </ul>
       </div>
       <div v-for="item in messages" :key="item.id" class="bubble-row">
         <div :class="item.role === 'user' ? 'bubble user' : 'bubble assistant'">
@@ -50,11 +67,19 @@
         </div>
       </div>
     </div>
-    <div class="suggestions" v-if="suggestions.length">
+    <div class="suggestions">
       <button
-        v-for="s in suggestions"
+        v-for="s in defaultChips"
         :key="s"
         class="suggestion-pill"
+        @click="handleSuggestion(s)"
+      >
+        {{ s }}
+      </button>
+      <button
+        v-for="s in suggestions"
+        :key="`dyn-${s}`"
+        class="suggestion-pill suggestion-pill--dynamic"
         @click="handleSuggestion(s)"
       >
         {{ s }}
@@ -183,6 +208,13 @@
 
   const DEFAULT_SYSTEM_PROMPT =
     '你是数据库原理课的课堂助教，请以教师口吻清晰讲解知识点，优先给出能直接用于考试与刷题的要点。';
+
+  const defaultChips = [
+    '解释事务 ACID',
+    '讲解这道 SQL 题',
+    '总结本章要点',
+    '复习薄弱知识点',
+  ];
 
   const inputValue = ref('');
   const loading = ref(false);
@@ -627,45 +659,156 @@
     height: 100%;
     display: flex;
     flex-direction: column;
-    background: linear-gradient(180deg, #f5f3ff 0%, #eef2ff 45%, #f8fafc 100%);
+    background: linear-gradient(180deg, #f5f3ff 0%, #eef2ff 40%, #f8fafc 100%);
     border-radius: 20px;
     overflow: hidden;
   }
-  .ai-head {
-    padding: 14px 16px;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-    .title-row {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      .name {
-        font-size: 26px;
-        font-weight: 800;
-        color: #312e81;
-      }
-      .course {
-        color: #475569;
-        font-size: 15px;
-        font-weight: 500;
-      }
+
+  .mobile-topbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    background: rgba(255, 255, 255, 0.92);
+    border-bottom: 1px solid rgba(99, 102, 241, 0.08);
+
+    h1 {
+      flex: 1;
+      margin: 0;
+      text-align: center;
+      font-size: 16px;
+      font-weight: 800;
+      color: #312e81;
     }
   }
+
+  .back-btn {
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: 50%;
+    background: var(--zy-bg-tag, #eef2ff);
+    color: var(--zy-color-brand, #6366f1);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 16px;
+  }
+
+  .topbar-spacer {
+    width: 32px;
+    flex-shrink: 0;
+  }
+
+  .course-card {
+    margin: 10px 12px 0;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: #fff;
+    border: 1px solid rgba(99, 102, 241, 0.12);
+    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.08);
+
+    strong {
+      display: block;
+      margin: 4px 0 2px;
+      font-size: 16px;
+      color: #1e293b;
+    }
+  }
+
+  .course-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(99, 102, 241, 0.1);
+    color: #6366f1;
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .course-meta {
+    font-size: 12px;
+    color: #64748b;
+  }
+
   .message-panel {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    padding: 12px;
+    padding: 10px 12px;
   }
+
   .assistant-card {
     background: #fff;
-    border-radius: 14px;
-    padding: 12px 14px;
+    border-radius: 16px;
+    padding: 16px;
     margin-bottom: 8px;
-    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.1);
-    .intro {
-      font-size: 14px;
-      line-height: 1.45;
-      color: #1e293b;
+    box-shadow: 0 8px 24px rgba(99, 102, 241, 0.12);
+    border: 1px solid rgba(99, 102, 241, 0.08);
+  }
+
+  .xiaozhi-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+
+    strong {
+      display: block;
+      font-size: 18px;
+      color: #312e81;
+    }
+
+    span {
+      font-size: 12px;
+      color: #64748b;
+    }
+  }
+
+  .xiaozhi-avatar {
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    font-weight: 800;
+    box-shadow: 0 6px 16px rgba(99, 102, 241, 0.3);
+  }
+
+  .intro-lead {
+    margin: 0 0 10px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #334155;
+  }
+
+  .feature-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+
+    li {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 0;
+      font-size: 13px;
+      color: #475569;
+      border-bottom: 1px solid #f1f5f9;
+
+      &:last-child {
+        border-bottom: none;
+      }
+
+      svg {
+        color: #6366f1;
+        flex-shrink: 0;
+      }
     }
   }
   .bubble-row {
@@ -720,21 +863,37 @@
     flex-wrap: wrap;
     gap: 7px;
     padding: 0 12px 8px;
+
     .suggestion-pill {
-      border: 1px solid #c9d4f0;
+      border: 1px solid rgba(99, 102, 241, 0.2);
       border-radius: 999px;
       font-size: 12px;
-      padding: 5px 10px;
-      background: #f4f7ff;
-      color: #3a4f7a;
+      padding: 6px 12px;
+      background: #fff;
+      color: #4f46e5;
+      font-weight: 600;
       cursor: pointer;
+      transition: background 0.15s ease;
+
+      &:hover {
+        background: #eef2ff;
+      }
+
+      &--dynamic {
+        border-style: dashed;
+        color: #64748b;
+      }
     }
   }
+
   .input-wrap {
     position: relative;
-    padding: 9px 10px 10px;
-    background: rgba(255, 255, 255, 0.5);
-    border-top: 1px solid rgba(255, 255, 255, 0.8);
+    margin: 0 10px 10px;
+    padding: 10px 12px;
+    background: #fff;
+    border: 1px solid rgba(99, 102, 241, 0.12);
+    border-radius: 16px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
     flex-shrink: 0;
 
     &.is-dragging {

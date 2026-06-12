@@ -40,6 +40,14 @@ from app.models import (
 from app.models.chat import Chat
 from app.models.chat_thread import ChatThread
 from app.models.learning_path import LearningPath
+from app.models.student_hub import (
+    PracticeRecord,
+    StudentAchievement,
+    StudentNotification,
+    StudentPoints,
+    StudyGroup,
+    StudyGroupMember,
+)
 from app.schemas.user import UserCreate
 from app.models.user_memory_profile import UserMemoryProfile
 
@@ -443,6 +451,162 @@ def seed_learning_for_user(session: Session, user: User) -> None:
     session.commit()
 
 
+NOTIFICATION_SEEDS = [
+    ("学情诊断完成", "你的数据库学情报告已更新，薄弱点：索引优化、B+树。", "system", "/profile/learning-data"),
+    ("新作业发布", "数据库系统 · 作业2 已发布，截止 7 天后。", "course", "/course/list"),
+    ("小组讨论提醒", "「数据库冲刺小组」有新回复，快去看看。", "group", "/learning/groups"),
+    ("练习推荐", "根据你的薄弱点，推荐完成 B+树专项练习。", "practice", "/learning/practice"),
+    ("成就解锁", "恭喜获得「连续学习 7 天」成就，+50 积分。", "achievement", "/profile/achievements"),
+]
+
+ACHIEVEMENT_SEEDS = [
+    ("first_chat", "初次对话", "完成第一次 AI 伴学对话", "chat", 20),
+    ("week_streak", "连续学习 7 天", "连续 7 天保持学习活跃", "fire", 50),
+    ("practice_master", "练习达人", "累计完成 10 次题库练习", "target", 80),
+    ("group_leader", "小组先锋", "创建或加入学习小组", "users", 30),
+]
+
+PRACTICE_SEEDS = [
+    ("数据库系统", "索引优化", 15, 11, 73.3, 420),
+    ("数据库系统", "B+树结构", 12, 8, 66.7, 360),
+    ("数据库系统", "事务与并发", 10, 7, 70.0, 300),
+    ("机器学习", "监督学习", 8, 6, 75.0, 240),
+]
+
+
+def seed_student_hub(
+    session: Session,
+    user: User,
+    student: Student | None,
+    tcs: list[TC],
+) -> None:
+    existing = session.exec(
+        select(StudentNotification).where(StudentNotification.user_id == user.id).limit(1)
+    ).first()
+    if existing:
+        return
+
+    now = datetime.now(timezone.utc)
+    for i, (title, body, category, link) in enumerate(NOTIFICATION_SEEDS):
+        session.add(
+            StudentNotification(
+                id=uuid.uuid4(),
+                user_id=user.id,
+                title=title,
+                body=body,
+                category=category,
+                is_read=i >= 3,
+                link=link,
+                created_at=now - timedelta(hours=i * 6),
+            )
+        )
+
+    if student and tcs:
+        tc = tcs[0]
+        group = StudyGroup(
+            id=uuid.uuid4(),
+            name="数据库冲刺小组",
+            description="期末复习互助，每周两次线上讨论。",
+            tc_id=tc.id,
+            owner_student_id=student.id,
+            member_count=4,
+            updated_at=now,
+        )
+        session.add(group)
+        session.flush()
+
+        peers = session.exec(
+            select(Student)
+            .join(StudentTC, StudentTC.student_id == Student.id)
+            .where(StudentTC.tc_id == tc.id, Student.id != student.id)
+            .limit(3)
+        ).all()
+        session.add(
+            StudyGroupMember(
+                group_id=group.id,
+                student_id=student.id,
+                role="owner",
+            )
+        )
+        for peer in peers:
+            session.add(
+                StudyGroupMember(
+                    group_id=group.id,
+                    student_id=peer.id,
+                    role="member",
+                )
+            )
+
+        if len(tcs) > 1:
+            tc2 = tcs[1]
+            group2 = StudyGroup(
+                id=uuid.uuid4(),
+                name=f"{tc2.name} 学习圈",
+                description="课程配套练习与笔记共享。",
+                tc_id=tc2.id,
+                owner_student_id=peers[0].id if peers else student.id,
+                member_count=2,
+                updated_at=now,
+            )
+            session.add(group2)
+            session.flush()
+            session.add(
+                StudyGroupMember(group_id=group2.id, student_id=student.id, role="member")
+            )
+            if peers:
+                session.add(
+                    StudyGroupMember(
+                        group_id=group2.id,
+                        student_id=peers[0].id,
+                        role="owner",
+                    )
+                )
+
+    rng = _rng(23)
+    for i, (subject, topic, total, correct, score, duration) in enumerate(PRACTICE_SEEDS):
+        session.add(
+            PracticeRecord(
+                id=uuid.uuid4(),
+                user_id=user.id,
+                student_id=student.id if student else None,
+                subject=subject,
+                topic=topic,
+                total_questions=total,
+                correct_count=correct,
+                score=score,
+                duration_seconds=duration,
+                practiced_at=now - timedelta(days=i + 1, hours=rng.randint(1, 8)),
+            )
+        )
+
+    total_points = 0
+    for i, (code, title, desc, icon, pts) in enumerate(ACHIEVEMENT_SEEDS):
+        session.add(
+            StudentAchievement(
+                id=uuid.uuid4(),
+                user_id=user.id,
+                code=code,
+                title=title,
+                description=desc,
+                icon=icon,
+                points_awarded=pts,
+                earned_at=now - timedelta(days=len(ACHIEVEMENT_SEEDS) - i),
+            )
+        )
+        total_points += pts
+
+    session.add(
+        StudentPoints(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            total_points=total_points,
+            level=max(1, total_points // 100),
+            updated_at=now,
+        )
+    )
+    session.commit()
+
+
 def run_seed(*, student_count: int = 120, behavior_days: int = 30) -> dict:
     with Session(engine) as session:
         admin = session.exec(
@@ -460,6 +624,10 @@ def run_seed(*, student_count: int = 120, behavior_days: int = 30) -> dict:
             user = session.exec(select(User).where(User.email == email)).first()
             if user:
                 seed_learning_for_user(session, user)
+                student = session.exec(
+                    select(Student).where(Student.user_id == user.id)
+                ).first()
+                seed_student_hub(session, user, student, tcs)
         return {
             "courses": len(courses),
             "teaching_classes": len(tcs),

@@ -10,6 +10,14 @@ from app.models.chat_thread import ChatThread
 from app.models.user import User
 from app.models.user_memory_profile import UserMemoryProfile
 from app.models.learning_path import LearningPath
+from app.models.student_hub import (
+    PracticeRecord,
+    StudentAchievement,
+    StudentNotification,
+    StudentPoints,
+    StudyGroup,
+    StudyGroupMember,
+)
 from app.models.message import Message
 from app.core.enums import MessageStatus, MessageType
 
@@ -64,6 +72,13 @@ __all__ = [
     "ItemUpdate",
     "User",
     "UserMemoryProfile",
+    "LearningPath",
+    "PracticeRecord",
+    "StudentAchievement",
+    "StudentNotification",
+    "StudentPoints",
+    "StudyGroup",
+    "StudyGroupMember",
     "UserCreate",
     "UserUpdate",
     "MessageStatus",

@@ -1,0 +1,252 @@
+{
+  "generated_at": "2026-06-11T04:20:55.991906+00:00",
+  "base_url": "http://127.0.0.1:8001",
+  "elapsed_seconds": 262.09,
+  "summary": {
+    "pass": 21,
+    "fail": 0,
+    "degraded": 0,
+    "skip": 0
+  },
+  "environment": {
+    "healthz": {
+      "status": 200,
+      "body": {
+        "service": "backend",
+        "status": "ok",
+        "models": {
+          "chat_model": {
+            "provider": "ollama",
+            "model": "qwen3:14b",
+            "reachable": true,
+            "base_url": "http://127.0.0.1:11434"
+          },
+          "multimodal_model": {
+            "provider": "openai_compatible",
+            "model": "Qwen3-VL-8B-Instruct",
+            "runtime_model": "qwen3-vl:8b",
+            "fallback_model": "Qwen3-VL-4B-Instruct",
+            "configured": true,
+            "reachable": true,
+            "base_url": "http://127.0.0.1:11434/v1",
+            "vision_probe": {
+              "configured": true,
+              "probe_ok": true,
+              "status": "ok",
+              "model": "qwen3-vl:8b",
+              "field_summary": {
+                "content": 11,
+                "reasoning": 276
+              },
+              "sample": "这是一张纯红色的图片。"
+            }
+          }
+        }
+      }
+    },
+    "readyz": {
+      "status": 200,
+      "body": {
+        "service": "backend",
+        "status": "ready",
+        "db": "ok",
+        "models": {
+          "chat_model": {
+            "provider": "ollama",
+            "model": "qwen3:14b",
+            "reachable": true,
+            "base_url": "http://127.0.0.1:11434"
+          },
+          "multimodal_model": {
+            "provider": "openai_compatible",
+            "model": "Qwen3-VL-8B-Instruct",
+            "runtime_model": "qwen3-vl:8b",
+            "fallback_model": "Qwen3-VL-4B-Instruct",
+            "configured": true,
+            "reachable": true,
+            "base_url": "http://127.0.0.1:11434/v1",
+            "vision_probe": {
+              "configured": true,
+              "probe_ok": true,
+              "status": "ok",
+              "model": "qwen3-vl:8b",
+              "field_summary": {
+                "content": 11,
+                "reasoning": 223
+              },
+              "sample": "这是一张纯红色的图片。"
+            }
+          }
+        }
+      }
+    }
+  },
+  "results": [
+    {
+      "name": "healthz",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {}
+    },
+    {
+      "name": "readyz",
+      "status": "pass",
+      "detail": "http 200 db=ok",
+      "meta": {}
+    },
+    {
+      "name": "login",
+      "status": "pass",
+      "detail": "token acquired",
+      "meta": {}
+    },
+    {
+      "name": "users/me",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "email": "admin@example.com"
+      }
+    },
+    {
+      "name": "chat_stream_text",
+      "status": "pass",
+      "detail": "citation:1]。\n\n\n\n\n索引是数据库中用于加速数据检索的**数据结构**，它通过减少查询时需要扫描的数据量来提高查询效率 [citation:1]。",
+      "meta": {
+        "thoughts": 14
+      }
+    },
+    {
+      "name": "chat_stream_multimodal",
+      "status": "pass",
+      "detail": "您上传的图片中仅有纯红色背景，未包含任何文字、图表、公式或与题目相关的元素。当前画面无法提供与数据库事务管理、隔离级别或其他知识点相关的具体内容。若您的学习目标涉及事务管理（掌握度45%）和隔离级别（掌握度50%），建议补充以下基础内容：\n\n**事务管理核心概念**\n- **原子性**（Atomicity）：操作要么全成功，要么全失败 $$例：银行转账时，扣款与存款必须同时完成$$\n- **一致性**（Consistency）：事务前后数据库状态保持有效 $$例：转账后双方账",
+      "meta": {
+        "vision_thoughts": [
+          "【视觉识别】status=ok source=multimodal model=qwen3-vl:8b fields={'content': 36, 'reasoning': 121} summary=图片中只有纯红色背景，无题干、图表、选项、公式和已知条件等题目相关元素。"
+        ],
+        "unrecognized_template": false
+      }
+    },
+    {
+      "name": "learning_report_me",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "has_summary": true
+      }
+    },
+    {
+      "name": "learning_report_diagnose",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "possibly_template": true
+      }
+    },
+    {
+      "name": "learning_report_review-plan",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "possibly_template": false
+      }
+    },
+    {
+      "name": "learning_report_mistake-digest",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "possibly_template": false
+      }
+    },
+    {
+      "name": "learning_path_me",
+      "status": "pass",
+      "detail": "has_path",
+      "meta": {
+        "degraded": false
+      }
+    },
+    {
+      "name": "resource_workshop_packages",
+      "status": "pass",
+      "detail": "http 200 mode=llm",
+      "meta": {
+        "generation_mode": "llm"
+      }
+    },
+    {
+      "name": "resource_workshop_grade",
+      "status": "pass",
+      "detail": "http 200 score=8.0",
+      "meta": {}
+    },
+    {
+      "name": "resource_workshop_image",
+      "status": "pass",
+      "detail": "http 200 source=qwen3-vl status=success",
+      "meta": {}
+    },
+    {
+      "name": "rag_upload",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "file_id": "62d89515-1a14-4131-ac41-7159aed54474"
+      }
+    },
+    {
+      "name": "behavior_analyze_image",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "source": null
+      }
+    },
+    {
+      "name": "dashboard_teacher_stats",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {}
+    },
+    {
+      "name": "dashboard_teacher_alerts-trend",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {}
+    },
+    {
+      "name": "dashboard_teacher_popular",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {}
+    },
+    {
+      "name": "dashboard_teacher_content-distribution",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {}
+    },
+    {
+      "name": "digital_human_health",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "body": {
+          "engine": "musetalk",
+          "checks": {
+            "celery_enabled": true,
+            "ffmpeg": true,
+            "fallback_renderer": true,
+            "musetalk_dir": true,
+            "musetalk_unet": true,
+            "musetalk_config": true,
+            "wav2lip_dir": false,
+            "default_asset": true
+          },
+          "ready": true
+        }
+      }
+    }
+  ]
+}

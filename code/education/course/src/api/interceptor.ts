@@ -171,6 +171,7 @@ axios.interceptors.response.use(
         if (u.includes('/education/')) return true;
         if (u.includes('/chat/')) return true;
         if (u.includes('/message/')) return true;
+        if (u.includes('/student-hub/messages')) return true;
         if (u.includes('/profile/basic')) return true;
         if (u.includes('/operation/log')) return true;
         if (u.includes('/behavior/')) return true;

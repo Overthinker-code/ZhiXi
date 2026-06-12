@@ -1,75 +1,135 @@
 <template>
   <div class="kg-outer">
-    <svg class="kg-svg" viewBox="0 0 960 372" xmlns="http://www.w3.org/2000/svg">
+    <svg
+      class="kg-svg"
+      viewBox="0 0 720 300"
+      preserveAspectRatio="xMidYMid meet"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-label="数据库系统原理课程知识图谱"
+    >
       <defs>
-        <marker
-          id="kg-ar"
-          markerWidth="8"
-          markerHeight="8"
-          refX="6"
-          refY="4"
-          orient="auto"
+        <linearGradient id="kg-center-fill" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#6058ef" />
+          <stop offset="100%" stop-color="#8757df" />
+        </linearGradient>
+        <radialGradient id="kg-halo" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#7768ef" stop-opacity=".14" />
+          <stop offset="100%" stop-color="#7768ef" stop-opacity="0" />
+        </radialGradient>
+        <filter
+          id="kg-center-shadow"
+          x="-35%"
+          y="-60%"
+          width="170%"
+          height="220%"
         >
-          <path d="M0,0 L8,4 L0,8 Z" fill="#64748b" />
-        </marker>
+          <feDropShadow
+            dx="0"
+            dy="8"
+            stdDeviation="9"
+            flood-color="#6d5bdb"
+            flood-opacity=".28"
+          />
+        </filter>
+        <filter
+          id="kg-node-shadow"
+          x="-25%"
+          y="-60%"
+          width="150%"
+          height="220%"
+        >
+          <feDropShadow
+            dx="0"
+            dy="3"
+            stdDeviation="3"
+            flood-color="#596780"
+            flood-opacity=".12"
+          />
+        </filter>
       </defs>
 
-      <g
-        v-for="e in edges"
-        :key="e.k"
-        fill="none"
-        stroke="#475569"
-        stroke-width="1.3"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        marker-end="url(#kg-ar)"
-      >
+      <ellipse cx="360" cy="148" rx="112" ry="82" fill="url(#kg-halo)" />
+
+      <g class="kg-edges" fill="none" stroke-linecap="round">
         <path
-          v-show="step >= e.s"
-          :d="e.d"
-          class="e-line"
-          :class="{ on: step >= e.s }"
+          v-for="edge in edges"
+          :key="edge.key"
+          v-show="step >= edge.step"
+          :d="edge.path"
+          class="edge-line"
+          :class="{ 'on': step >= edge.step, 'edge-line--leaf': edge.leaf }"
         />
-        <text
-          v-if="e.lb"
-          v-show="step >= e.s"
-          :x="e.lx"
-          :y="e.ly"
-          font-size="10"
-          fill="#64748b"
-          class="e-lbl"
-          :class="{ on: step >= e.s }"
-          :text-anchor="e.ta || 'start'"
-        >
-          {{ e.lb }}
-        </text>
       </g>
 
       <g
-        v-for="n in nodes"
-        :key="n.k"
-        class="n-pop"
-        :class="{ on: step >= n.s }"
+        v-show="step >= 1"
+        class="node-pop node-hotspot center-node"
+        :class="{ on: step >= 1 }"
+        role="button"
+        tabindex="0"
+        @pointerdown.stop
+        @click.stop="emitNodePrompt('数据库系统原理', $event)"
+        @keydown.enter.stop="emitNodePrompt('数据库系统原理', $event)"
       >
         <rect
-          v-show="step >= n.s"
-          :x="n.x"
-          :y="n.y"
-          :width="n.w"
-          :height="n.h"
-          rx="5"
-          fill="#ede9fe"
-          stroke="#8b5cf6"
+          x="286"
+          y="125"
+          width="148"
+          height="46"
+          rx="11"
+          fill="url(#kg-center-fill)"
+          filter="url(#kg-center-shadow)"
+        />
+        <circle
+          cx="303"
+          cy="148"
+          r="5"
+          fill="none"
+          stroke="rgba(255,255,255,.75)"
+        />
+        <circle cx="303" cy="148" r="1.8" fill="#fff" />
+        <text x="365" y="153" text-anchor="middle">数据库系统原理</text>
+      </g>
+
+      <g
+        v-for="node in nodes"
+        :key="node.key"
+        v-show="step >= node.step"
+        class="node-pop node-hotspot"
+        :class="[
+          { on: step >= node.step },
+          node.kind === 'topic' ? 'topic-node' : 'leaf-node',
+        ]"
+        role="button"
+        tabindex="0"
+        @pointerdown.stop
+        @click.stop="emitNodePrompt(node.text, $event)"
+        @keydown.enter.stop="emitNodePrompt(node.text, $event)"
+      >
+        <rect
+          :x="node.x"
+          :y="node.y"
+          :width="node.width"
+          :height="node.height"
+          :rx="node.kind === 'topic' ? 8 : 6"
+          :fill="node.fill"
+          :stroke="node.stroke"
+          :filter="node.kind === 'topic' ? 'url(#kg-node-shadow)' : undefined"
+        />
+        <circle
+          v-if="node.kind === 'topic'"
+          :cx="node.x + 11"
+          :cy="node.y + node.height / 2"
+          r="2.8"
+          :fill="node.accent"
         />
         <text
-          v-show="step >= n.s"
-          :x="n.x + n.w / 2"
-          :y="n.y + n.h / 2 + 4"
+          :x="node.x + node.width / 2 + (node.kind === 'topic' ? 4 : 0)"
+          :y="node.y + node.height / 2 + 3.5"
           text-anchor="middle"
-          font-size="11"
-          fill="#1e293b"
+          :fill="node.textColor"
         >
-          {{ n.t }}
+          {{ node.text }}
         </text>
       </g>
     </svg>
@@ -80,83 +140,446 @@
   import { ref, watch, onUnmounted } from 'vue';
 
   const props = defineProps<{ active: boolean }>();
-  const emit = defineEmits<{ complete: [] }>();
+  const emit = defineEmits<{
+    complete: [];
+    nodePrompt: [payload: { text: string; rect: DOMRect }];
+  }>();
 
   const step = ref(0);
   let timer: ReturnType<typeof setInterval> | null = null;
 
-  /** 分层排布，折线连接，边标签偏离线段中点以减少遮挡 */
+  const topicStyle = {
+    fill: '#edf3ff',
+    stroke: '#b9cafa',
+    accent: '#6c72e8',
+    textColor: '#405078',
+  };
+  const leafStyle = {
+    fill: '#fbfcff',
+    stroke: '#dbe2f3',
+    accent: '#9ca9c7',
+    textColor: '#68748e',
+  };
+
   const nodes = [
-    { k: 'r', s: 1, x: 418, y: 18, w: 124, h: 30, t: '数据库原理' },
-    { k: 'a', s: 2, x: 16, y: 68, w: 118, h: 26, t: '数据库系统结构' },
-    { k: 'b', s: 2, x: 146, y: 68, w: 82, h: 26, t: '数据模型' },
-    { k: 'c', s: 2, x: 238, y: 68, w: 90, h: 26, t: '数据库语言' },
-    { k: 'd', s: 2, x: 340, y: 68, w: 86, h: 26, t: '事务管理' },
-    { k: 'e', s: 2, x: 438, y: 68, w: 114, h: 26, t: '存储与索引' },
-    { k: 'f', s: 2, x: 564, y: 68, w: 90, h: 26, t: '查询处理' },
-    { k: 'g', s: 3, x: 36, y: 128, w: 84, h: 24, t: '关系模型' },
-    { k: 'h', s: 3, x: 132, y: 128, w: 70, h: 24, t: 'ER模型' },
-    { k: 'i', s: 3, x: 322, y: 128, w: 78, h: 24, t: 'ACID特性' },
-    { k: 'j', s: 3, x: 412, y: 128, w: 82, h: 24, t: '故障恢复' },
-    { k: 'n', s: 3, x: 510, y: 128, w: 58, h: 24, t: 'B+树' },
-    { k: 'o', s: 3, x: 584, y: 128, w: 82, h: 24, t: '哈希索引' },
-    { k: 'p', s: 4, x: 16, y: 188, w: 76, h: 24, t: '关系代数' },
-    { k: 'q', s: 4, x: 102, y: 188, w: 96, h: 24, t: '规范化理论' },
-    { k: 'k', s: 4, x: 406, y: 188, w: 82, h: 24, t: '文件组织' },
-    { k: 'l', s: 4, x: 502, y: 188, w: 82, h: 24, t: '索引结构' },
-    { k: 'v', s: 4, x: 688, y: 188, w: 86, h: 24, t: '执行计划' },
-    { k: 'm', s: 5, x: 332, y: 248, w: 94, h: 24, t: '并发控制' },
-    { k: 'r2', s: 5, x: 108, y: 248, w: 58, h: 24, t: '范式' },
-    { k: 's', s: 5, x: 176, y: 248, w: 72, h: 24, t: '锁机制' },
-    { k: 't', s: 6, x: 292, y: 308, w: 108, h: 24, t: '两段锁协议' },
-    { k: 'u', s: 6, x: 412, y: 308, w: 90, h: 24, t: '可串行化' },
+    {
+      key: 'model',
+      step: 2,
+      kind: 'topic',
+      text: '数据模型',
+      x: 105,
+      y: 38,
+      width: 94,
+      height: 30,
+      ...topicStyle,
+    },
+    {
+      key: 'relational',
+      step: 2,
+      kind: 'leaf',
+      text: '关系模型',
+      x: 12,
+      y: 8,
+      width: 72,
+      height: 21,
+      ...leafStyle,
+    },
+    {
+      key: 'er',
+      step: 2,
+      kind: 'leaf',
+      text: 'ER模型',
+      x: 18,
+      y: 42,
+      width: 66,
+      height: 21,
+      ...leafStyle,
+    },
+    {
+      key: 'algebra',
+      step: 2,
+      kind: 'leaf',
+      text: '关系代数',
+      x: 8,
+      y: 76,
+      width: 76,
+      height: 21,
+      ...leafStyle,
+    },
+
+    {
+      key: 'sql',
+      step: 3,
+      kind: 'topic',
+      text: 'SQL语言',
+      x: 84,
+      y: 126,
+      width: 94,
+      height: 30,
+      ...topicStyle,
+    },
+    {
+      key: 'select',
+      step: 3,
+      kind: 'leaf',
+      text: '查询',
+      x: 8,
+      y: 108,
+      width: 52,
+      height: 21,
+      ...leafStyle,
+    },
+    {
+      key: 'update',
+      step: 3,
+      kind: 'leaf',
+      text: '更新',
+      x: 4,
+      y: 137,
+      width: 56,
+      height: 21,
+      ...leafStyle,
+    },
+    {
+      key: 'view',
+      step: 3,
+      kind: 'leaf',
+      text: '视图',
+      x: 8,
+      y: 166,
+      width: 52,
+      height: 21,
+      ...leafStyle,
+    },
+
+    {
+      key: 'concurrency',
+      step: 4,
+      kind: 'topic',
+      text: '并发控制',
+      x: 142,
+      y: 220,
+      width: 102,
+      height: 30,
+      ...topicStyle,
+    },
+    {
+      key: 'lock',
+      step: 4,
+      kind: 'leaf',
+      text: '锁机制',
+      x: 34,
+      y: 251,
+      width: 64,
+      height: 21,
+      ...leafStyle,
+    },
+    {
+      key: 'schedule',
+      step: 4,
+      kind: 'leaf',
+      text: '并发调度',
+      x: 108,
+      y: 270,
+      width: 72,
+      height: 21,
+      ...leafStyle,
+    },
+    {
+      key: 'deadlock',
+      step: 4,
+      kind: 'leaf',
+      text: '死锁处理',
+      x: 190,
+      y: 270,
+      width: 72,
+      height: 21,
+      ...leafStyle,
+    },
+
+    {
+      key: 'normalization',
+      step: 5,
+      kind: 'topic',
+      text: '规范化',
+      x: 476,
+      y: 220,
+      width: 102,
+      height: 30,
+      ...topicStyle,
+    },
+    {
+      key: 'dependency',
+      step: 5,
+      kind: 'leaf',
+      text: '函数依赖',
+      x: 458,
+      y: 270,
+      width: 72,
+      height: 21,
+      ...leafStyle,
+    },
+    {
+      key: 'normal-form',
+      step: 5,
+      kind: 'leaf',
+      text: '范式',
+      x: 540,
+      y: 270,
+      width: 58,
+      height: 21,
+      ...leafStyle,
+    },
+    {
+      key: 'decomposition',
+      step: 5,
+      kind: 'leaf',
+      text: '模式分解',
+      x: 608,
+      y: 251,
+      width: 72,
+      height: 21,
+      ...leafStyle,
+    },
+
+    {
+      key: 'transaction',
+      step: 6,
+      kind: 'topic',
+      text: '事务处理',
+      x: 542,
+      y: 126,
+      width: 96,
+      height: 30,
+      ...topicStyle,
+    },
+    {
+      key: 'acid',
+      step: 6,
+      kind: 'leaf',
+      text: 'ACID',
+      x: 658,
+      y: 108,
+      width: 52,
+      height: 21,
+      ...leafStyle,
+    },
+    {
+      key: 'log',
+      step: 6,
+      kind: 'leaf',
+      text: '日志',
+      x: 654,
+      y: 137,
+      width: 56,
+      height: 21,
+      ...leafStyle,
+    },
+    {
+      key: 'recovery',
+      step: 6,
+      kind: 'leaf',
+      text: '恢复',
+      x: 658,
+      y: 166,
+      width: 52,
+      height: 21,
+      ...leafStyle,
+    },
+
+    {
+      key: 'index',
+      step: 7,
+      kind: 'topic',
+      text: '索引与优化',
+      x: 513,
+      y: 38,
+      width: 108,
+      height: 30,
+      ...topicStyle,
+    },
+    {
+      key: 'btree',
+      step: 7,
+      kind: 'leaf',
+      text: 'B+树',
+      x: 642,
+      y: 8,
+      width: 58,
+      height: 21,
+      ...leafStyle,
+    },
+    {
+      key: 'index-structure',
+      step: 7,
+      kind: 'leaf',
+      text: '索引结构',
+      x: 636,
+      y: 42,
+      width: 72,
+      height: 21,
+      ...leafStyle,
+    },
+    {
+      key: 'query-plan',
+      step: 7,
+      kind: 'leaf',
+      text: '执行计划',
+      x: 636,
+      y: 76,
+      width: 72,
+      height: 21,
+      ...leafStyle,
+    },
   ];
 
   const edges = [
-    { k: 'e1', s: 2, d: 'M 480 48 Q 342 54 75 68' },
-    { k: 'e2', s: 2, d: 'M 480 48 Q 388 54 187 68' },
-    { k: 'e3', s: 2, d: 'M 480 48 Q 430 54 283 68' },
-    { k: 'e4', s: 2, d: 'M 480 48 Q 456 56 383 68' },
-    { k: 'e5', s: 2, d: 'M 480 48 Q 506 56 495 68' },
-    { k: 'e6', s: 2, d: 'M 480 48 Q 560 54 609 68' },
-    { k: 'e7', s: 3, d: 'M 78 94 L 78 128' },
-    { k: 'e8', s: 3, d: 'M 167 94 L 167 128' },
-    { k: 'e9', s: 4, d: 'M 78 152 L 54 188' },
-    { k: 'e10', s: 4, d: 'M 78 152 L 150 188' },
-    { k: 'e11', s: 4, d: 'M 167 152 L 54 188' },
-    { k: 'e12', s: 4, d: 'M 167 152 L 150 188' },
-    { k: 'e13', s: 5, d: 'M 150 212 L 137 248' },
-    { k: 'e14', s: 5, d: 'M 150 212 L 212 248' },
-    { k: 'e15', s: 3, d: 'M 383 94 L 361 128' },
     {
-      k: 'e16',
-      s: 5,
-      d: 'M 361 152 L 361 206 L 379 206 L 379 248',
-      lb: '保证',
-      lx: 368,
-      ly: 198,
-      ta: 'start' as const,
+      key: 'center-model',
+      step: 2,
+      path: 'M 295 133 C 258 105, 226 73, 199 55',
     },
-    { k: 'e17', s: 6, d: 'M 379 272 L 346 308' },
-    { k: 'e18', s: 6, d: 'M 379 272 L 457 308' },
-    { k: 'e19', s: 3, d: 'M 495 94 L 453 128' },
-    { k: 'e20', s: 3, d: 'M 495 94 L 539 128' },
-    { k: 'e21', s: 4, d: 'M 453 152 L 447 188' },
-    { k: 'e22', s: 4, d: 'M 539 152 L 543 188' },
     {
-      k: 'e23',
-      s: 3,
-      d: 'M 609 94 L 609 112 L 625 112 L 625 128',
-      lb: '加速',
-      lx: 632,
-      ly: 106,
-      ta: 'start' as const,
+      key: 'model-relational',
+      step: 2,
+      leaf: true,
+      path: 'M 105 52 C 94 39, 88 24, 84 19',
     },
-    { k: 'e24', s: 4, d: 'M 625 152 L 625 182 L 543 182 L 543 188' },
-    { k: 'e25', s: 4, d: 'M 625 152 L 625 174 L 731 174 L 731 188' },
+    {
+      key: 'model-er',
+      step: 2,
+      leaf: true,
+      path: 'M 105 53 C 96 53, 90 52, 84 52',
+    },
+    {
+      key: 'model-algebra',
+      step: 2,
+      leaf: true,
+      path: 'M 105 55 C 94 67, 90 80, 84 86',
+    },
+
+    {
+      key: 'center-sql',
+      step: 3,
+      path: 'M 286 146 C 245 144, 207 141, 178 141',
+    },
+    {
+      key: 'sql-select',
+      step: 3,
+      leaf: true,
+      path: 'M 84 138 C 74 131, 67 122, 60 119',
+    },
+    {
+      key: 'sql-update',
+      step: 3,
+      leaf: true,
+      path: 'M 84 141 C 75 143, 68 146, 60 147',
+    },
+    {
+      key: 'sql-view',
+      step: 3,
+      leaf: true,
+      path: 'M 84 144 C 74 154, 67 170, 60 176',
+    },
+
+    {
+      key: 'center-concurrency',
+      step: 4,
+      path: 'M 306 169 C 273 190, 241 215, 218 225',
+    },
+    {
+      key: 'concurrency-lock',
+      step: 4,
+      leaf: true,
+      path: 'M 159 250 C 137 255, 115 260, 98 261',
+    },
+    {
+      key: 'concurrency-schedule',
+      step: 4,
+      leaf: true,
+      path: 'M 183 250 C 170 260, 158 270, 144 270',
+    },
+    {
+      key: 'concurrency-deadlock',
+      step: 4,
+      leaf: true,
+      path: 'M 209 250 C 219 259, 225 267, 226 270',
+    },
+
+    {
+      key: 'center-normalization',
+      step: 5,
+      path: 'M 414 169 C 447 190, 479 215, 502 225',
+    },
+    {
+      key: 'normalization-dependency',
+      step: 5,
+      leaf: true,
+      path: 'M 500 250 C 497 259, 495 266, 494 270',
+    },
+    {
+      key: 'normalization-form',
+      step: 5,
+      leaf: true,
+      path: 'M 526 250 C 540 260, 555 269, 569 270',
+    },
+    {
+      key: 'normalization-decomposition',
+      step: 5,
+      leaf: true,
+      path: 'M 552 250 C 572 256, 592 261, 608 261',
+    },
+
+    {
+      key: 'center-transaction',
+      step: 6,
+      path: 'M 434 146 C 475 144, 513 141, 542 141',
+    },
+    {
+      key: 'transaction-acid',
+      step: 6,
+      leaf: true,
+      path: 'M 638 138 C 646 131, 651 122, 658 119',
+    },
+    {
+      key: 'transaction-log',
+      step: 6,
+      leaf: true,
+      path: 'M 638 141 C 644 143, 649 146, 654 147',
+    },
+    {
+      key: 'transaction-recovery',
+      step: 6,
+      leaf: true,
+      path: 'M 638 144 C 646 154, 651 170, 658 176',
+    },
+
+    {
+      key: 'center-index',
+      step: 7,
+      path: 'M 425 133 C 462 105, 493 73, 521 55',
+    },
+    {
+      key: 'index-btree',
+      step: 7,
+      leaf: true,
+      path: 'M 621 51 C 630 39, 637 24, 642 19',
+    },
+    {
+      key: 'index-structure-edge',
+      step: 7,
+      leaf: true,
+      path: 'M 621 53 C 627 53, 631 52, 636 52',
+    },
+    {
+      key: 'index-plan',
+      step: 7,
+      leaf: true,
+      path: 'M 621 55 C 629 67, 633 80, 636 86',
+    },
   ];
 
-  const MAX_STEP = 6;
+  const MAX_STEP = 7;
 
   function stop() {
     if (timer) {
@@ -165,12 +588,20 @@
     }
   }
 
+  function emitNodePrompt(text: string, event: Event) {
+    event.preventDefault();
+    event.stopPropagation();
+    const target = event.currentTarget as SVGGElement | null;
+    if (!target) return;
+    emit('nodePrompt', { text, rect: target.getBoundingClientRect() });
+  }
+
   watch(
     () => props.active,
-    (a) => {
+    (active) => {
       stop();
       step.value = 0;
-      if (!a) return;
+      if (!active) return;
       timer = setInterval(() => {
         if (step.value >= MAX_STEP) {
           stop();
@@ -178,7 +609,7 @@
           return;
         }
         step.value += 1;
-      }, 460);
+      }, 360);
     },
     { immediate: true }
   );
@@ -189,48 +620,117 @@
 <style scoped lang="less">
   .kg-outer {
     width: 100%;
-    overflow-x: auto;
-    background: linear-gradient(180deg, #faf5ff 0%, #fff 100%);
-    border-radius: 10px;
-    border: 1px solid #722ed1;
+    height: 100%;
+    min-height: 0;
+    max-height: 300px;
+    overflow: hidden;
+    border-radius: 12px;
+    background: radial-gradient(
+        circle at 50% 48%,
+        rgba(115, 99, 229, 0.06),
+        transparent 34%
+      ),
+      linear-gradient(180deg, #fcfbff 0%, #fff 100%);
   }
 
   .kg-svg {
     display: block;
-    min-width: 940px;
     width: 100%;
-    height: auto;
-    min-height: 352px;
+    height: 100%;
+    overflow: visible;
 
     :deep(text) {
+      font-family: inherit;
       user-select: text;
-      pointer-events: auto;
+      pointer-events: none;
     }
   }
 
-  .e-line {
-    opacity: 0.35;
-    transition: opacity 0.35s ease;
+  .edge-line {
+    stroke: #93a4cc;
+    stroke-width: 1.35;
+    stroke-dasharray: 4 4;
+    opacity: 0;
+
+    &.on {
+      animation: kg-edge-in 0.48s ease-out both;
+    }
+  }
+
+  .edge-line--leaf {
+    stroke: #b7c2dc;
+    stroke-width: 1.05;
+    stroke-dasharray: 3 4;
+  }
+
+  .node-pop {
+    opacity: 0;
+    transform: scale(0.82);
+    transform-box: fill-box;
+    transform-origin: center;
+    transition: opacity 0.3s ease,
+      transform 0.38s cubic-bezier(0.2, 0.85, 0.3, 1.25);
 
     &.on {
       opacity: 1;
+      transform: scale(1);
     }
   }
 
-  .e-lbl {
-    opacity: 0.45;
-    pointer-events: none;
+  .center-node text {
+    fill: #fff;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.035em;
+  }
 
-    &.on {
+  .topic-node text {
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .leaf-node text {
+    font-size: 9.5px;
+    font-weight: 500;
+  }
+
+  .node-hotspot {
+    cursor: pointer;
+    outline: none;
+
+    rect {
+      transition: filter 0.2s ease, stroke-width 0.2s ease, transform 0.2s ease;
+      transform-box: fill-box;
+      transform-origin: center;
+    }
+
+    &:hover rect,
+    &:focus-visible rect {
+      stroke-width: 1.7;
+      filter: drop-shadow(0 6px 7px rgba(84, 76, 160, 0.2));
+      transform: translateY(-1px);
+    }
+  }
+
+  @keyframes kg-edge-in {
+    from {
+      opacity: 0;
+      stroke-dashoffset: 18;
+    }
+    to {
       opacity: 1;
+      stroke-dashoffset: 0;
     }
   }
 
-  .n-pop {
-    opacity: 0.4;
-    transition: opacity 0.35s ease;
+  @media (prefers-reduced-motion: reduce) {
+    .edge-line,
+    .node-pop {
+      animation: none;
+      transition: none;
+    }
 
-    &.on {
+    .edge-line.on {
       opacity: 1;
     }
   }

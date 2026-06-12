@@ -3,7 +3,6 @@
   import { useChatStore } from '@/store/chat';
   import { streamInterventionEvents } from '@/api/rag';
   import { useChat } from '@/hooks/useChat';
-  import { Plus } from '@element-plus/icons-vue';
   import 'animate.css';
   import { computed, nextTick, onActivated, onMounted, onUnmounted, ref, watch } from 'vue';
   import { onBeforeRouteLeave, useRoute } from 'vue-router';
@@ -243,6 +242,13 @@
   });
 
   const initialPrompt = computed(() => String(route.query.prompt || ''));
+
+  const quickChips = [
+    '总结本章',
+    '讲解这道题',
+    '生成提纲',
+    '复习薄弱点',
+  ];
 </script>
 
 <template>
@@ -250,12 +256,13 @@
     <div class="chat-header">
       <div class="header-left">
         <PopupMenu ref="popupMenu" />
-        <el-button class="new-chat-btn" :icon="Plus" @click="handleNewChat">
+        <a-button class="new-chat-btn" type="primary" size="small" @click="handleNewChat">
+          <template #icon><icon-plus /></template>
           新对话
-        </el-button>
-        <div class="divider"></div>
-        <div class="title-wrapper">
-          <h1 class="chat-title">{{ currentTitle }}</h1>
+        </a-button>
+        <div class="conversation-tab">
+          <span class="tab-dot" />
+          <h1 class="chat-title">{{ currentTitle || '当前对话' }}</h1>
           <button
             v-if="chatStore.currentConversationId"
             type="button"
@@ -264,17 +271,17 @@
               dialogEdit.openDialog(chatStore.currentConversationId, 'edit')
             "
           >
-            <img src="@/assets/photo/编辑.png" alt="edit" />
+            <icon-edit />
           </button>
         </div>
       </div>
 
       <div class="header-right">
-        <el-tooltip content="设置" placement="top">
-          <button class="action-btn" @click="settingDrawer.openDrawer()">
-            <img src="@/assets/photo/设置.png" alt="settings" />
-          </button>
-        </el-tooltip>
+        <a-tooltip content="设置" position="top">
+          <a-button class="settings-btn" type="text" shape="circle" @click="settingDrawer.openDrawer()">
+            <icon-settings />
+          </a-button>
+        </a-tooltip>
       </div>
     </div>
 
@@ -297,10 +304,21 @@
         />
       </TransitionGroup>
       <div v-if="currentMessages.length === 0" class="empty-state">
-        <div class="empty-content">
-          <img src="@/assets/photo/对话.png" alt="chat" class="empty-icon" />
-          <h2>开始对话吧</h2>
-          <p>有什么想和我聊的吗？</p>
+        <div class="empty-bubble" aria-hidden="true">
+          <icon-message />
+        </div>
+        <h2>开始对话吧</h2>
+        <p>选择快捷指令，或直接输入你的学习问题</p>
+        <div class="quick-chips">
+          <button
+            v-for="chip in quickChips"
+            :key="chip"
+            type="button"
+            class="quick-chip"
+            @click="handleSuggestion(chip)"
+          >
+            {{ chip }}
+          </button>
         </div>
       </div>
     </div>
@@ -320,12 +338,14 @@
     </div>
 
     <div class="chat-input-container">
-      <chat-input
-        :loading="isLoading"
-        :initial-text="initialPrompt"
-        @send="handleSend"
-        @stop="handleStop"
-      />
+      <div class="input-shell">
+        <chat-input
+          :loading="isLoading"
+          :initial-text="initialPrompt"
+          @send="handleSend"
+          @stop="handleStop"
+        />
+      </div>
     </div>
 
     <SettingsPanel ref="settingDrawer" />
@@ -337,24 +357,17 @@
   </div>
 </template>
 
-<style lang="scss" scoped>
+<style lang="less" scoped>
   .chat-container {
-    /* ===== 智屿品牌 AI 聊天面板变量 ===== */
-    --assistant-primary: #6366f1;
-    --assistant-primary-dark: #4f46e5;
-    --assistant-accent: #F97316;
-    --assistant-border: rgba(99, 102, 241, 0.18);
-    --assistant-surface: rgba(255, 255, 255, 0.82);
-    --assistant-text-main: #0f172a;
-    --assistant-text-sub: #64748b;
     position: relative;
-    height: calc(100vh - 140px);
+    height: calc(100vh - 280px);
+    min-height: 480px;
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    font-family: 'PingFang SC', 'Noto Sans SC', 'SF Pro Display', sans-serif;
+    font-family: var(--zy-font-display);
+    background: #fafbff;
   }
-
 
   .chat-header {
     position: relative;
@@ -362,126 +375,81 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 0.9rem 1.1rem;
-    background: var(--assistant-surface);
-    backdrop-filter: blur(10px);
-    border-bottom: 1px solid rgba(99, 102, 241, 0.15);
+    padding: 14px 22px;
+    background: #fff;
+    border-bottom: 1px solid rgba(99, 102, 241, 0.08);
 
     .header-left {
       display: flex;
       align-items: center;
-      gap: 0.85rem;
+      gap: 12px;
       min-width: 0;
+    }
 
-      .new-chat-btn {
-        height: 2rem;
-        padding: 0 0.8rem;
-        border-radius: 999px;
-        border: 1px solid rgba(99, 102, 241, 0.30);
-        background: linear-gradient(
-          135deg,
-          rgba(99, 102, 241, 0.12),
-          rgba(99, 102, 241, 0.05)
-        );
-        color: var(--assistant-primary-dark);
-        font-size: 0.82rem;
-        font-weight: 600;
-        letter-spacing: 0.01em;
-        transition: all 0.2s ease;
+    .new-chat-btn {
+      border-radius: var(--zy-radius-pill);
+      font-weight: 700;
+      box-shadow: 0 6px 16px rgba(99, 102, 241, 0.28);
+    }
+
+    .conversation-tab {
+      min-width: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: var(--zy-radius-pill);
+      background: var(--zy-bg-tag);
+      border: 1px solid rgba(99, 102, 241, 0.12);
+
+      .tab-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--zy-color-brand);
+        flex-shrink: 0;
+      }
+
+      .chat-title {
+        margin: 0;
+        font-size: var(--zy-text-sm);
+        font-weight: 650;
+        color: var(--zy-color-text-primary);
+        line-height: 1.35;
+        max-width: 280px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .edit-btn {
+        opacity: 0.5;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        border: none;
+        background: none;
+        cursor: pointer;
+        color: var(--zy-color-text-secondary);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        transition: opacity var(--zy-duration-fast) ease;
 
         &:hover {
-          color: #fff;
-          border-color: var(--assistant-primary);
-          background: linear-gradient(
-            135deg,
-            var(--assistant-primary),
-            var(--assistant-primary-dark)
-          );
-          box-shadow: 0 8px 16px rgba(99, 102, 241, 0.25);
-        }
-
-        :deep(.el-icon) {
-          margin-right: 4px;
-          font-size: 0.9rem;
-        }
-      }
-
-      .divider {
-        width: 1px;
-        height: 1.5rem;
-        background: linear-gradient(
-          180deg,
-          transparent,
-          rgba(90, 107, 132, 0.35),
-          transparent
-        );
-      }
-
-      .title-wrapper {
-        min-width: 0;
-        display: flex;
-        align-items: center;
-        gap: 0.45rem;
-
-        .chat-title {
-          margin: 0;
-          font-size: 1.02rem;
-          font-weight: 650;
-          color: var(--assistant-text-main);
-          letter-spacing: 0.015em;
-          line-height: 1.3;
-          white-space: normal;
-        }
-
-        .edit-btn {
-          opacity: 0;
-          width: 1rem;
-          height: 1rem;
-          padding: 0;
-          border: none;
-          background: none;
-          cursor: pointer;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          transition: opacity 0.2s ease;
-
-          img {
-            width: 100%;
-            height: 100%;
-          }
-        }
-
-        &:hover .edit-btn {
-          opacity: 0.8;
+          opacity: 1;
+          color: var(--zy-color-brand);
         }
       }
     }
 
-    .header-right {
-      .action-btn {
-        width: 2.1rem;
-        height: 2.1rem;
-        padding: 0;
-        border: 1px solid rgba(17, 36, 61, 0.08);
-        background: rgba(255, 255, 255, 0.9);
-        border-radius: 10px;
-        cursor: pointer;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        transition: all 0.2s ease;
+    .settings-btn {
+      color: var(--zy-color-text-secondary);
+      font-size: 18px;
 
-        img {
-          width: 1.2rem;
-          height: 1.2rem;
-        }
-
-        &:hover {
-          border-color: rgba(25, 103, 210, 0.25);
-          box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
-          transform: translateY(-1px);
-        }
+      &:hover {
+        color: var(--zy-color-brand);
+        background: var(--zy-bg-tag);
       }
     }
   }
@@ -491,81 +459,100 @@
     z-index: 1;
     flex: 1;
     overflow-y: auto;
-    width: min(100%, 860px);
+    width: min(100%, 820px);
     margin: 0 auto;
-    padding: 1.2rem 1.1rem 1.5rem;
+    padding: 20px 18px 12px;
 
     &::-webkit-scrollbar {
-      width: 8px;
+      width: 6px;
     }
 
     &::-webkit-scrollbar-thumb {
-      border-radius: 999px;
-      background: linear-gradient(180deg, rgba(99, 102, 241, 0.4), rgba(99, 102, 241, 0.2));
-      border: 2px solid transparent;
-      background-clip: padding-box;
-    }
-
-    &::-webkit-scrollbar-track {
-      background: transparent;
+      border-radius: var(--zy-radius-pill);
+      background: rgba(99, 102, 241, 0.28);
     }
   }
 
   .messages-list {
     display: flex;
     flex-direction: column;
-    gap: 0;
+    gap: 4px;
   }
 
   .msg-slide-enter-active {
-    transition: all var(--zy-duration-normal, 280ms) cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    transition: all var(--zy-duration-normal) var(--zy-ease-spring);
   }
 
   .msg-slide-enter-from {
     opacity: 0;
-    transform: translateY(16px);
+    transform: translateY(12px);
   }
 
   .msg-slide-move {
-    transition: transform var(--zy-duration-normal, 280ms) ease;
+    transition: transform var(--zy-duration-normal) ease;
   }
 
   .empty-state {
     min-height: 100%;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 2.4rem 1rem;
+    padding: 40px 20px;
+    text-align: center;
 
-    .empty-content {
-      width: min(100%, 460px);
-      text-align: center;
-      background: rgba(251, 250, 255, 0.92);
-      border: 1px solid rgba(99, 102, 241, 0.15);
-      border-radius: 20px;
-      padding: 2rem 1.2rem;
-      box-shadow: 0 14px 30px rgba(99, 102, 241, 0.08);
-      animation: float-in 0.35s ease;
+    .empty-bubble {
+      width: 88px;
+      height: 88px;
+      border-radius: 28px 28px 28px 8px;
+      background: linear-gradient(135deg, #eef2ff, #c7d2fe);
+      color: var(--zy-color-brand);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 40px;
+      margin-bottom: 20px;
+      box-shadow: 0 16px 36px rgba(99, 102, 241, 0.2);
+    }
 
-      .empty-icon {
-        width: 60px;
-        height: 60px;
-        opacity: 0.80;
-        margin-bottom: 1rem;
-      }
+    h2 {
+      margin: 0 0 8px;
+      color: var(--zy-color-text-primary);
+      font-size: 22px;
+      font-weight: 800;
+    }
 
-      h2 {
-        margin: 0 0 0.4rem;
-        color: var(--assistant-text-main);
-        font-size: 1.24rem;
-        font-weight: 700;
-      }
+    p {
+      margin: 0 0 20px;
+      color: var(--zy-color-text-secondary);
+      font-size: var(--zy-text-sm);
+    }
+  }
 
-      p {
-        margin: 0;
-        color: var(--assistant-text-sub);
-        font-size: 0.94rem;
-      }
+  .quick-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+    max-width: 520px;
+  }
+
+  .quick-chip {
+    padding: 8px 16px;
+    border: 1px solid rgba(99, 102, 241, 0.2);
+    border-radius: var(--zy-radius-pill);
+    background: #fff;
+    color: var(--zy-color-brand-hover);
+    font-size: var(--zy-text-sm);
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+      background var(--zy-duration-fast) ease,
+      box-shadow var(--zy-duration-fast) ease;
+
+    &:hover {
+      background: var(--zy-bg-tag);
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.12);
     }
   }
 
@@ -574,7 +561,16 @@
     z-index: 2;
     width: min(100%, 860px);
     margin: 0 auto;
-    padding: 0 1.1rem 1.1rem;
+    padding: 12px 22px 20px;
+    background: transparent;
+  }
+
+  .input-shell {
+    border-radius: 20px;
+    background: #fff;
+    border: 1px solid rgba(99, 102, 241, 0.12);
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.06);
+    padding: 4px;
   }
 
   .selection-menu {
@@ -583,65 +579,42 @@
     display: inline-flex;
     gap: 6px;
     padding: 6px;
-    border-radius: 10px;
-    border: 1px solid rgba(17, 36, 61, 0.12);
-    background: rgba(255, 255, 255, 0.96);
-    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+    border-radius: var(--zy-radius-sm);
+    border: 1px solid rgba(99, 102, 241, 0.14);
+    background: rgba(255, 255, 255, 0.98);
+    box-shadow: var(--zy-shadow-card);
 
     .menu-btn {
       border: none;
-      border-radius: 8px;
-      padding: 4px 8px;
-      background: rgba(99, 102, 241, 0.10);
-      color: #0f172a;
-      font-size: 12px;
+      border-radius: 6px;
+      padding: 4px 10px;
+      background: var(--zy-bg-tag);
+      color: var(--zy-color-text-primary);
+      font-size: var(--zy-text-xs);
       cursor: pointer;
 
       &:hover {
-        background: rgba(99, 102, 241, 0.20);
-        color: var(--assistant-primary);
+        background: rgba(99, 102, 241, 0.18);
+        color: var(--zy-color-brand);
       }
-    }
-  }
-
-  @keyframes float-in {
-    from {
-      transform: translateY(10px);
-      opacity: 0;
-    }
-    to {
-      transform: translateY(0);
-      opacity: 1;
     }
   }
 
   @media (max-width: 960px) {
     .chat-container {
-      height: calc(100vh - 140px);
+      height: calc(100vh - 180px);
+      min-height: 460px;
     }
 
     .chat-header {
-      padding: 0.8rem 0.85rem;
-
-      .header-left {
-        gap: 0.6rem;
-
-        .new-chat-btn {
-          padding: 0 0.65rem;
-        }
-
-        .title-wrapper .chat-title {
-          font-size: 0.94rem;
-        }
-      }
+      padding: 10px 12px;
     }
 
-    .messages-container {
-      padding: 0.9rem 0.75rem 1.1rem;
-    }
-
+    .messages-container,
     .chat-input-container {
-      padding: 0 0.75rem 0.8rem;
+      width: 100%;
+      padding-left: 12px;
+      padding-right: 12px;
     }
   }
 </style>

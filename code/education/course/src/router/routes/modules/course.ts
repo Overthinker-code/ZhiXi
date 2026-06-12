@@ -19,7 +19,7 @@ const COURSE: AppRouteRecordRaw = {
       meta: {
         locale: '实时学情监控',
         requiresAuth: true,
-        roles: ['*'],  // 允许所有角色访问
+        roles: ['teacher'],
       },
     },
     {
@@ -81,7 +81,17 @@ const COURSE: AppRouteRecordRaw = {
       meta: {
         locale: '资源生成中心',
         requiresAuth: true,
-        roles: ['teacher'],
+        roles: ['student', 'teacher'],
+      },
+    },
+    {
+      path: 'student-resources',
+      name: 'StudentCourseResources',
+      redirect: '/learning/resources',
+      meta: {
+        hideInMenu: true,
+        requiresAuth: true,
+        roles: ['student'],
       },
     },
   ],

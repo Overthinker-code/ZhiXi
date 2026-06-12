@@ -2,316 +2,166 @@
   <div class="mm-outer">
     <svg
       class="mm-svg"
-      viewBox="0 0 660 410"
+      viewBox="0 0 720 300"
+      preserveAspectRatio="xMidYMid meet"
       xmlns="http://www.w3.org/2000/svg"
+      aria-label="数据库系统原理思维导图"
     >
       <defs>
-        <marker
-          id="mm-arrow"
-          markerWidth="9"
-          markerHeight="9"
-          refX="7"
-          refY="4.5"
-          orient="auto"
+        <linearGradient id="mm-center-fill" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#5f67f2" />
+          <stop offset="100%" stop-color="#8658e8" />
+        </linearGradient>
+        <filter
+          id="mm-center-shadow"
+          x="-30%"
+          y="-50%"
+          width="160%"
+          height="200%"
         >
-          <path d="M0,0 L9,4.5 L0,9 Z" fill="#94a3b8" />
-        </marker>
+          <feDropShadow
+            dx="0"
+            dy="7"
+            stdDeviation="8"
+            flood-color="#6258d9"
+            flood-opacity=".24"
+          />
+        </filter>
+        <filter
+          id="mm-node-shadow"
+          x="-25%"
+          y="-50%"
+          width="150%"
+          height="200%"
+        >
+          <feDropShadow
+            dx="0"
+            dy="3"
+            stdDeviation="3"
+            flood-color="#64748b"
+            flood-opacity=".12"
+          />
+        </filter>
       </defs>
 
-      <!-- 连线：随 step 逐步显示 -->
-      <g
-        class="edges"
-        fill="none"
-        stroke="#94a3b8"
-        stroke-width="1.55"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <path
-          v-show="step >= 2"
-          d="M 330 60 Q 286 90 136 102"
-          marker-end="url(#mm-arrow)"
-          class="edge-fade"
-          :class="{ on: step >= 2 }"
-        />
-        <path
-          v-show="step >= 3"
-          d="M 330 60 L 330 102"
-          marker-end="url(#mm-arrow)"
-          class="edge-fade"
-          :class="{ on: step >= 3 }"
-        />
-        <path
-          v-show="step >= 4"
-          d="M 330 60 Q 374 90 526 102"
-          marker-end="url(#mm-arrow)"
-          class="edge-fade"
-          :class="{ on: step >= 4 }"
-        />
-        <path
-          v-show="step >= 5"
-          d="M 330 136 Q 294 164 248 188"
-          marker-end="url(#mm-arrow)"
-          class="edge-fade"
-          :class="{ on: step >= 5 }"
-        />
-        <path
-          v-show="step >= 6"
-          d="M 330 136 L 330 188"
-          marker-end="url(#mm-arrow)"
-          class="edge-fade"
-          :class="{ on: step >= 6 }"
-        />
-        <path
-          v-show="step >= 7"
-          d="M 330 136 Q 366 164 392 188"
-          marker-end="url(#mm-arrow)"
-          class="edge-fade"
-          :class="{ on: step >= 7 }"
-        />
-        <path
-          v-show="step >= 8"
-          d="M 330 220 Q 306 248 268 278"
-          marker-end="url(#mm-arrow)"
-          class="edge-fade"
-          :class="{ on: step >= 8 }"
-        />
-        <path
-          v-show="step >= 9"
-          d="M 330 220 L 330 278"
-          marker-end="url(#mm-arrow)"
-          class="edge-fade"
-          :class="{ on: step >= 9 }"
-        />
-        <path
-          v-show="step >= 10"
-          d="M 330 220 Q 354 248 392 278"
-          marker-end="url(#mm-arrow)"
-          class="edge-fade"
-          :class="{ on: step >= 10 }"
-        />
-        <path
-          v-show="step >= 11"
-          d="M 526 136 L 526 170"
-          marker-end="url(#mm-arrow)"
-          class="edge-fade"
-          :class="{ on: step >= 11 }"
-        />
-        <path
-          v-show="step >= 12"
-          d="M 526 136 L 526 210"
-          marker-end="url(#mm-arrow)"
-          class="edge-fade"
-          :class="{ on: step >= 12 }"
-        />
-        <path
-          v-show="step >= 13"
-          d="M 526 136 L 526 250"
-          marker-end="url(#mm-arrow)"
-          class="edge-fade"
-          :class="{ on: step >= 13 }"
-        />
+      <g class="mm-edges" fill="none" stroke-linecap="round">
+        <g
+          v-for="branch in branches"
+          :key="`${branch.key}-edges`"
+          v-show="step >= branch.step"
+          class="edge-reveal"
+          :class="{ on: step >= branch.step }"
+          :style="{ color: branch.color }"
+        >
+          <path :d="branch.path" class="branch-line" />
+          <path
+            v-for="leaf in branch.leaves"
+            :key="`${leaf.key}-edge`"
+            :d="leaf.path"
+            class="leaf-line"
+          />
+        </g>
       </g>
 
-      <!-- 节点 -->
-      <g class="nodes" style="font-size: 12px">
-        <g v-show="step >= 1" class="node-pop" :class="{ on: step >= 1 }">
+      <g
+        v-show="step >= 1"
+        class="node-pop node-hotspot center-node"
+        :class="{ on: step >= 1 }"
+        role="button"
+        tabindex="0"
+        @pointerdown.stop
+        @click.stop="emitNodePrompt('数据库系统原理', $event)"
+        @keydown.enter.stop="emitNodePrompt('数据库系统原理', $event)"
+      >
+        <rect
+          x="286"
+          y="126"
+          width="148"
+          height="48"
+          rx="12"
+          fill="url(#mm-center-fill)"
+          filter="url(#mm-center-shadow)"
+        />
+        <rect
+          x="291"
+          y="131"
+          width="138"
+          height="38"
+          rx="9"
+          fill="none"
+          stroke="rgba(255,255,255,.28)"
+        />
+        <text x="360" y="155" text-anchor="middle">数据库系统原理</text>
+      </g>
+
+      <template v-for="branch in branches" :key="branch.key">
+        <g
+          v-show="step >= branch.step"
+          class="node-pop node-hotspot branch-node"
+          :class="{ on: step >= branch.step }"
+          role="button"
+          tabindex="0"
+          @pointerdown.stop
+          @click.stop="emitNodePrompt(branch.text, $event)"
+          @keydown.enter.stop="emitNodePrompt(branch.text, $event)"
+        >
           <rect
-            x="270"
-            y="22"
-            width="120"
-            height="38"
-            rx="8"
-            fill="#6366f1"
-            stroke="#4f46e5"
+            :x="branch.x"
+            :y="branch.y"
+            :width="branch.width"
+            :height="branch.height"
+            rx="9"
+            :fill="branch.fill"
+            :stroke="branch.color"
+            filter="url(#mm-node-shadow)"
+          />
+          <circle
+            :cx="branch.x + 12"
+            :cy="branch.y + branch.height / 2"
+            r="3"
+            :fill="branch.color"
           />
           <text
-            x="330"
-            y="46"
+            :x="branch.x + branch.width / 2 + 4"
+            :y="branch.y + branch.height / 2 + 4"
             text-anchor="middle"
-            fill="#fff"
-            font-weight="700"
+            :fill="branch.textColor"
           >
-            并发控制
+            {{ branch.text }}
           </text>
         </g>
 
-        <g v-show="step >= 2" class="node-pop" :class="{ on: step >= 2 }">
+        <g
+          v-for="leaf in branch.leaves"
+          :key="leaf.key"
+          v-show="step >= branch.step"
+          class="node-pop node-hotspot leaf-node"
+          :class="{ on: step >= branch.step }"
+          role="button"
+          tabindex="0"
+          @pointerdown.stop
+          @click.stop="emitNodePrompt(leaf.text, $event)"
+          @keydown.enter.stop="emitNodePrompt(leaf.text, $event)"
+        >
           <rect
-            x="44"
-            y="102"
-            width="184"
-            height="34"
+            :x="leaf.x"
+            :y="leaf.y"
+            :width="leaf.width"
+            :height="leaf.height"
             rx="6"
-            fill="#e8e0ff"
-            stroke="#b8a9e8"
+            fill="#fff"
+            :stroke="branch.border"
           />
-          <text x="136" y="123" text-anchor="middle" fill="#1a1a1a">
-            目标：高吞吐·强一致
+          <text
+            :x="leaf.x + leaf.width / 2"
+            :y="leaf.y + leaf.height / 2 + 3.5"
+            text-anchor="middle"
+            :fill="branch.leafText"
+          >
+            {{ leaf.text }}
           </text>
         </g>
-
-        <g v-show="step >= 3" class="node-pop" :class="{ on: step >= 3 }">
-          <rect
-            x="275"
-            y="102"
-            width="110"
-            height="34"
-            rx="6"
-            fill="#e8e0ff"
-            stroke="#b8a9e8"
-          />
-          <text x="330" y="123" text-anchor="middle" fill="#1a1a1a">
-            执行方式
-          </text>
-        </g>
-
-        <g v-show="step >= 4" class="node-pop" :class="{ on: step >= 4 }">
-          <rect
-            x="432"
-            y="102"
-            width="188"
-            height="34"
-            rx="6"
-            fill="#e8e0ff"
-            stroke="#b8a9e8"
-          />
-          <text x="526" y="123" text-anchor="middle" fill="#1a1a1a">
-            应用场景
-          </text>
-        </g>
-
-        <g v-show="step >= 5" class="node-pop" :class="{ on: step >= 5 }">
-          <rect
-            x="188"
-            y="188"
-            width="88"
-            height="30"
-            rx="6"
-            fill="#f1f5f9"
-            stroke="#cbd5e1"
-          />
-          <text x="232" y="207" text-anchor="middle" fill="#334155">
-            串行执行
-          </text>
-        </g>
-
-        <g v-show="step >= 6" class="node-pop" :class="{ on: step >= 6 }">
-          <rect
-            x="268"
-            y="188"
-            width="104"
-            height="30"
-            rx="6"
-            fill="#bae0ff"
-            stroke="#1677ff"
-          />
-          <text x="320" y="207" text-anchor="middle" fill="#0958d9" font-weight="600">
-            交叉并发
-          </text>
-        </g>
-
-        <g v-show="step >= 7" class="node-pop" :class="{ on: step >= 7 }">
-          <rect
-            x="364"
-            y="188"
-            width="88"
-            height="30"
-            rx="6"
-            fill="#f1f5f9"
-            stroke="#cbd5e1"
-          />
-          <text x="408" y="207" text-anchor="middle" fill="#334155">
-            同时并发
-          </text>
-        </g>
-
-        <g v-show="step >= 8" class="node-pop" :class="{ on: step >= 8 }">
-          <rect
-            x="188"
-            y="268"
-            width="92"
-            height="28"
-            rx="4"
-            fill="#f8fafc"
-            stroke="#e2e8f0"
-          />
-          <text x="234" y="286" text-anchor="middle" fill="#475569" font-size="11px">
-            单核优化
-          </text>
-        </g>
-        <g v-show="step >= 9" class="node-pop" :class="{ on: step >= 9 }">
-          <rect
-            x="288"
-            y="268"
-            width="92"
-            height="28"
-            rx="4"
-            fill="#f8fafc"
-            stroke="#e2e8f0"
-          />
-          <text x="334" y="286" text-anchor="middle" fill="#475569" font-size="11px">
-            时间片轮转
-          </text>
-        </g>
-        <g v-show="step >= 10" class="node-pop" :class="{ on: step >= 10 }">
-          <rect
-            x="388"
-            y="268"
-            width="92"
-            height="28"
-            rx="4"
-            fill="#f8fafc"
-            stroke="#e2e8f0"
-          />
-          <text x="434" y="286" text-anchor="middle" fill="#475569" font-size="11px">
-            本章重点
-          </text>
-        </g>
-
-        <g v-show="step >= 11" class="node-pop" :class="{ on: step >= 11 }">
-          <rect
-            x="466"
-            y="170"
-            width="120"
-            height="28"
-            rx="4"
-            fill="#f8fafc"
-            stroke="#e2e8f0"
-          />
-          <text x="526" y="188" text-anchor="middle" fill="#475569" font-size="11px">
-            机房系统
-          </text>
-        </g>
-        <g v-show="step >= 12" class="node-pop" :class="{ on: step >= 12 }">
-          <rect
-            x="466"
-            y="210"
-            width="120"
-            height="28"
-            rx="4"
-            fill="#f8fafc"
-            stroke="#e2e8f0"
-          />
-          <text x="526" y="228" text-anchor="middle" fill="#475569" font-size="11px">
-            银行交易
-          </text>
-        </g>
-        <g v-show="step >= 13" class="node-pop" :class="{ on: step >= 13 }">
-          <rect
-            x="466"
-            y="250"
-            width="120"
-            height="28"
-            rx="4"
-            fill="#f8fafc"
-            stroke="#e2e8f0"
-          />
-          <text x="526" y="268" text-anchor="middle" fill="#475569" font-size="11px">
-            电商平台
-          </text>
-        </g>
-      </g>
+      </template>
     </svg>
   </div>
 </template>
@@ -320,12 +170,326 @@
   import { ref, watch, onUnmounted } from 'vue';
 
   const props = defineProps<{ active: boolean }>();
-  const emit = defineEmits<{ complete: [] }>();
+  const emit = defineEmits<{
+    complete: [];
+    nodePrompt: [payload: { text: string; rect: DOMRect }];
+  }>();
 
   const step = ref(0);
   let timer: ReturnType<typeof setInterval> | null = null;
 
-  const MAX_STEP = 13;
+  const branches = [
+    {
+      key: 'model',
+      step: 2,
+      text: '数据模型',
+      x: 110,
+      y: 30,
+      width: 100,
+      height: 32,
+      color: '#38b779',
+      fill: '#e9f9f0',
+      border: '#b9ead0',
+      textColor: '#19794b',
+      leafText: '#40705a',
+      path: 'M 296 136 C 260 90, 230 54, 210 46',
+      leaves: [
+        {
+          key: 'entity',
+          text: '实体模型',
+          x: 18,
+          y: 6,
+          width: 76,
+          height: 22,
+          path: 'M 110 44 C 98 35, 94 20, 94 17',
+        },
+        {
+          key: 'relation',
+          text: '关系模型',
+          x: 10,
+          y: 38,
+          width: 84,
+          height: 22,
+          path: 'M 110 46 C 102 47, 98 49, 94 49',
+        },
+        {
+          key: 'dictionary',
+          text: '数据字典',
+          x: 18,
+          y: 70,
+          width: 76,
+          height: 22,
+          path: 'M 110 49 C 100 60, 98 74, 94 81',
+        },
+      ],
+    },
+    {
+      key: 'sql',
+      step: 3,
+      text: 'SQL语言',
+      x: 102,
+      y: 105,
+      width: 100,
+      height: 32,
+      color: '#35a8e8',
+      fill: '#eaf7ff',
+      border: '#b9e4f7',
+      textColor: '#176f9e',
+      leafText: '#3d6f85',
+      path: 'M 286 147 C 252 139, 225 124, 202 121',
+      leaves: [
+        {
+          key: 'ddl',
+          text: '数据定义',
+          x: 12,
+          y: 96,
+          width: 76,
+          height: 22,
+          path: 'M 102 117 C 96 111, 92 107, 88 107',
+        },
+        {
+          key: 'dml',
+          text: '数据操纵',
+          x: 4,
+          y: 126,
+          width: 84,
+          height: 22,
+          path: 'M 102 121 C 96 128, 92 137, 88 137',
+        },
+        {
+          key: 'dcl',
+          text: '权限控制',
+          x: 14,
+          y: 156,
+          width: 74,
+          height: 22,
+          path: 'M 102 124 C 97 141, 93 158, 88 167',
+        },
+      ],
+    },
+    {
+      key: 'transaction',
+      step: 4,
+      text: '事务处理',
+      x: 116,
+      y: 207,
+      width: 104,
+      height: 32,
+      color: '#ad70e8',
+      fill: '#f5edff',
+      border: '#ddc5f5',
+      textColor: '#7640aa',
+      leafText: '#73558b',
+      path: 'M 300 169 C 268 190, 245 219, 220 222',
+      leaves: [
+        {
+          key: 'acid',
+          text: 'ACID特性',
+          x: 16,
+          y: 190,
+          width: 82,
+          height: 22,
+          path: 'M 116 218 C 108 210, 102 202, 98 201',
+        },
+        {
+          key: 'recovery',
+          text: '恢复机制',
+          x: 6,
+          y: 220,
+          width: 92,
+          height: 22,
+          path: 'M 116 223 C 108 227, 104 231, 98 231',
+        },
+        {
+          key: 'log',
+          text: '日志管理',
+          x: 18,
+          y: 250,
+          width: 80,
+          height: 22,
+          path: 'M 116 226 C 108 241, 104 254, 98 261',
+        },
+      ],
+    },
+    {
+      key: 'query',
+      step: 5,
+      text: '查询优化',
+      x: 310,
+      y: 222,
+      width: 100,
+      height: 32,
+      color: '#4d8df5',
+      fill: '#edf4ff',
+      border: '#c9dcfb',
+      textColor: '#2e64ba',
+      leafText: '#4f6585',
+      path: 'M 360 174 C 360 190, 360 208, 360 222',
+      leaves: [
+        {
+          key: 'plan',
+          text: '执行计划',
+          x: 220,
+          y: 270,
+          width: 78,
+          height: 22,
+          path: 'M 340 254 C 326 265, 310 276, 298 281',
+        },
+        {
+          key: 'cost',
+          text: '代价估计',
+          x: 321,
+          y: 270,
+          width: 78,
+          height: 22,
+          path: 'M 360 254 C 360 262, 360 267, 360 270',
+        },
+        {
+          key: 'strategy',
+          text: '优化策略',
+          x: 422,
+          y: 270,
+          width: 78,
+          height: 22,
+          path: 'M 380 254 C 395 265, 410 276, 422 281',
+        },
+      ],
+    },
+    {
+      key: 'concurrency',
+      step: 6,
+      text: '并发控制',
+      x: 510,
+      y: 30,
+      width: 104,
+      height: 32,
+      color: '#ef6e78',
+      fill: '#fff0f1',
+      border: '#f5c6ca',
+      textColor: '#b33e48',
+      leafText: '#8b555a',
+      path: 'M 424 136 C 460 90, 486 54, 510 46',
+      leaves: [
+        {
+          key: 'lock',
+          text: '并发问题',
+          x: 628,
+          y: 6,
+          width: 78,
+          height: 22,
+          path: 'M 614 43 C 620 32, 624 22, 628 17',
+        },
+        {
+          key: 'schedule',
+          text: '锁机制',
+          x: 632,
+          y: 38,
+          width: 70,
+          height: 22,
+          path: 'M 614 46 C 621 47, 626 49, 632 49',
+        },
+        {
+          key: 'serial',
+          text: '可串行化',
+          x: 622,
+          y: 70,
+          width: 84,
+          height: 22,
+          path: 'M 614 49 C 620 61, 620 74, 622 81',
+        },
+      ],
+    },
+    {
+      key: 'normalization',
+      step: 7,
+      text: '范式优化',
+      x: 518,
+      y: 105,
+      width: 104,
+      height: 32,
+      color: '#8c66df',
+      fill: '#f3efff',
+      border: '#d7cbf4',
+      textColor: '#6543ac',
+      leafText: '#6c5c8a',
+      path: 'M 434 147 C 468 139, 494 124, 518 121',
+      leaves: [
+        {
+          key: 'dependency',
+          text: '函数依赖',
+          x: 634,
+          y: 96,
+          width: 76,
+          height: 22,
+          path: 'M 622 117 C 626 111, 630 107, 634 107',
+        },
+        {
+          key: 'normal-form',
+          text: '范式理论',
+          x: 634,
+          y: 126,
+          width: 76,
+          height: 22,
+          path: 'M 622 121 C 627 128, 630 137, 634 137',
+        },
+        {
+          key: 'decompose',
+          text: '模式分解',
+          x: 630,
+          y: 156,
+          width: 80,
+          height: 22,
+          path: 'M 622 124 C 626 141, 628 158, 630 167',
+        },
+      ],
+    },
+    {
+      key: 'index',
+      step: 8,
+      text: '索引与存储',
+      x: 500,
+      y: 207,
+      width: 112,
+      height: 32,
+      color: '#e5a13f',
+      fill: '#fff6e8',
+      border: '#f2d7ad',
+      textColor: '#a96714',
+      leafText: '#82643d',
+      path: 'M 420 169 C 451 190, 476 219, 500 222',
+      leaves: [
+        {
+          key: 'btree',
+          text: '索引结构',
+          x: 626,
+          y: 190,
+          width: 80,
+          height: 22,
+          path: 'M 612 218 C 618 210, 622 202, 626 201',
+        },
+        {
+          key: 'organization',
+          text: '存储组织',
+          x: 626,
+          y: 220,
+          width: 80,
+          height: 22,
+          path: 'M 612 223 C 618 227, 622 231, 626 231',
+        },
+        {
+          key: 'buffer',
+          text: '缓冲管理',
+          x: 626,
+          y: 250,
+          width: 80,
+          height: 22,
+          path: 'M 612 226 C 619 241, 622 254, 626 261',
+        },
+      ],
+    },
+  ];
+
+  const MAX_STEP = 8;
 
   function stop() {
     if (timer) {
@@ -334,12 +498,20 @@
     }
   }
 
+  function emitNodePrompt(text: string, event: Event) {
+    event.preventDefault();
+    event.stopPropagation();
+    const target = event.currentTarget as SVGGElement | null;
+    if (!target) return;
+    emit('nodePrompt', { text, rect: target.getBoundingClientRect() });
+  }
+
   watch(
     () => props.active,
-    (a) => {
+    (active) => {
       stop();
       step.value = 0;
-      if (!a) return;
+      if (!active) return;
       timer = setInterval(() => {
         if (step.value >= MAX_STEP) {
           stop();
@@ -347,7 +519,7 @@
           return;
         }
         step.value += 1;
-      }, 420);
+      }, 330);
     },
     { immediate: true }
   );
@@ -358,45 +530,119 @@
 <style scoped lang="less">
   .mm-outer {
     width: 100%;
-    overflow-x: auto;
-    background: #fff;
-    border-radius: 8px;
-    border: 2px solid #1677ff;
+    height: 100%;
+    min-height: 0;
+    max-height: 300px;
+    overflow: hidden;
+    border-radius: 12px;
+    background: radial-gradient(
+        circle at 50% 47%,
+        rgba(99, 102, 241, 0.055),
+        transparent 31%
+      ),
+      linear-gradient(180deg, #fff 0%, #fdfdff 100%);
   }
 
   .mm-svg {
     display: block;
     width: 100%;
-    min-width: 580px;
-    height: auto;
-    min-height: 380px;
+    height: 100%;
+    overflow: visible;
 
     :deep(text) {
+      font-family: inherit;
       user-select: text;
-      pointer-events: auto;
+      pointer-events: none;
     }
   }
 
-  .edge-fade {
-    opacity: 0;
-    transition: opacity 0.35s ease;
+  .branch-line {
+    stroke: currentColor;
+    stroke-width: 2.2;
   }
 
-  .edge-fade.on {
-    opacity: 1;
+  .leaf-line {
+    stroke: currentColor;
+    stroke-width: 1.2;
+    opacity: 0.62;
+  }
+
+  .edge-reveal {
+    opacity: 0;
+
+    &.on {
+      opacity: 1;
+      animation: edge-draw 0.48s ease-out both;
+    }
   }
 
   .node-pop {
     opacity: 0;
-    transform: scale(0.92);
+    transform: scale(0.84);
+    transform-box: fill-box;
     transform-origin: center;
-    transition:
-      opacity 0.35s ease,
-      transform 0.35s ease;
+    transition: opacity 0.3s ease,
+      transform 0.38s cubic-bezier(0.2, 0.85, 0.3, 1.25);
+
+    &.on {
+      opacity: 1;
+      transform: scale(1);
+    }
   }
 
-  .node-pop.on {
-    opacity: 1;
-    transform: scale(1);
+  .center-node text {
+    fill: #fff;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+
+  .branch-node text {
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .leaf-node text {
+    font-size: 10px;
+    font-weight: 500;
+  }
+
+  .node-hotspot {
+    cursor: pointer;
+    outline: none;
+
+    rect {
+      transition: filter 0.2s ease, stroke-width 0.2s ease, transform 0.2s ease;
+      transform-box: fill-box;
+      transform-origin: center;
+    }
+
+    &:hover rect,
+    &:focus-visible rect {
+      stroke-width: 1.8;
+      filter: drop-shadow(0 6px 7px rgba(70, 78, 130, 0.18));
+      transform: translateY(-1px);
+    }
+  }
+
+  @keyframes edge-draw {
+    from {
+      opacity: 0;
+      stroke-dasharray: 7 6;
+      stroke-dashoffset: 24;
+    }
+    to {
+      opacity: 1;
+      stroke-dasharray: 1000 0;
+      stroke-dashoffset: 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .edge-reveal,
+    .node-pop {
+      animation: none;
+      transition: none;
+    }
   }
 </style>

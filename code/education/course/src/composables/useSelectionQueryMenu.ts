@@ -13,25 +13,25 @@ import { useSettingStore } from '@/store/setting';
 const promptTemplates = [
   {
     key: 'explain',
-    label: '📖 解释概念',
+    label: '解释概念',
     prompt: (selected: string) =>
       `请用简白易懂的方式解释以下数据库概念：\n"${selected}"\n\n要求：先给定义，再举实例，最后说明实际应用。`,
   },
   {
     key: 'example',
-    label: '💡 举个例子',
+    label: '举个例子',
     prompt: (selected: string) =>
       `关于"${selected}"这个概念，请给出：\n1. 一个具体的现实生活中的例子\n2. 对应的数据库表结构示例\n3. 相关的SQL语句`,
   },
   {
     key: 'summarize',
-    label: '📝 总结要点',
+    label: '总结要点',
     prompt: (selected: string) =>
       `请总结以下代码段或内容的核心要点：\n"${selected}"\n\n要求：用3-5条关键点概括，每条简洁清晰`,
   },
   {
     key: 'deepdive',
-    label: '🔍 深入讲解',
+    label: '深入讲解',
     prompt: (selected: string) =>
       `请对"${selected}"进行深入讲解，包括：\n1. 原理和机制\n2. 常见的做法或最佳实践\n3. 可能的陷阱和注意事项`,
   },
@@ -261,7 +261,52 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
     }
   }
 
-  function handleTextSelection(containerSelector: string, _event?: Event) {
+  function positionMenuNearRect(rect: ViewportRect) {
+    const pad = 8;
+    const menuW = 280;
+    const menuH = 200;
+    let left = rect.left;
+    let top = rect.bottom + 6;
+    if (left + menuW > window.innerWidth - pad) {
+      left = window.innerWidth - menuW - pad;
+    }
+    if (left < pad) left = pad;
+    if (top + menuH > window.innerHeight - pad) {
+      top = Math.max(pad, rect.top - menuH - 6);
+    }
+    contextMenuStyle.left = `${left}px`;
+    contextMenuStyle.top = `${top}px`;
+  }
+
+  function openMenuForText(
+    text: string,
+    rectLike: DOMRect | ViewportRect,
+    context?: string
+  ) {
+    const raw = text.trim();
+    if (raw.length < 2 || raw.length > 400) {
+      closeMenu();
+      return;
+    }
+    const rect = {
+      top: rectLike.top,
+      left: rectLike.left,
+      right: rectLike.right,
+      bottom: rectLike.bottom,
+      width: rectLike.width,
+      height: rectLike.height,
+    };
+    selectedText.value = raw;
+    surroundingContext.value = context?.trim() || getContextSource();
+    lastSelectionViewportRect.value = rect;
+    positionMenuNearRect(rect);
+    showContextMenu.value = true;
+  }
+
+  function handleTextSelection(containerSelector: string, event?: Event) {
+    const target = event?.target as HTMLElement | null;
+    if (target?.closest('.node-hotspot')) return;
+
     requestAnimationFrame(() => {
       const selection = window.getSelection();
       if (!selection || selection.isCollapsed) {
@@ -391,7 +436,7 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
 
   function onDocMouseDown(e: MouseEvent) {
     const t = e.target as HTMLElement;
-    if (t.closest('.notes-context-menu')) return;
+    if (t.closest('.selection-context-menu')) return;
     if (t.closest('.selection-ai-answer-panel')) return;
     if (t.closest('.selection-ai-resize-handle')) return;
     closeMenu();
@@ -436,6 +481,7 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
     renderedResponse,
     bridgeLine,
     handleTextSelection,
+    openMenuForText,
     sendAIQuery,
     closeMenu,
     clearAnswerPanel,

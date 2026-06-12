@@ -1,17 +1,16 @@
 <template>
-  <a-layout class="layout" :class="{ mobile: appStore.hideMenu }">
-    <div v-if="navbar" class="layout-navbar">
-      <NavBar />
-    </div>
+  <a-layout class="layout">
+    <ZyTopNav />
     <div
       v-if="!hideFloatUI && !visible"
       class="float-btn"
       :style="{ left: `${robotPos.x}px`, top: `${robotPos.y}px` }"
       @mousedown="startDragRobot"
     >
-      <a-button type="primary" @click="handleClick"
-        ><icon-robot :style="{ fontSize: '30px' }"
-      /></a-button>
+      <a-button type="primary" class="float-btn__inner" @click="handleClick">
+        <icon-robot :style="{ fontSize: '28px' }" />
+        <span class="float-btn__label">AI 小智</span>
+      </a-button>
     </div>
     <div
       v-if="!hideFloatUI && visible"
@@ -30,103 +29,34 @@
       <div class="panel-body">
         <ClassroomQuickChat />
       </div>
-      <span
-        class="resize-handle right"
-        @mousedown="startResize($event, 'right')"
-      />
-      <span
-        class="resize-handle bottom"
-        @mousedown="startResize($event, 'bottom')"
-      />
-      <span
-        class="resize-handle corner"
-        @mousedown="startResize($event, 'bottom-right')"
-      />
+      <span class="resize-handle right" @mousedown="startResize($event, 'right')" />
+      <span class="resize-handle bottom" @mousedown="startResize($event, 'bottom')" />
+      <span class="resize-handle corner" @mousedown="startResize($event, 'bottom-right')" />
     </div>
-    <a-layout>
-      <a-layout>
-        <a-layout-sider
-          v-if="renderMenu"
-          v-show="!appStore.hideMenu"
-          class="layout-sider"
-          breakpoint="xl"
-          :collapsed="collapsed"
-          :collapsible="true"
-          :width="menuWidth"
-          :style="{ paddingTop: navbar ? '60px' : '' }"
-          :hide-trigger="true"
-          @collapse="setCollapsed"
-        >
-          <div class="menu-wrapper">
-            <Menu />
-          </div>
-        </a-layout-sider>
-        <a-drawer
-          v-if="appStore.hideMenu"
-          :visible="drawerVisible"
-          placement="left"
-          :footer="false"
-          mask-closable
-          :closable="false"
-          @cancel="drawerCancel"
-        >
-          <Menu />
-        </a-drawer>
-        <a-layout class="layout-content" :style="paddingStyle">
-          <TabBar v-if="appStore.tabBar" />
-          <a-layout-content>
-            <PageLayout />
-          </a-layout-content>
-          <!-- <Footer v-if="footer" /> -->
-        </a-layout>
-      </a-layout>
+    <a-layout class="layout-content" :style="{ paddingTop: '64px' }">
+      <a-layout-content>
+        <PageLayout />
+      </a-layout-content>
     </a-layout>
   </a-layout>
 </template>
 
 <script lang="ts" setup>
   import ClassroomQuickChat from '@/components/float-ai/ClassroomQuickChat.vue';
-  import Footer from '@/components/footer/index.vue';
-  import Menu from '@/components/menu/index.vue';
-  import NavBar from '@/components/navbar/index.vue';
-  import TabBar from '@/components/tab-bar/index.vue';
+  import ZyTopNav from '@/components/top-nav/ZyTopNav.vue';
   import usePermission from '@/hooks/permission';
   import useResponsive from '@/hooks/responsive';
-  import { useAppStore, useUserStore } from '@/store';
-  import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue';
+  import { useUserStore } from '@/store';
+  import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
   import { useRoute, useRouter } from 'vue-router';
   import PageLayout from './page-layout.vue';
 
-  const isInit = ref(false);
-  const appStore = useAppStore();
   const userStore = useUserStore();
   const router = useRouter();
   const route = useRoute();
   const permission = usePermission();
   useResponsive(true);
-  const navbarHeight = `60px`;
-  const navbar = computed(() => appStore.navbar);
-  const renderMenu = computed(() => appStore.menu && !appStore.topMenu);
-  // const hideMenu = computed(() => appStore.hideMenu);
-  const footer = computed(() => appStore.footer);
-  const menuWidth = computed(() => {
-    return appStore.menuCollapse ? 48 : appStore.menuWidth;
-  });
-  const collapsed = computed(() => {
-    return appStore.menuCollapse;
-  });
-  const paddingStyle = computed(() => {
-    const paddingLeft =
-      renderMenu.value && !appStore.hideMenu
-        ? { paddingLeft: `${menuWidth.value}px` }
-        : {};
-    const paddingTop = navbar.value ? { paddingTop: navbarHeight } : {};
-    return { ...paddingLeft, ...paddingTop };
-  });
-  const setCollapsed = (val: boolean) => {
-    if (!isInit.value) return; // for page initialization menu state problem
-    appStore.updateSettings({ menuCollapse: val });
-  };
+
   watch(
     () => userStore.role,
     (roleValue) => {
@@ -134,49 +64,26 @@
         router.push({ name: 'notFound' });
     }
   );
-  const drawerVisible = ref(false);
-  const drawerCancel = () => {
-    drawerVisible.value = false;
-  };
-  provide('toggleDrawerMenu', () => {
-    drawerVisible.value = !drawerVisible.value;
-  });
-  onMounted(() => {
-    isInit.value = true;
-  });
+
   const visible = ref(false);
   const PANEL_MIN_WIDTH = 420;
   const PANEL_MIN_HEIGHT = 560;
   const PANEL_MAX_WIDTH = 760;
   const PANEL_MAX_HEIGHT = 900;
-  const robotPos = ref({
-    x: window.innerWidth - 100,
-    y: window.innerHeight - 120,
-  });
+  const robotPos = ref({ x: window.innerWidth - 100, y: window.innerHeight - 120 });
   const panelSize = ref({ width: 520, height: 760 });
   const panelPos = ref({
     x: window.innerWidth - panelSize.value.width - 24,
     y: 110,
   });
-  const dragState = ref<{
-    target: 'robot' | 'panel' | null;
-    offsetX: number;
-    offsetY: number;
-  }>({
+  const dragState = ref<{ target: 'robot' | 'panel' | null; offsetX: number; offsetY: number }>({
     target: null,
     offsetX: 0,
     offsetY: 0,
   });
-  const resizeState = ref<{
-    active: boolean;
-    mode: 'right' | 'bottom' | 'bottom-right' | null;
-    startX: number;
-    startY: number;
-    startWidth: number;
-    startHeight: number;
-  }>({
+  const resizeState = ref({
     active: false,
-    mode: null,
+    mode: null as 'right' | 'bottom' | 'bottom-right' | null,
     startX: 0,
     startY: 0,
     startWidth: 0,
@@ -184,28 +91,15 @@
   });
 
   const handleClick = () => {
-    const onCourseMonitor =
-      route.name === 'Monitor' || route.path === '/course/monitor';
-    const onCourseContent =
-      route.name === 'CourseContent' || route.path === '/course/course-content';
-    if (onCourseMonitor || onCourseContent) {
+    const onCourse =
+      route.name === 'Monitor' ||
+      route.name === 'CourseContent' ||
+      route.path.startsWith('/course/');
+    if (onCourse) {
       visible.value = true;
-      panelPos.value = {
-        x: Math.min(
-          panelPos.value.x,
-          window.innerWidth - panelSize.value.width
-        ),
-        y: Math.min(
-          panelPos.value.y,
-          window.innerHeight - panelSize.value.height
-        ),
-      };
       return;
     }
-    router.push({ name: 'AssistantChat' });
-  };
-  const handleOk = () => {
-    visible.value = false;
+    router.push({ name: 'TutorChat' });
   };
   const handleCancel = () => {
     visible.value = false;
@@ -234,19 +128,13 @@
       const deltaY = e.clientY - resizeState.value.startY;
       let width = resizeState.value.startWidth;
       let height = resizeState.value.startHeight;
-      if (
-        resizeState.value.mode === 'right' ||
-        resizeState.value.mode === 'bottom-right'
-      ) {
+      if (resizeState.value.mode === 'right' || resizeState.value.mode === 'bottom-right') {
         width = Math.min(
           Math.max(PANEL_MIN_WIDTH, resizeState.value.startWidth + deltaX),
           Math.min(PANEL_MAX_WIDTH, window.innerWidth - panelPos.value.x - 8)
         );
       }
-      if (
-        resizeState.value.mode === 'bottom' ||
-        resizeState.value.mode === 'bottom-right'
-      ) {
+      if (resizeState.value.mode === 'bottom' || resizeState.value.mode === 'bottom-right') {
         height = Math.min(
           Math.max(PANEL_MIN_HEIGHT, resizeState.value.startHeight + deltaY),
           Math.min(PANEL_MAX_HEIGHT, window.innerHeight - panelPos.value.y - 8)
@@ -258,38 +146,17 @@
     if (!dragState.value.target) return;
     if (dragState.value.target === 'robot') {
       robotPos.value = {
-        x: Math.max(
-          0,
-          Math.min(window.innerWidth - 80, e.clientX - dragState.value.offsetX)
-        ),
-        y: Math.max(
-          60,
-          Math.min(window.innerHeight - 80, e.clientY - dragState.value.offsetY)
-        ),
+        x: Math.max(0, Math.min(window.innerWidth - 80, e.clientX - dragState.value.offsetX)),
+        y: Math.max(64, Math.min(window.innerHeight - 80, e.clientY - dragState.value.offsetY)),
       };
       return;
     }
     panelPos.value = {
-      x: Math.max(
-        0,
-        Math.min(
-          window.innerWidth - panelSize.value.width,
-          e.clientX - dragState.value.offsetX
-        )
-      ),
-      y: Math.max(
-        60,
-        Math.min(
-          window.innerHeight - panelSize.value.height,
-          e.clientY - dragState.value.offsetY
-        )
-      ),
+      x: Math.max(0, Math.min(window.innerWidth - panelSize.value.width, e.clientX - dragState.value.offsetX)),
+      y: Math.max(64, Math.min(window.innerHeight - panelSize.value.height, e.clientY - dragState.value.offsetY)),
     };
   };
-  const startResize = (
-    e: MouseEvent,
-    mode: 'right' | 'bottom' | 'bottom-right'
-  ) => {
+  const startResize = (e: MouseEvent, mode: 'right' | 'bottom' | 'bottom-right') => {
     e.stopPropagation();
     resizeState.value = {
       active: true,
@@ -316,118 +183,46 @@
 </script>
 
 <style scoped lang="less">
-  @nav-size-height: 60px;
-  @layout-max-width: 1100px;
-
   .layout {
     width: 100%;
-    height: 100%;
-  }
-
-  .layout-navbar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    z-index: 100;
-    width: 100%;
-    height: @nav-size-height;
-  }
-
-  .layout-sider {
-    position: fixed;
-    top: 0;
-    left: 0;
-    z-index: 99;
-    height: 100%;
-    transition: all 0.2s cubic-bezier(0.34, 0.69, 0.1, 1);
-
-    &::after {
-      position: absolute;
-      top: 0;
-      right: -1px;
-      display: block;
-      width: 1px;
-      height: 100%;
-      background-color: var(--color-border);
-      content: '';
-    }
-
-    > :deep(.arco-layout-sider-children) {
-      overflow-y: hidden;
-    }
-  }
-
-  .menu-wrapper {
-    height: 100%;
-    overflow: auto;
-    overflow-x: hidden;
-
-    :deep(.arco-menu) {
-      ::-webkit-scrollbar {
-        width: 12px;
-        height: 4px;
-      }
-
-      ::-webkit-scrollbar-thumb {
-        border: 4px solid transparent;
-        background-clip: padding-box;
-        border-radius: 7px;
-        background-color: var(--color-text-4);
-      }
-
-      ::-webkit-scrollbar-thumb:hover {
-        background-color: var(--color-text-3);
-      }
-    }
+    min-height: 100vh;
+    background: var(--zy-bg-page, #f5f3ff);
   }
 
   .layout-content {
-    min-height: 100vh;
-    overflow-y: hidden;
-    display: flex;
-    flex-direction: column;
-    background-color: var(--color-fill-2);
-    transition: padding 0.2s cubic-bezier(0.34, 0.69, 0.1, 1);
+    min-height: calc(100vh - 64px);
+    background: var(--zy-bg-page, #f5f3ff);
 
     > :deep(.arco-layout-content) {
-      flex: 1;
-      min-height: 0;
-      overflow-y: auto;
+      min-height: calc(100vh - 64px);
     }
-  }
-
-  .float-ai {
-    position: fixed;
-    bottom: 0px;
-    right: 0px;
-    z-index: 1;
   }
 
   .float-btn {
     position: fixed;
-    left: 0;
-    top: 0;
     z-index: 10000;
     cursor: move;
   }
 
-  .float-btn .arco-btn-primary,
-  .arco-btn-primary[type='button'] {
-    height: 70px;
-    width: 70px;
-    border-radius: 50%;
+  .float-btn__inner {
+    height: auto !important;
+    min-width: 72px;
+    padding: 12px 14px 10px !important;
+    border-radius: 20px !important;
+    display: flex !important;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
     background: var(--zy-gradient-brand, linear-gradient(135deg, #6366f1, #8b5cf6)) !important;
     border: none !important;
-    box-shadow: 0 8px 28px rgba(99, 102, 241, 0.45);
-    transition: all 0.2s ease;
+    box-shadow: 0 12px 32px rgba(99, 102, 241, 0.42);
   }
-  .float-btn .arco-btn-primary:hover {
-    filter: brightness(1.08);
-    transform: scale(1.05);
-    box-shadow: 0 12px 36px rgba(139, 92, 246, 0.4);
-  }
-  .arco-drawer-body {
-    padding: 5px;
+
+  .float-btn__label {
+    font-size: 11px;
+    line-height: 1;
+    color: #fff;
+    font-weight: 600;
   }
 
   .float-ai-panel {
@@ -466,7 +261,6 @@
     position: absolute;
     z-index: 2;
   }
-
   .resize-handle.right {
     top: 0;
     right: -2px;
@@ -474,7 +268,6 @@
     height: 100%;
     cursor: ew-resize;
   }
-
   .resize-handle.bottom {
     left: 0;
     bottom: -2px;
@@ -482,7 +275,6 @@
     height: 6px;
     cursor: ns-resize;
   }
-
   .resize-handle.corner {
     right: -2px;
     bottom: -2px;

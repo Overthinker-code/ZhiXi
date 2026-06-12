@@ -78,12 +78,13 @@ export default function setupPermissionGuard(router: Router) {
         next();
       } else next(NOT_FOUND);
     } else {
-      // eslint-disable-next-line no-lonely-if
       if (permissionsAllow) next();
       else {
         const destination =
-          Permission.findFirstPermissionRoute(appRoutes, userStore.role) ||
-          NOT_FOUND;
+          Permission.findFirstPermissionRoute(
+            appRoutes,
+            userStore.role || 'student'
+          ) || NOT_FOUND;
         next(destination);
       }
     }

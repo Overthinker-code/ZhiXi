@@ -24,6 +24,7 @@ from app.api.v1.endpoints import (
     alerts,
     resource_workshop,
     resource_generation,
+    student_hub,
 )
 from app.core.config import settings
 
@@ -43,6 +44,7 @@ if settings.ENABLE_MOCK_ROUTES:
 api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 api_router.include_router(learning_report.router, prefix="/learning-report", tags=["learning-report"])
 api_router.include_router(learning_path.router, prefix="/learning-path", tags=["learning-path"])
+api_router.include_router(student_hub.router, prefix="/student-hub", tags=["student-hub"])
 api_router.include_router(ai_metrics.router, prefix="/ai-metrics", tags=["ai-metrics"])
 api_router.include_router(resource_workshop.router, prefix="/resource-workshop", tags=["resource-workshop"])
 api_router.include_router(resource_generation.router, prefix="/resource-generation", tags=["resource-generation"])
