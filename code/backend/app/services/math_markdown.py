@@ -7,6 +7,8 @@ import re
 _INLINE_PAREN = re.compile(r"\\\((.+?)\\\)", re.DOTALL)
 _BLOCK_BRACKET = re.compile(r"\\\[(.+?)\\\]", re.DOTALL)
 
+# JSON/SSE may turn control escapes such as \t, \f, and \r into real control
+# characters before Markdown reaches KaTeX. Repair the common LaTeX commands.
 _LATEX_CTRL_REPAIRS: tuple[tuple[str, str], ...] = (
     ("\x0c" + "rac", "\\frac"),
     ("\t" + "frac", "\\frac"),
@@ -20,28 +22,28 @@ _LATEX_CTRL_REPAIRS: tuple[tuple[str, str], ...] = (
     ("\t" + "sqrt", "\\sqrt"),
     ("\t" + "sum", "\\sum"),
     ("\t" + "int", "\\int"),
+    ("\r" + "ight", "\\right"),
 )
 
 _BARE_LATEX_FRAG_REPAIRS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"(?<![\\a-zA-Z])ext\{"), r"\\text{"),
     (re.compile(r"(?<![\\a-zA-Z])rac\{"), r"\\frac{"),
     (re.compile(r"(?<![\\a-zA-Z])imes\b"), r"\\times"),
+    (re.compile(r"(?<![\\a-zA-Z])cdot\b"), r"\\cdot"),
+    (re.compile(r"(?<![\\a-zA-Z])infty\b"), r"\\infty"),
+    (re.compile(r"(?<![\\a-zA-Z])left\b"), r"\\left"),
+    (re.compile(r"(?<![\\a-zA-Z])right\b"), r"\\right"),
 )
 
-# LLM often writes (x+h)_2 instead of (x+h)^2 in derivative expansions
+# LLM often writes (x+h)_2 instead of (x+h)^2 in derivative expansions.
 _SUBSCRIPT_AS_EXPONENT = re.compile(r"\(([^)]+)\)_(\d+)")
 
-# f'(x) outside math delimiters
+# f'(x) outside math delimiters.
 _PRIME_FUNC = re.compile(r"(?<!\$)\bf'\(([^)]+)\)(?!\$)")
-
-# Lines that look like display math but lack $
-_ORPHAN_MATH_LINE = re.compile(
-    r"^(\s*(?:[-*]|\d+[.)]\s*)?)(.+)$"
-)
 
 
 def repair_latex_backslashes(text: str) -> str:
-    """Restore LaTeX backslashes corrupted by JSON escape sequences (\\t, \\f, etc.)."""
+    """Restore LaTeX backslashes corrupted by JSON escape sequences."""
     if not text:
         return text or ""
     out = str(text)
@@ -115,7 +117,7 @@ def strip_incomplete_math_for_stream(text: str) -> str:
     """During streaming, drop trailing unclosed $ to avoid broken partial formulas."""
     if not text:
         return ""
-    s = str(text)
+    s = normalize_math_delimiters(str(text))
     if s.count("$$") % 2 == 1:
         last = s.rfind("$$")
         if last >= 0:

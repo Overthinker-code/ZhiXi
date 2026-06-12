@@ -36,6 +36,14 @@ def test_repair_bare_ext():
     assert "\\text{lim}" in out
 
 
+def test_repair_bare_latex_fragments():
+    out = repair_latex_backslashes("$infty cdot left right$")
+    assert "\\infty" in out
+    assert "\\cdot" in out
+    assert "\\left" in out
+    assert "\\right" in out
+
+
 def test_wrap_prime_function():
     out = normalize_math_delimiters("导数 f'(x) 定义")
     assert "$f'(x)$" in out
