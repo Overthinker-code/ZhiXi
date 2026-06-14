@@ -38,6 +38,7 @@ from app.services.chat_semantic_cache import chat_semantic_cache
 from app.ai.reasoning_stream import (
     ReasoningStreamController,
     clear_reasoning_context,
+    get_reasoning_controller,
     set_reasoning_controller,
     set_reasoning_emitter,
     stream_thought_events as _stream_thought_events_impl,
