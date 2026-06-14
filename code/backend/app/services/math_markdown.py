@@ -105,6 +105,23 @@ def _normalize_block_dollars(text: str) -> str:
     in_block = False
 
     for line in source.split("\n"):
+        same_line = re.fullmatch(r"\s*\$\$(.*?)\$\$\s*", line)
+        if same_line and in_block:
+            previous = _strip_nested_inline_dollars("\n".join(block))
+            if previous:
+                if _is_math_only_line(previous):
+                    output.extend(["$$", previous, "$$"])
+                else:
+                    output.extend(block)
+            block = []
+            in_block = False
+            body = _strip_nested_inline_dollars(same_line.group(1))
+            if _is_math_only_line(body):
+                output.append(f"$${body}$$")
+            elif body:
+                output.append(body)
+            continue
+
         if _STANDALONE_BLOCK_DELIMITER.match(line):
             if not in_block:
                 in_block = True
@@ -120,7 +137,6 @@ def _normalize_block_dollars(text: str) -> str:
             in_block = False
             continue
 
-        same_line = re.fullmatch(r"\s*\$\$(.*?)\$\$\s*", line)
         if same_line and not in_block:
             body = _strip_nested_inline_dollars(same_line.group(1))
             if _is_math_only_line(body):

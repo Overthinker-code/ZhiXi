@@ -58,7 +58,9 @@ def test_reasoning_chunk_prefers_model_reasoning_channel():
 
 def test_document_reasoning_stream_uses_native_channels_and_citations(monkeypatch):
     class FakeModel:
-        def stream(self, _messages):
+        def stream(self, messages):
+            assert "禁止使用" in str(messages[0].content)
+            assert "模板开场" in str(messages[0].content)
             yield AIMessageChunk(
                 content="",
                 additional_kwargs={"reasoning_content": "核对论文证据。"},

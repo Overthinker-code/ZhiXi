@@ -89,3 +89,21 @@ $$
     assert "- **注意力一致性上下文**：" in out
     assert "$$C = \\phi(A, W)$$" in out.replace("\n", "")
     assert "$$通过上述公式" not in out
+
+
+def test_inline_block_pair_closes_previous_malformed_block():
+    raw = r"""
+$$
+$W = A^T A$
+
+$$- **注意力一致性上下文**：$$
+
+C = \phi(A, W)
+$$
+"""
+    out = normalize_math_delimiters(raw)
+
+    assert "$$W = A^T A$$" in out.replace("\n", "")
+    assert "- **注意力一致性上下文**：" in out
+    assert "$$C = \\phi(A, W)$$" in out.replace("\n", "")
+    assert "$$- **注意力" not in out

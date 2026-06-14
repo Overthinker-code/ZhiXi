@@ -86,14 +86,6 @@ function mapOutsideCode(content, transform) {
         continue;
       }
 
-      const indented = source.slice(index).match(/^(?: {4}|\t)[^\n]*(?:\n|$)/);
-      if (indented) {
-        flushPlain();
-        parts.push(indented[0]);
-        index += indented[0].length;
-        lineStart = true;
-        continue;
-      }
     }
 
     if (source[index] === '`') {
@@ -164,6 +156,24 @@ function normalizeMalformedMathBlocks(segment) {
   let inBlock = false;
 
   lines.forEach((line) => {
+    const sameLine = line.match(/^\s*\$\$(.*?)\$\$\s*$/);
+    if (sameLine && inBlock) {
+      const previous = stripNestedInlineDollars(block.join('\n'));
+      if (previous) {
+        if (looksLikeStandaloneMath(previous)) {
+          output.push('$$', previous, '$$');
+        } else {
+          output.push(...block);
+        }
+      }
+      block = [];
+      inBlock = false;
+      const body = stripNestedInlineDollars(sameLine[1]);
+      if (looksLikeStandaloneMath(body)) output.push(`$$${body}$$`);
+      else if (body) output.push(body);
+      return;
+    }
+
     if (/^\s*\$\$\s*$/.test(line)) {
       if (!inBlock) {
         inBlock = true;
@@ -183,7 +193,6 @@ function normalizeMalformedMathBlocks(segment) {
       return;
     }
 
-    const sameLine = line.match(/^\s*\$\$(.*?)\$\$\s*$/);
     if (sameLine && !inBlock) {
       const body = stripNestedInlineDollars(sameLine[1]);
       if (looksLikeStandaloneMath(body)) output.push(`$$${body}$$`);
@@ -212,6 +221,21 @@ function wrapOrphanMathLines(segment) {
         return line;
       }
       return `$$${line.trim()}$$`;
+    })
+    .join('\n');
+}
+
+function normalizeChatIndentation(segment) {
+  const codeLike =
+    /^(?:def|class|function|const|let|var|import|from|return|if|else|for|while|switch|case|try|catch|SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|public|private|protected|#include|<\/?[a-zA-Z]|\{|\})\b/;
+  return String(segment || '')
+    .split('\n')
+    .map((line) => {
+      const match = line.match(/^(?: {4,}|\t+)(.*)$/);
+      if (!match) return line;
+      const body = match[1];
+      if (codeLike.test(body.trim())) return line;
+      return `  ${body}`;
     })
     .join('\n');
 }
@@ -278,6 +302,7 @@ export function normalizeMathMarkdown(content) {
 
     text = normalizeMalformedMathBlocks(text);
     text = wrapOrphanMathLines(text);
+    text = normalizeChatIndentation(text);
     return normalizeDollarDelimiters(text);
   });
 }
