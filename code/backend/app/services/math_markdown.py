@@ -40,6 +40,15 @@ _SUBSCRIPT_AS_EXPONENT = re.compile(r"\(([^)]+)\)_(\d+)")
 
 # f'(x) outside math delimiters.
 _PRIME_FUNC = re.compile(r"(?<!\$)\bf'\(([^)]+)\)(?!\$)")
+_MODEL_MATH_HTML_ARTIFACT = re.compile(
+    r"(?:class\s*=\s*[\"']math[\"']|<(?:math|mrow|annotation|semantics)\b)",
+    re.IGNORECASE,
+)
+
+
+def looks_like_broken_math_markup(text: str) -> bool:
+    """Reject model-generated HTML/MathML fragments before Markdown rendering."""
+    return bool(_MODEL_MATH_HTML_ARTIFACT.search(str(text or "")))
 
 
 def repair_latex_backslashes(text: str) -> str:

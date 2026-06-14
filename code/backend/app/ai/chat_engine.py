@@ -41,7 +41,10 @@ from app.ai.reasoning_stream import (
     set_reasoning_emitter,
     stream_thought_events as _stream_thought_events_impl,
 )
-from app.services.math_markdown import normalize_math_delimiters
+from app.services.math_markdown import (
+    looks_like_broken_math_markup,
+    normalize_math_delimiters,
+)
 from app.services.user_memory_profile_service import user_memory_profile_service
 from sqlmodel import Session
 
@@ -1344,7 +1347,8 @@ def finalize_node(state: State) -> dict[str, Any]:
         "如果学生问题中有明确主题，answer 和 follow_ups 都必须围绕该主题，"
         "不能被知识库片段中的相邻主题带偏。"
         "如果学生同时要求知识点讲解和练习题，answer 必须先系统讲解，再提供由浅入深练习题和提示。"
-        "所有数学、算法复杂度或数据库符号公式必须使用标准 LaTeX，行内 $...$、块级 $$...$$。"
+        "所有数学、算法复杂度或数据库符号公式必须使用标准 LaTeX，行内 $...$、块级 $$...$$；"
+        "禁止输出 HTML/XML/MathML 标签，也禁止输出 class=\"math\" 之类的属性文本。"
     )
     if is_selection_query:
         structured_prompt_text += (
@@ -1375,6 +1379,10 @@ def finalize_node(state: State) -> dict[str, Any]:
             payload = parse_structured_payload(_strict_ai_content_for_user(raw_msg))
         if payload:
             clean = _strip_think_blocks_from_text((payload.answer or "").strip())
+            if looks_like_broken_math_markup(clean):
+                clean = _fallback_from_recent_worker_messages(msgs)
+                if not clean or looks_like_broken_math_markup(clean):
+                    raise ValueError("structured answer contained broken math markup")
             clean = _expand_final_answer_if_needed(
                 llm,
                 current_q=current_q,

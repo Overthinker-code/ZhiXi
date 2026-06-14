@@ -1,6 +1,7 @@
 """Tests for math_markdown normalization."""
 
 from app.services.math_markdown import (
+    looks_like_broken_math_markup,
     normalize_math_delimiters,
     repair_latex_backslashes,
     strip_incomplete_math_for_stream,
@@ -57,3 +58,11 @@ def test_fix_subscript_exponent_in_frac():
 def test_strip_incomplete_math():
     assert strip_incomplete_math_for_stream("a + b = $x") == "a + b = "
     assert strip_incomplete_math_for_stream("a + $b$") == "a + $b$"
+
+
+def test_detect_broken_model_math_markup():
+    assert looks_like_broken_math_markup('调和级数 class="math">')
+    assert looks_like_broken_math_markup("<math><mrow>x</mrow></math>")
+    assert not looks_like_broken_math_markup(
+        r"调和级数 $\sum_{n=1}^{\infty}\frac1n$"
+    )
