@@ -2,9 +2,6 @@
   <div
     class="classroom-ai"
     :class="{ 'is-dragging': dragActive }"
-    @drop="handleDrop"
-    @dragover="handleDragOver"
-    @dragleave="handleDragLeave"
   >
     <div v-if="dragActive" class="panel-drag-layer">
       释放文件，添加到小智对话
@@ -323,6 +320,12 @@
       dragActive.value = false;
     }
   };
+
+  defineExpose({
+    handleDrop,
+    handleDragOver,
+    handleDragLeave,
+  });
 
   const handleFileRemove = (file: any) => {
     const index = fileList.value.findIndex((item) => item.url === file.url);

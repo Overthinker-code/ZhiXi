@@ -21,13 +21,16 @@
         width: `${panelSize.width}px`,
         height: `${panelSize.height}px`,
       }"
+      @drop.prevent="handlePanelDrop"
+      @dragover.prevent="handlePanelDragOver"
+      @dragleave="handlePanelDragLeave"
     >
       <div class="panel-header" @mousedown="startDragPanel">
         <span>课堂 AI 助理</span>
         <a-button size="mini" type="text" @click="handleCancel">关闭</a-button>
       </div>
       <div class="panel-body">
-        <ClassroomQuickChat />
+        <ClassroomQuickChat ref="quickChatRef" />
       </div>
       <span class="resize-handle right" @mousedown="startResize($event, 'right')" />
       <span class="resize-handle bottom" @mousedown="startResize($event, 'bottom')" />
@@ -66,6 +69,7 @@
   );
 
   const visible = ref(false);
+  const quickChatRef = ref<any>(null);
   const PANEL_MIN_WIDTH = 420;
   const PANEL_MIN_HEIGHT = 560;
   const PANEL_MAX_WIDTH = 760;
@@ -103,6 +107,15 @@
   };
   const handleCancel = () => {
     visible.value = false;
+  };
+  const handlePanelDrop = (event: DragEvent) => {
+    quickChatRef.value?.handleDrop(event);
+  };
+  const handlePanelDragOver = (event: DragEvent) => {
+    quickChatRef.value?.handleDragOver(event);
+  };
+  const handlePanelDragLeave = (event: DragEvent) => {
+    quickChatRef.value?.handleDragLeave(event);
   };
   const hideFloatUI = computed(
     () => route.path.startsWith('/assistant') || route.path.startsWith('/tutor')
