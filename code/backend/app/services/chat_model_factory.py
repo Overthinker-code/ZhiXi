@@ -19,6 +19,7 @@ class ChatModelFactory:
         max_tokens: int | None = None,
         top_p: float | None = None,
         top_k: int | None = None,
+        reasoning: bool | str | None = False,
     ):
         provider = settings.CHAT_PROVIDER.lower()
         effective_temperature = (
@@ -48,6 +49,10 @@ class ChatModelFactory:
                 "model": settings.OLLAMA_MODEL,
                 "temperature": effective_temperature,
                 "base_url": settings.OLLAMA_BASE_URL,
+                # User-visible reasoning is streamed separately. Disabling the
+                # model's hidden thinking channel prevents Qwen3 from spending
+                # the whole token budget without producing answer content.
+                "reasoning": reasoning,
             }
             if top_p is not None:
                 kwargs["top_p"] = top_p

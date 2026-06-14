@@ -90,16 +90,32 @@ class ReasoningStreamController:
     def _contextual_opening(self) -> str:
         q = self.user_input
         if not q:
-            return "我先理解一下你的问题，再决定要不要查资料或联网补充。"
+            return "我先理清问题的目标和已有条件，再决定直接讲解还是补充检索。"
+        focus = re.sub(r"\s+", " ", q).strip()[:72]
         if re.search(r"文档|论文|课件|pdf|PDF|Word|上传", q, re.I):
-            return f"你在问和文档相关的内容，我先核对已上传材料里的相关段落，再组织回答。\n\n问题要点：{q[:120]}"
+            return (
+                f"我先围绕「{focus}」定位上传材料中的对应段落，"
+                "再区分原文依据和需要补充的解释。"
+            )
         if re.search(r"代码|程序|报错|debug|算法实现", q, re.I):
-            return f"这像是编程/算法问题，我会先理清思路，必要时查知识库或跑代码验证。\n\n问题：{q[:120]}"
+            return (
+                f"我先把「{focus}」拆成现象、原因和验证步骤，"
+                "必要时再用代码或资料核对判断。"
+            )
         if re.search(r"最新|新闻|今天|当前|版本|政策", q, re.I):
-            return f"这个问题可能需要较新的信息，我会先查知识库，再视情况联网补充。\n\n问题：{q[:120]}"
-        if re.search(r"公式|定理|证明|积分|微分|矩阵", q, re.I):
-            return f"这是数理相关的问题，我会先回忆并核对相关定义与公式，再分步说明。\n\n问题：{q[:120]}"
-        return f"我先理解你的问题，再决定是直接讲解还是先检索相关资料。\n\n问题：{q[:160]}"
+            return (
+                f"「{focus}」可能涉及时效信息，我先确认关键事实的时间范围，"
+                "再判断是否需要联网补充。"
+            )
+        if re.search(r"公式|定理|证明|积分|微分|矩阵|级数|极限|导数", q, re.I):
+            return (
+                f"我先判断「{focus}」属于哪类数学问题，"
+                "再选择合适的定义或判别方法，并核对结论是否满足条件。"
+            )
+        return (
+            f"我先抓住「{focus}」真正要解决的点，"
+            "再决定直接解释，还是先补充课程资料中的依据。"
+        )
 
     def from_intermediate_step(self, raw: str) -> Iterator[dict[str, Any]]:
         text = (raw or "").strip()
