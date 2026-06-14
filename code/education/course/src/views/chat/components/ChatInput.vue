@@ -135,6 +135,15 @@
     }
   };
 
+  const clearDraft = () => {
+    fileList.value.forEach((file) => URL.revokeObjectURL(file.url));
+    inputValue.value = '';
+    fileList.value = [];
+    activeMode.value = 'chat';
+    menuOpen.value = false;
+    dragActive.value = false;
+  };
+
   const handleSend = () => {
     if (!canSend.value) return;
     const text = inputValue.value.trim();
@@ -152,12 +161,8 @@
         activeTools: selectedTools,
         toolMode: activeMode.value === 'chat' ? undefined : activeMode.value,
       },
+      onSuccess: clearDraft,
     });
-
-    inputValue.value = '';
-    fileList.value = [];
-    activeMode.value = 'chat';
-    menuOpen.value = false;
   };
 
   const handleNewline = (event) => {
@@ -175,6 +180,11 @@
     },
     { immediate: true }
   );
+
+  defineExpose({
+    addFiles,
+    clearDraft,
+  });
 </script>
 
 <template>

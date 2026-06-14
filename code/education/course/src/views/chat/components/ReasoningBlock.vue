@@ -38,6 +38,9 @@
     renderMarkdown(visibleText.value, { streaming: Boolean(props.streaming) })
   );
 
+  const renderActionText = (value?: string) =>
+    renderMarkdown(value || '', { streaming: Boolean(props.streaming) });
+
   const hasContent = computed(
     () =>
       displayText.value.length > 0 ||
@@ -61,9 +64,19 @@
         <div v-if="actionCards.length" class="rb-actions">
           <div v-for="(card, idx) in actionCards" :key="idx" class="rb-action-card">
             <div class="rb-action-title">{{ card.title || card.action }}</div>
-            <div v-if="card.detail" class="rb-action-detail">{{ card.detail }}</div>
+            <!-- eslint-disable-next-line vue/no-v-html -->
+            <div
+              v-if="card.detail"
+              class="rb-action-detail"
+              v-html="renderActionText(card.detail)"
+            />
             <ul v-if="card.items?.length" class="rb-action-items">
-              <li v-for="(item, i) in card.items" :key="i">{{ item }}</li>
+              <!-- eslint-disable-next-line vue/no-v-html -->
+              <li
+                v-for="(item, i) in card.items"
+                :key="i"
+                v-html="renderActionText(item)"
+              />
             </ul>
           </div>
         </div>
@@ -170,6 +183,11 @@
     padding-left: 18px;
     font-size: 11.5px;
     color: #64748b;
+  }
+
+  .rb-action-detail :deep(p),
+  .rb-action-items :deep(p) {
+    margin: 0;
   }
 
   .rb-text {

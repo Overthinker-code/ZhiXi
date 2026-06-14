@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from collections.abc import Iterator
 from typing import Any, cast
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -1077,19 +1078,85 @@ def _normalize_followups(
 
 
 def _build_rag_context(request: ChatRequest) -> tuple[SystemMessage, list[dict[str, Any]]]:
-    results = rag_service.query_knowledge_base(
+    general_results = rag_service.query_knowledge_base(
         query=request.user_input,
         k=request.rag_k,
         user_id=request.user_id,
         is_admin=request.is_admin,
     )
+    document_results: list[dict[str, Any]] = []
+    current_file_id = (request.current_file_id or "").strip()
+    if current_file_id:
+        document_results = rag_service.search_uploaded_document(
+            query=request.user_input,
+            file_id=current_file_id,
+            thread_id=request.thread_id,
+            user_id=request.user_id,
+            is_admin=request.is_admin,
+            top_k=max(6, int(request.rag_k)),
+        )
+        if re.search(
+            r"(总结|概括|主要内容|motivation|method|methodology|abstract|"
+            r"conclusion|贡献|创新点|研究动机|研究方法)",
+            request.user_input or "",
+            re.I,
+        ):
+            document_results.extend(
+                rag_service.search_uploaded_document(
+                    query=(
+                        "abstract introduction research motivation problem "
+                        "method methodology experiment result conclusion contribution"
+                    ),
+                    file_id=current_file_id,
+                    thread_id=request.thread_id,
+                    user_id=request.user_id,
+                    is_admin=request.is_admin,
+                    top_k=6,
+                )
+            )
+        controller = get_reasoning_controller()
+        if controller is not None:
+            controller.on_document_retrieve(
+                request.user_input,
+                len(document_results),
+                [
+                    str(item.get("content") or "")[:120]
+                    for item in document_results[:4]
+                ],
+            )
+
+    results: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in [*document_results, *general_results]:
+        key = (
+            str(item.get("source") or ""),
+            str(item.get("chunk_id") or item.get("content") or "")[:160],
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized = dict(item)
+        normalized["citation_id"] = len(results) + 1
+        normalized["context_scope"] = (
+            "uploaded_document" if item in document_results else "knowledge_base"
+        )
+        results.append(normalized)
+
     strict_effective = bool(request.strict_mode) and bool(results)
     if results:
         context_chunks = "\n\n".join(
-            f"[citation:{item['citation_id']}] {item['content']}" for item in results
+            (
+                f"[citation:{item['citation_id']}] "
+                f"source={item.get('source', 'unknown')} "
+                f"scope={item.get('context_scope', 'knowledge_base')}\n"
+                f"{item['content']}"
+            )
+            for item in results
         )
+        source_label = "上传文档与知识库" if document_results else "知识库"
         preamble = (
-            "【知识库上下文】下列为与问题相关的知识库片段（有帮助时请引用并标注 [citation:x]）。\n"
+            f"【{source_label}上下文】下列为与问题相关的证据片段"
+            "（有帮助时请引用并标注 [citation:x]）。\n"
             "若片段不足以完整回答，可结合通用知识补充，并区分资料与推断。\n"
         )
     else:
@@ -1104,6 +1171,66 @@ def _build_rag_context(request: ChatRequest) -> tuple[SystemMessage, list[dict[s
             "证据不足则说明知识库证据不足。"
         )
     return SystemMessage(content=body), results
+
+
+def _reasoning_chunk_text(chunk: Any) -> str:
+    extras = getattr(chunk, "additional_kwargs", None) or {}
+    for key in ("reasoning_content", "reasoning", "thinking"):
+        value = extras.get(key)
+        if isinstance(value, str) and value:
+            return value
+    content = getattr(chunk, "content", "")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            str(block.get("text") or "")
+            for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+    return ""
+
+
+def _stream_model_reasoning(
+    request: ChatRequest, context_message: SystemMessage
+) -> Iterator[dict[str, Any]]:
+    """Stream an actual model analysis pass instead of scripted filler."""
+    if not request.reasoning_enabled:
+        return
+    context = str(context_message.content or "")
+    if len(context) > 6000:
+        context = context[:6000] + "\n（证据片段已截断）"
+    prompt = SystemMessage(
+        content=(
+            "你正在为学生问题生成可展示的“思考过程”。"
+            "请真实分析当前问题与证据，按自然思路逐步推进：识别目标、"
+            "检查材料、比较可能解释、核对结论。使用第一人称简洁中文，"
+            "不要套用固定开场，不要提及系统、Agent、路由或提示词，"
+            "不要提前输出完整最终答案。"
+        )
+    )
+    llm = ChatModelFactory.create(
+        temperature=0.35,
+        max_tokens=min(max(int(request.max_tokens or 1024), 256), 1536),
+        top_p=request.top_p,
+        top_k=request.top_k,
+        reasoning=True,
+    )
+    previous = ""
+    for chunk in llm.stream(
+        [prompt, context_message, HumanMessage(content=request.user_input)]
+    ):
+        text = _reasoning_chunk_text(chunk)
+        if not text:
+            continue
+        if previous and text.startswith(previous):
+            delta = text[len(previous) :]
+            previous = text
+        else:
+            delta = text
+            previous += text
+        if delta:
+            yield {"type": "reasoning_token", "content": delta}
 
 
 def _rag_system_message(request: ChatRequest) -> SystemMessage:
@@ -1463,6 +1590,18 @@ def finalize_node(state: State) -> dict[str, Any]:
             msg.content,
             llm_followups or _default_suggestions(current_q),
         )
+    if state.get("current_file_id") and not citations:
+        document_evidence = [
+            item
+            for item in state.get("rag_results") or []
+            if item.get("context_scope") == "uploaded_document"
+        ][:3]
+        citations = _normalize_structured_citations(
+            state.get("rag_results") or [],
+            [{"citation_id": item.get("citation_id")} for item in document_evidence],
+        )
+        if citations:
+            grounding_mode = "rag"
     return {
         "messages": [msg],
         "selected_agent": "supervisor",
@@ -1686,7 +1825,7 @@ def _build_selection_prompt(request: ChatRequest) -> str:
 
 def _should_use_semantic_cache(request: ChatRequest) -> bool:
     """划词和教学讲解类问题不走语义缓存，避免旧模板/旧长度答案被复用。"""
-    if request.selected_text:
+    if request.selected_text or request.current_file_id or request.image_base64_list:
         return False
     if _SUBSTANTIVE_TEACHING_HINT_RE.search(request.user_input or ""):
         return False
@@ -1805,9 +1944,13 @@ def _build_metrics(
 
 
 def _initial_state(
-    request: ChatRequest, user_text: str, *, image_context: str | None = None
+    request: ChatRequest,
+    user_text: str,
+    *,
+    image_context: str | None = None,
+    rag_context: tuple[SystemMessage, list[dict[str, Any]]] | None = None,
 ) -> State:
-    rag_msg, rag_results = _build_rag_context(request)
+    rag_msg, rag_results = rag_context or _build_rag_context(request)
     preset = resolve_system_prompt(request.prompt_key, request.system_prompt)
     memory_context = _load_user_memory_context(request.user_id)
     if image_context is None:
@@ -2013,8 +2156,6 @@ def stream_chat_events(request: ChatRequest):
                 "demo_mode",
                 user_visible=False,
             )
-            yield from reasoning.initial_thought()
-            yield from _flush_reasoning()
             demo = build_demo_chat_response(req.user_input)
             demo_text = _normalize_answer_text(demo.response)
             for chunk in _stream_answer_tokens(demo_text):
@@ -2069,8 +2210,18 @@ def stream_chat_events(request: ChatRequest):
                     user_visible=False,
                 )
 
-        yield from reasoning.initial_thought()
+        rag_context = _build_rag_context(req)
         yield from _flush_reasoning()
+        if req.reasoning_enabled:
+            try:
+                yield from _stream_model_reasoning(req, rag_context[0])
+            except Exception as exc:
+                if req.debug_mode:
+                    yield {
+                        "type": "thought",
+                        "content": f"真实思考流暂不可用：{str(exc)[:240]}",
+                        "stage": "reasoning_error",
+                    }
 
         cache_hit = (
             chat_semantic_cache.get(req.user_input)
@@ -2145,7 +2296,12 @@ def stream_chat_events(request: ChatRequest):
                     "vision_status",
                     user_visible=False,
                 )
-        initial = _initial_state(req, req.user_input, image_context=image_context_str or None)
+        initial = _initial_state(
+            req,
+            req.user_input,
+            image_context=image_context_str or None,
+            rag_context=rag_context,
+        )
 
         final_state: dict | None = None
         last_values_state: dict | None = None

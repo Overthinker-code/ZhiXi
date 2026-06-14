@@ -67,12 +67,6 @@ const STUDENT_GROUPS: TopNavGroup[] = [
     ],
   },
   {
-    key: 'subject',
-    label: '学科资源',
-    routeName: 'LearningResources',
-    roles: ['student'],
-  },
-  {
     key: 'solutions',
     label: '解决方案',
     routeName: 'MarketingSolutions',

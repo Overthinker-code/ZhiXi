@@ -171,6 +171,7 @@ class ChatStreamRequest(BaseModel):
     force_agent: AgentName | None = None
     force_cache: bool = False
     debug_mode: bool = False
+    reasoning_enabled: bool = False
 
 
 class ChatResumeRequest(BaseModel):
@@ -441,6 +442,7 @@ def stream_chat(
                 force_agent=request.force_agent,
                 force_cache=bool(request.force_cache),
                 debug_mode=bool(request.debug_mode),
+                reasoning_enabled=bool(request.reasoning_enabled),
             )
             log_user = resolve_stream_user_text_for_storage(chat_request)
             for payload in stream_chat_events(chat_request):
@@ -539,6 +541,7 @@ def selection_query(
             force_agent=request.force_agent,
             force_cache=bool(request.force_cache),
             debug_mode=bool(request.debug_mode),
+            reasoning_enabled=bool(request.reasoning_enabled),
         )
         out = chat_service(chat_request).model_dump()
         if user_id and request.thread_id and (out.get("response") or "").strip():

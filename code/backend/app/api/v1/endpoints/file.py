@@ -56,6 +56,9 @@ async def upload_file_for_thread(
             "file_name": file.filename,
             "thread_id": thread_id,
             "chunks": result.get("chunks", 0),
+            "extraction_method": result.get("extraction_method", "legacy"),
+            "ocr_pages": result.get("ocr_pages", 0),
+            "preview_snippet": result.get("preview_snippet", ""),
         }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))

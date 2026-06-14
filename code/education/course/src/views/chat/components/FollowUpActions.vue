@@ -1,6 +1,7 @@
 <script setup lang="ts">
   import { computed } from 'vue';
   import { normalizeSuggestionList, normalizeSuggestionText } from '@/utils/llmDisplay';
+  import { renderMarkdown, stripMarkdownCodeToolbar } from '@/utils/markdown';
 
   const props = defineProps<{
     suggestions?: unknown[];
@@ -29,6 +30,9 @@
       });
     return normalized.slice(0, 3);
   });
+
+  const renderSuggestion = (value: string) =>
+    stripMarkdownCodeToolbar(renderMarkdown(value));
 </script>
 
 <template>
@@ -41,7 +45,8 @@
       :style="{ '--i': index }"
       @click="emit('pick', item)"
     >
-      {{ item }}
+      <!-- eslint-disable-next-line vue/no-v-html -->
+      <span class="follow-up-content" v-html="renderSuggestion(item)" />
     </button>
   </div>
 </template>
@@ -69,5 +74,10 @@
       border-color: rgba(99, 102, 241, 0.3);
       box-shadow: 0 10px 18px rgba(99, 102, 241, 0.12);
     }
+  }
+
+  .follow-up-content :deep(p) {
+    display: inline;
+    margin: 0;
   }
 </style>

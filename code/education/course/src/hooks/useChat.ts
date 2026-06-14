@@ -123,6 +123,7 @@ type ChatSendContent = {
   text: string;
   files?: any[];
   options?: ChatSendOptions;
+  onSuccess?: () => void;
 };
 
 function uniqueTools(tools: string[]) {
@@ -173,17 +174,6 @@ function buildModePrompt(messageContent: ChatSendContent, toolMode: string) {
     );
   }
   return sections.join('\n');
-}
-
-function buildInitialReasoningSummary(text: string, toolMode: string) {
-  const subject = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 48);
-  if (toolMode === 'exercise_grading') {
-    return '我先把题目条件和作答逐项对照，再判断得分点与真正需要订正的地方。';
-  }
-  if (subject) {
-    return `我先确认问题的重点：“${subject}${text.length > 48 ? '…' : ''}”。接下来会核对已知条件，再选择最清楚的讲解路径。`;
-  }
-  return '我先确认问题和已有材料，再选择最清楚的讲解路径。';
 }
 
 /**
@@ -296,11 +286,11 @@ export function useChat() {
    * Send a user message and get an AI response.
    */
   async function sendMessage(messageContent: ChatSendContent) {
-    if (chatStore.isLoading) return;
+    if (chatStore.isLoading) return false;
     if (!currentThreadId.value) {
       if (!getToken()) {
         Message.error('请先登录后再使用 AI 对话');
-        return;
+        return false;
       }
       try {
         await chatStore.createConversation();
@@ -310,12 +300,12 @@ export function useChat() {
             ? err.message
             : '无法创建对话，请检查网络与登录状态后刷新页面';
         Message.error(fromApi);
-        return;
+        return false;
       }
     }
     if (!currentThreadId.value) {
       Message.error('当前没有会话 ID，请刷新页面或点击「新对话」');
-      return;
+      return false;
     }
 
     const threadIdForTitle = currentThreadId.value;
@@ -374,11 +364,16 @@ export function useChat() {
             uploadError instanceof Error && uploadError.message
               ? uploadError.message
               : '';
-          Message.warning(
+          Message.error(
             detail.includes('404')
               ? '文档挂载失败：后端缺少 /api/v1/file/upload 接口（当前服务未更新到最新代码）。'
-              : '文档挂载失败：本轮将按普通问答处理。请检查文件格式或后端日志。'
+              : `文档挂载失败，本轮未发送。${detail || '请检查文件格式或后端日志。'}`
           );
+          return false;
+        }
+        if (!mountedFile?.file_id) {
+          Message.error('文档未返回有效文件 ID，本轮未发送。');
+          return false;
         }
       }
 
@@ -497,9 +492,7 @@ export function useChat() {
         let groundingMode = '';
         let metrics: Record<string, any> = {};
 
-        let reasoningText = messageContent.options?.deepThinking
-          ? buildInitialReasoningSummary(visibleUserText, toolMode)
-          : '';
+        let reasoningText = '';
         let reasoningActions: ReasoningActionItem[] = [];
         let streamFinished = false;
         let sawReasoningToken = false;
@@ -533,6 +526,7 @@ export function useChat() {
             fileName: mountedFile?.file_name || undefined,
             imageBase64List,
             toolMode,
+            reasoningEnabled: Boolean(messageContent.options?.deepThinking),
           },
           (event) => {
             if (event.type === 'reasoning_token') {
@@ -620,6 +614,7 @@ export function useChat() {
             fileName: mountedFile?.file_name || undefined,
             imageBase64List,
             toolMode,
+            reasoningEnabled: Boolean(messageContent.options?.deepThinking),
           }
         );
         const { content, reasoning } = parseAssistantResponse(
@@ -681,6 +676,7 @@ export function useChat() {
         }
       }
     }
+    return roundSucceeded;
   }
 
   /**

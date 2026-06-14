@@ -1,6 +1,7 @@
 <script setup lang="ts">
   import { computed, ref } from 'vue';
   import { AGENT_LABELS } from '@/utils/agentDisplay';
+  import { renderMarkdown, stripMarkdownCodeToolbar } from '@/utils/markdown';
 
   export type AgentPhase = {
     phase: string;
@@ -87,6 +88,10 @@
   function phaseLabel(key: string) {
     return PHASE_LABELS[key] || key;
   }
+
+  function renderSummary(value: string) {
+    return stripMarkdownCodeToolbar(renderMarkdown(value || ''));
+  }
 </script>
 
 <template>
@@ -113,7 +118,8 @@
               <span class="act-phase">{{ phaseLabel(item.phase) }}</span>
               <span class="act-agent">{{ agentLabel(item.agent) }}</span>
             </div>
-            <p class="act-summary">{{ item.summary }}</p>
+            <!-- eslint-disable-next-line vue/no-v-html -->
+            <div class="act-summary" v-html="renderSummary(item.summary)" />
           </div>
         </div>
         <p v-if="streaming" class="act-streaming">正在等待下一阶段…</p>
@@ -169,6 +175,10 @@
     border-radius: 10px;
     border: 1px solid var(--color-border-2, #e5e6eb);
     background: var(--color-fill-1, #f7f8fa);
+  }
+
+  .act-summary :deep(p) {
+    margin: 0;
   }
 
   .act-item {

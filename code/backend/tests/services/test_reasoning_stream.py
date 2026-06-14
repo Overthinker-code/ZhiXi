@@ -6,13 +6,10 @@ from app.ai.reasoning_stream import (
 )
 
 
-def test_initial_thought_is_contextual_not_pipeline():
+def test_initial_thought_does_not_generate_scripted_reasoning():
     ctrl = ReasoningStreamController("栈和队列有什么区别")
     events = list(ctrl.initial_thought())
-    assert events
-    joined = "".join(e.get("content", "") for e in events if e["type"] == "reasoning_token")
-    assert "用户刚发来一个问题" not in joined
-    assert "栈" in joined or "问题" in joined
+    assert events == []
 
 
 def test_bootstrap_stages_silent():

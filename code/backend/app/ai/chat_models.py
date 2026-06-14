@@ -104,6 +104,7 @@ class ChatRequest(BaseModel):
     ] = "chat"
     force_cache: bool = False
     debug_mode: bool = False
+    reasoning_enabled: bool = False
 
 
 class ChatResponse(BaseModel):

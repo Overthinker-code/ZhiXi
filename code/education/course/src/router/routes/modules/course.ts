@@ -87,7 +87,7 @@ const COURSE: AppRouteRecordRaw = {
     {
       path: 'student-resources',
       name: 'StudentCourseResources',
-      redirect: '/learning/resources',
+      redirect: '/course/resource-generation',
       meta: {
         hideInMenu: true,
         requiresAuth: true,

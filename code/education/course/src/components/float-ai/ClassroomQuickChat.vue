@@ -1,5 +1,14 @@
 <template>
-  <div class="classroom-ai">
+  <div
+    class="classroom-ai"
+    :class="{ 'is-dragging': dragActive }"
+    @drop="handleDrop"
+    @dragover="handleDragOver"
+    @dragleave="handleDragLeave"
+  >
+    <div v-if="dragActive" class="panel-drag-layer">
+      释放文件，添加到小智对话
+    </div>
     <header class="mobile-topbar">
       <button type="button" class="back-btn" aria-label="返回">
         <icon-left />
@@ -50,19 +59,25 @@
               class="reasoning-content markdown-body"
               v-html="
                 renderSafeMarkdown(
-                  displayAssistantReasoning(item) ||
-                    '我先拆分你的问题，再整理成更容易吸收的讲解。'
+                  displayAssistantReasoning(item),
+                  Boolean(item.loading)
                 )
               "
             />
             <!-- eslint-disable-next-line vue/no-v-html -->
             <div
               class="markdown-body"
-              v-html="renderSafeMarkdown(displayAssistantContent(item))"
+              v-html="
+                renderSafeMarkdown(
+                  displayAssistantContent(item),
+                  Boolean(item.loading)
+                )
+              "
             />
           </template>
           <template v-else>
-            {{ item.content }}
+            <!-- eslint-disable-next-line vue/no-v-html -->
+            <div class="markdown-body" v-html="renderSafeMarkdown(item.content)" />
           </template>
         </div>
       </div>
@@ -87,12 +102,7 @@
     </div>
     <div
       class="input-wrap"
-      :class="{ 'is-dragging': dragActive }"
-      @drop="handleDrop"
-      @dragover="handleDragOver"
-      @dragleave="handleDragLeave"
     >
-      <div v-if="dragActive" class="drag-layer">释放以上传到小智对话</div>
       <input
         ref="fileInputRef"
         hidden
@@ -237,8 +247,8 @@
   const streamReasonLen = ref(0);
   let streamChaseTimer: ReturnType<typeof setInterval> | null = null;
 
-  const renderSafeMarkdown = (content: string) =>
-    stripMarkdownCodeToolbar(renderMarkdown(content || ''));
+  const renderSafeMarkdown = (content: string, streaming = false) =>
+    stripMarkdownCodeToolbar(renderMarkdown(content || '', { streaming }));
   const canSend = computed(
     () => (inputValue.value.trim() || fileList.value.length > 0) && !loading.value
   );
@@ -482,10 +492,30 @@
     const sendingFiles = [...fileList.value];
     const imageFiles = sendingFiles.filter((item) => item.type === 'image' && item.raw);
     const docFile = sendingFiles.find((item) => item.type !== 'image' && item.raw);
-    inputValue.value = '';
-    fileList.value.forEach((file) => URL.revokeObjectURL(file.url));
-    fileList.value = [];
-    menuOpen.value = false;
+    let mountedFile:
+      | {
+          file_id: string;
+          file_name: string;
+        }
+      | undefined;
+    if (docFile?.raw) {
+      try {
+        const uploadRes = await uploadThreadFile(
+          docFile.raw,
+          localThreadId.value
+        );
+        if (!uploadRes?.file_id) {
+          throw new Error('文档未返回有效文件 ID');
+        }
+        mountedFile = {
+          file_id: String(uploadRes.file_id),
+          file_name: String(uploadRes.file_name || docFile.name || ''),
+        };
+      } catch (error: any) {
+        Message.error(`文档挂载失败，本轮未发送：${error?.message || '请稍后重试'}`);
+        return;
+      }
+    }
     messages.value.push({
       id: Date.now(),
       role: 'user',
@@ -506,28 +536,6 @@
     let sawReasoningToken = false;
 
     try {
-      let mountedFile:
-        | {
-            file_id: string;
-            file_name: string;
-          }
-        | undefined;
-      if (docFile?.raw) {
-        try {
-          const uploadRes = await uploadThreadFile(
-            docFile.raw,
-            localThreadId.value
-          );
-          if (uploadRes?.file_id) {
-            mountedFile = {
-              file_id: String(uploadRes.file_id),
-              file_name: String(uploadRes.file_name || docFile.name || ''),
-            };
-          }
-        } catch {
-          Message.warning('文档挂载失败，本轮将按普通问答处理。');
-        }
-      }
       const imageBase64List = (
         await Promise.all(
           imageFiles
@@ -565,6 +573,7 @@
           fileName: mountedFile?.file_name,
           imageBase64List,
           toolMode,
+          reasoningEnabled: deepThinkEnabled.value,
         },
         (event) => {
           const msg = getLastAssistant();
@@ -602,6 +611,10 @@
         abortController.signal
       );
       if (streamError) throw new Error(streamError);
+      inputValue.value = '';
+      fileList.value.forEach((file) => URL.revokeObjectURL(file.url));
+      fileList.value = [];
+      menuOpen.value = false;
     } catch (error: any) {
       const msg = getLastAssistant();
       if (!msg) return;
@@ -656,12 +669,35 @@
 
 <style scoped lang="less">
   .classroom-ai {
+    position: relative;
     height: 100%;
     display: flex;
     flex-direction: column;
     background: linear-gradient(180deg, #f5f3ff 0%, #eef2ff 40%, #f8fafc 100%);
     border-radius: 20px;
     overflow: hidden;
+
+    &.is-dragging {
+      outline: 2px solid rgba(79, 70, 229, 0.35);
+      outline-offset: -2px;
+    }
+  }
+
+  .panel-drag-layer {
+    position: absolute;
+    inset: 8px;
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px dashed rgba(79, 70, 229, 0.55);
+    border-radius: 16px;
+    background: rgba(248, 250, 255, 0.94);
+    color: #4338ca;
+    font-size: 14px;
+    font-weight: 800;
+    pointer-events: none;
+    backdrop-filter: blur(6px);
   }
 
   .mobile-topbar {

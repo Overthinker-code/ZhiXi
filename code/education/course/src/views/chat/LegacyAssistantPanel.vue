@@ -34,6 +34,9 @@
   } = useChat();
 
   const messagesContainer = ref(null);
+  const chatInputRef = ref(null);
+  const pageDragActive = ref(false);
+  let pageDragDepth = 0;
   const autoStickToBottom = ref(true);
   /* 不包含 thoughts：避免多智能体流式事件频繁触发整页滚到底，用户可停留在上方阅读 */
   const messageStreamSignature = computed(() => {
@@ -99,7 +102,8 @@
   );
 
   const handleSend = async (messageContent) => {
-    await sendMessage(messageContent);
+    const succeeded = await sendMessage(messageContent);
+    if (succeeded) messageContent.onSuccess?.();
   };
   const handleStop = () => {
     stopGenerating();
@@ -216,6 +220,33 @@
     }
   };
 
+  const handlePageDragEnter = (event) => {
+    if (!event.dataTransfer?.types?.includes('Files')) return;
+    event.preventDefault();
+    pageDragDepth += 1;
+    pageDragActive.value = true;
+  };
+
+  const handlePageDragOver = (event) => {
+    if (!event.dataTransfer?.types?.includes('Files')) return;
+    event.preventDefault();
+    pageDragActive.value = true;
+  };
+
+  const handlePageDragLeave = (event) => {
+    if (!event.dataTransfer?.types?.includes('Files')) return;
+    event.preventDefault();
+    pageDragDepth = Math.max(0, pageDragDepth - 1);
+    if (pageDragDepth === 0) pageDragActive.value = false;
+  };
+
+  const handlePageDrop = (event) => {
+    event.preventDefault();
+    pageDragDepth = 0;
+    pageDragActive.value = false;
+    chatInputRef.value?.addFiles(event.dataTransfer?.files || []);
+  };
+
   onMounted(() => {
     document.addEventListener('mouseup', handleMouseUp);
     document.addEventListener('scroll', hideSelectionMenu, true);
@@ -252,7 +283,18 @@
 </script>
 
 <template>
-  <div class="chat-container">
+  <div
+    class="chat-container"
+    @dragenter="handlePageDragEnter"
+    @dragover="handlePageDragOver"
+    @dragleave="handlePageDragLeave"
+    @drop="handlePageDrop"
+  >
+    <div v-if="pageDragActive" class="page-drop-layer">
+      <icon-upload />
+      <strong>释放文件，添加到本轮对话</strong>
+      <span>支持论文、课件、代码与图片</span>
+    </div>
     <div class="chat-header">
       <div class="header-left">
         <PopupMenu ref="popupMenu" />
@@ -340,6 +382,7 @@
     <div class="chat-input-container">
       <div class="input-shell">
         <chat-input
+          ref="chatInputRef"
           :loading="isLoading"
           :initial-text="initialPrompt"
           @send="handleSend"
@@ -367,6 +410,36 @@
     overflow: hidden;
     font-family: var(--zy-font-display);
     background: #fafbff;
+  }
+
+  .page-drop-layer {
+    position: absolute;
+    inset: 12px;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border: 2px dashed rgba(79, 70, 229, 0.5);
+    border-radius: 18px;
+    background: rgba(248, 250, 255, 0.94);
+    color: #4338ca;
+    pointer-events: none;
+    backdrop-filter: blur(8px);
+
+    svg {
+      font-size: 34px;
+    }
+
+    strong {
+      font-size: 18px;
+    }
+
+    span {
+      color: #64748b;
+      font-size: 13px;
+    }
   }
 
   .chat-header {

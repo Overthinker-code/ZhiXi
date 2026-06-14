@@ -15,16 +15,6 @@ const LEARNING: AppRouteRecordRaw = {
   },
   children: [
     {
-      path: 'resources',
-      name: 'LearningResources',
-      component: () => import('@/views/learning/resources/index.vue'),
-      meta: {
-        locale: '学习资源',
-        requiresAuth: true,
-        roles: ['student'],
-      },
-    },
-    {
       path: 'practice',
       name: 'LearningPractice',
       component: () => import('@/views/learning/practice/index.vue'),

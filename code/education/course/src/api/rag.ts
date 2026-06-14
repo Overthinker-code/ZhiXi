@@ -253,6 +253,7 @@ export function createAssistantChat(
         forceAgent?: string;
         forceCache?: boolean;
         debugMode?: boolean;
+        reasoningEnabled?: boolean;
       } = ''
 ) {
   const normalized =
@@ -280,6 +281,7 @@ export function createAssistantChat(
         force_agent: normalized.forceAgent,
         force_cache: normalized.forceCache,
         debug_mode: normalized.debugMode,
+        reasoning_enabled: normalized.reasoningEnabled,
       },
       {
         timeout: 0,
@@ -421,6 +423,7 @@ export interface ChatAdvancedOptions {
   forceAgent?: string;
   forceCache?: boolean;
   debugMode?: boolean;
+  reasoningEnabled?: boolean;
   signal?: AbortSignal;
 }
 
@@ -560,6 +563,7 @@ export function createAssistantChatStream(
     force_agent: normalized.forceAgent,
     force_cache: normalized.forceCache,
     debug_mode: normalized.debugMode,
+    reasoning_enabled: normalized.reasoningEnabled,
   };
 
   /** fetch + ReadableStream：避免 XHR 在隧道/跨端口下长时间缓冲无输出 */

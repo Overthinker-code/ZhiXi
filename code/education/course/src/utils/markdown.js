@@ -10,7 +10,7 @@ import 'highlight.js/styles/atom-one-dark.css';
 import 'katex/dist/katex.min.css';
 
 const md = new MarkdownIt({
-  html: true,
+  html: false,
   breaks: true,
   linkify: true,
   highlight(str, lang) {
@@ -48,11 +48,121 @@ md.use(mditKatex, {
 const TEX_COMMAND_RE =
   /\\(?:sum|prod|frac|sqrt|lim|int|begin|end|alpha|beta|gamma|theta|lambda|mu|pi|sigma|infty|cdot|times|leq|geq|neq|approx|to|left|right|mathbf|mathrm)\b/;
 
-function transformOutsideCode(content, transform) {
-  return String(content)
-    .split(/(```[\s\S]*?```|`[^`\n]*`)/g)
-    .map((part, index) => (index % 2 === 0 ? transform(part) : part))
-    .join('');
+function mapOutsideCode(content, transform) {
+  const source = String(content || '');
+  const parts = [];
+  let plain = '';
+  let index = 0;
+  let lineStart = true;
+
+  const flushPlain = () => {
+    if (!plain) return;
+    parts.push(transform(plain));
+    plain = '';
+  };
+
+  while (index < source.length) {
+    if (lineStart) {
+      const fence = source.slice(index).match(/^ {0,3}(`{3,}|~{3,})[^\n]*\n?/);
+      if (fence) {
+        flushPlain();
+        const marker = fence[1][0];
+        const size = fence[1].length;
+        const closeRe = new RegExp(`^ {0,3}${marker}{${size},}\\s*$`, 'm');
+        const bodyStart = index + fence[0].length;
+        const rest = source.slice(bodyStart);
+        const close = closeRe.exec(rest);
+        if (!close) {
+          parts.push(source.slice(index));
+          index = source.length;
+          break;
+        }
+        const closeEnd =
+          bodyStart + close.index + close[0].length +
+          (rest[close.index + close[0].length] === '\n' ? 1 : 0);
+        parts.push(source.slice(index, closeEnd));
+        index = closeEnd;
+        lineStart = true;
+        continue;
+      }
+
+      const indented = source.slice(index).match(/^(?: {4}|\t)[^\n]*(?:\n|$)/);
+      if (indented) {
+        flushPlain();
+        parts.push(indented[0]);
+        index += indented[0].length;
+        lineStart = true;
+        continue;
+      }
+    }
+
+    if (source[index] === '`') {
+      const opener = source.slice(index).match(/^`+/)?.[0] || '`';
+      const closeAt = source.indexOf(opener, index + opener.length);
+      if (closeAt >= 0 && !source.slice(index, closeAt).includes('\n')) {
+        flushPlain();
+        const end = closeAt + opener.length;
+        parts.push(source.slice(index, end));
+        index = end;
+        lineStart = false;
+        continue;
+      }
+    }
+
+    const char = source[index];
+    plain += char;
+    index += 1;
+    lineStart = char === '\n';
+  }
+  flushPlain();
+  return parts.join('');
+}
+
+function looksLikeMath(body) {
+  const value = String(body || '').trim();
+  if (!value) return false;
+  if (TEX_COMMAND_RE.test(value) || /[_^{}=<>≤≥∞∑∏√]/.test(value)) return true;
+  return /(?:^|[\s(])(?:[a-zA-Z]\w*\([^)]*\)|[a-zA-Z]\d*)\s*[=+\-*/]/.test(value);
+}
+
+function normalizeDollarDelimiters(segment) {
+  const source = String(segment || '').replace(/＄/g, '$');
+  let output = '';
+  let index = 0;
+  while (index < source.length) {
+    if (source[index] !== '$' || source[index - 1] === '\\') {
+      output += source[index];
+      index += 1;
+      continue;
+    }
+    const isBlock = source[index + 1] === '$';
+    const openerSize = isBlock ? 2 : 1;
+    const close = source.indexOf(isBlock ? '$$' : '$', index + openerSize);
+    if (close < 0) {
+      const prev = source[index - 1] || '';
+      const next = source[index + 1] || '';
+      const tail = source.slice(index + openerSize);
+      if (isBlock || looksLikeMath(tail)) {
+        output += source.slice(index);
+        break;
+      }
+      if (/\d/.test(next) || (/\d/.test(prev) && /\d/.test(next))) {
+        output += '\\$';
+      }
+      index += 1;
+      continue;
+    }
+    const body = source.slice(index + openerSize, close);
+    if (!isBlock && !looksLikeMath(body)) {
+      output += `$${body}$`;
+    } else if (isBlock) {
+      output += `$$\n${body.trim()}\n$$`;
+    } else {
+      output += `$${body.trim()}$`;
+    }
+    index = close + openerSize;
+  }
+  return output;
 }
 
 /**
@@ -62,9 +172,12 @@ function transformOutsideCode(content, transform) {
  */
 export function normalizeMathMarkdown(content) {
   if (!content) return '';
-  return transformOutsideCode(content, (segment) => {
+  return mapOutsideCode(content, (segment) => {
     let text = segment
-      .replace(/\\\[\s*([\s\S]*?)\s*\\\]/g, (_, body) => `$$\n${body.trim()}\n$$`)
+      .replace(
+        /\\\[\s*([\s\S]*?)\s*\\\]/g,
+        (_, body) => `\n\n$$\n${body.trim()}\n$$\n\n`
+      )
       .replace(/\\\(\s*([\s\S]*?)\s*\\\)/g, (_, body) => `$${body.trim()}$`);
 
     text = text.replace(
@@ -72,15 +185,7 @@ export function normalizeMathMarkdown(content) {
       (_, body) => `$${body.trim()}$`
     );
 
-    text = text.replace(
-      /(?<!\$)\$([ \t]+)([^$\n]+?)([ \t]+)\$(?!\$)/g,
-      (match, _left, body) =>
-        TEX_COMMAND_RE.test(body) || /[_^{}]/.test(body)
-          ? `$${body.trim()}$`
-          : match
-    );
-
-    return text;
+    return normalizeDollarDelimiters(text);
   });
 }
 
@@ -89,27 +194,24 @@ export function normalizeMathMarkdown(content) {
  */
 export function bufferIncompleteMath(content) {
   if (!content) return '';
-  let s = String(content);
-
-  const dblCount = (s.match(/\$\$/g) || []).length;
-  if (dblCount % 2 === 1) {
-    const last = s.lastIndexOf('$$');
-    if (last >= 0) s = s.slice(0, last);
-  }
-
-  const withoutDbl = s.replace(/\$\$/g, '\0\0');
-  const singleCount = (withoutDbl.match(/\$/g) || []).length;
-  if (singleCount % 2 === 1) {
-    const last = s.lastIndexOf('$');
-    if (last >= 0) s = s.slice(0, last);
-  }
-
-  s = s.replace(/\\[a-zA-Z]*$/, '');
-  const tail = s.match(/[{(][^})]*$/);
-  if (tail && tail[0].length > 48) {
-    s = s.slice(0, -tail[0].length);
-  }
-  return s;
+  return mapOutsideCode(content, (segment) => {
+    let s = String(segment);
+    let blockOpen = -1;
+    let inlineOpen = -1;
+    for (let i = 0; i < s.length; i += 1) {
+      if (s[i] !== '$' || s[i - 1] === '\\') continue;
+      if (s[i + 1] === '$') {
+        blockOpen = blockOpen < 0 ? i : -1;
+        i += 1;
+      } else if (blockOpen < 0) {
+        inlineOpen = inlineOpen < 0 ? i : -1;
+      }
+    }
+    const openAt = blockOpen >= 0 ? blockOpen : inlineOpen;
+    if (openAt >= 0) s = s.slice(0, openAt);
+    s = s.replace(/\\[a-zA-Z]*$/, '');
+    return s;
+  });
 }
 
 export const renderMarkdown = (content, options = {}) => {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
   import { computed } from 'vue';
   import { useSettingStore } from '@/store/setting';
+  import { renderMarkdown, stripMarkdownCodeToolbar } from '@/utils/markdown';
 
   const props = defineProps<{
     citations?: Array<{
@@ -34,6 +35,9 @@
     if (normalized === 'tool') return '工具链支撑';
     return '通用模型回答';
   };
+
+  const renderCitation = (value?: string) =>
+    stripMarkdownCodeToolbar(renderMarkdown(value || ''));
 </script>
 
 <template>
@@ -75,8 +79,14 @@
             相关度 {{ Number(item.relevance_score).toFixed(2) }}
           </span>
         </div>
-        <div class="citation-snippet">{{ item.snippet }}</div>
-        <div v-if="item.reason" class="citation-reason">{{ item.reason }}</div>
+        <!-- eslint-disable-next-line vue/no-v-html -->
+        <div class="citation-snippet" v-html="renderCitation(item.snippet)" />
+        <!-- eslint-disable-next-line vue/no-v-html -->
+        <div
+          v-if="item.reason"
+          class="citation-reason"
+          v-html="renderCitation(item.reason)"
+        />
       </div>
     </div>
   </div>
@@ -152,5 +162,10 @@
     margin-top: 0.35rem;
     color: #6366f1;
     font-size: 0.76rem;
+  }
+
+  .citation-snippet :deep(p),
+  .citation-reason :deep(p) {
+    margin: 0;
   }
 </style>

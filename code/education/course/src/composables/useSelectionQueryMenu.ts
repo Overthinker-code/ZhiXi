@@ -464,7 +464,9 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
     if (!full) return '';
     const slice = full.slice(0, typewriterLen.value);
     if (!slice) return '';
-    return stripMarkdownCodeToolbar(renderMarkdown(slice));
+    return stripMarkdownCodeToolbar(
+      renderMarkdown(slice, { streaming: isLoadingResponse.value })
+    );
   });
 
   return {
