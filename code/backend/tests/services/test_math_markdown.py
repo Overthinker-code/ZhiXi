@@ -66,3 +66,26 @@ def test_detect_broken_model_math_markup():
     assert not looks_like_broken_math_markup(
         r"调和级数 $\sum_{n=1}^{\infty}\frac1n$"
     )
+
+
+def test_repairs_repeated_nested_and_unmatched_block_dollars():
+    raw = r"""
+$$$$
+A_{ij} = \text{softmax}\left(\frac{F_i^T F_j}{\sqrt D}\right)
+$$$$
+$$
+$W = A^T A$
+$$
+$$- **注意力一致性上下文**：$$
+C = \phi(A, W)
+$$
+通过上述公式，ANA-Net 完成局部与全局建模。
+"""
+    out = normalize_math_delimiters(raw)
+
+    assert "$$$$" not in out
+    assert "\n$W = A^T A$\n" not in out
+    assert "$$W = A^T A$$" in out.replace("\n", "")
+    assert "- **注意力一致性上下文**：" in out
+    assert "$$C = \\phi(A, W)$$" in out.replace("\n", "")
+    assert "$$通过上述公式" not in out

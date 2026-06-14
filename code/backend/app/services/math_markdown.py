@@ -44,6 +44,8 @@ _MODEL_MATH_HTML_ARTIFACT = re.compile(
     r"(?:class\s*=\s*[\"']math[\"']|<(?:math|mrow|annotation|semantics)\b)",
     re.IGNORECASE,
 )
+_CJK = re.compile(r"[\u3400-\u9fff]")
+_STANDALONE_BLOCK_DELIMITER = re.compile(r"^\s*\${2,}\s*$")
 
 
 def looks_like_broken_math_markup(text: str) -> bool:
@@ -69,9 +71,87 @@ def _fix_subscript_exponents(segment: str) -> str:
     return _SUBSCRIPT_AS_EXPONENT.sub(r"(\1)^{\2}", segment)
 
 
+def _is_math_only_line(value: str) -> bool:
+    body = str(value or "").strip()
+    if not body or _CJK.search(body) or "**" in body or "`" in body:
+        return False
+    if re.search(
+        r"\\(?:frac|lim|sum|int|sqrt|tan|sin|cos|log|text|phi)(?![A-Za-z])",
+        body,
+    ):
+        return True
+    return bool(
+        re.match(r"^[A-Za-z\\][A-Za-z0-9_{}\\^().,\s]*\s*(?:=|≈|≤|≥|<|>)\s*.+$", body)
+    )
+
+
+def _strip_nested_inline_dollars(body: str) -> str:
+    value = str(body or "").strip()
+    if (
+        value.startswith("$")
+        and value.endswith("$")
+        and not value.startswith("$$")
+        and not value.endswith("$$")
+    ):
+        return value[1:-1].strip()
+    return value
+
+
+def _normalize_block_dollars(text: str) -> str:
+    """Repair repeated, nested and unmatched block delimiters from LLM output."""
+    source = re.sub(r"\${3,}", "$$", str(text or ""))
+    output: list[str] = []
+    block: list[str] = []
+    in_block = False
+
+    for line in source.split("\n"):
+        if _STANDALONE_BLOCK_DELIMITER.match(line):
+            if not in_block:
+                in_block = True
+                block = []
+                continue
+            body = _strip_nested_inline_dollars("\n".join(block))
+            if body:
+                if _is_math_only_line(body):
+                    output.extend(["$$", body, "$$"])
+                else:
+                    output.extend(block)
+            block = []
+            in_block = False
+            continue
+
+        same_line = re.fullmatch(r"\s*\$\$(.*?)\$\$\s*", line)
+        if same_line and not in_block:
+            body = _strip_nested_inline_dollars(same_line.group(1))
+            if _is_math_only_line(body):
+                output.append(f"$${body}$$")
+            elif body:
+                output.append(body)
+            continue
+
+        if in_block:
+            block.append(line)
+        else:
+            output.append(line)
+
+    if in_block:
+        # Drop the unmatched opening delimiter but keep its text. A later pass
+        # can safely wrap formula-only lines without swallowing normal prose.
+        output.extend(block)
+    return "\n".join(output)
+
+
 def _wrap_orphan_math_lines(text: str) -> str:
     lines: list[str] = []
+    in_block = False
     for line in text.split("\n"):
+        if line.strip() == "$$":
+            in_block = not in_block
+            lines.append(line)
+            continue
+        if in_block:
+            lines.append(line)
+            continue
         if "$" in line:
             lines.append(line)
             continue
@@ -79,9 +159,15 @@ def _wrap_orphan_math_lines(text: str) -> str:
         if not stripped:
             lines.append(line)
             continue
-        if re.search(r"\\(?:frac|lim|sum|int|sqrt|tan|sin|cos|log)\b|[_^{]|→|\\\\", stripped):
+        if _is_math_only_line(stripped):
             body = _fix_subscript_exponents(stripped)
-            if len(body) > 48 or "\\frac" in body or "\\lim" in body or "lim_" in body:
+            if (
+                "=" in body
+                or len(body) > 48
+                or "\\frac" in body
+                or "\\lim" in body
+                or "lim_" in body
+            ):
                 lines.append(f"$${body}$$")
             else:
                 lines.append(f"${body}$")
@@ -99,6 +185,7 @@ def normalize_math_delimiters(text: str) -> str:
     out = _PRIME_FUNC.sub(r"$f'(\1)$", out)
     out = _BLOCK_BRACKET.sub(lambda m: f"\n$${m.group(1).strip()}$$\n", out)
     out = _INLINE_PAREN.sub(lambda m: f"${m.group(1).strip()}$", out)
+    out = _normalize_block_dollars(out)
     out = _wrap_orphan_math_lines(out)
 
     def _fix_dollars(match: re.Match[str]) -> str:

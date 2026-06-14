@@ -125,6 +125,97 @@ function looksLikeMath(body) {
   return /(?:^|[\s(])(?:[a-zA-Z]\w*\([^)]*\)|[a-zA-Z]\d*)\s*[=+\-*/]/.test(value);
 }
 
+function looksLikeStandaloneMath(body) {
+  const value = String(body || '').trim();
+  if (!value || /[\u3400-\u9fff]/.test(value) || /\*\*|`/.test(value)) {
+    return false;
+  }
+  if (
+    /\\(?:frac|lim|sum|int|sqrt|tan|sin|cos|log|text|phi)(?![a-zA-Z])/.test(
+      value
+    )
+  ) {
+    return true;
+  }
+  return /^[a-zA-Z\\][a-zA-Z0-9_{}\\^().,\s]*\s*(?:=|≈|≤|≥|<|>)\s*.+$/.test(
+    value
+  );
+}
+
+function stripNestedInlineDollars(body) {
+  const value = String(body || '').trim();
+  if (
+    value.startsWith('$') &&
+    value.endsWith('$') &&
+    !value.startsWith('$$') &&
+    !value.endsWith('$$')
+  ) {
+    return value.slice(1, -1).trim();
+  }
+  return value;
+}
+
+function normalizeMalformedMathBlocks(segment) {
+  const lines = String(segment || '')
+    .replace(/\${3,}/g, () => '$$')
+    .split('\n');
+  const output = [];
+  let block = [];
+  let inBlock = false;
+
+  lines.forEach((line) => {
+    if (/^\s*\$\$\s*$/.test(line)) {
+      if (!inBlock) {
+        inBlock = true;
+        block = [];
+        return;
+      }
+      const body = stripNestedInlineDollars(block.join('\n'));
+      if (body) {
+        if (looksLikeStandaloneMath(body)) {
+          output.push('$$', body, '$$');
+        } else {
+          output.push(...block);
+        }
+      }
+      block = [];
+      inBlock = false;
+      return;
+    }
+
+    const sameLine = line.match(/^\s*\$\$(.*?)\$\$\s*$/);
+    if (sameLine && !inBlock) {
+      const body = stripNestedInlineDollars(sameLine[1]);
+      if (looksLikeStandaloneMath(body)) output.push(`$$${body}$$`);
+      else if (body) output.push(body);
+      return;
+    }
+
+    if (inBlock) block.push(line);
+    else output.push(line);
+  });
+
+  if (inBlock) output.push(...block);
+  return output.join('\n');
+}
+
+function wrapOrphanMathLines(segment) {
+  let inBlock = false;
+  return String(segment || '')
+    .split('\n')
+    .map((line) => {
+      if (line.trim() === '$$') {
+        inBlock = !inBlock;
+        return line;
+      }
+      if (inBlock || line.includes('$') || !looksLikeStandaloneMath(line)) {
+        return line;
+      }
+      return `$$${line.trim()}$$`;
+    })
+    .join('\n');
+}
+
 function normalizeDollarDelimiters(segment) {
   const source = String(segment || '').replace(/＄/g, '$');
   let output = '';
@@ -185,6 +276,8 @@ export function normalizeMathMarkdown(content) {
       (_, body) => `$${body.trim()}$`
     );
 
+    text = normalizeMalformedMathBlocks(text);
+    text = wrapOrphanMathLines(text);
     return normalizeDollarDelimiters(text);
   });
 }
