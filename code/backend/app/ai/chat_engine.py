@@ -1192,6 +1192,147 @@ def _reasoning_chunk_text(chunk: Any) -> str:
     return ""
 
 
+def _visible_chunk_text(chunk: Any) -> str:
+    content = getattr(chunk, "content", "")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            str(block.get("text") or "")
+            for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+    return ""
+
+
+def _stream_delta(text: str, previous: str) -> tuple[str, str]:
+    if not text:
+        return "", previous
+    if previous and text.startswith(previous):
+        return text[len(previous) :], text
+    return text, previous + text
+
+
+def _stream_grounded_document_answer(
+    request: ChatRequest,
+    context_message: SystemMessage,
+    rag_results: list[dict[str, Any]],
+) -> Iterator[dict[str, Any]]:
+    """Stream native model reasoning and answer channels in one grounded call."""
+    started_at = time.perf_counter()
+    first_token_at: float | None = None
+    prompt = SystemMessage(
+        content=(
+            "你是严谨的大学课程助教。先在模型的思考通道中核对问题、"
+            "上传文档证据和结论，再在回答通道输出清晰完整的中文讲解。"
+            "回答必须以用户上传的文档为主要依据，关键结论标注 [citation:x]；"
+            "不得编造文档没有的数据。使用 Markdown，所有数学公式必须严格使用"
+            "行内 $...$ 或块级 $$...$$ LaTeX，禁止裸露 LaTeX、HTML 和 MathML。"
+        )
+    )
+    llm = ChatModelFactory.create(
+        temperature=min(float(request.temperature or 0.35), 0.45),
+        max_tokens=min(max(int(request.max_tokens or 2048), 1024), 4096),
+        top_p=request.top_p,
+        top_k=request.top_k,
+        reasoning=True,
+    )
+    reasoning_text = ""
+    answer_text = ""
+    previous_reasoning = ""
+    previous_answer = ""
+
+    for chunk in llm.stream(
+        [prompt, context_message, HumanMessage(content=request.user_input)]
+    ):
+        extras = getattr(chunk, "additional_kwargs", None) or {}
+        raw_reasoning = ""
+        for key in ("reasoning_content", "reasoning", "thinking"):
+            value = extras.get(key)
+            if isinstance(value, str) and value:
+                raw_reasoning = value
+                break
+        reasoning_delta, previous_reasoning = _stream_delta(
+            raw_reasoning, previous_reasoning
+        )
+        if reasoning_delta:
+            reasoning_text += reasoning_delta
+            yield {"type": "reasoning_token", "content": reasoning_delta}
+
+        answer_delta, previous_answer = _stream_delta(
+            _visible_chunk_text(chunk), previous_answer
+        )
+        if answer_delta:
+            if first_token_at is None:
+                first_token_at = time.perf_counter()
+            answer_text += answer_delta
+            yield {"type": "token", "content": answer_delta}
+
+    text = _normalize_answer_text(answer_text)
+    if not text.strip():
+        yield {
+            "type": "error",
+            "content": "模型完成了思考，但没有生成最终回答，请重试。",
+        }
+        return
+
+    cited_ids = {
+        int(value)
+        for value in re.findall(r"\[citation:(\d+)\]", text, flags=re.I)
+    }
+    document_evidence = [
+        item
+        for item in rag_results
+        if item.get("context_scope") == "uploaded_document"
+    ]
+    if not cited_ids:
+        cited_ids = {
+            int(item.get("citation_id") or 0)
+            for item in document_evidence[:3]
+            if int(item.get("citation_id") or 0) > 0
+        }
+    citations = _normalize_structured_citations(
+        rag_results,
+        [{"citation_id": citation_id} for citation_id in sorted(cited_ids)],
+    )
+    suggestions = _normalize_followups(request.user_input, text, [])
+    latency_ms = max(1, round((time.perf_counter() - started_at) * 1000))
+    ttft_ms = (
+        max(1, round((first_token_at - started_at) * 1000))
+        if first_token_at is not None
+        else None
+    )
+    metrics = {
+        "ttft_ms": ttft_ms,
+        "latency_ms": latency_ms,
+        "prompt_tokens": None,
+        "completion_tokens": None,
+        "total_tokens": None,
+        "estimated_tokens": False,
+        "agent_hops": 1,
+        "cache_hit": False,
+        "rag_hit_count": len(rag_results),
+        "tool_calls_count": 0,
+        "route_trace": ["document_reasoning"],
+    }
+    yield {"type": "suggestions", "data": suggestions}
+    yield {
+        "type": "final",
+        "content": text,
+        "agent": "knowledge_mentor",
+        "intent": "document_grounded_reasoning",
+        "routing_reason": "当前上传文档直接讲解",
+        "tool_calls": [],
+        "requires_confirmation": False,
+        "pending_action_id": None,
+        "citations": citations,
+        "confidence": "high" if citations else "medium",
+        "grounding_mode": "rag" if citations else "general",
+        "suggestions": suggestions,
+        "metrics": metrics,
+    }
+
+
 def _stream_model_reasoning(
     request: ChatRequest, context_message: SystemMessage
 ) -> Iterator[dict[str, Any]]:
@@ -1212,7 +1353,7 @@ def _stream_model_reasoning(
     )
     llm = ChatModelFactory.create(
         temperature=0.35,
-        max_tokens=min(max(int(request.max_tokens or 1024), 256), 1536),
+        max_tokens=min(max(int(request.max_tokens or 512), 256), 512),
         top_p=request.top_p,
         top_k=request.top_k,
         reasoning=True,
@@ -2213,6 +2354,13 @@ def stream_chat_events(request: ChatRequest):
 
         rag_context = _build_rag_context(req)
         yield from _flush_reasoning()
+        if req.current_file_id and req.reasoning_enabled:
+            yield from _stream_grounded_document_answer(
+                req,
+                rag_context[0],
+                rag_context[1],
+            )
+            return
         if req.reasoning_enabled:
             try:
                 yield from _stream_model_reasoning(req, rag_context[0])

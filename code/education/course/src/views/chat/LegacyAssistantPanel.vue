@@ -252,6 +252,10 @@
     document.addEventListener('scroll', hideSelectionMenu, true);
     document.addEventListener('click', handleDocumentClick);
     document.addEventListener('keydown', handleDeveloperShortcut);
+    window.addEventListener('dragenter', handlePageDragEnter);
+    window.addEventListener('dragover', handlePageDragOver);
+    window.addEventListener('dragleave', handlePageDragLeave);
+    window.addEventListener('drop', handlePageDrop);
     streamInterventionEvents((event) => {
       if (event.type !== 'intervention') return;
       chatStore.addMessage({
@@ -270,6 +274,10 @@
     document.removeEventListener('scroll', hideSelectionMenu, true);
     document.removeEventListener('click', handleDocumentClick);
     document.removeEventListener('keydown', handleDeveloperShortcut);
+    window.removeEventListener('dragenter', handlePageDragEnter);
+    window.removeEventListener('dragover', handlePageDragOver);
+    window.removeEventListener('dragleave', handlePageDragLeave);
+    window.removeEventListener('drop', handlePageDrop);
   });
 
   const initialPrompt = computed(() => String(route.query.prompt || ''));
@@ -283,13 +291,7 @@
 </script>
 
 <template>
-  <div
-    class="chat-container"
-    @dragenter="handlePageDragEnter"
-    @dragover="handlePageDragOver"
-    @dragleave="handlePageDragLeave"
-    @drop="handlePageDrop"
-  >
+  <div class="chat-container">
     <div v-if="pageDragActive" class="page-drop-layer">
       <icon-upload />
       <strong>释放文件，添加到本轮对话</strong>

@@ -54,3 +54,56 @@ def test_reasoning_chunk_prefers_model_reasoning_channel():
         additional_kwargs={"reasoning_content": "real model analysis"},
     )
     assert chat_engine._reasoning_chunk_text(chunk) == "real model analysis"
+
+
+def test_document_reasoning_stream_uses_native_channels_and_citations(monkeypatch):
+    class FakeModel:
+        def stream(self, _messages):
+            yield AIMessageChunk(
+                content="",
+                additional_kwargs={"reasoning_content": "核对论文证据。"},
+            )
+            yield AIMessageChunk(content="结论见 $W=A^T A$ [citation:1]。")
+
+    monkeypatch.setattr(
+        chat_engine.ChatModelFactory,
+        "create",
+        lambda **_kwargs: FakeModel(),
+    )
+    request = ChatRequest(
+        user_input="讲解论文方法",
+        thread_id="thread-1",
+        user_id="user-1",
+        current_file_id="file-1",
+        file_name="paper.pdf",
+        reasoning_enabled=True,
+    )
+    rag_results = [
+        {
+            "content": "paper method evidence",
+            "source": "paper.pdf",
+            "chunk_id": 3,
+            "score": 0.98,
+            "citation_id": 1,
+            "context_scope": "uploaded_document",
+            "metadata": {"file_id": "file-1"},
+        }
+    ]
+
+    events = list(
+        chat_engine._stream_grounded_document_answer(
+            request,
+            chat_engine.SystemMessage(content="[citation:1] paper method evidence"),
+            rag_results,
+        )
+    )
+
+    assert [event["type"] for event in events] == [
+        "reasoning_token",
+        "token",
+        "suggestions",
+        "final",
+    ]
+    assert events[0]["content"] == "核对论文证据。"
+    assert events[-1]["grounding_mode"] == "rag"
+    assert events[-1]["citations"][0]["source"] == "paper.pdf"
