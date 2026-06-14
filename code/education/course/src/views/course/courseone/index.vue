@@ -1,704 +1,1272 @@
 <template>
   <ZyPageShell title="" max-width="1320px">
-    <nav class="page-breadcrumb" aria-label="面包屑">
-      <router-link to="/course/list" class="crumb-link">课程中心</router-link>
-      <span class="crumb-sep">/</span>
-      <span class="crumb-current">课程信息</span>
-    </nav>
+    <div class="course-info-page">
+      <nav class="breadcrumb" aria-label="面包屑">
+        <button type="button" @click="router.push({ name: 'CourseList' })">课程资源管理</button>
+        <span>/</span>
+        <strong>课程信息</strong>
+      </nav>
 
-    <header class="page-header">
-      <div>
-        <h1 class="page-title">课程信息</h1>
-        <p v-if="course" class="page-subtitle">{{ course.name }}</p>
+      <header class="page-header">
+        <div>
+          <h1>课程信息</h1>
+          <p>全面了解课程详情、资源分布与学生学习情况</p>
+        </div>
+        <a-button class="export-button" @click="exportOverview">
+          <template #icon><icon-download /></template>
+          导出数据
+        </a-button>
+      </header>
+
+      <div class="overview-grid">
+        <section class="panel course-summary">
+          <div class="course-main">
+            <img class="course-cover" :src="courseCover" :alt="courseTitle" />
+            <div class="course-copy">
+              <div class="course-title-row">
+                <h2>{{ courseTitle }}</h2>
+                <span class="status-badge">进行中</span>
+              </div>
+              <p class="course-description">{{ courseDescription }}</p>
+
+              <div class="metadata-grid">
+                <div class="metadata-item">
+                  <span class="metadata-icon indigo"><icon-file /></span>
+                  <div>
+                    <span>课程编号</span>
+                    <strong>{{ course?.identifier || 'CS-DB' }}</strong>
+                  </div>
+                </div>
+                <div class="metadata-item">
+                  <span class="metadata-icon cyan"><icon-apps /></span>
+                  <div>
+                    <span>课程分类</span>
+                    <strong>{{ courseCategory }}</strong>
+                  </div>
+                </div>
+                <div class="metadata-item">
+                  <span class="metadata-icon violet"><icon-calendar /></span>
+                  <div>
+                    <span>创建时间</span>
+                    <strong>{{ createdDate }}</strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="class-strip">
+            <div class="class-item">
+              <span class="class-icon"><icon-user /></span>
+              <div>
+                <span>授课教师</span>
+                <strong>{{ teacherName }}</strong>
+              </div>
+            </div>
+            <div class="class-divider"></div>
+            <div class="class-item">
+              <span class="class-icon"><icon-user-group /></span>
+              <div>
+                <span>教学班级</span>
+                <strong>{{ className }}</strong>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel learning-panel">
+          <div class="homework-pane">
+            <div class="panel-title">
+              <span class="title-mark"></span>
+              <h3>作业完成情况</h3>
+            </div>
+            <div class="homework-table">
+              <div class="table-row table-head">
+                <span>作业名称</span>
+                <span>已提交/总人数</span>
+                <span>平均分</span>
+              </div>
+              <div v-for="item in homeworkRows" :key="item.name" class="table-row">
+                <strong>{{ item.name }}</strong>
+                <span class="submit-count">{{ item.submitted }}</span>
+                <span class="score">{{ item.score }}</span>
+              </div>
+            </div>
+            <button class="text-action" type="button" @click="showMore('作业')">
+              查看更多 <icon-right />
+            </button>
+          </div>
+
+          <div class="activity-pane">
+            <div class="activity-header">
+              <div class="panel-title">
+                <span class="title-mark"></span>
+                <h3>动态</h3>
+              </div>
+              <div class="activity-tabs">
+                <button
+                  v-for="tab in activityTabs"
+                  :key="tab.value"
+                  type="button"
+                  :class="{ active: activeActivityTab === tab.value }"
+                  @click="activeActivityTab = tab.value"
+                >
+                  {{ tab.label }}
+                </button>
+              </div>
+            </div>
+
+            <div class="timeline">
+              <div v-for="item in currentActivities" :key="item.title" class="timeline-item">
+                <span class="timeline-dot"></span>
+                <div>
+                  <strong>{{ item.title }}</strong>
+                  <p>{{ item.detail }}</p>
+                  <time>{{ item.time }}</time>
+                </div>
+              </div>
+            </div>
+            <button class="text-action" type="button" @click="showMore('动态')">
+              查看更多 <icon-right />
+            </button>
+          </div>
+        </section>
       </div>
-      <a-button type="outline" class="export-btn" @click="handleExport">
-        <template #icon><icon-download /></template>
-        导出数据
-      </a-button>
-    </header>
 
-    <LoadingState v-if="loading" text="加载课程详情..." />
-
-    <ErrorState
-      v-else-if="error"
-      :text="error"
-      @retry="loadCourseDetail"
-      @back="goBack"
-      back-text="返回列表"
-    />
-
-    <div v-else-if="course" class="dashboard-grid">
-      <!-- 1. 课程详情卡 -->
-      <a-card class="grid-card grid-card--detail" :bordered="false">
-        <template #title>
-          <div class="card-title">
-            <icon-book />
-            <span>课程详情</span>
-          </div>
-        </template>
-        <h2 class="course-name">{{ course.name }}</h2>
-        <p class="course-desc">{{ course.description || '暂无课程描述' }}</p>
-        <div class="detail-chips">
-          <div class="detail-chip">
-            <span class="detail-chip__label">课程标识</span>
-            <span class="detail-chip__value">{{ course.identifier }}</span>
-          </div>
-          <div class="detail-chip">
-            <span class="detail-chip__label">课程类型</span>
-            <span class="detail-chip__value">{{ course.course_type || '专业核心' }}</span>
-          </div>
-          <div class="detail-chip">
-            <span class="detail-chip__label">创建时间</span>
-            <span class="detail-chip__value">{{ formatDate(course.created_at) }}</span>
-          </div>
-        </div>
-        <a-divider />
-        <div class="class-section">
-          <div class="class-header">
-            <span>授课老师</span>
-            <span>教学班名称</span>
-            <span>创建时间</span>
-          </div>
-          <LoadingState v-if="loadingClasses" text="加载教学班..." :size="24" />
-          <EmptyState
-            v-else-if="teachingClasses.length === 0"
-            text="暂无教学班"
-            :icon-size="32"
-          />
-          <div
-            v-for="(classInfo, index) in teachingClasses"
-            :key="index"
-            class="class-row"
-          >
-            <span>{{ classInfo.lecturer_id }}</span>
-            <span>{{ classInfo.name || '未命名' }}</span>
-            <span>{{ formatDate(classInfo.created_at) }}</span>
-          </div>
-        </div>
-      </a-card>
-
-      <!-- 2. 学生作业排名表 -->
-      <a-card class="grid-card grid-card--homework" :bordered="false">
-        <template #title>
-          <div class="card-title">
-            <icon-file />
-            <span>学生作业排名</span>
-          </div>
-        </template>
-        <a-table
-          :columns="homeworkColumns"
-          :data="homeworkData"
-          :pagination="false"
-          :bordered="false"
-          size="small"
-          class="homework-table"
-        />
-      </a-card>
-
-      <!-- 3. 最新动态时间线 -->
-      <a-card class="grid-card grid-card--timeline" :bordered="false">
-        <template #title>
-          <div class="card-title">
-            <icon-notification />
-            <span>最新动态</span>
-          </div>
-        </template>
-        <a-timeline class="activity-timeline">
-          <a-timeline-item dot-color="#6366f1">
-            <span class="name-highlight">潘*瑞</span> 提交了作业「SQL 查询练习」
-            <div class="timeline-time">10 分钟前</div>
-          </a-timeline-item>
-          <a-timeline-item dot-color="#8b5cf6">
-            <span class="name-highlight">林老师</span> 批改了 3 份作业
-            <div class="timeline-time">1 小时前</div>
-          </a-timeline-item>
-          <a-timeline-item dot-color="#6366f1">
-            <span class="name-highlight">王*楚</span> 完成了第 1 章测验
-            <div class="timeline-time">2 小时前</div>
-          </a-timeline-item>
-          <a-timeline-item dot-color="#a78bfa">
-            <span class="name-highlight">陈*</span> 上传了课堂笔记
-            <div class="timeline-time">昨天 16:30</div>
-          </a-timeline-item>
-        </a-timeline>
-        <a-link class="view-more">查看更多</a-link>
-      </a-card>
-
-      <!-- 4. 资源占比环形图 -->
-      <a-card class="grid-card grid-card--resource" :bordered="false">
-        <template #title>
-          <div class="card-title">
-            <icon-storage />
-            <span>资源占比</span>
-          </div>
-        </template>
-        <div class="resource-layout">
-          <div class="resource-chart">
-            <ResorceRationVue />
-          </div>
-          <div class="resource-list">
-            <div class="resource-item">
-              <img src="@/assets/icons/teenyicons--ms-word-outline.png" alt="文档" />
-              <div>
-                <div class="resource-type">文档</div>
-                <div class="resource-size">{{ resourceAnalysis.document_size }}GB</div>
-                <div class="resource-count">{{ resourceAnalysis.document_count }} 个</div>
-              </div>
+      <div class="analytics-grid">
+        <section class="panel analytics-panel resource-panel">
+          <div class="analytics-heading">
+            <div>
+              <h3>资源概览</h3>
+              <p>课程资源类型及数量分布</p>
             </div>
-            <div class="resource-item">
-              <img src="@/assets/icons/mingcute--video-line.png" alt="视频" />
-              <div>
-                <div class="resource-type">视频</div>
-                <div class="resource-size">{{ resourceAnalysis.video_size }}GB</div>
-                <div class="resource-count">{{ resourceAnalysis.video_count }} 个</div>
+            <button class="period-select" type="button">全部资源 <icon-down /></button>
+          </div>
+
+          <div class="resource-content">
+            <div class="donut-wrap">
+              <div class="donut-chart">
+                <div class="donut-center">
+                  <strong>{{ resourceTotal }}</strong>
+                  <span>资源总数</span>
+                </div>
               </div>
+              <div class="donut-label label-video"><i></i>视频 31%</div>
+              <div class="donut-label label-document"><i></i>文档 27%</div>
+              <div class="donut-label label-courseware"><i></i>课件 24%</div>
+              <div class="donut-label label-other"><i></i>其他 18%</div>
             </div>
-            <div class="resource-item">
-              <img src="@/assets/icons/mingcute--pic-ai-fill.png" alt="图片" />
-              <div>
-                <div class="resource-type">图片</div>
-                <div class="resource-size">{{ resourceAnalysis.image_size }}GB</div>
-                <div class="resource-count">{{ resourceAnalysis.image_count }} 个</div>
-              </div>
-            </div>
-            <div class="resource-item">
-              <img src="@/assets/icons/ph--exam.png" alt="作业" />
-              <div>
-                <div class="resource-type">作业/测验</div>
-                <div class="resource-count">{{ resourceAnalysis.homework_count }} 份</div>
+
+            <div class="resource-list">
+              <div v-for="item in resourceItems" :key="item.label" class="resource-item">
+                <img :src="item.icon" alt="" />
+                <div>
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </div>
+                <small>{{ item.meta }}</small>
               </div>
             </div>
           </div>
-        </div>
-      </a-card>
+        </section>
 
-      <!-- 5. 课程模式雷达图 -->
-      <a-card class="grid-card grid-card--mode" :bordered="false">
-        <template #title>
-          <div class="card-title">
-            <icon-apps />
-            <span>课程模式</span>
-          </div>
-        </template>
-        <div class="mode-layout">
-          <div class="mode-stats">
-            <div class="mode-stat">
-              <span class="mode-stat__pct">67%</span>
-              <span class="mode-stat__label">讲授型</span>
-            </div>
-            <div class="mode-stat">
-              <span class="mode-stat__pct">52%</span>
-              <span class="mode-stat__label">混合型</span>
-            </div>
-            <div class="mode-stat">
-              <span class="mode-stat__pct">43%</span>
-              <span class="mode-stat__label">对话型</span>
-            </div>
-            <div class="mode-stat">
-              <span class="mode-stat__pct">17%</span>
-              <span class="mode-stat__label">练习型</span>
+        <section class="panel analytics-panel mode-panel">
+          <div class="analytics-heading">
+            <div>
+              <h3>课程模式</h3>
+              <p>多维度教学模式应用情况</p>
             </div>
           </div>
-          <div class="mode-chart">
-            <ClassMode />
-          </div>
-        </div>
-      </a-card>
 
-      <!-- 6. 近7日访问量折线图 -->
-      <a-card class="grid-card grid-card--traffic" :bordered="false">
-        <template #title>
-          <div class="card-title">
-            <icon-bar-chart />
-            <span>近 7 日访问量</span>
+          <div class="mode-content">
+            <div class="mode-stats">
+              <div v-for="item in modeStats" :key="item.label" class="mode-stat">
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}%</strong>
+                <div class="progress-track">
+                  <i :style="{ width: `${item.value}%` }"></i>
+                </div>
+              </div>
+            </div>
+
+            <div class="radar-wrap">
+              <svg viewBox="0 0 240 220" role="img" aria-label="课程模式雷达图">
+                <g class="radar-grid">
+                  <polygon points="120,30 200,110 120,190 40,110" />
+                  <polygon points="120,50 180,110 120,170 60,110" />
+                  <polygon points="120,70 160,110 120,150 80,110" />
+                  <line x1="120" y1="30" x2="120" y2="190" />
+                  <line x1="40" y1="110" x2="200" y2="110" />
+                </g>
+                <polygon class="radar-data" points="120,61 176,110 120,156 50,110" />
+                <g class="radar-points">
+                  <circle cx="120" cy="61" r="4" />
+                  <circle cx="176" cy="110" r="4" />
+                  <circle cx="120" cy="156" r="4" />
+                  <circle cx="50" cy="110" r="4" />
+                </g>
+                <g class="radar-labels">
+                  <text x="120" y="17" text-anchor="middle">讲授</text>
+                  <text x="221" y="114" text-anchor="middle">混合</text>
+                  <text x="120" y="213" text-anchor="middle">讨论</text>
+                  <text x="18" y="114" text-anchor="middle">实践</text>
+                </g>
+              </svg>
+            </div>
           </div>
-        </template>
-        <div class="traffic-chart">
-          <PlatUseVue />
-        </div>
-      </a-card>
+          <p class="analytics-note">课堂互动与实践教学占比较高，课程结构均衡</p>
+        </section>
+
+        <section class="panel analytics-panel traffic-panel">
+          <div class="analytics-heading">
+            <div>
+              <h3>访问流量</h3>
+              <p>近 7 天课程访问趋势</p>
+            </div>
+            <button class="period-select" type="button">近 7 天 <icon-down /></button>
+          </div>
+
+          <div class="traffic-chart">
+            <svg viewBox="0 0 520 240" role="img" aria-label="近七天访问流量折线图">
+              <defs>
+                <linearGradient id="trafficArea" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#536dfe" stop-opacity=".26" />
+                  <stop offset="100%" stop-color="#536dfe" stop-opacity="0" />
+                </linearGradient>
+              </defs>
+              <g class="chart-grid">
+                <line v-for="y in [40, 80, 120, 160, 200]" :key="y" x1="42" :y1="y" x2="490" :y2="y" />
+              </g>
+              <path class="chart-area" d="M42 154 L115 124 L188 140 L261 92 L334 116 L407 164 L480 81 L480 200 L42 200 Z" />
+              <polyline class="chart-line" points="42,154 115,124 188,140 261,92 334,116 407,164 480,81" />
+              <g class="chart-points">
+                <circle v-for="point in trafficPoints" :key="point.x" :cx="point.x" :cy="point.y" r="4.5" />
+              </g>
+              <g class="chart-axis-labels">
+                <text v-for="(day, index) in trafficDays" :key="day" :x="trafficPoints[index].x" y="225" text-anchor="middle">{{ day }}</text>
+              </g>
+            </svg>
+          </div>
+
+          <div class="traffic-metrics">
+            <div>
+              <span>总访问量</span>
+              <strong>806</strong>
+            </div>
+            <div>
+              <span>日均访问</span>
+              <strong>115</strong>
+            </div>
+            <div>
+              <span>较上周</span>
+              <strong class="increase">+18.4%</strong>
+            </div>
+          </div>
+        </section>
+      </div>
     </div>
   </ZyPageShell>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { Message } from '@arco-design/web-vue';
 import {
-  IconBook,
   IconApps,
-  IconFile,
-  IconStorage,
-  IconBarChart,
+  IconCalendar,
+  IconDown,
   IconDownload,
-  IconNotification,
+  IconFile,
+  IconRight,
+  IconUser,
+  IconUserGroup,
 } from '@arco-design/web-vue/es/icon';
+import ZyPageShell from '@/components/zy/ZyPageShell.vue';
 import {
   fetchCourseById,
-  fetchCourses,
-  fetchTeachingClasses,
   fetchCourseResourceAnalysis,
+  fetchTeachingClasses,
   type Course,
-  type TeachingClass,
   type CourseResourceAnalysis,
+  type TeachingClass,
 } from '@/api/course';
 import {
   SCENARIO_COURSE_IDS,
   getScenarioCourseById,
   getScenarioResourceAnalysis,
   getScenarioTeachingClasses,
+  scenarioCourseMetrics,
 } from '@/data/teachingScenario';
-import LoadingState from '@/components/state/LoadingState.vue';
-import EmptyState from '@/components/state/EmptyState.vue';
-import ErrorState from '@/components/state/ErrorState.vue';
-import ZyPageShell from '@/components/zy/ZyPageShell.vue';
-import ClassMode from './components/ClassMode.vue';
-import PlatUseVue from './components/PlatUse.vue';
-import ResorceRationVue from './components/ResorceRation.vue';
+import DatabaseImg from '@/assets/images/数据库图片.png';
+import VideoIcon from '@/assets/images/视频.png';
+import DocumentIcon from '@/assets/images/文档.png';
+import CoursewareIcon from '@/assets/images/笔记.png';
+import OtherIcon from '@/assets/images/作业.png';
+
+type ActivityTab = 'latest' | 'all';
 
 const route = useRoute();
 const router = useRouter();
+const activeActivityTab = ref<ActivityTab>('latest');
+const defaultCourseId = SCENARIO_COURSE_IDS[0];
+const course = ref<Course | null>(getScenarioCourseById(defaultCourseId) || null);
+const teachingClasses = ref<TeachingClass[]>(getScenarioTeachingClasses(defaultCourseId));
+const resourceAnalysis = ref<CourseResourceAnalysis>(getScenarioResourceAnalysis(defaultCourseId));
 
-const loading = ref(false);
-const error = ref('');
-const course = ref<Course | null>(null);
-const teachingClasses = ref<TeachingClass[]>([]);
-const loadingClasses = ref(false);
-
-const homeworkColumns = [
-  { title: '排名', dataIndex: 'rank', width: 64 },
-  { title: '姓名', dataIndex: 'name' },
-  { title: '作业综合评价', dataIndex: 'score' },
+const activityTabs: Array<{ label: string; value: ActivityTab }> = [
+  { label: '最新动态', value: 'latest' },
+  { label: '全部', value: 'all' },
 ];
 
-const homeworkData = [
-  { rank: 1, name: '张三', score: '99.62' },
-  { rank: 2, name: '李四', score: '98.42' },
-  { rank: 3, name: '陈晨', score: '96.17' },
-  { rank: 4, name: '王五', score: '95.08' },
-  { rank: 5, name: '赵六', score: '93.51' },
+const homeworkRows = [
+  { name: '第三章课后作业', submitted: '47/50', score: '89.5' },
+  { name: 'SQL 综合练习', submitted: '45/50', score: '86.2' },
+  { name: '数据库设计实验', submitted: '42/50', score: '91.8' },
 ];
 
-const resourceAnalysis = ref<CourseResourceAnalysis>({
-  ...getScenarioResourceAnalysis(SCENARIO_COURSE_IDS[0]),
+const activityData = {
+  latest: [
+    { title: '发布了新作业', detail: '第三章课后作业', time: '10 分钟前' },
+    { title: '上传了课程资源', detail: '事务管理与并发控制.pdf', time: '2 小时前' },
+    { title: '更新了课程公告', detail: '本周实验课安排', time: '昨天 16:30' },
+  ],
+  all: [
+    { title: '发布了新作业', detail: '第三章课后作业', time: '10 分钟前' },
+    { title: '上传了课程资源', detail: '事务管理与并发控制.pdf', time: '2 小时前' },
+    { title: '更新了课程公告', detail: '本周实验课安排', time: '昨天 16:30' },
+    { title: '完成课堂统计', detail: '第二章课堂互动分析', time: '3 天前' },
+  ],
+};
+
+const modeStats = [
+  { label: '讲授式', value: 67 },
+  { label: '混合式', value: 52 },
+  { label: '讨论式', value: 43 },
+  { label: '实践式', value: 38 },
+];
+
+const trafficPoints = [
+  { x: 42, y: 154 },
+  { x: 115, y: 124 },
+  { x: 188, y: 140 },
+  { x: 261, y: 92 },
+  { x: 334, y: 116 },
+  { x: 407, y: 164 },
+  { x: 480, y: 81 },
+];
+const trafficDays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+
+const resourceItems = computed(() => [
+  { label: '教学视频', value: '10GB', meta: '3,643 次播放', icon: VideoIcon },
+  { label: '课程文档', value: '15.9GB', meta: '1,743 次下载', icon: DocumentIcon },
+  { label: '教学课件', value: '20.5GB', meta: '2,164 次浏览', icon: CoursewareIcon },
+  { label: '其他资源', value: '2,633', meta: '累计使用', icon: OtherIcon },
+]);
+
+const courseId = computed(() => {
+  const id = route.params.id || route.query.id;
+  return typeof id === 'string' && id ? id : defaultCourseId;
 });
-
-function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString('zh-CN');
-}
-
-function handleExport() {
-  Message.info('课程数据导出功能开发中');
-}
-
-async function loadTeachingClasses(courseId: string, useDemoFallback: boolean) {
-  loadingClasses.value = true;
-  try {
-    const response = await fetchTeachingClasses(courseId);
-    teachingClasses.value = response.data;
-  } catch {
-    teachingClasses.value = useDemoFallback
-      ? (getScenarioTeachingClasses(courseId) as TeachingClass[])
-      : [];
-  } finally {
-    loadingClasses.value = false;
-  }
-}
-
-async function loadResourceAnalysis(courseId: string) {
-  try {
-    resourceAnalysis.value = await fetchCourseResourceAnalysis(courseId);
-  } catch {
-    resourceAnalysis.value = getScenarioResourceAnalysis(courseId);
-  }
-}
-
-async function resolveCourseId(): Promise<string> {
-  const fromParam = (route.params.id as string) || '';
-  if (fromParam) return fromParam;
-  const q = route.query.id;
-  if (typeof q === 'string' && q) return q;
-
-  if (route.name === 'CourseOne') {
-    try {
-      const r = await fetchCourses({ skip: 0, limit: 1 });
-      const first = r.data[0];
-      if (first?.id) return first.id;
-    } catch {
-      /* 使用内置课程场景 */
-    }
-    return SCENARIO_COURSE_IDS[0];
-  }
-  return '';
-}
-
-async function loadCourseDetail() {
-  loading.value = true;
-  error.value = '';
-
-  const courseId = await resolveCourseId();
-  if (!courseId) {
-    error.value = '课程ID不存在';
-    loading.value = false;
-    return;
-  }
-
-  try {
-    course.value = await fetchCourseById(courseId);
-    await loadTeachingClasses(courseId, false);
-    await loadResourceAnalysis(courseId);
-  } catch {
-    const scenarioCourse = getScenarioCourseById(courseId);
-    if (scenarioCourse) {
-      course.value = { ...scenarioCourse } as Course;
-      error.value = '';
-      await loadTeachingClasses(courseId, true);
-      await loadResourceAnalysis(courseId);
-    } else {
-      error.value = '无法加载课程，请从课程总览选择课程或检查后端是否已启动';
-    }
-  } finally {
-    loading.value = false;
-  }
-}
-
-function goBack() {
-  router.push('/course/list');
-}
-
-onMounted(() => {
-  loadCourseDetail();
+const scenarioMetrics = computed(() => scenarioCourseMetrics[courseId.value]);
+const currentActivities = computed(() => activityData[activeActivityTab.value]);
+const courseTitle = computed(() => {
+  const name = course.value?.name || '数据库系统原理';
+  return name === '数据库系统' ? '数据库系统原理' : name;
 });
-
-watch(
-  () => [route.name, route.params.id, route.query.id] as const,
-  () => {
-    loadCourseDetail();
-  }
+const courseDescription = computed(
+  () => course.value?.description || '关系模型、SQL、事务与存储，配套实验与案例。',
 );
+const courseCategory = computed(() => {
+  const type = course.value?.course_type;
+  if (type === 'required') return '计算机科学';
+  if (type === 'elective') return '专业选修';
+  return '计算机科学';
+});
+const createdDate = computed(() => {
+  const raw = course.value?.created_at;
+  if (!raw) return '2026/4/3';
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return '2026/4/3';
+  return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`;
+});
+const teacherName = computed(() => scenarioMetrics.value?.teacher || '林老师');
+const className = computed(() => {
+  const name = teachingClasses.value[0]?.name;
+  if (name && !name.includes('春季教学班')) return name;
+  return `2026春-${courseTitle.value}-01班`;
+});
+const courseCover = computed(() => DatabaseImg);
+const resourceTotal = computed(() => '2,856');
+
+function hydrateScenario(id: string) {
+  course.value = getScenarioCourseById(id) || getScenarioCourseById(defaultCourseId) || null;
+  teachingClasses.value = getScenarioTeachingClasses(id);
+  resourceAnalysis.value = getScenarioResourceAnalysis(id);
+}
+
+async function syncCourseData(id: string) {
+  const [courseResult, classesResult, resourceResult] = await Promise.allSettled([
+    fetchCourseById(id),
+    fetchTeachingClasses(id),
+    fetchCourseResourceAnalysis(id),
+  ]);
+
+  if (courseResult.status === 'fulfilled' && courseResult.value) {
+    course.value = courseResult.value;
+  }
+  if (
+    classesResult.status === 'fulfilled' &&
+    Array.isArray(classesResult.value?.data) &&
+    classesResult.value.data.length
+  ) {
+    teachingClasses.value = classesResult.value.data;
+  }
+  if (resourceResult.status === 'fulfilled' && resourceResult.value) {
+    resourceAnalysis.value = resourceResult.value;
+  }
+}
+
+function loadCourseDetail() {
+  hydrateScenario(courseId.value);
+  void syncCourseData(courseId.value);
+}
+
+function showMore(type: string) {
+  Message.info(`${type}详情将在对应模块中展示`);
+}
+
+function exportOverview() {
+  const rows = [
+    ['课程名称', courseTitle.value],
+    ['课程编号', course.value?.identifier || 'CS-DB'],
+    ['授课教师', teacherName.value],
+    ['教学班级', className.value],
+    ['资源总数', String(resourceTotal.value)],
+  ];
+  const csv = `\uFEFF${rows.map((row) => row.join(',')).join('\n')}`;
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `${courseTitle.value}-课程信息.csv`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+  Message.success('课程数据已导出');
+}
+
+watch(courseId, loadCourseDetail);
+onMounted(loadCourseDetail);
 </script>
 
 <style scoped lang="less">
-.page-breadcrumb {
+.course-info-page {
+  --brand: #536dfe;
+  --brand-dark: #4054d7;
+  --text: #17213a;
+  --muted: #7d879d;
+  --line: #e6eaf2;
+  color: var(--text);
+}
+
+:deep(.zy-page-shell__body) {
+  gap: 0;
+}
+
+.breadcrumb {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
+  margin-bottom: 17px;
+  color: #9aa3b5;
   font-size: 13px;
-  margin-bottom: 12px;
-}
 
-.crumb-link {
-  color: var(--zy-color-text-secondary, #64748b);
-  text-decoration: none;
-  transition: color 0.15s ease;
-
-  &:hover {
-    color: var(--zy-color-brand, #6366f1);
+  button {
+    padding: 0;
+    border: 0;
+    color: #8b95a9;
+    background: transparent;
+    cursor: pointer;
   }
-}
 
-.crumb-sep {
-  color: #cbd5e1;
-}
-
-.crumb-current {
-  color: var(--zy-color-text-primary, #0f172a);
-  font-weight: 500;
+  strong {
+    color: #59647a;
+    font-weight: 500;
+  }
 }
 
 .page-header {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
   margin-bottom: 20px;
+
+  h1 {
+    margin: 0 0 8px;
+    font-size: 25px;
+    line-height: 1.2;
+    letter-spacing: -.5px;
+  }
+
+  p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 14px;
+  }
 }
 
-.page-title {
-  margin: 0;
-  font-size: 26px;
-  font-weight: 700;
-  color: var(--zy-color-text-primary, #0f172a);
-  letter-spacing: -0.02em;
+.export-button {
+  height: 37px;
+  padding: 0 17px;
+  border: 1px solid #dfe4ee;
+  border-radius: 7px;
+  color: #505b70;
+  background: #fff;
 }
 
-.page-subtitle {
-  margin: 6px 0 0;
-  font-size: 14px;
-  color: var(--zy-color-text-secondary, #64748b);
+.panel {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 5px 18px rgba(25, 39, 82, .045);
 }
 
-.export-btn {
-  border-color: rgba(99, 102, 241, 0.35) !important;
-  color: var(--zy-color-brand, #6366f1) !important;
-  border-radius: 10px;
-  flex-shrink: 0;
-}
-
-/* ===== 6 宫格 ===== */
-.dashboard-grid {
+.overview-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: minmax(0, .96fr) minmax(0, 1.14fr);
   gap: 16px;
+  margin-bottom: 16px;
 }
 
-@media (max-width: 900px) {
-  .dashboard-grid {
-    grid-template-columns: 1fr;
-  }
+.course-summary {
+  display: flex;
+  min-height: 327px;
+  padding: 24px 24px 0;
+  flex-direction: column;
 }
 
-.grid-card {
-  border-radius: var(--zy-radius-card, 16px);
-  box-shadow: var(--zy-shadow-card);
-  border: 1px solid rgba(99, 102, 241, 0.1);
-  transition: box-shadow 0.2s ease;
-
-  &:hover {
-    box-shadow: var(--zy-shadow-card-hover);
-  }
-
-  &--detail {
-    grid-column: 1;
-    grid-row: span 1;
-  }
-
-  &--homework {
-    grid-column: 2;
-  }
-
-  &--timeline {
-    grid-column: 1;
-  }
-
-  &--resource {
-    grid-column: 2;
-  }
-
-  &--mode {
-    grid-column: 1;
-  }
-
-  &--traffic {
-    grid-column: 2;
-  }
+.course-main {
+  display: flex;
+  gap: 23px;
+  min-height: 216px;
 }
 
-@media (max-width: 900px) {
-  .grid-card {
-    grid-column: 1 !important;
+.course-cover {
+  width: 174px;
+  height: 202px;
+  flex: 0 0 auto;
+  border-radius: 9px;
+  object-fit: cover;
+  box-shadow: 0 10px 22px rgba(36, 56, 118, .13);
+}
+
+.course-copy {
+  min-width: 0;
+  padding-top: 3px;
+}
+
+.course-title-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+
+  h2 {
+    margin: 0;
+    font-size: 21px;
+    letter-spacing: -.35px;
   }
 }
 
-.card-title {
+.status-badge {
+  padding: 3px 9px;
+  border: 1px solid #cad4ff;
+  border-radius: 5px;
+  color: #536dfe;
+  background: #f3f5ff;
+  font-size: 11px;
+}
+
+.course-description {
+  min-height: 42px;
+  margin: 13px 0 19px;
+  color: #7d8799;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.metadata-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 13px;
+}
+
+.metadata-item {
+  min-width: 0;
+
+  .metadata-icon {
+    display: grid;
+    width: 31px;
+    height: 31px;
+    margin-bottom: 9px;
+    border-radius: 7px;
+    place-items: center;
+    font-size: 16px;
+  }
+
+  .indigo {
+    color: #536dfe;
+    background: #eef1ff;
+  }
+
+  .cyan {
+    color: #27a9c5;
+    background: #eafafd;
+  }
+
+  .violet {
+    color: #8d70dc;
+    background: #f4efff;
+  }
+
+  span {
+    display: block;
+    margin-bottom: 4px;
+    color: #9aa3b4;
+    font-size: 11px;
+  }
+
+  strong {
+    display: block;
+    overflow: hidden;
+    color: #48536a;
+    font-size: 12px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.class-strip {
+  display: flex;
+  align-items: center;
+  min-height: 74px;
+  margin: auto -24px 0;
+  padding: 0 24px;
+  border-top: 1px solid #edf0f5;
+  background: #fbfcff;
+  border-radius: 0 0 12px 12px;
+}
+
+.class-item {
+  display: flex;
+  align-items: center;
+  width: 50%;
+  min-width: 0;
+  gap: 11px;
+
+  .class-icon {
+    display: grid;
+    width: 35px;
+    height: 35px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    color: #536dfe;
+    background: #edf0ff;
+    place-items: center;
+    font-size: 17px;
+  }
+
+  span {
+    display: block;
+    margin-bottom: 4px;
+    color: #9aa3b5;
+    font-size: 11px;
+  }
+
+  strong {
+    display: block;
+    overflow: hidden;
+    color: #475268;
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.class-divider {
+  width: 1px;
+  height: 33px;
+  margin: 0 22px;
+  background: #e7eaf1;
+}
+
+.learning-panel {
+  display: grid;
+  min-height: 327px;
+  grid-template-columns: 1.07fr .93fr;
+}
+
+.homework-pane,
+.activity-pane {
+  padding: 22px 22px 17px;
+}
+
+.activity-pane {
+  border-left: 1px solid #edf0f5;
+}
+
+.panel-title {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-weight: 600;
-  color: var(--zy-color-text-primary, #0f172a);
-}
 
-.course-name {
-  margin: 0 0 8px;
-  font-size: var(--zy-text-xl, 20px);
-  font-weight: 700;
-  color: var(--zy-color-brand, #6366f1);
-  line-height: 1.3;
-}
-
-.course-desc {
-  margin: 0 0 16px;
-  font-size: var(--zy-text-sm, 14px);
-  color: var(--zy-color-text-secondary, #64748b);
-  line-height: 1.6;
-}
-
-.detail-chips {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-}
-
-.detail-chip {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 12px;
-  border-radius: var(--zy-radius-sm, 8px);
-  background: var(--zy-bg-tag, #eef2ff);
-  text-align: center;
-
-  &__label {
-    font-size: var(--zy-text-xs, 12px);
-    color: var(--zy-color-brand, #6366f1);
-    font-weight: 600;
-  }
-
-  &__value {
-    font-size: var(--zy-text-sm, 14px);
-    font-weight: 600;
-    color: var(--zy-color-text-primary, #0f172a);
+  h3 {
+    margin: 0;
+    font-size: 15px;
   }
 }
 
-.class-section {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.class-header,
-.class-row {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  text-align: center;
-  font-size: var(--zy-text-sm, 14px);
-}
-
-.class-header {
-  font-weight: 600;
-  color: var(--zy-color-brand, #6366f1);
-  padding-bottom: 8px;
-  border-bottom: 1px solid rgba(99, 102, 241, 0.12);
-}
-
-.class-row {
-  padding: 12px 8px;
-  border: 1px solid rgba(99, 102, 241, 0.15);
-  border-radius: var(--zy-radius-sm, 8px);
-  color: var(--zy-color-text-primary, #0f172a);
-  transition: box-shadow 0.2s ease;
-
-  &:hover {
-    box-shadow: 0 4px 16px rgba(99, 102, 241, 0.1);
-  }
+.title-mark {
+  width: 3px;
+  height: 15px;
+  border-radius: 2px;
+  background: var(--brand);
 }
 
 .homework-table {
-  :deep(.arco-table-th) {
-    background: var(--zy-bg-tag, #eef2ff);
-    color: var(--zy-color-text-primary, #0f172a);
-    font-weight: 600;
+  margin-top: 16px;
+}
+
+.table-row {
+  display: grid;
+  min-height: 48px;
+  align-items: center;
+  grid-template-columns: 1.45fr .9fr .55fr;
+  border-bottom: 1px solid #f0f2f6;
+  color: #7f899c;
+  font-size: 12px;
+
+  strong {
+    color: #424d63;
+    font-weight: 500;
   }
 }
 
-.activity-timeline {
-  margin-top: 4px;
+.table-head {
+  min-height: 31px;
+  border-bottom: 1px solid #e8ebf1;
+  color: #a0a8b8;
+  font-size: 11px;
 }
 
-.timeline-time {
-  font-size: 12px;
-  color: var(--zy-color-text-secondary, #64748b);
-  margin-top: 4px;
+.submit-count {
+  color: #667187;
 }
 
-.name-highlight {
-  color: var(--zy-color-brand, #6366f1);
+.score {
+  color: #536dfe;
   font-weight: 600;
 }
 
-.view-more {
-  margin-top: 12px;
-  font-size: var(--zy-text-sm, 14px);
-}
-
-.mode-layout {
+.text-action {
   display: flex;
-  gap: 12px;
   align-items: center;
-  min-height: 260px;
+  gap: 3px;
+  margin: 13px 0 0 auto;
+  padding: 0;
+  border: 0;
+  color: #7f8a9f;
+  background: transparent;
+  font-size: 11px;
+  cursor: pointer;
 }
 
-.mode-stats {
-  flex: 1;
+.activity-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.activity-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 6px;
+  background: #f3f5f9;
+
+  button {
+    padding: 4px 8px;
+    border: 0;
+    border-radius: 4px;
+    color: #8d96a7;
+    background: transparent;
+    font-size: 10px;
+    cursor: pointer;
+  }
+
+  .active {
+    color: #536dfe;
+    background: #fff;
+    box-shadow: 0 1px 4px rgba(30, 48, 92, .08);
+  }
+}
+
+.timeline {
+  margin-top: 19px;
+}
+
+.timeline-item {
+  position: relative;
+  display: flex;
+  min-height: 67px;
+  padding-left: 20px;
+
+  &::before {
+    position: absolute;
+    top: 12px;
+    bottom: -3px;
+    left: 4px;
+    width: 1px;
+    background: #e2e6ef;
+    content: '';
+  }
+
+  &:last-child::before {
+    display: none;
+  }
+
+  strong {
+    display: block;
+    color: #475167;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  p {
+    margin: 4px 0 3px;
+    color: #7f899b;
+    font-size: 11px;
+  }
+
+  time {
+    color: #b0b7c4;
+    font-size: 10px;
+  }
+}
+
+.timeline-dot {
+  position: absolute;
+  top: 4px;
+  left: 0;
+  width: 9px;
+  height: 9px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #647bff;
+  box-shadow: 0 0 0 1px #9eabff;
+}
+
+.analytics-grid {
+  display: grid;
+  grid-template-columns: 1.06fr .94fr 1fr;
+  gap: 16px;
+}
+
+.analytics-panel {
+  min-height: 350px;
+  padding: 21px 22px 18px;
+}
+
+.analytics-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+
+  h3 {
+    margin: 0 0 6px;
+    font-size: 15px;
+  }
+
+  p {
+    margin: 0;
+    color: #9aa3b5;
+    font-size: 11px;
+  }
+}
+
+.period-select {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 9px;
+  border: 1px solid #e2e6ee;
+  border-radius: 6px;
+  color: #727c90;
+  background: #fff;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.resource-content {
+  display: grid;
+  align-items: center;
+  grid-template-columns: 1.03fr .97fr;
+  gap: 12px;
+  margin-top: 23px;
+}
+
+.donut-wrap {
+  position: relative;
+  min-height: 239px;
+}
+
+.donut-chart {
+  position: absolute;
+  top: 41px;
+  left: 50%;
+  display: grid;
+  width: 137px;
+  height: 137px;
+  border-radius: 50%;
+  background: conic-gradient(#536dfe 0 31%, #28b6d1 31% 58%, #9b7adf 58% 82%, #f4b85d 82% 100%);
+  place-items: center;
+  transform: translateX(-50%);
+
+  &::before {
+    width: 82px;
+    height: 82px;
+    border-radius: 50%;
+    background: #fff;
+    content: '';
+  }
+}
+
+.donut-center {
+  position: absolute;
+  z-index: 1;
+  text-align: center;
+
+  strong,
+  span {
+    display: block;
+  }
+
+  strong {
+    font-size: 21px;
+  }
+
+  span {
+    margin-top: 4px;
+    color: #9aa3b5;
+    font-size: 10px;
+  }
+}
+
+.donut-label {
+  position: absolute;
+  color: #7e889a;
+  font-size: 10px;
+  white-space: nowrap;
+
+  i {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-right: 4px;
+    border-radius: 50%;
+  }
+}
+
+.label-video {
+  top: 9px;
+  right: 3px;
+
+  i { background: #536dfe; }
+}
+
+.label-document {
+  top: 98px;
+  right: -2px;
+
+  i { background: #28b6d1; }
+}
+
+.label-courseware {
+  bottom: 13px;
+  left: 51%;
+
+  i { background: #9b7adf; }
+}
+
+.label-other {
+  top: 98px;
+  left: -1px;
+
+  i { background: #f4b85d; }
+}
+
+.resource-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.mode-stat {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  justify-content: center;
-
-  &__pct {
-    font-size: 24px;
-    font-weight: 700;
-    color: var(--zy-color-brand, #6366f1);
-    min-width: 56px;
-    text-align: right;
-  }
-
-  &__label {
-    font-size: var(--zy-text-base, 14px);
-    color: var(--zy-color-text-secondary, #64748b);
-  }
-}
-
-.mode-chart {
-  flex: 1;
-  min-width: 0;
-}
-
-.resource-layout {
-  display: flex;
-  gap: 16px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.resource-chart {
-  flex: 1;
-  min-width: 180px;
-}
-
-.resource-list {
-  flex: 1;
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
-  min-width: 200px;
-}
-
 .resource-item {
-  display: flex;
+  display: grid;
   align-items: center;
-  gap: 10px;
-  padding: 10px;
-  border-radius: var(--zy-radius-sm, 8px);
-  background: var(--zy-bg-tag, #eef2ff);
+  grid-template-columns: 34px 1fr auto;
+  gap: 9px;
+  min-height: 45px;
 
   img {
-    width: 36px;
-    height: 36px;
-    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    border-radius: 7px;
+    object-fit: cover;
+  }
+
+  span,
+  strong {
+    display: block;
+  }
+
+  span {
+    margin-bottom: 3px;
+    color: #858fa1;
+    font-size: 10px;
+  }
+
+  strong {
+    color: #3f4a61;
+    font-size: 12px;
+  }
+
+  small {
+    color: #a6adbb;
+    font-size: 9px;
+    text-align: right;
   }
 }
 
-.resource-type {
-  font-size: var(--zy-text-xs, 12px);
-  color: var(--zy-color-text-secondary, #64748b);
+.mode-content {
+  display: grid;
+  align-items: center;
+  grid-template-columns: .82fr 1.18fr;
+  gap: 7px;
+  margin-top: 19px;
 }
 
-.resource-size {
-  font-weight: 600;
-  color: var(--zy-color-brand, #6366f1);
-  font-size: var(--zy-text-sm, 14px);
+.mode-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 17px;
 }
 
-.resource-count {
-  font-size: var(--zy-text-xs, 12px);
-  color: var(--zy-color-text-secondary, #64748b);
+.mode-stat {
+  display: grid;
+  align-items: center;
+  grid-template-columns: 1fr auto;
+  gap: 7px;
+
+  span {
+    color: #727d91;
+    font-size: 11px;
+  }
+
+  strong {
+    color: #505c72;
+    font-size: 11px;
+  }
+}
+
+.progress-track {
+  height: 4px;
+  overflow: hidden;
+  grid-column: 1 / -1;
+  border-radius: 4px;
+  background: #eef1f6;
+
+  i {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #536dfe, #8ca0ff);
+  }
+}
+
+.radar-wrap svg {
+  display: block;
+  width: 100%;
+  max-height: 219px;
+}
+
+.radar-grid {
+  fill: none;
+  stroke: #dfe4ed;
+  stroke-width: 1;
+}
+
+.radar-data {
+  fill: rgba(83, 109, 254, .22);
+  stroke: #536dfe;
+  stroke-width: 2;
+}
+
+.radar-points {
+  fill: #536dfe;
+  stroke: #fff;
+  stroke-width: 2;
+}
+
+.radar-labels {
+  fill: #8c96a7;
+  font-size: 10px;
+}
+
+.analytics-note {
+  margin: 5px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid #eef1f5;
+  color: #99a2b2;
+  font-size: 10px;
+  text-align: center;
 }
 
 .traffic-chart {
-  min-height: 220px;
+  margin-top: 10px;
+
+  svg {
+    display: block;
+    width: 100%;
+  }
 }
 
-:deep(.arco-card-header) {
-  border-bottom: 1px solid rgba(99, 102, 241, 0.1);
+.chart-grid line {
+  stroke: #edf0f5;
+  stroke-width: 1;
+}
+
+.chart-area {
+  fill: url(#trafficArea);
+}
+
+.chart-line {
+  fill: none;
+  stroke: #536dfe;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.5;
+}
+
+.chart-points circle {
+  fill: #fff;
+  stroke: #536dfe;
+  stroke-width: 2.5;
+}
+
+.chart-axis-labels {
+  fill: #a0a8b7;
+  font-size: 10px;
+}
+
+.traffic-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin-top: 1px;
+  padding-top: 12px;
+  border-top: 1px solid #eef1f5;
+
+  div {
+    text-align: center;
+
+    & + div {
+      border-left: 1px solid #edf0f5;
+    }
+  }
+
+  span,
+  strong {
+    display: block;
+  }
+
+  span {
+    margin-bottom: 5px;
+    color: #9aa3b3;
+    font-size: 10px;
+  }
+
+  strong {
+    color: #3f4a61;
+    font-size: 14px;
+  }
+
+  .increase {
+    color: #28a972;
+  }
+}
+
+@media (max-width: 1120px) {
+  .overview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .analytics-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .traffic-panel {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 760px) {
+  .page-header,
+  .course-main {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .course-cover {
+    width: 100%;
+    height: 220px;
+  }
+
+  .learning-panel,
+  .analytics-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .activity-pane {
+    border-top: 1px solid #edf0f5;
+    border-left: 0;
+  }
+
+  .traffic-panel {
+    grid-column: auto;
+  }
+
+  .metadata-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .class-strip {
+    align-items: flex-start;
+    gap: 16px;
+    padding-top: 16px;
+    padding-bottom: 16px;
+    flex-direction: column;
+  }
+
+  .class-item {
+    width: 100%;
+  }
+
+  .class-divider {
+    display: none;
+  }
+
+  .resource-content {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

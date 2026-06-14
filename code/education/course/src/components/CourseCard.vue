@@ -1,9 +1,7 @@
 <template>
   <!--
     CourseCard.vue — 智屿品牌课程卡片
-    规格：designup.md §3.1
-    16:9 封面 | 分类 badge | 进度条 | 评分 | 继续学习按钮
-    hover: translateY(-4px) + 阴影加深
+    课程总览专用：宽幅封面 | 分类 badge | 进度条 | 评分 | 继续学习
   -->
   <div class="course-card" @click="$emit('click', course)">
     <!-- ===== 封面图 ===== -->
@@ -22,8 +20,17 @@
         @click.stop="toggleFavorite"
         aria-label="收藏课程"
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <path
+            d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"
+          />
         </svg>
       </button>
     </div>
@@ -36,8 +43,14 @@
       <!-- 教师行 -->
       <div class="teacher-row">
         <div class="teacher-avatar">
-          <img v-if="course.teacherAvatar" :src="course.teacherAvatar" :alt="course.teacher" />
-          <span v-else class="teacher-avatar-fallback">{{ course.teacher?.[0] || '师' }}</span>
+          <img
+            v-if="course.teacherAvatar"
+            :src="course.teacherAvatar"
+            :alt="course.teacher"
+          />
+          <span v-else class="teacher-avatar-fallback">{{
+            course.teacher?.[0] || '师'
+          }}</span>
         </div>
         <span class="teacher-name">{{ course.teacher || '未知教师' }}</span>
       </div>
@@ -48,238 +61,274 @@
           :percent="normalizedProgress"
           :color="'#6366f1'"
           :track-color="'rgba(99,102,241,0.15)'"
+          :show-text="false"
           size="small"
         />
-        <span class="progress-text">已完成 {{ displayProgress }}%</span>
+        <span class="progress-text">{{ displayProgress }}% 已完成</span>
       </div>
 
       <!-- 底部行：评分 + 按钮 -->
       <div class="card-footer">
         <div class="rating">
-          <span class="rating-star">⭐</span>
+          <span class="rating-star">☆</span>
           <span class="rating-score">{{ course.rating || '4.8' }}</span>
+          <span v-if="course.reviewCount" class="rating-count">
+            ({{ course.reviewCount }}人评价)
+          </span>
         </div>
-        <span class="continue-btn">继续学习 →</span>
+        <span class="continue-btn">
+          继续学习
+          <span aria-hidden="true">→</span>
+        </span>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+  import { computed, ref } from 'vue';
 
-interface CourseCardData {
-  id: string | number;
-  name: string;
-  category?: string;
-  coverImage?: string;
-  teacher?: string;
-  teacherAvatar?: string;
-  progress?: number;
-  rating?: string | number;
-}
+  interface CourseCardData {
+    id: string | number;
+    name: string;
+    category?: string;
+    coverImage?: string;
+    teacher?: string;
+    teacherAvatar?: string;
+    progress?: number;
+    rating?: string | number;
+    reviewCount?: number;
+  }
 
-const props = defineProps<{ course: CourseCardData }>();
-const emit = defineEmits<{ (e: 'click', course: CourseCardData): void }>();
+  const props = defineProps<{ course: CourseCardData }>();
+  defineEmits<{ (e: 'click', course: CourseCardData): void }>();
 
-const normalizedProgress = computed(() => {
-  const value = Number(props.course.progress ?? 0);
-  if (!Number.isFinite(value)) return 0;
-  return Math.max(0, Math.min(1, value > 1 ? value / 100 : value));
-});
+  const normalizedProgress = computed(() => {
+    const value = Number(props.course.progress ?? 0);
+    if (!Number.isFinite(value)) return 0;
+    return Math.max(0, Math.min(1, value > 1 ? value / 100 : value));
+  });
 
-const displayProgress = computed(() => Math.round(normalizedProgress.value * 100));
+  const displayProgress = computed(() =>
+    Math.round(normalizedProgress.value * 100)
+  );
 
-const isFavorited = ref(false);
-const toggleFavorite = () => {
-  isFavorited.value = !isFavorited.value;
-};
+  const isFavorited = ref(false);
+  const toggleFavorite = () => {
+    isFavorited.value = !isFavorited.value;
+  };
 </script>
 
 <style scoped>
-/* 智屿课程卡片
-   规格：洁白背景，16px 圆角，绿色阴影，hover 上浮
-   文档：designup.md §3.1
-*/
-.course-card {
-  background: rgba(255, 255, 255, 0.82);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  border-radius: 16px;
-  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.08);
-  cursor: pointer;
-  overflow: hidden;
-  transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
-    box-shadow 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
-    border-color 0.25s ease;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
+  .course-card {
+    display: flex;
+    height: 100%;
+    overflow: hidden;
+    flex-direction: column;
+    border: 1px solid #e7eaf2;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 3px 12px rgba(15, 23, 42, 0.045);
+    cursor: pointer;
+    transition: transform 200ms ease, box-shadow 200ms ease,
+      border-color 200ms ease;
+  }
 
-.course-card:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 20px 40px -10px rgba(99, 102, 241, 0.32);
-  border-color: rgba(99, 102, 241, 0.22);
-}
+  .course-card:hover {
+    border-color: rgba(99, 102, 241, 0.3);
+    box-shadow: 0 10px 24px rgba(79, 70, 229, 0.11);
+    transform: translateY(-3px);
+  }
 
-/* ===== 封面 ===== */
-.card-cover {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  overflow: hidden;
-  border-radius: 16px 16px 0 0;
-  background: linear-gradient(135deg, #eef2ff, #e0f2fe);
-}
+  .card-cover {
+    position: relative;
+    width: 100%;
+    overflow: hidden;
+    aspect-ratio: 2.35 / 1;
+    border-radius: 12px 12px 0 0;
+    background: #eef2ff;
+  }
 
-.cover-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-  transition: transform 0.4s ease;
-}
+  .cover-img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 260ms ease;
+  }
 
-.course-card:hover .cover-img {
-  transform: scale(1.04);
-}
+  .course-card:hover .cover-img {
+    transform: scale(1.025);
+  }
 
-/* 分类 Badge */
-.category-badge {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.95), rgba(139, 92, 246, 0.9));
-  color: #fff;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 3px 10px;
-  border-radius: 9999px;
-  letter-spacing: 0.03em;
-  backdrop-filter: blur(4px);
-}
+  .category-badge {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(79, 70, 229, 0.92);
+    box-shadow: 0 2px 8px rgba(49, 46, 129, 0.2);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
 
-/* 收藏按钮 */
-.favorite-btn {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  border: none;
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(4px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  color: #aaa;
-  transition: color 0.2s ease, background 0.2s ease;
-}
+  .favorite-btn {
+    position: absolute;
+    top: 9px;
+    right: 9px;
+    display: flex;
+    width: 32px;
+    height: 32px;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border: 1px solid rgba(226, 232, 240, 0.9);
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.94);
+    color: #aaa;
+    cursor: pointer;
+    transition: color 160ms ease, background 160ms ease, border-color 160ms ease;
+  }
 
-.favorite-btn:hover { color: #F97316; background: rgba(255,255,255,0.95); }
-.favorite-btn--active { color: #F97316; fill: #F97316; }
-.favorite-btn--active svg { fill: #F97316; }
+  .favorite-btn:hover,
+  .favorite-btn--active {
+    border-color: #c7d2fe;
+    background: #fff;
+    color: #6366f1;
+  }
 
-/* ===== 卡片主体 ===== */
-.card-body {
-  padding: 14px 16px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  flex: 1;
-}
+  .favorite-btn--active svg {
+    fill: #6366f1;
+  }
 
-.course-name {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: #0f172a;
-  line-height: 1.4;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
+  .card-body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 7px;
+    padding: 12px 14px 13px;
+  }
 
-/* 教师行 */
-.teacher-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
+  .course-name {
+    display: -webkit-box;
+    overflow: hidden;
+    margin: 0;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+    color: #0f172a;
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.4;
+  }
 
-.teacher-avatar {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  overflow: hidden;
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
+  .teacher-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
 
-.teacher-avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
+  .teacher-avatar {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
 
-.teacher-avatar-fallback {
-  font-size: 11px;
-  color: #fff;
-  font-weight: 600;
-}
+  .teacher-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
 
-.teacher-name {
-  font-size: 12px;
-  color: #64748b;
-}
+  .teacher-avatar-fallback {
+    font-size: 11px;
+    color: #fff;
+    font-weight: 600;
+  }
 
-/* 进度条 */
-.progress-section {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
+  .teacher-name {
+    color: #64748b;
+    font-size: 12px;
+  }
 
-.progress-text {
-  font-size: 11px;
-  color: #64748b;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
+  .progress-section {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
 
-/* 底部行 */
-.card-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: auto;
-  padding-top: 4px;
-}
+  .progress-section :deep(.arco-progress) {
+    min-width: 0;
+    flex: 1;
+  }
 
-.rating {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-}
+  .progress-section :deep(.arco-progress-line-wrapper) {
+    padding-right: 0;
+  }
 
-.rating-star { font-size: 13px; }
-.rating-score { font-size: 13px; font-weight: 600; color: #0f172a; }
+  .progress-text {
+    color: #64748b;
+    font-size: 11px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
 
-.continue-btn {
-  font-size: 13px;
-  font-weight: 500;
-  color: #6366f1;
-  cursor: pointer;
-  transition: color 0.15s ease;
-}
+  .card-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: auto;
+    padding-top: 4px;
+  }
 
-.continue-btn:hover { color: #4f46e5; }
+  .rating {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .rating-star {
+    color: #f5b400;
+    font-size: 17px;
+    line-height: 1;
+  }
+
+  .rating-score {
+    color: #0f172a;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .rating-count {
+    overflow: hidden;
+    color: #94a3b8;
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .continue-btn {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 4px;
+    color: #6366f1;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    transition: color 150ms ease;
+  }
+
+  .continue-btn:hover {
+    color: #4f46e5;
+  }
 </style>

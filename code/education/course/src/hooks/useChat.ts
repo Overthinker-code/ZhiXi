@@ -113,11 +113,10 @@ function fileToDataUrl(file: File): Promise<string> {
 type ChatSendOptions = {
   useWebSearch?: boolean;
   deepThinking?: boolean;
-  mode?: 'chat' | 'exercise_grading' | 'digital_human_explain';
+  mode?: 'chat' | 'exercise_grading';
   gradingMode?: boolean;
-  digitalHumanExplain?: boolean;
   activeTools?: string[];
-  toolMode?: 'chat' | 'exercise_grading' | 'image_tutoring' | 'digital_human_explain';
+  toolMode?: 'chat' | 'exercise_grading' | 'image_tutoring';
 };
 
 type ChatSendContent = {
@@ -138,13 +137,6 @@ function inferToolMode(messageContent: ChatSendContent) {
     messageContent.options?.toolMode === 'exercise_grading'
   ) {
     return 'exercise_grading' as const;
-  }
-  if (
-    messageContent.options?.digitalHumanExplain ||
-    messageContent.options?.mode === 'digital_human_explain' ||
-    messageContent.options?.toolMode === 'digital_human_explain'
-  ) {
-    return 'digital_human_explain' as const;
   }
   if (/批改|评分|打分|订正|错因|我的答案|参考答案|掌握度/.test(text)) {
     return 'exercise_grading' as const;
@@ -167,17 +159,12 @@ function buildModePrompt(messageContent: ChatSendContent, toolMode: string) {
   }
   if (messageContent.options?.deepThinking) {
     sections.push(
-      '已开启深度思考：先拆解问题、核对约束和隐含条件，再给出结构化结论；只展示必要推理摘要，不暴露冗长内部过程。'
+      '已开启深度思考：请在 reasoning 流中持续给出自然、简洁的第一人称思路摘要，例如先确认问题、检查条件、尝试关键步骤和核对结论。表达要像真实教师边思考边讲解，不输出系统阶段名、代理名或内部技术日志。'
     );
   }
   if (toolMode === 'exercise_grading') {
     sections.push(
       '已开启批改模式：请按「结论与得分、得分点、问题定位、订正建议、同类题提醒、掌握度反馈」输出。若题干或标准答案缺失，先说明评分假设，再给出可执行反馈；避免只给泛泛鼓励。'
-    );
-  }
-  if (messageContent.options?.digitalHumanExplain) {
-    sections.push(
-      '已开启数字人讲解：回答要适合直接转成教师数字人口播，包含开场、分点讲解、课堂提问和收束语；语言自然、节奏清晰。'
     );
   }
   if (hasImages) {
@@ -186,6 +173,17 @@ function buildModePrompt(messageContent: ChatSendContent, toolMode: string) {
     );
   }
   return sections.join('\n');
+}
+
+function buildInitialReasoningSummary(text: string, toolMode: string) {
+  const subject = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 48);
+  if (toolMode === 'exercise_grading') {
+    return '我先把题目条件和作答逐项对照，再判断得分点与真正需要订正的地方。';
+  }
+  if (subject) {
+    return `我先确认问题的重点：“${subject}${text.length > 48 ? '…' : ''}”。接下来会核对已知条件，再选择最清楚的讲解路径。`;
+  }
+  return '我先确认问题和已有材料，再选择最清楚的讲解路径。';
 }
 
 /**
@@ -407,11 +405,9 @@ export function useChat() {
       const userTextForModel =
         toolMode === 'exercise_grading'
           ? `【练习批改模式】\n请对下面题目或答案进行批改，必须包含：评分/等级、关键得分点、错误证据、订正步骤、后续练习建议、掌握度反馈。\n\n${visibleUserText}`
-          : toolMode === 'digital_human_explain'
-              ? `【数字人讲解模式】\n请把下面内容组织成适合数字人教师讲解的视频口播稿，结构清晰、面向学生。\n\n${visibleUserText}`
-              : imageBase64List.length
-                ? `【图像与文本联合提问】\n学生上传了图片，并补充以下文字。请结合图片识别内容、文字信息和课程知识进行回答；如果图片细节不确定，请明确说明。\n\n${visibleUserText}`
-                : visibleUserText;
+          : imageBase64List.length
+            ? `【图像与文本联合提问】\n学生上传了图片，并补充以下文字。请结合图片识别内容、文字信息和课程知识进行回答；如果图片细节不确定，请明确说明。\n\n${visibleUserText}`
+            : visibleUserText;
 
       chatStore.addMessage(
         messageHandler.formatMessage(
@@ -441,7 +437,6 @@ export function useChat() {
         ...optionTools,
         messageContent.options?.useWebSearch ? 'web_search' : '',
         messageContent.options?.deepThinking ? 'deep_thinking' : '',
-        messageContent.options?.digitalHumanExplain ? 'digital_human_explain' : '',
       ]);
       if (
         !messageContent.options?.useWebSearch &&
@@ -502,7 +497,9 @@ export function useChat() {
         let groundingMode = '';
         let metrics: Record<string, any> = {};
 
-        let reasoningText = '';
+        let reasoningText = messageContent.options?.deepThinking
+          ? buildInitialReasoningSummary(visibleUserText, toolMode)
+          : '';
         let reasoningActions: ReasoningActionItem[] = [];
         let streamFinished = false;
         let sawReasoningToken = false;

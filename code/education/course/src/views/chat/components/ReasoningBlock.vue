@@ -2,6 +2,7 @@
   import { computed, ref, watch } from 'vue';
   import { IconDown, IconRight } from '@arco-design/web-vue/es/icon';
   import type { ReasoningActionItem } from '@/api/rag';
+  import { renderMarkdown } from '@/utils/markdown';
 
   const props = defineProps<{
     content?: string;
@@ -33,6 +34,10 @@
     return displayText.value;
   });
 
+  const visibleHtml = computed(() =>
+    renderMarkdown(visibleText.value, { streaming: Boolean(props.streaming) })
+  );
+
   const hasContent = computed(
     () =>
       displayText.value.length > 0 ||
@@ -62,10 +67,10 @@
             </ul>
           </div>
         </div>
-        <p v-if="visibleText" class="rb-text">
-          {{ visibleText }}
+        <div v-if="visibleText" class="rb-text">
+          <div class="rb-markdown" v-html="visibleHtml" />
           <span v-if="streaming" class="rb-caret" aria-hidden="true" />
-        </p>
+        </div>
       </div>
     </Transition>
   </div>
@@ -73,14 +78,11 @@
 
 <style scoped lang="less">
   .rb {
-    margin: 8px 0 12px;
+    margin: 8px 0 14px;
     border-radius: 12px;
-    background: linear-gradient(
-      180deg,
-      rgba(248, 250, 252, 0.98) 0%,
-      rgba(241, 245, 249, 0.92) 100%
-    );
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    background: #f8fafc;
+    border: 1px solid #dce3ec;
+    border-left: 3px solid #6574f7;
     overflow: hidden;
   }
 
@@ -89,7 +91,7 @@
     align-items: center;
     gap: 8px;
     width: 100%;
-    padding: 10px 14px;
+    padding: 11px 14px;
     border: none;
     background: transparent;
     cursor: pointer;
@@ -132,7 +134,7 @@
   }
 
   .rb-body {
-    padding: 0 14px 14px;
+    padding: 0 16px 15px;
     border-top: 1px solid rgba(148, 163, 184, 0.2);
   }
 
@@ -172,14 +174,33 @@
 
   .rb-text {
     margin: 12px 0 0;
-    white-space: pre-wrap;
     word-break: break-word;
     font-family: inherit;
-    font-size: 13.5px;
-    line-height: 1.75;
-    color: #64748b;
+    font-size: 14px;
+    line-height: 1.82;
+    color: #59677b;
     max-height: 320px;
     overflow-y: auto;
+  }
+
+  .rb-markdown {
+    display: inline;
+
+    :deep(p) {
+      display: inline;
+      margin: 0;
+    }
+
+    :deep(.katex-display) {
+      display: block;
+      margin: 10px 0;
+      overflow-x: auto;
+      overflow-y: hidden;
+    }
+
+    :deep(.katex) {
+      font-size: 1.02em;
+    }
   }
 
   .rb-caret {

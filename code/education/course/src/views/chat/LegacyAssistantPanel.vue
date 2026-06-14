@@ -360,8 +360,8 @@
 <style lang="less" scoped>
   .chat-container {
     position: relative;
-    height: calc(100vh - 280px);
-    min-height: 480px;
+    height: calc(100vh - 153px);
+    min-height: 620px;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -459,9 +459,9 @@
     z-index: 1;
     flex: 1;
     overflow-y: auto;
-    width: min(100%, 820px);
+    width: min(100%, 1080px);
     margin: 0 auto;
-    padding: 20px 18px 12px;
+    padding: 24px 28px 16px;
 
     &::-webkit-scrollbar {
       width: 6px;
@@ -559,9 +559,9 @@
   .chat-input-container {
     position: relative;
     z-index: 2;
-    width: min(100%, 860px);
+    width: min(100%, 1080px);
     margin: 0 auto;
-    padding: 12px 22px 20px;
+    padding: 12px 28px 18px;
     background: transparent;
   }
 
@@ -602,7 +602,7 @@
 
   @media (max-width: 960px) {
     .chat-container {
-      height: calc(100vh - 180px);
+      height: calc(100vh - 210px);
       min-height: 460px;
     }
 

@@ -75,13 +75,6 @@
             <input v-model="settingStore.settings.forceCache" type="checkbox" />
             <span>启用本地兜底回答</span>
           </label>
-          <label class="dev-switch">
-            <input
-              v-model="settingStore.settings.simulateDigitalHumanSuccess"
-              type="checkbox"
-            />
-            <span>数字人任务快速返回</span>
-          </label>
           <div class="dev-field">
             <span>强制路由专员</span>
             <select v-model="settingStore.settings.forceAgent">

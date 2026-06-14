@@ -353,33 +353,30 @@
 <template>
   <div class="assistant-workbench">
     <div class="workbench-shell zy-stagger-child">
-      <section class="workbench-hero">
-        <div class="hero-left">
-          <span class="eyebrow">AI 伴学工作台</span>
-          <h1>专注对话、批改与个性化辅导</h1>
-          <p class="hero-desc">
-            基于学习画像与课程资料，多智能体协同为你讲解、批改与生成练习。
-          </p>
+      <section class="context-strip">
+        <div class="context-strip__intro">
+          <span class="assistant-mark"><icon-robot /></span>
+          <div>
+            <strong>小智伴学</strong>
+            <span>课程问答、作业批改与个性化练习</span>
+          </div>
         </div>
-        <div class="hero-deco" aria-hidden="true">
-          <div class="deco-sphere deco-sphere--1" />
-          <div class="deco-sphere deco-sphere--2" />
-          <div class="deco-cube" />
-        </div>
-        <div class="hero-stats">
+        <div class="context-stats">
           <button
             v-for="stat in heroStats"
             :key="stat.label"
             type="button"
-            class="stat-card"
+            class="context-stat"
             @click="openDrawer(stat.key)"
           >
-            <span class="stat-card__icon">
+            <span class="context-stat__icon">
               <component :is="stat.icon" />
             </span>
-            <span class="stat-card__label">{{ stat.label }}</span>
-            <strong class="stat-card__value">{{ stat.value }}</strong>
-            <small class="stat-card__sub">{{ stat.sub }}</small>
+            <span class="context-stat__copy">
+              <small>{{ stat.label }}</small>
+              <strong>{{ stat.value }}</strong>
+            </span>
+            <span class="context-stat__hint">{{ stat.sub }}</span>
           </button>
         </div>
       </section>
@@ -519,169 +516,133 @@
 
 <style scoped lang="less">
   .assistant-workbench {
-    min-height: 100%;
-    padding: 16px 20px 24px;
+    min-height: calc(100vh - 64px);
+    padding: 10px 16px 16px;
     color: var(--zy-color-text-primary);
+    background: #f7f8fc;
   }
 
   .workbench-shell {
-    border-radius: 24px;
+    min-height: calc(100vh - 90px);
+    border-radius: 16px;
     background: #fff;
-    border: 1px solid rgba(99, 102, 241, 0.1);
-    box-shadow: 0 20px 48px rgba(99, 102, 241, 0.08);
+    border: 1px solid #e5e9f2;
+    box-shadow: 0 12px 32px rgba(34, 47, 88, 0.06);
     overflow: hidden;
   }
 
-  .workbench-hero {
-    display: grid;
-    grid-template-columns: 1fr auto auto;
+  .context-strip {
+    display: flex;
     align-items: center;
-    gap: 20px;
-    padding: 24px 28px;
-    background: linear-gradient(135deg, #eef2ff 0%, #f5f3ff 38%, #ecfeff 100%);
-    border-bottom: 1px solid rgba(99, 102, 241, 0.08);
+    justify-content: space-between;
+    min-height: 62px;
+    gap: 16px;
+    padding: 9px 18px;
+    background: #fff;
+    border-bottom: 1px solid #e9edf5;
   }
 
-  .hero-left {
-    min-width: 0;
-
-    h1 {
-      margin: 8px 0 6px;
-      font-size: 26px;
-      font-weight: 800;
-      line-height: 1.25;
-      color: var(--zy-color-text-primary);
-    }
-  }
-
-  .eyebrow {
-    display: inline-block;
-    padding: 4px 12px;
-    border-radius: var(--zy-radius-pill);
-    background: rgba(99, 102, 241, 0.12);
-    color: var(--zy-color-brand-hover);
-    font-size: var(--zy-text-xs);
-    font-weight: 700;
-  }
-
-  .hero-desc {
-    margin: 0;
-    max-width: 420px;
-    font-size: var(--zy-text-sm);
-    line-height: 1.6;
-    color: var(--zy-color-text-secondary);
-  }
-
-  .hero-deco {
-    position: relative;
-    width: 120px;
-    height: 100px;
-    flex-shrink: 0;
-  }
-
-  .deco-sphere {
-    position: absolute;
-    border-radius: 50%;
-    background: linear-gradient(145deg, #a5b4fc, #6366f1);
-    box-shadow: 0 12px 28px rgba(99, 102, 241, 0.35);
-
-    &--1 {
-      width: 52px;
-      height: 52px;
-      top: 8px;
-      left: 12px;
-    }
-
-    &--2 {
-      width: 28px;
-      height: 28px;
-      top: 48px;
-      right: 8px;
-      background: linear-gradient(145deg, #67e8f9, #0ea5e9);
-      box-shadow: 0 8px 20px rgba(14, 165, 233, 0.3);
-    }
-  }
-
-  .deco-cube {
-    position: absolute;
-    width: 36px;
-    height: 36px;
-    top: 28px;
-    right: 28px;
-    border-radius: 10px;
-    background: linear-gradient(135deg, #c4b5fd, #8b5cf6);
-    transform: rotate(18deg);
-    box-shadow: 0 10px 24px rgba(139, 92, 246, 0.35);
-  }
-
-  .hero-stats {
+  .context-strip__intro {
     display: flex;
+    align-items: center;
     gap: 10px;
-    flex-shrink: 0;
+    min-width: 210px;
+
+    .assistant-mark {
+      display: grid;
+      width: 38px;
+      height: 38px;
+      border-radius: 11px;
+      color: #5367f8;
+      background: #eef1ff;
+      place-items: center;
+      font-size: 18px;
+    }
+
+    strong,
+    span {
+      display: block;
+    }
+
+    strong {
+      color: #17213a;
+      font-size: 14px;
+    }
+
+    div > span {
+      margin-top: 2px;
+      color: #8993a7;
+      font-size: 11px;
+    }
   }
 
-  .stat-card {
+  .context-stats {
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 2px;
-    width: 108px;
-    min-height: 118px;
-    padding: 14px 12px;
-    border: 1px solid rgba(255, 255, 255, 0.8);
-    border-radius: 16px;
-    background: rgba(255, 255, 255, 0.88);
-    box-shadow: 0 8px 24px rgba(99, 102, 241, 0.1);
+    align-items: center;
+    gap: 7px;
+  }
+
+  .context-stat {
+    display: grid;
+    grid-template-columns: 29px auto auto;
+    align-items: center;
+    gap: 8px;
+    min-height: 42px;
+    padding: 5px 10px;
+    border: 1px solid #e6eaf3;
+    border-radius: 10px;
+    color: #536078;
+    background: #fbfcff;
     cursor: pointer;
     text-align: left;
-    transition:
-      transform var(--zy-duration-fast) ease,
-      box-shadow var(--zy-duration-fast) ease;
+    transition: border-color 160ms ease, background 160ms ease;
 
     &:hover {
-      transform: translateY(-2px);
-      box-shadow: var(--zy-shadow-card-hover);
+      border-color: #cfd7ff;
+      background: #f5f7ff;
     }
   }
 
-  .stat-card__icon {
-    width: 32px;
-    height: 32px;
-    border-radius: 10px;
-    background: var(--zy-bg-tag);
-    color: var(--zy-color-brand);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 16px;
-    margin-bottom: 4px;
+  .context-stat__icon {
+    display: grid;
+    width: 29px;
+    height: 29px;
+    border-radius: 8px;
+    color: #596bfa;
+    background: #eef1ff;
+    place-items: center;
   }
 
-  .stat-card__label {
-    font-size: 11px;
-    color: var(--zy-color-text-secondary);
+  .context-stat__copy {
+    small,
+    strong {
+      display: block;
+    }
+
+    small {
+      color: #8a94a8;
+      font-size: 9px;
+    }
+
+    strong {
+      margin-top: 1px;
+      color: #263149;
+      font-size: 12px;
+    }
   }
 
-  .stat-card__value {
-    font-size: 18px;
-    font-weight: 800;
-    color: var(--zy-color-text-primary);
-    line-height: 1.2;
-  }
-
-  .stat-card__sub {
-    font-size: 10px;
-    color: var(--zy-color-text-secondary);
-    line-height: 1.3;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
+  .context-stat__hint {
+    max-width: 110px;
+    padding-left: 7px;
+    border-left: 1px solid #e7eaf1;
+    color: #9aa3b4;
+    font-size: 9px;
+    white-space: nowrap;
   }
 
   .chat-stage {
     min-width: 0;
-    min-height: 520px;
+    min-height: calc(100vh - 153px);
     overflow: hidden;
     background: #fff;
   }
@@ -857,22 +818,8 @@
   }
 
   @media (max-width: 1100px) {
-    .workbench-hero {
-      grid-template-columns: 1fr;
-    }
-
-    .hero-deco {
+    .context-stat__hint {
       display: none;
-    }
-
-    .hero-stats {
-      width: 100%;
-      justify-content: stretch;
-    }
-
-    .stat-card {
-      flex: 1;
-      width: auto;
     }
   }
 
@@ -882,24 +829,24 @@
     }
 
     .workbench-shell {
-      border-radius: 18px;
+      border-radius: 14px;
     }
 
-    .workbench-hero {
-      padding: 18px 16px;
-    }
-
-    .hero-stats {
+    .context-strip {
+      align-items: stretch;
+      padding: 10px 12px;
       flex-direction: column;
     }
 
-    .stat-card {
+    .context-stats {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .context-stat {
       width: 100%;
-      min-height: auto;
-      flex-direction: row;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 8px;
+      grid-template-columns: 26px 1fr;
+      padding: 5px 7px;
     }
 
     .resource-upload-card {

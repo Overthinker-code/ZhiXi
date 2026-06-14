@@ -4,6 +4,7 @@
   import { useUserStore } from '@/store';
   import { fetchStudentMessages } from '@/api/student-hub';
   import { getTopNavGroups, type TopNavGroup } from '@/config/top-nav-menu';
+  import { SCENARIO_COURSE_IDS } from '@/data/teachingScenario';
   import ZyMegaMenuPanel from './ZyMegaMenuPanel.vue';
   import logoImg from '@/assets/logo.svg?url';
 
@@ -33,7 +34,10 @@
     closeMenu();
     mobileOpen.value = false;
     if (name === 'CourseOne') {
-      await router.push({ name: 'CourseList' });
+      await router.push({
+        name: 'CourseOne',
+        params: { id: SCENARIO_COURSE_IDS[0] },
+      });
       return;
     }
     await router.push({ name });

@@ -1,16 +1,12 @@
 <script setup>
   import { renderMarkdown } from '@/utils/markdown';
-  import { createTextToVideoJob } from '@/api/digital-human';
   import { submitChatFeedback } from '@/api/rag';
   import { useSettingStore } from '@/store/setting';
-  import { ArrowDown, Document } from '@element-plus/icons-vue';
+  import { Document } from '@element-plus/icons-vue';
   import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-  import useDigitalHumanJob from '@/composables/useDigitalHumanJob';
-  import { resolveMediaUrl } from '@/utils/mediaUrl';
   // 导入图片资源
   import copyIcon from '@/assets/photo/复制.png';
   import successIcon from '@/assets/photo/成功.png';
-  import thinkingIcon from '@/assets/photo/深度思考.png';
   import likeIcon from '@/assets/photo/赞.png';
   import likeActiveIcon from '@/assets/photo/赞2.png';
   import dislikeIcon from '@/assets/photo/踩.png';
@@ -40,14 +36,6 @@
 
   // 添加复制状态
   const isCopied = ref(false);
-  const digitalHumanVideoUrl = ref('');
-  const digitalHumanError = ref('');
-  const {
-    status: digitalHumanJobStatus,
-    displayProgress: digitalHumanProgress,
-    isPolling: isDigitalHumanPolling,
-    startPolling: startDigitalHumanPolling,
-  } = useDigitalHumanJob();
 
   /** 流式回复：正文 / 思考过程追赶式「打字机」 */
   const streamTypeLen = ref(0);
@@ -117,18 +105,6 @@
     emit('suggestion', text);
   };
 
-  // 添加展开/折叠状态控制
-  const isReasoningExpanded = ref(false);
-  const isPipelineExpanded = ref(false);
-
-  // 切换展开/折叠状态
-  const toggleReasoning = () => {
-    isReasoningExpanded.value = !isReasoningExpanded.value;
-  };
-  const togglePipeline = () => {
-    isPipelineExpanded.value = !isPipelineExpanded.value;
-  };
-
   // 处理复制函数
   const handleCopy = async () => {
     try {
@@ -183,29 +159,6 @@
   // 添加重新生成的事件
   const handleRegenerate = () => {
     emit('regenerate');
-  };
-
-  const handleCreateDigitalHumanVideo = async () => {
-    const content = String(props.message.content || '').trim();
-    if (!content || isDigitalHumanPolling.value) return;
-    digitalHumanError.value = '';
-    digitalHumanVideoUrl.value = '';
-    try {
-      const job = await createTextToVideoJob({
-        text: content,
-        title: 'AI 伴学数字人讲解',
-        digital_human_id: 'teacher-default',
-      });
-      const finalStatus = await startDigitalHumanPolling(job.task_id);
-      if (finalStatus.status === 'success' && finalStatus.video_url) {
-        digitalHumanVideoUrl.value = resolveMediaUrl(finalStatus.video_url);
-      } else {
-        digitalHumanError.value = finalStatus.message || '数字人视频生成失败';
-      }
-    } catch (error) {
-      digitalHumanError.value =
-        error instanceof Error ? error.message : '数字人视频生成失败';
-    }
   };
 
   const handleResumeAction = (approve) => {
@@ -360,13 +313,6 @@
     return Boolean((props.message.content || '').trim());
   });
 
-  const canCreateDigitalHumanVideo = computed(
-    () =>
-      props.message.role === 'assistant' &&
-      props.message.loading === false &&
-      Boolean(String(props.message.content || '').trim())
-  );
-
   const answerInsightCards = computed(() => {
     if (props.message.role !== 'assistant' || props.message.loading !== false) {
       return [];
@@ -480,33 +426,6 @@
         :suggestions="message.suggestions || []"
         @pick="handleSuggestionClick"
       />
-      <div
-        v-if="
-          message.role === 'assistant' &&
-          (isDigitalHumanPolling || digitalHumanVideoUrl || digitalHumanError)
-        "
-        class="digital-human-card"
-      >
-        <div class="digital-human-card__head">
-          <span>数字人讲解视频</span>
-          <span v-if="isDigitalHumanPolling">{{ digitalHumanProgress }}%</span>
-        </div>
-        <div v-if="isDigitalHumanPolling" class="digital-human-progress">
-          <span :style="{ width: `${digitalHumanProgress}%` }" />
-        </div>
-        <p v-if="isDigitalHumanPolling">
-          {{ digitalHumanJobStatus.message || '正在生成数字人讲解' }}
-        </p>
-        <video
-          v-if="digitalHumanVideoUrl"
-          class="digital-human-video"
-          :src="digitalHumanVideoUrl"
-          controls
-        />
-        <p v-if="digitalHumanError" class="digital-human-error">
-          {{ digitalHumanError }}
-        </p>
-      </div>
       <div v-if="message.requires_confirmation" class="hitl-card">
         <p>系统生成了学习计划，是否确认写入你的学习日历？</p>
         <div class="hitl-actions">
@@ -533,18 +452,6 @@
         </button>
         <button class="action-btn" @click="handleCopy" data-tooltip="复制">
           <img :src="isCopied ? successIcon : copyIcon" alt="copy" />
-        </button>
-        <button
-          v-if="canCreateDigitalHumanVideo"
-          class="text-action-btn"
-          :disabled="isDigitalHumanPolling"
-          @click="handleCreateDigitalHumanVideo"
-        >
-          {{
-            isDigitalHumanPolling
-              ? `数字人生成中 ${digitalHumanProgress}%`
-              : '生成数字人讲解'
-          }}
         </button>
         <button class="action-btn" @click="handleLike" data-tooltip="喜欢">
           <img :src="isLiked ? likeActiveIcon : likeIcon" alt="like" />
@@ -606,7 +513,7 @@
 
     .content {
       width: fit-content;
-      max-width: min(92%, 860px);
+      max-width: min(96%, 980px);
       min-width: 0;
 
       .reasoning-spinner {
@@ -772,7 +679,7 @@
         align-items: flex-end;
         gap: 6px;
         width: 100%;
-        max-width: min(92%, 860px);
+        max-width: min(100%, 980px);
 
         &--user {
           flex-direction: row-reverse;
@@ -818,8 +725,8 @@
         backdrop-filter: blur(10px);
         box-shadow: 0 8px 28px rgba(99, 102, 241, 0.12);
         color: #0f172a;
-        font-size: 0.95rem;
-        line-height: 1.65;
+        font-size: 1rem;
+        line-height: 1.78;
         word-break: break-word;
         overflow: hidden;
 
@@ -829,6 +736,17 @@
           &:not(:last-child) {
             margin-bottom: 0.52rem;
           }
+        }
+
+        :deep(.katex) {
+          font-size: 1.04em;
+        }
+
+        :deep(.katex-display) {
+          margin: 0.9em 0;
+          overflow-x: auto;
+          overflow-y: hidden;
+          padding: 0.25rem 0;
         }
 
         :deep(code:not(pre code)) {
@@ -1019,59 +937,6 @@
             }
           }
         }
-      }
-
-      .digital-human-card {
-        margin: 0.65rem 0 0.45rem 0.5rem;
-        width: min(520px, 100%);
-        padding: 0.8rem;
-        border-radius: 12px;
-        border: 1px solid rgba(79, 70, 229, 0.16);
-        background: #f8fbff;
-
-        &__head {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 0.75rem;
-          color: #1e2f4d;
-          font-size: 0.86rem;
-          font-weight: 700;
-        }
-
-        p {
-          margin: 0.45rem 0 0;
-          color: #5f718a;
-          font-size: 0.8rem;
-        }
-      }
-
-      .digital-human-progress {
-        margin-top: 0.55rem;
-        height: 6px;
-        overflow: hidden;
-        border-radius: 999px;
-        background: #e3eaf5;
-
-        span {
-          display: block;
-          height: 100%;
-          border-radius: inherit;
-          background: linear-gradient(90deg, #2563eb, #4f46e5);
-          transition: width 0.2s ease;
-        }
-      }
-
-      .digital-human-video {
-        margin-top: 0.65rem;
-        width: 100%;
-        max-height: 320px;
-        border-radius: 10px;
-        background: #0f172a;
-      }
-
-      .digital-human-error {
-        color: #b42318 !important;
       }
 
       .answer-insight-grid {

@@ -40,10 +40,49 @@ md.use(emoji);
 
 md.use(mditKatex, {
   delimiters: 'all',
-  allowInlineWithSpace: false,
+  allowInlineWithSpace: true,
   throwOnError: false,
   errorColor: '#ef4444',
 });
+
+const TEX_COMMAND_RE =
+  /\\(?:sum|prod|frac|sqrt|lim|int|begin|end|alpha|beta|gamma|theta|lambda|mu|pi|sigma|infty|cdot|times|leq|geq|neq|approx|to|left|right|mathbf|mathrm)\b/;
+
+function transformOutsideCode(content, transform) {
+  return String(content)
+    .split(/(```[\s\S]*?```|`[^`\n]*`)/g)
+    .map((part, index) => (index % 2 === 0 ? transform(part) : part))
+    .join('');
+}
+
+/**
+ * Normalize common LLM math delimiter variants before MarkdownIt sees them.
+ * This keeps spaced `$ ... $`, `\\(...\\)` and escaped TeX delimiters from
+ * leaking into the final answer as literal source text.
+ */
+export function normalizeMathMarkdown(content) {
+  if (!content) return '';
+  return transformOutsideCode(content, (segment) => {
+    let text = segment
+      .replace(/\\\[\s*([\s\S]*?)\s*\\\]/g, (_, body) => `$$\n${body.trim()}\n$$`)
+      .replace(/\\\(\s*([\s\S]*?)\s*\\\)/g, (_, body) => `$${body.trim()}$`);
+
+    text = text.replace(
+      /\\\$\s*([^$\n]*\\[a-zA-Z][^$\n]*?)\s*\\\$/g,
+      (_, body) => `$${body.trim()}$`
+    );
+
+    text = text.replace(
+      /(?<!\$)\$([ \t]+)([^$\n]+?)([ \t]+)\$(?!\$)/g,
+      (match, _left, body) =>
+        TEX_COMMAND_RE.test(body) || /[_^{}]/.test(body)
+          ? `$${body.trim()}$`
+          : match
+    );
+
+    return text;
+  });
+}
 
 /**
  * During streaming, hide unclosed math blocks so KaTeX never renders half a formula.
@@ -76,7 +115,8 @@ export function bufferIncompleteMath(content) {
 export const renderMarkdown = (content, options = {}) => {
   if (!content) return '';
   const streaming = Boolean(options.streaming);
-  const raw = streaming ? bufferIncompleteMath(content) : content;
+  const normalized = normalizeMathMarkdown(content);
+  const raw = streaming ? bufferIncompleteMath(normalized) : normalized;
   return md.render(raw);
 };
 

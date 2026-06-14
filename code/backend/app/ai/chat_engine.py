@@ -1195,8 +1195,9 @@ def supervisor_node(state: State) -> dict[str, Any]:
             "agent_route_trace": [fa],
         }
 
+    last_worker = str(state.get("collaboration_last_worker") or "").strip()
     ruled = _rule_based_route(state)
-    if ruled:
+    if ruled and not last_worker:
         agent_name, reason = ruled
         label = AGENT_CONFIG[agent_name]["label"]
         return {
@@ -1226,6 +1227,13 @@ def supervisor_node(state: State) -> dict[str, Any]:
         routing_reason = (
             "主管路由结构化输出连续解析失败，已强制结束协作并进入汇总；"
             "将基于当前对话中已有专员发言生成答复。"
+        )
+
+    if last_worker and na == last_worker:
+        na = "FINISH"
+        routing_reason = (
+            f"{AGENT_CONFIG[last_worker]['label']}已完成本轮任务，"
+            "避免重复派发并进入汇总。"
         )
 
     if na not in _WORKERS and na != "FINISH":

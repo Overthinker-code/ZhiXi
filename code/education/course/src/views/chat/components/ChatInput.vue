@@ -8,7 +8,7 @@
   const menuOpen = ref(false);
   const dragActive = ref(false);
   const webSearchEnabled = ref(false);
-  const deepThinkEnabled = ref(false);
+  const deepThinkEnabled = ref(true);
   const activeMode = ref('chat');
   const fileInputRef = ref(null);
   const imageInputRef = ref(null);
@@ -141,10 +141,6 @@
     const selectedTools = [];
     if (webSearchEnabled.value) selectedTools.push('web_search');
     if (deepThinkEnabled.value) selectedTools.push('deep_thinking');
-    if (activeMode.value === 'digital_human_explain') {
-      selectedTools.push('digital_human_explain');
-    }
-
     emit('send', {
       text,
       files: fileList.value,
@@ -153,7 +149,6 @@
         deepThinking: deepThinkEnabled.value,
         mode: activeMode.value,
         gradingMode: activeMode.value === 'exercise_grading',
-        digitalHumanExplain: activeMode.value === 'digital_human_explain',
         activeTools: selectedTools,
         toolMode: activeMode.value === 'chat' ? undefined : activeMode.value,
       },
@@ -306,13 +301,6 @@
           @click="activeMode = 'exercise_grading'"
         >
           批改
-        </button>
-        <button
-          :class="{ active: activeMode === 'digital_human_explain' }"
-          type="button"
-          @click="activeMode = 'digital_human_explain'"
-        >
-          数字人
         </button>
       </div>
 
