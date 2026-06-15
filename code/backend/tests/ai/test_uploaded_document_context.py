@@ -63,7 +63,19 @@ def test_document_reasoning_stream_uses_native_channels_and_citations(monkeypatc
             assert "模板开场" in str(messages[0].content)
             yield AIMessageChunk(
                 content="",
-                additional_kwargs={"reasoning_content": "核对论文证据。"},
+                additional_kwargs={
+                    "reasoning_content": "好的，我现在需要处理用户上传的论文。"
+                },
+            )
+            yield AIMessageChunk(
+                content="",
+                additional_kwargs={
+                    "reasoning_content": (
+                        "好的，我现在需要处理用户上传的论文。"
+                        "首先，我需要仔细阅读文档。"
+                        "论文证据表明，$W=A^T A$ 建模二阶注意力。"
+                    )
+                },
             )
             yield AIMessageChunk(content="结论见 $W=A^T A$ [citation:1]。")
 
@@ -100,12 +112,44 @@ def test_document_reasoning_stream_uses_native_channels_and_citations(monkeypatc
         )
     )
 
-    assert [event["type"] for event in events] == [
-        "reasoning_token",
-        "token",
-        "suggestions",
-        "final",
-    ]
-    assert events[0]["content"] == "核对论文证据。"
+    reasoning = "".join(
+        event["content"] for event in events if event["type"] == "reasoning_token"
+    )
+    assert reasoning == "论文证据表明，$W=A^T A$ 建模二阶注意力。"
+    assert "好的，我现在需要" not in reasoning
+    assert "首先，我需要" not in reasoning
+    assert any(event["type"] == "token" for event in events)
     assert events[-1]["grounding_mode"] == "rag"
     assert events[-1]["citations"][0]["source"] == "paper.pdf"
+
+
+def test_document_reasoning_stream_flushes_meaningful_partial_sentence(monkeypatch):
+    class FakeModel:
+        def stream(self, _messages):
+            yield AIMessageChunk(
+                content="",
+                additional_kwargs={"reasoning_content": "文档证据显示方法复杂度降低"},
+            )
+            yield AIMessageChunk(content="最终回答。")
+
+    monkeypatch.setattr(
+        chat_engine.ChatModelFactory,
+        "create",
+        lambda **_kwargs: FakeModel(),
+    )
+    events = list(
+        chat_engine._stream_grounded_document_answer(
+            ChatRequest(
+                user_input="讲解论文",
+                current_file_id="file-1",
+                reasoning_enabled=True,
+            ),
+            chat_engine.SystemMessage(content="paper evidence"),
+            [],
+        )
+    )
+
+    reasoning = "".join(
+        event["content"] for event in events if event["type"] == "reasoning_token"
+    )
+    assert reasoning == "文档证据显示方法复杂度降低"

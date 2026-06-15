@@ -168,6 +168,11 @@ def _stream_answer_tokens(text: str, chunk_size: int = 24):
         yield {"type": "token", "content": chunk}
 
 
+def _chunk_reasoning_tokens(text: str, chunk_size: int = 12):
+    for i in range(0, len(text), chunk_size):
+        yield {"type": "reasoning_token", "content": text[i : i + chunk_size]}
+
+
 _JSON_OBJ = re.compile(r"\{[\s\S]*\}")
 _DOC_QUERY_HINT = re.compile(
     r"(这篇|该|这个)?(论文|文档|报告|课件|pdf|PDF|word|Word|doc|DOC|章节|第[一二三四五六七八九十0-9]+章|摘要|方法|实验|结论|创新点|原文)"
@@ -1213,6 +1218,42 @@ def _stream_delta(text: str, previous: str) -> tuple[str, str]:
     return text, previous + text
 
 
+_REASONING_META_SENTENCE_RE = re.compile(
+    r"^\s*(?:好的[，,。]?\s*)?(?:"
+    r"我现在需要|现在需要|"
+    r"首先[，,]?\s*我(?:需要|得)|"
+    r"我(?:需要|得)先|"
+    r"用户(?:希望|要求)我|"
+    r"(?:接下来|下一步)[，,]?\s*我需要|"
+    r"让我(?:先|来)"
+    r")",
+    re.I,
+)
+
+
+def _drain_reasoning_sentences(
+    buffer: str,
+    *,
+    final: bool = False,
+) -> tuple[list[str], str]:
+    """Remove model meta-prefaces while preserving evidence-bearing reasoning."""
+    sentences: list[str] = []
+    start = 0
+    for match in re.finditer(r"[。！？!?]+|\n+", buffer):
+        end = match.end()
+        sentence = buffer[start:end]
+        start = end
+        if sentence.strip() and not _REASONING_META_SENTENCE_RE.search(sentence):
+            sentences.append(sentence)
+
+    remainder = buffer[start:]
+    if final and remainder.strip():
+        if not _REASONING_META_SENTENCE_RE.search(remainder):
+            sentences.append(remainder)
+        remainder = ""
+    return sentences, remainder
+
+
 def _stream_grounded_document_answer(
     request: ChatRequest,
     context_message: SystemMessage,
@@ -1244,6 +1285,7 @@ def _stream_grounded_document_answer(
     answer_text = ""
     previous_reasoning = ""
     previous_answer = ""
+    reasoning_buffer = ""
 
     for chunk in llm.stream(
         [prompt, context_message, HumanMessage(content=request.user_input)]
@@ -1259,8 +1301,13 @@ def _stream_grounded_document_answer(
             raw_reasoning, previous_reasoning
         )
         if reasoning_delta:
-            reasoning_text += reasoning_delta
-            yield {"type": "reasoning_token", "content": reasoning_delta}
+            reasoning_buffer += reasoning_delta
+            sentences, reasoning_buffer = _drain_reasoning_sentences(
+                reasoning_buffer
+            )
+            for sentence in sentences:
+                reasoning_text += sentence
+                yield from _chunk_reasoning_tokens(sentence)
 
         answer_delta, previous_answer = _stream_delta(
             _visible_chunk_text(chunk), previous_answer
@@ -1270,6 +1317,14 @@ def _stream_grounded_document_answer(
                 first_token_at = time.perf_counter()
             answer_text += answer_delta
             yield {"type": "token", "content": answer_delta}
+
+    sentences, reasoning_buffer = _drain_reasoning_sentences(
+        reasoning_buffer,
+        final=True,
+    )
+    for sentence in sentences:
+        reasoning_text += sentence
+        yield from _chunk_reasoning_tokens(sentence)
 
     text = _normalize_answer_text(answer_text)
     if not text.strip():
