@@ -92,10 +92,10 @@
 <style scoped lang="less">
   .rb {
     margin: 8px 0 14px;
-    border-radius: 12px;
+    border-radius: 14px;
     background: #f8fafc;
-    border: 1px solid #dce3ec;
-    border-left: 3px solid #6574f7;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.045);
     overflow: hidden;
   }
 
@@ -148,7 +148,7 @@
 
   .rb-body {
     padding: 0 16px 15px;
-    border-top: 1px solid rgba(148, 163, 184, 0.2);
+    border-top: 1px solid rgba(226, 232, 240, 0.9);
   }
 
   .rb-actions {

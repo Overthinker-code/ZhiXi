@@ -5,7 +5,7 @@
         <div>
           <span class="picker-kicker">课堂内容</span>
           <h1>选择要继续学习的课程</h1>
-          <p>六门课程均已配置独立章节、课堂笔记、思维导图和知识图谱。</p>
+          <p>六门课程均已配置独立章节、课堂笔记和可交互高清思维导图。</p>
         </div>
         <div class="picker-summary">
           <strong>6</strong>
@@ -202,76 +202,72 @@
                 <button type="button" @click="generateFromNotes">
                   <icon-robot /> 生成资料
                 </button>
+                <button type="button" :disabled="notesGenerating" @click="generateNotesPdfArtifact">
+                  <icon-download /> PDF
+                </button>
+                <button type="button" @click="exportNotesDoc">
+                  <icon-file /> Word
+                </button>
                 <button type="button" @click="exportNotes">
-                  <icon-download /> 导出
+                  <icon-download /> Markdown
                 </button>
               </div>
+            </div>
+            <div class="notes-brief">
+              <article v-for="item in notesExplanation" :key="item.label">
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+                <p>{{ item.desc }}</p>
+              </article>
             </div>
             <div class="notes-grid">
               <article v-for="(note, index) in currentCourse.notes" :key="note.title">
                 <span>{{ String(index + 1).padStart(2, '0') }}</span>
-                <h3>{{ note.title }}</h3>
-                <ul>
-                  <li v-for="point in note.points" :key="point">{{ point }}</li>
-                </ul>
+                <div>
+                  <h3>{{ note.title }}</h3>
+                  <p>{{ note.points.join('、') }}共同构成该主题的课堂理解框架。</p>
+                  <ul>
+                    <li v-for="point in note.points" :key="point">
+                      <strong>{{ point }}</strong>
+                      <small>建议结合课节案例复述定义、条件和应用边界。</small>
+                    </li>
+                  </ul>
+                </div>
               </article>
             </div>
           </section>
 
-          <div class="knowledge-grid">
-            <section class="artifact-panel knowledge-panel">
-              <div class="panel-heading">
-                <div><icon-bulb /><strong>思维导图</strong></div>
-                <div class="panel-actions">
-                  <button type="button" @click="openArtifact('mind')">
-                    <icon-expand /> 放大
-                  </button>
-                  <button type="button" @click="exportCanvas('mind')">
-                    <icon-download /> SVG
-                  </button>
-                </div>
-              </div>
-              <div class="concept-preview">
-                <CourseConceptCanvas
-                  ref="mindCanvas"
-                  :title="currentCourse.title"
-                  :short-title="currentCourse.shortTitle"
-                  :concepts="currentCourse.concepts"
-                  :accent="currentCourse.accent"
-                  mode="mind"
-                  @node-prompt="handleVisualNodePrompt($event)"
-                />
-              </div>
-            </section>
-
-            <section class="artifact-panel knowledge-panel">
-              <div class="panel-heading">
-                <div><icon-share-alt /><strong>课程知识图谱</strong></div>
-                <div class="panel-actions">
-                <button type="button" @click="openArtifact('graph')">
-                  <icon-expand /> 放大
+          <section class="artifact-panel knowledge-panel mindmap-panel">
+            <div class="panel-heading">
+              <div><icon-bulb /><strong>课堂内容思维导图</strong></div>
+              <div class="panel-actions">
+                <button type="button" @click="openArtifact('mind')">
+                  <icon-expand /> 高清放大
                 </button>
-                <button type="button" @click="openKnowledgeCenter">
-                  <icon-mind-mapping /> 完整图谱
-                </button>
-                <button type="button" @click="exportCanvas('graph')">
+                <button type="button" @click="exportCanvas('mind')">
                   <icon-download /> SVG
                 </button>
-                </div>
+                <button type="button" @click="askMindMapTutor">
+                  <icon-robot /> AI 解读
+                </button>
               </div>
-              <div class="concept-preview">
-                <CourseConceptCanvas
-                  ref="graphCanvas"
-                  :title="currentCourse.title"
-                  :short-title="currentCourse.shortTitle"
-                  :concepts="currentCourse.concepts"
-                  :accent="currentCourse.accent"
-                  mode="graph"
-                  @node-prompt="handleVisualNodePrompt($event)"
-                />
-              </div>
-            </section>
-          </div>
+            </div>
+            <div class="mindmap-intro">
+              <strong>{{ currentCourse.shortTitle }}知识框架</strong>
+              <p>点击任意节点可划词唤醒 AI 解释；放大模式支持缩放、导出 SVG，并可继续进入资源生成中心生产讲义和练习。</p>
+            </div>
+            <div class="concept-preview concept-preview--large">
+              <CourseConceptCanvas
+                ref="mindCanvas"
+                :title="currentCourse.title"
+                :short-title="currentCourse.shortTitle"
+                :concepts="currentCourse.concepts"
+                :accent="currentCourse.accent"
+                mode="mind"
+                @node-prompt="handleVisualNodePrompt($event)"
+              />
+            </div>
+          </section>
         </main>
 
         <aside class="chapter-sidebar">
@@ -330,7 +326,7 @@
     <a-modal
       v-model:visible="artifactVisible"
       :footer="false"
-      :width="artifactType === 'notes' ? 1040 : 1180"
+      :width="artifactType === 'notes' ? 1040 : 1280"
       modal-class="artifact-modal"
       unmount-on-close
     >
@@ -364,14 +360,14 @@
             <icon-download /> 导出 SVG
           </button>
         </div>
-        <div class="canvas-modal__body">
+        <div class="canvas-modal__body canvas-modal__body--mind">
           <CourseConceptCanvas
             ref="modalCanvas"
             :title="currentCourse.title"
             :short-title="currentCourse.shortTitle"
             :concepts="currentCourse.concepts"
             :accent="currentCourse.accent"
-            :mode="artifactType === 'graph' ? 'graph' : 'mind'"
+            mode="mind"
             :zoom="artifactZoom"
             @node-prompt="handleVisualNodePrompt($event)"
           />
@@ -457,14 +453,18 @@ import {
   IconPlayCircleFill,
   IconRight,
   IconRobot,
-  IconShareAlt,
   IconUpload,
   IconZoomIn,
   IconZoomOut,
 } from '@arco-design/web-vue/es/icon';
+import axios from 'axios';
 import ZyPageShell from '@/components/zy/ZyPageShell.vue';
-import { courseWorkspaceLocation } from '@/composables/useCourseRouteContext';
 import { useSelectionQueryMenu } from '@/composables/useSelectionQueryMenu';
+import {
+  generateResourcePackage as generateDownloadableResourcePackage,
+  type GeneratedResourceArtifact,
+} from '@/api/resource-generation';
+import { getToken } from '@/utils/auth';
 import {
   classroomCourses,
   getClassroomCourse,
@@ -475,7 +475,7 @@ import CourseConceptCanvas from './components/CourseConceptCanvas.vue';
 import SelectionAiAnswerPanel from './components/SelectionAiAnswerPanel.vue';
 import teacherAvatarImg from '@/assets/images/老师头像.png';
 
-type ArtifactType = 'notes' | 'mind' | 'graph';
+type ArtifactType = 'notes' | 'mind';
 type CanvasExpose = { exportSvg: (filename: string) => void };
 
 const route = useRoute();
@@ -486,13 +486,13 @@ const localVideoUrl = ref<string | null>(null);
 const currentLessonId = ref('');
 const isFavorite = ref(false);
 const notesOrganized = ref(false);
+const notesGenerating = ref(false);
 const notesPanel = ref<HTMLElement | null>(null);
 const openChapters = ref(new Set<string>());
 const artifactVisible = ref(false);
 const artifactType = ref<ArtifactType>('notes');
 const artifactZoom = ref(1);
 const mindCanvas = ref<CanvasExpose | null>(null);
-const graphCanvas = ref<CanvasExpose | null>(null);
 const modalCanvas = ref<CanvasExpose | null>(null);
 
 const currentCourse = computed(() =>
@@ -528,8 +528,29 @@ const courseMeta = computed(() => {
 });
 const artifactTitle = computed(() => {
   if (artifactType.value === 'mind') return '思维导图';
-  if (artifactType.value === 'graph') return '课程知识图谱';
   return '课堂笔记';
+});
+const notesExplanation = computed(() => {
+  if (!currentCourse.value) return [];
+  const firstNote = currentCourse.value.notes[0];
+  const firstConcept = currentCourse.value.concepts[0];
+  return [
+    {
+      label: '学习目标',
+      value: currentLesson.value.title || currentCourse.value.shortTitle,
+      desc: `用本节内容解释${firstNote?.title || '核心概念'}，并能说出适用条件与常见误区。`,
+    },
+    {
+      label: '复习路径',
+      value: firstConcept?.title || '核心框架',
+      desc: '先复述概念，再用导图定位前后置关系，最后生成练习检查掌握度。',
+    },
+    {
+      label: '可生成资料',
+      value: 'PDF / Word / SVG',
+      desc: '笔记可一键导出，PDF 讲义由后端资源生成链路实时产出。',
+    },
+  ];
 });
 const courseContext = computed(() => {
   if (!currentCourse.value) return '';
@@ -567,9 +588,13 @@ watch(
     videoSrc.value = null;
     isFavorite.value = false;
     notesOrganized.value = false;
+    notesGenerating.value = false;
     currentLessonId.value = course?.chapters[0]?.lessons[0]?.id || '';
     openChapters.value = new Set(course?.chapters.map((chapter) => chapter.id) || []);
     clearAnswerPanel();
+    if (route.query.open === 'mind' && course) {
+      requestAnimationFrame(() => openArtifact('mind'));
+    }
   },
   { immediate: true }
 );
@@ -624,6 +649,10 @@ function notesMarkdown() {
   return [
     `# ${currentCourse.value.title}课堂笔记`,
     `## ${currentLesson.value.label}`,
+    '## 本节讲解',
+    ...notesExplanation.value.map(
+      (item) => `- **${item.label}：${item.value}**。${item.desc}`
+    ),
     ...currentCourse.value.notes.flatMap((note) => [
       `### ${note.title}`,
       ...note.points.map((point) => `- ${point}`),
@@ -635,6 +664,104 @@ function exportNotes() {
   if (!currentCourse.value) return;
   downloadText(`${currentCourse.value.title}-课堂笔记.md`, notesMarkdown(), 'text/markdown;charset=utf-8');
   Message.success('课堂笔记已导出');
+}
+
+function notesWordHtml() {
+  if (!currentCourse.value) return '';
+  const escapeHtml = (value: string) =>
+    value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  const sections = currentCourse.value.notes
+    .map(
+      (note) => `
+        <h2>${escapeHtml(note.title)}</h2>
+        <p>${escapeHtml(note.points.join('、'))}共同构成该主题的课堂理解框架。</p>
+        <ul>${note.points
+          .map(
+            (point) =>
+              `<li><strong>${escapeHtml(point)}</strong>：建议结合课节案例复述定义、条件和应用边界。</li>`
+          )
+          .join('')}</ul>`
+    )
+    .join('');
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${escapeHtml(currentCourse.value.title)}课堂笔记</title>
+  <style>
+    body { font-family: "Microsoft YaHei", Arial, sans-serif; color: #17213a; line-height: 1.75; }
+    h1 { font-size: 24px; }
+    h2 { margin-top: 22px; font-size: 18px; color: #334155; }
+    .meta { color: #64748b; }
+    .brief { padding: 12px 16px; border: 1px solid #dbe4f0; background: #f8fafc; }
+  </style>
+</head>
+<body>
+  <h1>${escapeHtml(currentCourse.value.title)}课堂笔记</h1>
+  <p class="meta">${escapeHtml(currentLesson.value.label)} · ${escapeHtml(currentLesson.value.title)}</p>
+  <div class="brief">${notesExplanation.value
+    .map(
+      (item) =>
+        `<p><strong>${escapeHtml(item.label)}：${escapeHtml(item.value)}</strong><br />${escapeHtml(item.desc)}</p>`
+    )
+    .join('')}</div>
+  ${sections}
+</body>
+</html>`;
+}
+
+function exportNotesDoc() {
+  if (!currentCourse.value) return;
+  downloadText(
+    `${currentCourse.value.title}-课堂笔记.doc`,
+    notesWordHtml(),
+    'application/msword;charset=utf-8'
+  );
+  Message.success('Word 版课堂笔记已下载');
+}
+
+function artifactUrl(artifact: GeneratedResourceArtifact) {
+  const token = getToken();
+  const baseURL = axios.defaults.baseURL || import.meta.env.VITE_API_BASE_URL || window.location.origin;
+  const baseOrigin = /^https?:\/\//.test(baseURL)
+    ? new URL(baseURL).origin
+    : window.location.origin;
+  const url = new URL(artifact.download_url, baseOrigin);
+  if (token) url.searchParams.set('token', token);
+  return url.toString();
+}
+
+async function generateNotesPdfArtifact() {
+  if (!currentCourse.value || notesGenerating.value) return;
+  notesGenerating.value = true;
+  try {
+    const response = await generateDownloadableResourcePackage({
+      course_id: currentCourse.value.id,
+      subject: currentCourse.value.title,
+      topic: currentLesson.value.title || currentCourse.value.notes[0]?.title || '课堂笔记',
+      learning_goal: `基于${currentCourse.value.title}课堂笔记生成可下载讲义 PDF，并保留关键概念、案例和自测题。`,
+      difficulty: 'standard',
+      target_minutes: 45,
+      resource_types: ['lecture_markdown', 'lecture_pdf', 'practice_pdf', 'mind_map'],
+    });
+    const pdf = response.artifacts.find(
+      (item: GeneratedResourceArtifact) => item.kind === 'lecture_pdf'
+    );
+    if (!pdf) {
+      Message.warning('资源已生成，但未返回 PDF 文件');
+      return;
+    }
+    window.open(artifactUrl(pdf), '_blank', 'noopener,noreferrer');
+    Message.success('PDF 讲义已生成，正在打开下载链接');
+  } catch (error) {
+    Message.error('PDF 生成失败，请检查后端资源生成服务');
+  } finally {
+    notesGenerating.value = false;
+  }
 }
 
 function downloadCurrentLesson() {
@@ -681,11 +808,6 @@ function openArtifact(type: ArtifactType) {
   artifactVisible.value = true;
 }
 
-function openKnowledgeCenter() {
-  if (!currentCourse.value) return;
-  router.push(courseWorkspaceLocation(currentCourse.value.id, 'knowledge'));
-}
-
 function generateFromNotes() {
   if (!currentCourse.value) return;
   router.push({
@@ -700,23 +822,42 @@ function generateFromNotes() {
   });
 }
 
+function askMindMapTutor() {
+  if (!currentCourse.value) return;
+  router.push({
+    name: 'TutorChat',
+    query: {
+      courseId: currentCourse.value.id,
+      source: 'classroom-mind-map',
+      forceAgent: 'tutor_agent',
+      prompt: [
+        `当前课程：${currentCourse.value.title}`,
+        `当前课节：${currentLesson.value.label} ${currentLesson.value.title}`,
+        `思维导图节点：${currentCourse.value.concepts
+          .map((item) => `${item.title}（${item.points.join('、')}）`)
+          .join('；')}`,
+        '请按“核心概念-前后置关系-易错提醒-练习建议”的结构解读这张课堂思维导图。',
+      ].join('\n'),
+    },
+  });
+}
+
 function changeZoom(delta: number) {
   artifactZoom.value = Math.min(1.6, Math.max(0.7, Number((artifactZoom.value + delta).toFixed(1))));
 }
 
-function exportCanvas(type: 'mind' | 'graph') {
+function exportCanvas(type: 'mind') {
   if (!currentCourse.value) return;
-  const target = type === 'mind' ? mindCanvas.value : graphCanvas.value;
-  target?.exportSvg(`${currentCourse.value.title}-${type === 'mind' ? '思维导图' : '知识图谱'}.svg`);
-  Message.success('学习图谱已导出为 SVG');
+  if (type === 'mind') {
+    mindCanvas.value?.exportSvg(`${currentCourse.value.title}-思维导图.svg`);
+  }
+  Message.success('思维导图已导出为 SVG');
 }
 
 function exportModalCanvas() {
   if (!currentCourse.value) return;
-  modalCanvas.value?.exportSvg(
-    `${currentCourse.value.title}-${artifactType.value === 'graph' ? '知识图谱' : '思维导图'}.svg`
-  );
-  Message.success('学习图谱已导出为 SVG');
+  modalCanvas.value?.exportSvg(`${currentCourse.value.title}-思维导图.svg`);
+  Message.success('思维导图已导出为 SVG');
 }
 
 function handleVisualNodePrompt(payload: { text: string; rect: DOMRect }) {
@@ -1318,6 +1459,7 @@ onBeforeRouteLeave(() => {
 
 .panel-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
 
   button {
@@ -1331,6 +1473,11 @@ onBeforeRouteLeave(() => {
     background: #f4f5ff;
     font-size: 10px;
     cursor: pointer;
+
+    &:disabled {
+      cursor: wait;
+      opacity: .62;
+    }
   }
 }
 
@@ -1343,38 +1490,100 @@ onBeforeRouteLeave(() => {
   }
 }
 
+.notes-brief {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 14px;
+  padding-bottom: 0;
+
+  article {
+    min-height: 108px;
+    padding: 13px;
+    border: 1px solid #dde5f1;
+    border-radius: 10px;
+    background: #f8fbff;
+  }
+
+  span,
+  p {
+    margin: 0;
+    color: #7a8799;
+    font-size: 10px;
+  }
+
+  strong {
+    display: block;
+    margin: 5px 0 6px;
+    color: #2b3850;
+    font-size: 13px;
+  }
+
+  p {
+    line-height: 1.7;
+  }
+}
+
 .notes-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
   padding: 14px;
 
   article {
-    min-height: 145px;
-    padding: 14px;
-    border: 1px solid #e7eaf2;
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 10px;
+    min-height: 174px;
+    padding: 15px;
+    border: 1px solid #e1e7f1;
     border-radius: 10px;
-    background: linear-gradient(145deg, #fff, #fafbff);
+    background: linear-gradient(145deg, #fff, #fafcff);
   }
 
   article > span {
-    color: #8090f6;
+    display: grid;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    color: #5367f8;
+    background: #eef2ff;
     font-size: 10px;
     font-weight: 700;
+    place-items: center;
   }
 
   h3 {
-    margin: 7px 0 9px;
+    margin: 0 0 7px;
     color: #344057;
-    font-size: 12px;
+    font-size: 14px;
+  }
+
+  p {
+    margin: 0 0 9px;
+    color: #748095;
+    font-size: 11px;
+    line-height: 1.65;
   }
 
   ul {
     margin: 0;
     padding-left: 16px;
     color: #707c91;
+    font-size: 11px;
+    line-height: 1.85;
+  }
+
+  strong,
+  small {
+    display: block;
+  }
+
+  small {
+    margin-top: 1px;
+    color: #8d98aa;
     font-size: 10px;
-    line-height: 1.8;
+    line-height: 1.45;
   }
 
   li::marker {
@@ -1382,14 +1591,46 @@ onBeforeRouteLeave(() => {
   }
 }
 
-.knowledge-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+.mindmap-panel {
+  overflow: hidden;
 }
 
 .concept-preview {
   height: 310px;
+}
+
+.mindmap-intro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 0 14px 12px;
+  padding: 13px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fbff;
+
+  strong {
+    color: #28364e;
+    font-size: 14px;
+    white-space: nowrap;
+  }
+
+  p {
+    margin: 0;
+    color: #6f7d91;
+    font-size: 11px;
+    line-height: 1.7;
+  }
+}
+
+.concept-preview--large {
+  height: 500px;
+  margin: 0 14px 14px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fbfcff;
 }
 
 .chapter-sidebar {
@@ -1614,6 +1855,10 @@ onBeforeRouteLeave(() => {
   border-radius: 12px;
 }
 
+.canvas-modal__body--mind {
+  height: 72vh;
+}
+
 .selection-context-menu {
   position: fixed;
   z-index: 10003;
@@ -1717,7 +1962,7 @@ onBeforeRouteLeave(() => {
   }
 
   .picker-grid,
-  .knowledge-grid,
+  .notes-brief,
   .notes-modal {
     grid-template-columns: 1fr;
   }
@@ -1732,7 +1977,12 @@ onBeforeRouteLeave(() => {
   }
 
   .notes-grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: 1fr;
+  }
+
+  .mindmap-intro {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .overview-progress {

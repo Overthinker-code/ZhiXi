@@ -40,7 +40,7 @@ const STUDENT_GROUPS: TopNavGroup[] = [
       },
       {
         title: '课堂内容',
-        desc: '视频学习、笔记与知识图谱',
+        desc: '视频学习、笔记与高清导图',
         routeName: 'CourseContent',
         icon: 'icon-play-circle',
       },

@@ -717,13 +717,11 @@
         display: block;
         flex: 1;
         min-width: 0;
-        padding: 0.82rem 1rem;
-        border-radius: 0 16px 16px 16px;
-        border: 1px solid rgba(99, 102, 241, 0.18);
-        border-left: 3px solid #6366f1;
-        background: rgba(255, 255, 255, 0.9);
-        backdrop-filter: blur(10px);
-        box-shadow: 0 8px 28px rgba(99, 102, 241, 0.12);
+        padding: 0.9rem 1.05rem;
+        border-radius: 16px;
+        border: 1px solid rgba(226, 232, 240, 0.96);
+        background: #fff;
+        box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
         color: #0f172a;
         font-size: 1rem;
         line-height: 1.78;
@@ -771,11 +769,11 @@
 
         :deep(blockquote) {
           margin: 0.55rem 0;
-          padding: 0.4rem 0.75rem;
-          border-left: 3px solid rgba(99, 102, 241, 0.35);
-          background: #f5f3ff;
+          padding: 0.55rem 0.75rem;
+          border: 1px solid #e2e8f0;
+          background: #f8fafc;
           color: #64748b;
-          border-radius: 0 8px 8px 0;
+          border-radius: 10px;
         }
 
         :deep(table) {

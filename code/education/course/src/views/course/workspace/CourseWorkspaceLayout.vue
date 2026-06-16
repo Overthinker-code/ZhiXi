@@ -28,7 +28,7 @@
 
   const navItems = [
     { key: 'home', label: '课程首页', desc: '概览与动态', icon: IconHome },
-    { key: 'content', label: '课堂内容', desc: '章节、笔记与图谱', icon: IconBook },
+    { key: 'content', label: '课堂内容', desc: '章节、笔记与导图', icon: IconBook },
     { key: 'tasks', label: '任务中心', desc: '作业、测验与复习', icon: IconFile },
     { key: 'resources', label: '课程资料', desc: '课件与资源分配', icon: IconStorage },
     { key: 'knowledge', label: '课程图谱', desc: '知识、问题与能力', icon: IconMindMapping },

@@ -289,6 +289,37 @@
                 生成数字人讲解
               </a-button>
             </div>
+            <div v-if="downloadablePackage" class="artifact-download-panel">
+              <div class="artifact-download-panel__head">
+                <div>
+                  <strong>真实生成文件</strong>
+                  <span>后端已生成 Markdown、PDF、导图和脚本，可直接下载</span>
+                </div>
+                <div class="artifact-stats">
+                  <article v-for="item in artifactStats" :key="item.label">
+                    <span>{{ item.label }}</span>
+                    <strong>{{ item.value }}</strong>
+                  </article>
+                </div>
+              </div>
+              <div class="artifact-grid">
+                <article
+                  v-for="artifact in downloadablePackage.artifacts"
+                  :key="artifact.file_name"
+                  class="artifact-card"
+                >
+                  <div>
+                    <span>{{ artifactKindLabel(artifact.kind) }}</span>
+                    <strong>{{ artifact.title }}</strong>
+                    <small>{{ artifact.file_name }} · {{ formatFileSize(artifact.file_size) }}</small>
+                  </div>
+                  <p>{{ artifact.preview }}</p>
+                  <button type="button" @click="downloadArtifact(artifact)">
+                    下载文件
+                  </button>
+                </article>
+              </div>
+            </div>
             <div class="result-stats">
               <article v-for="item in packageStats" :key="item.label">
                 <span>{{ item.label }}</span>
@@ -520,17 +551,25 @@
   import { computed, onMounted, reactive, ref, watch } from 'vue';
   import { useRoute, useRouter } from 'vue-router';
   import { Message } from '@arco-design/web-vue';
+  import axios from 'axios';
   import { getClassroomCourse } from '@/data/classroomCourses';
   import { fetchLearningReport, LearningReport } from '@/api/rag';
   import {
     analyzeImageProblem,
-    generateResourcePackage,
+    generateResourcePackage as generateWorkshopResourcePackage,
     gradeResourceExercise,
     ImageAnalyzeResponse,
     ResourceDifficulty,
     ResourceItem,
     ResourcePackageResponse,
   } from '@/api/resource-workshop';
+  import {
+    generateResourcePackage as generateDownloadableResourcePackage,
+    type GeneratedResourceArtifact,
+    type ResourceGenerationResponse,
+    type ResourceKind,
+  } from '@/api/resource-generation';
+  import { getToken } from '@/utils/auth';
   import { renderMarkdown } from '@/utils/markdown';
 
   const route = useRoute();
@@ -551,6 +590,7 @@
 
   const report = ref<LearningReport | null>(null);
   const packageResult = ref<ResourcePackageResponse | null>(null);
+  const downloadablePackage = ref<ResourceGenerationResponse | null>(null);
   const gradeResult = ref<Awaited<
     ReturnType<typeof gradeResourceExercise>
   > | null>(null);
@@ -790,6 +830,31 @@
         (item) => item.type === 'video_script'
       ) || null
   );
+  const artifactStats = computed(() => {
+    if (!downloadablePackage.value) return [];
+    const totalSize = downloadablePackage.value.artifacts.reduce(
+      (sum, item) => sum + item.file_size,
+      0
+    );
+    return [
+      { label: '真实文件', value: `${downloadablePackage.value.artifacts.length} 个` },
+      { label: '下载体积', value: formatFileSize(totalSize) },
+      { label: '生成方式', value: downloadablePackage.value.local_model_profile?.mode || '课程资源生成' },
+    ];
+  });
+  const artifactKindLabel = (kind: ResourceKind) => {
+    const map: Record<ResourceKind, string> = {
+      lecture_markdown: '讲义 Markdown',
+      lecture_pdf: '讲义 PDF',
+      practice_markdown: '练习 Markdown',
+      practice_pdf: '练习 PDF',
+      mind_map: '思维导图',
+      reading_list: '阅读清单',
+      case_project: '案例项目',
+      video_script: '数字人脚本',
+    };
+    return map[kind] || kind;
+  };
   const incomingSeedSummary = computed(() => {
     const topic = String(route.query.topic || '').trim();
     const goal = String(route.query.goal || '').trim();
@@ -976,6 +1041,41 @@
     return map[type] || type;
   }
 
+  function formatFileSize(size: number) {
+    if (!Number.isFinite(size) || size <= 0) return '0 KB';
+    if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
+    return `${(size / 1024 / 1024).toFixed(1)} MB`;
+  }
+
+  function artifactDownloadUrl(artifact: GeneratedResourceArtifact) {
+    const token = getToken();
+    const baseURL =
+      axios.defaults.baseURL || import.meta.env.VITE_API_BASE_URL || window.location.origin;
+    const baseOrigin = /^https?:\/\//.test(baseURL)
+      ? new URL(baseURL).origin
+      : window.location.origin;
+    const url = new URL(artifact.download_url, baseOrigin);
+    if (token) url.searchParams.set('token', token);
+    return url.toString();
+  }
+
+  function downloadArtifact(artifact: GeneratedResourceArtifact) {
+    window.open(artifactDownloadUrl(artifact), '_blank', 'noopener,noreferrer');
+  }
+
+  function productionResourceTypes(): ResourceKind[] {
+    return [
+      'lecture_markdown',
+      'lecture_pdf',
+      'practice_markdown',
+      'practice_pdf',
+      'mind_map',
+      'reading_list',
+      'case_project',
+      'video_script',
+    ];
+  }
+
   function buildPackageExportText() {
     if (!packageResult.value) return '';
     const lines = [
@@ -1075,18 +1175,52 @@
       return;
     }
     loadingPackage.value = true;
+    downloadablePackage.value = null;
     try {
-      packageResult.value = await generateResourcePackage({
-        ...form,
-        resource_count: 6,
-      });
-      gradeForm.subject = packageResult.value.subject;
-      gradeForm.topic = packageResult.value.topic;
-      imageForm.subject = packageResult.value.subject;
-      if (!imageForm.question_text.trim()) {
-        imageForm.question_text = `请结合 ${packageResult.value.topic} 的核心概念，对题目进行结构化讲解。`;
+      const difficulty =
+        form.difficulty === 'auto' ? 'standard' : form.difficulty;
+      const [previewResult, artifactResult] = await Promise.allSettled([
+        generateWorkshopResourcePackage({
+          ...form,
+          resource_count: 6,
+        }),
+        generateDownloadableResourcePackage({
+          course_id: activeCourse.value?.id,
+          subject: form.subject,
+          topic: form.topic || weakPoints.value[0] || '课程重点',
+          learning_goal: form.goal || '生成可下载的个性化课程资源包',
+          difficulty,
+          target_minutes: form.minutes,
+          resource_types: productionResourceTypes(),
+          use_web_search: false,
+        }),
+      ]);
+
+      if (previewResult.status === 'fulfilled') {
+        packageResult.value = previewResult.value;
       }
-      Message.success('资源包已生成');
+      if (artifactResult.status === 'fulfilled') {
+        downloadablePackage.value = artifactResult.value;
+      }
+      if (previewResult.status === 'rejected' && artifactResult.status === 'rejected') {
+        throw previewResult.reason || artifactResult.reason;
+      }
+
+      const subject =
+        packageResult.value?.subject || downloadablePackage.value?.subject || form.subject;
+      const topic =
+        packageResult.value?.topic || downloadablePackage.value?.topic || form.topic;
+      gradeForm.subject = subject;
+      gradeForm.topic = topic;
+      imageForm.subject = subject;
+      if (!imageForm.question_text.trim()) {
+        imageForm.question_text = `请结合 ${topic} 的核心概念，对题目进行结构化讲解。`;
+      }
+      Message.success(
+        downloadablePackage.value
+          ? '资源包与可下载文件已生成'
+          : '资源包预览已生成'
+      );
     } catch (error) {
       Message.error('资源包生成失败，请检查后端服务');
     } finally {
@@ -1912,6 +2046,128 @@
     margin-top: 12px;
   }
 
+  .artifact-download-panel {
+    margin-top: 14px;
+    padding: 13px;
+    border: 1px solid #dfe7f3;
+    border-radius: 10px;
+    background: #f8fbff;
+  }
+
+  .artifact-download-panel__head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    gap: 14px;
+    align-items: start;
+  }
+
+  .artifact-download-panel__head > div:first-child strong,
+  .artifact-download-panel__head > div:first-child span {
+    display: block;
+  }
+
+  .artifact-download-panel__head > div:first-child strong {
+    color: #263253;
+    font-size: 14px;
+  }
+
+  .artifact-download-panel__head > div:first-child span {
+    margin-top: 4px;
+    color: #75829a;
+    font-size: 11px;
+  }
+
+  .artifact-stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
+  }
+
+  .artifact-stats article {
+    padding: 8px;
+    border: 1px solid #e3e9f4;
+    border-radius: 8px;
+    background: #fff;
+  }
+
+  .artifact-stats span,
+  .artifact-stats strong {
+    display: block;
+  }
+
+  .artifact-stats span {
+    color: #8b96ad;
+    font-size: 9px;
+  }
+
+  .artifact-stats strong {
+    margin-top: 3px;
+    color: #34426a;
+    font-size: 11px;
+  }
+
+  .artifact-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 12px;
+  }
+
+  .artifact-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid #e2e9f4;
+    border-radius: 9px;
+    background: #fff;
+  }
+
+  .artifact-card span,
+  .artifact-card strong,
+  .artifact-card small {
+    display: block;
+  }
+
+  .artifact-card span {
+    color: #5368e9;
+    font-size: 10px;
+    font-weight: 700;
+  }
+
+  .artifact-card strong {
+    margin-top: 4px;
+    color: #263253;
+    font-size: 13px;
+  }
+
+  .artifact-card small {
+    margin-top: 4px;
+    color: #8b96ad;
+    font-size: 10px;
+    word-break: break-all;
+  }
+
+  .artifact-card p {
+    grid-column: 1 / -1;
+    margin: 2px 0 0;
+    color: #728096;
+    font-size: 11px;
+    line-height: 1.65;
+  }
+
+  .artifact-card button {
+    height: 30px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 7px;
+    color: #fff;
+    background: #5367f8;
+    font-size: 11px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
   .result-stats {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2368,6 +2624,9 @@
     .hero-metrics,
     .insight-column,
     .form-two,
+    .artifact-grid,
+    .artifact-download-panel__head,
+    .artifact-stats,
     .resource-grid,
     .result-stats {
       grid-template-columns: 1fr;
