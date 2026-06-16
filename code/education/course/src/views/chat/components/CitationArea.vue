@@ -1,24 +1,53 @@
 <script setup lang="ts">
-  import { computed } from 'vue';
+  import { computed, ref } from 'vue';
   import { useSettingStore } from '@/store/setting';
   import { renderMarkdown, stripMarkdownCodeToolbar } from '@/utils/markdown';
 
+  type CitationItem = {
+    citation_id: number;
+    source: string;
+    snippet: string;
+    reason?: string;
+    relevance_score?: number;
+    score?: number;
+    chunk_id?: number | string;
+    file_id?: string;
+    file_name?: string;
+    context_scope?: string;
+    locator?: string;
+  };
+
   const props = defineProps<{
-    citations?: Array<{
-      citation_id: number;
-      source: string;
-      snippet: string;
-      reason?: string;
-      relevance_score?: number;
-    }>;
+    citations?: CitationItem[];
     confidence?: string;
     groundingMode?: string;
     metrics?: Record<string, any>;
   }>();
 
   const settingStore = useSettingStore();
+  const expanded = ref(false);
   const showDiagnostics = computed(
     () => Boolean(settingStore.settings.debugMode)
+  );
+  const normalizedCitations = computed(() =>
+    (props.citations || []).map((item, index) => {
+      const source = item.file_name || item.source || `来源 ${item.citation_id || index + 1}`;
+      const chunk = item.chunk_id ? `片段 ${item.chunk_id}` : '';
+      const locator = item.locator || chunk;
+      const scope =
+        item.context_scope === 'uploaded_document'
+          ? '上传文件'
+          : item.context_scope === 'knowledge_base'
+            ? '知识库'
+            : '';
+      return {
+        ...item,
+        sourceLabel: source.replace(/^.*[\\/]/, ''),
+        locator,
+        scope,
+        score: Number(item.relevance_score || item.score || 0),
+      };
+    })
   );
 
   const confidenceLabel = (value?: string) => {
@@ -50,7 +79,17 @@
     "
     class="citation-area"
   >
-    <div class="citation-meta">
+    <div class="citation-strip">
+      <button
+        v-if="normalizedCitations.length"
+        type="button"
+        class="source-toggle"
+        @click="expanded = !expanded"
+      >
+        <span class="source-count">{{ normalizedCitations.length }}</span>
+        <span>个来源</span>
+        <i>{{ expanded ? '收起' : '查看' }}</i>
+      </button>
       <span v-if="groundingMode" class="meta-pill">
         {{ groundingLabel(groundingMode) }}
       </span>
@@ -71,13 +110,32 @@
       </span>
     </div>
 
-    <div v-if="citations && citations.length > 0" class="citation-list">
-      <div v-for="item in citations" :key="`${item.citation_id}-${item.source}`" class="citation-card">
-        <div class="citation-head">
-          <span class="citation-source">{{ item.source || `引用 ${item.citation_id}` }}</span>
-          <span v-if="item.relevance_score" class="citation-score">
-            相关度 {{ Number(item.relevance_score).toFixed(2) }}
-          </span>
+    <div v-if="normalizedCitations.length" class="source-chips">
+      <button
+        v-for="item in normalizedCitations.slice(0, 4)"
+        :key="`${item.citation_id}-${item.sourceLabel}`"
+        type="button"
+        class="source-chip"
+        @click="expanded = true"
+      >
+        <span>{{ item.citation_id }}</span>
+        <strong>{{ item.sourceLabel }}</strong>
+        <small v-if="item.locator">{{ item.locator }}</small>
+      </button>
+    </div>
+
+    <div v-if="expanded && normalizedCitations.length" class="citation-detail-list">
+      <article
+        v-for="item in normalizedCitations"
+        :key="`${item.citation_id}-${item.source}-${item.chunk_id}`"
+        class="citation-detail"
+      >
+        <div class="citation-detail__head">
+          <span>{{ item.citation_id }}</span>
+          <strong>{{ item.sourceLabel }}</strong>
+          <small v-if="item.scope">{{ item.scope }}</small>
+          <small v-if="item.locator">{{ item.locator }}</small>
+          <small v-if="item.score">相关度 {{ item.score.toFixed(2) }}</small>
         </div>
         <!-- eslint-disable-next-line vue/no-v-html -->
         <div class="citation-snippet" v-html="renderCitation(item.snippet)" />
@@ -87,32 +145,130 @@
           class="citation-reason"
           v-html="renderCitation(item.reason)"
         />
-      </div>
+      </article>
     </div>
   </div>
 </template>
 
 <style scoped lang="scss">
   .citation-area {
-    margin: 0.55rem 0 0 0.5rem;
+    margin: 0.48rem 0 0 0.35rem;
   }
 
-  .citation-meta {
+  .citation-strip,
+  .source-chips {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.4rem;
-    margin-bottom: 0.45rem;
+    align-items: center;
+    gap: 0.36rem;
+  }
+
+  .source-toggle,
+  .source-chip {
+    border: 1px solid rgba(148, 163, 184, 0.24);
+    background: rgba(248, 250, 252, 0.88);
+    color: #475569;
+    cursor: pointer;
+    transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+  }
+
+  .source-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.32rem;
+    height: 1.75rem;
+    padding: 0 0.52rem 0 0.34rem;
+    border-radius: 999px;
+    font-size: 0.76rem;
+    font-weight: 650;
+
+    .source-count {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.16rem;
+      height: 1.16rem;
+      border-radius: 999px;
+      background: #eef2ff;
+      color: #4f46e5;
+      font-size: 0.7rem;
+    }
+
+    i {
+      color: #64748b;
+      font-style: normal;
+      font-weight: 500;
+    }
+
+    &:hover {
+      border-color: rgba(79, 70, 229, 0.32);
+      background: #fff;
+      transform: translateY(-1px);
+    }
+  }
+
+  .source-chips {
+    margin-top: 0.34rem;
+  }
+
+  .source-chip {
+    display: inline-grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 0.28rem;
+    max-width: 15rem;
+    padding: 0.34rem 0.46rem;
+    border-radius: 9px;
+    text-align: left;
+
+    span {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.1rem;
+      height: 1.1rem;
+      border-radius: 50%;
+      background: #eef2ff;
+      color: #4f46e5;
+      font-size: 0.68rem;
+      font-weight: 750;
+    }
+
+    strong {
+      min-width: 0;
+      overflow: hidden;
+      color: #334155;
+      font-size: 0.74rem;
+      font-weight: 650;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    small {
+      grid-column: 2;
+      overflow: hidden;
+      color: #94a3b8;
+      font-size: 0.66rem;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    &:hover {
+      border-color: rgba(79, 70, 229, 0.32);
+      background: #fff;
+    }
   }
 
   .meta-pill {
     display: inline-flex;
     align-items: center;
-    padding: 0.24rem 0.56rem;
+    height: 1.75rem;
+    padding: 0 0.52rem;
     border-radius: 999px;
-    background: rgba(99, 102, 241, 0.1);
-    color: #4338ca;
-    font-size: 0.76rem;
-    font-weight: 600;
+    background: rgba(99, 102, 241, 0.08);
+    color: #4f46e5;
+    font-size: 0.72rem;
+    font-weight: 650;
 
     &--soft {
       background: rgba(15, 23, 42, 0.06);
@@ -120,48 +276,65 @@
     }
   }
 
-  .citation-list {
+  .citation-detail-list {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 0.42rem;
+    max-width: min(860px, 100%);
+    margin-top: 0.46rem;
   }
 
-  .citation-card {
-    padding: 0.7rem 0.8rem;
-    border-radius: 12px;
-    border: 1px solid rgba(99, 102, 241, 0.12);
-    background: rgba(255, 255, 255, 0.86);
-    box-shadow: 0 8px 22px rgba(99, 102, 241, 0.08);
+  .citation-detail {
+    padding: 0.62rem 0.72rem;
+    border: 1px solid rgba(226, 232, 240, 0.95);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.92);
   }
 
-  .citation-head {
+  .citation-detail__head {
     display: flex;
-    justify-content: space-between;
-    gap: 0.75rem;
-    margin-bottom: 0.3rem;
-    font-size: 0.78rem;
-  }
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.32rem;
+    margin-bottom: 0.26rem;
 
-  .citation-source {
-    font-weight: 700;
-    color: #0f172a;
-  }
+    span {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.18rem;
+      height: 1.18rem;
+      border-radius: 50%;
+      background: #eef2ff;
+      color: #4f46e5;
+      font-size: 0.68rem;
+      font-weight: 750;
+    }
 
-  .citation-score {
-    color: #64748b;
-    white-space: nowrap;
+    strong {
+      color: #0f172a;
+      font-size: 0.78rem;
+    }
+
+    small {
+      padding: 0.12rem 0.34rem;
+      border-radius: 999px;
+      background: #f1f5f9;
+      color: #64748b;
+      font-size: 0.66rem;
+    }
   }
 
   .citation-snippet {
     color: #334155;
-    font-size: 0.82rem;
+    font-size: 0.78rem;
     line-height: 1.55;
   }
 
   .citation-reason {
-    margin-top: 0.35rem;
-    color: #6366f1;
-    font-size: 0.76rem;
+    margin-top: 0.28rem;
+    color: #64748b;
+    font-size: 0.72rem;
   }
 
   .citation-snippet :deep(p),

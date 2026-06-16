@@ -247,12 +247,18 @@ class ResourceGenerationService:
             "standard": "标准提升",
             "challenge": "挑战拓展",
         }[request.difficulty]
+        terms = self._topic_terms(request.subject, request.topic)
         return {
             "subject": request.subject.strip(),
             "topic": request.topic.strip(),
             "goal": goal.strip(),
             "difficulty": difficulty_label,
             "minutes": str(request.target_minutes),
+            "terms": "、".join(terms),
+            "primary": terms[0],
+            "secondary": terms[1],
+            "third": terms[2],
+            "profile": self._course_profile(request.subject, request.topic),
         }
 
     def _write_artifact(
@@ -314,6 +320,30 @@ class ResourceGenerationService:
         )
 
     @staticmethod
+    def _topic_terms(subject: str, topic: str) -> list[str]:
+        text = f"{subject} {topic}".lower()
+        if "数据库" in text or "sql" in text:
+            return ["关系模型", "SQL 查询", "完整性约束", "事务并发", "规范化"]
+        if "数据结构" in text or "算法" in text:
+            return ["抽象数据类型", "复杂度分析", "遍历策略", "存储结构", "边界条件"]
+        if "人工智能" in text or "ai" in text:
+            return ["问题建模", "搜索策略", "知识表示", "模型训练", "评估指标"]
+        if "宏观" in text or "经济" in text:
+            return ["总量指标", "总需求", "政策传导", "经济周期", "长期增长"]
+        if "审计" in text:
+            return ["审计目标", "重大错报风险", "内部控制", "审计证据", "审计意见"]
+        if "金融" in text:
+            return ["时间价值", "现金流折现", "风险收益", "投资组合", "资本成本"]
+        return [topic, "定义边界", "适用条件", "典型案例", "自测反馈"]
+
+    @staticmethod
+    def _course_profile(subject: str, topic: str) -> str:
+        return (
+            f"课程《{subject}》当前围绕“{topic}”组织资料。资源包默认面向学生自学，"
+            "先补概念边界，再给案例和练习，最后用检查清单确认是否能迁移应用。"
+        )
+
+    @staticmethod
     def _safe_file_name(value: str) -> str:
         name = re.sub(r"[^a-zA-Z0-9._-]+", "-", value.strip()).strip("-")
         return name or f"artifact-{uuid4().hex[:8]}.md"
@@ -326,26 +356,37 @@ class ResourceGenerationService:
 目标：{ctx['goal']}
 难度：{ctx['difficulty']}
 建议学习时长：{ctx['minutes']} 分钟
+生成依据：{ctx['profile']}
 
 ## 1. 一句话定位
-{ctx['topic']} 是本节学习的核心对象。学习时先弄清它解决什么问题，再看它和相邻概念的边界。
+{ctx['topic']} 是本节学习的核心对象。学习时先弄清它解决什么问题，再看它和 {ctx['primary']}、{ctx['secondary']}、{ctx['third']} 的关系。
 
-## 2. 必须掌握的核心概念
-- 定义：用自己的话说清 {ctx['topic']} 的含义。
-- 条件：列出适用前提、输入条件和限制。
-- 步骤：把解题或应用过程拆成可检查的 3-5 步。
-- 边界：说明它不适用于哪些情况。
+## 2. 核心概念卡
+| 概念 | 课堂定位 | 学习检查 |
+| --- | --- | --- |
+| {ctx['primary']} | 用来确定问题对象和基本结构 | 能否说清定义、输入和输出 |
+| {ctx['secondary']} | 用来完成主要推理或操作步骤 | 能否列出 3 个判断条件 |
+| {ctx['third']} | 用来做结果校验和边界判断 | 能否解释一个反例 |
 
-## 3. 课堂例子
-以课程中的典型场景为例，先标出已知条件，再匹配概念，最后写出结论和检验方法。
+## 3. 课堂案例拆解
+1. 标出题干或材料中的已知条件。
+2. 判断这些条件分别对应 {ctx['primary']}、{ctx['secondary']} 还是 {ctx['third']}。
+3. 写出推理链：条件 -> 方法 -> 中间结果 -> 结论。
+4. 用一个反例或边界条件检查结论是否过度推广。
 
 ## 4. 易错点
-- 只记结论，不会说明依据。
-- 把相邻概念混用，导致适用条件错误。
-- 练习时缺少最后校验。
+- 只记术语，不会把术语放回题目条件。
+- 把 {ctx['primary']} 和 {ctx['secondary']} 混用，导致步骤不成立。
+- 没有说明为什么选择该方法，答案缺少可追溯依据。
+- 最后不做边界校验，导致结论看似完整但无法迁移。
 
 ## 5. 学习建议
-先完成基础题，再做 1 道变式题。提交答案后使用 AI 批改模式更新掌握度。
+按照“概念复述 5 分钟 -> 案例拆解 12 分钟 -> 分层练习 15 分钟 -> AI 批改 8 分钟”的顺序完成。提交答案后使用 AI 批改模式更新掌握度。
+
+## 6. 自我检查
+- 我能否不用教材原句解释 {ctx['topic']}？
+- 我能否指出 {ctx['primary']} 在案例中的证据？
+- 我能否说出一个不适用 {ctx['topic']} 的场景？
 """
 
     @staticmethod
@@ -353,20 +394,23 @@ class ResourceGenerationService:
         return f"""# {ctx['topic']} 分层练习
 
 ## 基础题
-1. 用 80 字以内解释 {ctx['topic']} 的定义，并写出一个适用场景。
-2. 判断题：只要题干出现关键词，就一定可以套用 {ctx['topic']}。请说明理由。
+1. 用 80 字以内解释 {ctx['topic']}，并写出它和 {ctx['primary']} 的关系。
+2. 判断题：只要题干出现关键词，就一定可以套用 {ctx['topic']}。请说明理由，并指出需要补充的条件。
+3. 填空：解决这类问题时，第一步应先识别 ______，第二步再选择 ______。
 
 ## 标准题
-3. 给定一个课程案例，列出已知条件、适用概念、推理步骤和最终结论。
-4. 设计一道同类变式题，并写出标准答案。
+4. 给定一个课程案例，列出已知条件、适用概念、推理步骤和最终结论。
+5. 设计一道同类变式题，并写出标准答案和评分点。
 
 ## 挑战题
-5. 比较 {ctx['topic']} 与相邻概念的差异，至少列出 3 个判断标准。
+6. 比较 {ctx['topic']} 与 {ctx['secondary']} 的差异，至少列出 3 个判断标准。
+7. 写一个容易出错的答案，并说明它错在定义、条件、步骤还是结论。
 
 ## 参考解析
 - 基础题看定义是否准确、例子是否贴合。
 - 标准题看步骤是否完整、结论是否可由条件推出。
 - 挑战题看能否抓住适用边界，而不是只罗列术语。
+- 全部题目完成后，把错题送入 AI 陪练，要求系统按“错因 -> 订正 -> 追练”继续生成下一组题。
 """
 
     @staticmethod
@@ -396,16 +440,18 @@ class ResourceGenerationService:
     def _reading_list(ctx: dict[str, str]) -> str:
         return f"""# {ctx['topic']} 拓展阅读清单
 
-## 必读
-- 课程讲义中与 {ctx['topic']} 直接相关的章节。
-- 教材中定义、例题和课后练习部分。
+## 课程内必读
+- 当前章节讲义：优先阅读定义、例题和课后练习部分。
+- 课堂笔记：重点检查 {ctx['primary']}、{ctx['secondary']}、{ctx['third']} 的边界。
+- 知识图谱：查看该主题的先修节点和关联资源。
 
-## 选读
-- 与 {ctx['topic']} 相邻的概念对比材料。
-- 一个真实应用案例或工程实践说明。
+## 拓展阅读
+- 与 {ctx['topic']} 相邻的概念对比材料，阅读时只记录“差异判断标准”。
+- 一个真实应用案例或工程实践说明，阅读时标出输入、方法、输出和限制。
+- 一组同类题解析，阅读时关注评分点，而不是只看最终答案。
 
 ## 阅读任务
-读完后写下 3 个问题：一个定义问题、一个应用问题、一个易错边界问题。
+读完后写下 3 个问题：一个定义问题、一个应用问题、一个易错边界问题。每个问题都要标注来自讲义、图谱还是练习。
 """
 
     @staticmethod
@@ -413,22 +459,25 @@ class ResourceGenerationService:
         return f"""# {ctx['topic']} 实操案例
 
 ## 任务背景
-围绕 {ctx['subject']} 中的 {ctx['topic']}，完成一个 20-30 分钟的小任务。
+围绕 {ctx['subject']} 中的 {ctx['topic']}，完成一个 20-30 分钟的小任务，用来验证是否能把概念迁移到真实情境。
 
 ## 输入材料
 - 一段课程案例或题干。
-- 相关定义和约束条件。
+- {ctx['primary']}、{ctx['secondary']}、{ctx['third']} 的定义和约束条件。
+- 一份最终产物模板：条件表、步骤表、结论表。
 
 ## 操作步骤
 1. 提取已知条件。
 2. 判断是否适用 {ctx['topic']}。
-3. 写出推理或实现步骤。
+3. 写出推理或实现步骤，每一步标注依据。
 4. 给出结论并做自检。
+5. 写出一个边界情况，说明本方法何时不适用。
 
 ## 验收标准
 - 每一步都有依据。
 - 结论能回扣题目目标。
 - 能说明一个可能出错的地方。
+- 能把错误修改成一版更符合课程术语的答案。
 """
 
     @staticmethod
@@ -439,11 +488,11 @@ class ResourceGenerationService:
 
 第一步，先看它解决什么问题。不要急着背结论，要先知道它适合处理哪类场景。
 
-第二步，记住核心判断条件。遇到题目时，先圈出已知条件，再判断是否满足这些条件。
+第二步，记住核心判断条件：{ctx['primary']}、{ctx['secondary']}、{ctx['third']}。遇到题目时，先圈出已知条件，再判断是否满足这些条件。
 
 第三步，用一个例子检查理解。如果你能把定义、步骤和结论讲给同学听，说明已经初步掌握。
 
-最后提醒，最常见的错误是把相邻概念混用。做题后建议进入 AI 批改模式，让系统根据答案更新掌握度。
+最后提醒，最常见的错误是把相邻概念混用，或者只写结论不写依据。做题后建议进入 AI 批改模式，让系统根据答案更新掌握度。
 """
 
     @staticmethod

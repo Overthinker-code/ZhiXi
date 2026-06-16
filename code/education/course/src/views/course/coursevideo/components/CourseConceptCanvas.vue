@@ -107,7 +107,7 @@
             :y="leafPosition(index, pointIndex).y + 19"
             text-anchor="middle"
           >
-            {{ point }}
+            {{ shortLabel(point, 8) }}
           </text>
         </g>
       </template>
@@ -140,7 +140,15 @@ const emit = defineEmits<{
 }>();
 
 const svgRef = ref<SVGSVGElement | null>(null);
-const concepts = computed(() => props.concepts.slice(0, 4));
+const concepts = computed(() =>
+  props.concepts.slice(0, 4).map((concept) => ({
+    ...concept,
+    points: [
+      ...concept.points,
+      ...(concept.checks || []).map((item) => item.replace(/^我能否/, '能否')),
+    ].slice(0, 5),
+  }))
+);
 const dots = Array.from({ length: 13 * 7 }, (_, index) => ({
   x: 20 + (index % 13) * 60,
   y: 22 + Math.floor(index / 13) * 62,
@@ -160,12 +168,17 @@ const branchTextColors = ['#176b4a', '#246b9b', '#70449e', '#9a5b25'];
 function leafPosition(branchIndex: number, pointIndex: number) {
   const isLeft = branchIndex === 0 || branchIndex === 2;
   const isTop = branchIndex < 2;
-  const x = isLeft ? 8 + pointIndex * 10 : 656 - pointIndex * 10;
-  const yBase = isTop ? 24 : 348;
+  const x = isLeft ? 8 + Math.min(pointIndex, 2) * 8 : 656 - Math.min(pointIndex, 2) * 8;
+  const yBase = isTop ? 16 : 374;
   return {
     x,
-    y: yBase + pointIndex * (isTop ? 37 : -37),
+    y: yBase + pointIndex * (isTop ? 31 : -31),
   };
+}
+
+function shortLabel(value: string, limit = 9) {
+  const text = String(value || '').trim();
+  return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
 }
 
 function leafPath(branchIndex: number, pointIndex: number) {

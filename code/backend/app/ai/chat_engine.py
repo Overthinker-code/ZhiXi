@@ -1150,19 +1150,30 @@ def _build_rag_context(request: ChatRequest) -> tuple[SystemMessage, list[dict[s
 
     strict_effective = bool(request.strict_mode) and bool(results)
     if results:
+        current_file_name = (request.file_name or "").strip()
         context_chunks = "\n\n".join(
             (
                 f"[citation:{item['citation_id']}] "
                 f"source={item.get('source', 'unknown')} "
+                f"file={item.get('file_name') or (item.get('metadata') or {}).get('source') or item.get('source', 'unknown')} "
+                f"chunk={item.get('chunk_id') or ''} "
                 f"scope={item.get('context_scope', 'knowledge_base')}\n"
                 f"{item['content']}"
             )
             for item in results
         )
         source_label = "上传文档与知识库" if document_results else "知识库"
+        file_directive = (
+            f"当前用户正在查看上传文件《{current_file_name or current_file_id}》。"
+            "凡问题涉及该文件、论文、讲义、资料、上文或附件时，必须优先使用 scope=uploaded_document 的片段；"
+            "只有这些片段不足时才补充知识库或通用知识，并在回答中明确区分。\n"
+            if current_file_id
+            else ""
+        )
         preamble = (
             f"【{source_label}上下文】下列为与问题相关的证据片段"
             "（有帮助时请引用并标注 [citation:x]）。\n"
+            f"{file_directive}"
             "若片段不足以完整回答，可结合通用知识补充，并区分资料与推断。\n"
         )
     else:
@@ -2099,7 +2110,10 @@ def _normalize_structured_citations(
                 "citation_id": citation_id,
                 "source": str(base.get("source") or "unknown"),
                 "file_id": str((base.get("metadata") or {}).get("file_id") or ""),
+                "file_name": str(base.get("file_name") or (base.get("metadata") or {}).get("source") or base.get("source") or ""),
                 "chunk_id": base.get("chunk_id"),
+                "context_scope": str(base.get("context_scope") or ""),
+                "locator": str(base.get("locator") or (f"片段 {base.get('chunk_id')}" if base.get("chunk_id") else "")),
                 "score": float(base.get("score") or 0.0),
                 "snippet": str(raw.get("snippet") or base.get("content") or "")[:220],
                 "reason": str(raw.get("reason") or "").strip(),

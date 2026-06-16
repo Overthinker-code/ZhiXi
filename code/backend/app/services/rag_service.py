@@ -267,6 +267,16 @@ class RAGService:
             k=top_k,
             filter=where,
         )
+        # Some files are uploaded once and reused across local threads. Keep the
+        # current file binding authoritative, but fall back to file_id-only search
+        # when the thread-scoped filter misses so citations still point to the
+        # selected file instead of unrelated knowledge-base chunks.
+        if thread_id and not matches:
+            matches = self.vector_store.similarity_search_with_scores(
+                query=query,
+                k=top_k,
+                filter={"$and": [{"file_id": file_id}]},
+            )
         out: List[dict] = []
         for i, (doc, score) in enumerate(matches, start=1):
             md = dict(doc.metadata or {})
@@ -278,7 +288,9 @@ class RAGService:
                     "content": doc.page_content,
                     "metadata": md,
                     "source": md.get("source", "unknown"),
+                    "file_name": md.get("source", "unknown"),
                     "chunk_id": md.get("chunk_id"),
+                    "locator": f"片段 {md.get('chunk_id')}" if md.get("chunk_id") else "",
                     "score": score,
                 }
             )

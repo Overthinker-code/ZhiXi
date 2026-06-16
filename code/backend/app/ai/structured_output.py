@@ -45,11 +45,14 @@ def build_citation_candidates(rag_results: list[dict[str, Any]]) -> str:
         score = float(item.get("score") or 0.0)
         source = str(item.get("source") or "unknown")
         chunk_id = item.get("chunk_id")
+        scope = str(item.get("context_scope") or "knowledge_base")
+        file_name = str(item.get("file_name") or (item.get("metadata") or {}).get("source") or source)
         content = str(item.get("content") or "").strip().replace("\n", " ")
         if len(content) > 220:
             content = content[:220] + "…"
         blocks.append(
-            f"- citation_id={citation_id} | source={source} | chunk_id={chunk_id} | "
+            f"- citation_id={citation_id} | source={source} | file={file_name} | "
+            f"chunk_id={chunk_id} | scope={scope} | "
             f"score={score:.3f} | snippet={content}"
         )
     return "\n".join(blocks)

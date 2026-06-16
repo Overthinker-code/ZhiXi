@@ -240,6 +240,13 @@ function normalizeChatIndentation(segment) {
     .join('\n');
 }
 
+function removeDecorativeHorizontalRules(segment) {
+  return String(segment || '')
+    .split('\n')
+    .filter((line) => !/^\s{0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line))
+    .join('\n');
+}
+
 function normalizeDollarDelimiters(segment) {
   const source = String(segment || '').replace(/＄/g, '$');
   let output = '';
@@ -303,6 +310,7 @@ export function normalizeMathMarkdown(content) {
     text = normalizeMalformedMathBlocks(text);
     text = wrapOrphanMathLines(text);
     text = normalizeChatIndentation(text);
+    text = removeDecorativeHorizontalRules(text);
     return normalizeDollarDelimiters(text);
   });
 }

@@ -765,6 +765,12 @@
 
         :deep(li) {
           padding-left: 0.12rem;
+          margin: 0.24rem 0;
+          line-height: 1.72;
+        }
+
+        :deep(hr) {
+          display: none;
         }
 
         :deep(blockquote) {

@@ -25,6 +25,10 @@
   const activeType = ref<CourseKnowledgeMapType>('knowledge');
   const viewMode = ref<'network' | 'structure'>('structure');
   const activeRelation = ref<'全部' | '父子关系' | '前后置关系' | '关联关系' | '资料支撑' | '任务驱动'>('全部');
+  const selectedNodeId = ref('course-root');
+  const showResourceLinks = ref(true);
+  const showLearningPath = ref(true);
+  const canvasZoom = ref(1);
 
   const course = computed(() => getClassroomCourse(String(route.params.courseId || '')));
   const maps = computed(() => (course.value ? buildCourseKnowledgeMaps(course.value) : []));
@@ -50,9 +54,21 @@
     if (!map) return [];
     return map.links.filter((link) => {
       const relationMatches = activeRelation.value === '全部' || link.relation === activeRelation.value;
-      return relationMatches && visibleNodeIds.value.has(link.source) && visibleNodeIds.value.has(link.target);
+      const resourceMatches = showResourceLinks.value || link.relation !== '资料支撑';
+      const pathMatches = showLearningPath.value || link.relation !== '前后置关系';
+      return relationMatches && resourceMatches && pathMatches && visibleNodeIds.value.has(link.source) && visibleNodeIds.value.has(link.target);
     });
   });
+  const selectedNode = computed(() => {
+    const map = activeMap.value;
+    if (!map) return undefined;
+    return map.nodes.find((node) => node.id === selectedNodeId.value) || map.nodes[0];
+  });
+  const selectedLinks = computed(() =>
+    visibleLinks.value.filter(
+      (link) => link.source === selectedNode.value?.id || link.target === selectedNode.value?.id
+    )
+  );
   const chapterCount = computed(() => course.value?.chapters.length || 0);
   const conceptCount = computed(() => course.value?.concepts.flatMap((item) => item.points).length || 0);
   const actionBadgeCount = computed(() =>
@@ -60,7 +76,15 @@
   );
 
   function nodeClass(node: CourseKnowledgeNode) {
-    return [`node-${node.type}`, `node-weight-${node.weight}`];
+    return [`node-${node.type}`, `node-weight-${node.weight}`, { selected: selectedNode.value?.id === node.id }];
+  }
+
+  function selectNode(node: CourseKnowledgeNode) {
+    selectedNodeId.value = node.id;
+  }
+
+  function changeZoom(delta: number) {
+    canvasZoom.value = Math.min(1.45, Math.max(0.72, Number((canvasZoom.value + delta).toFixed(2))));
   }
 
   function askGraphAgent(action: string) {
@@ -215,6 +239,9 @@
               :key="branch.id"
               class="structure-branch"
               :style="{ '--branch-offset': `${index * 4}px` }"
+              tabindex="0"
+              @click="selectedNodeId = `chapter-${index}`"
+              @keydown.enter="selectedNodeId = `chapter-${index}`"
             >
               <div class="branch-title">
                 <span>{{ String(index + 1).padStart(2, '0') }}</span>
@@ -241,6 +268,7 @@
         <svg
           v-else
           class="map-canvas"
+          :style="{ transform: `scale(${canvasZoom})` }"
           viewBox="0 0 940 470"
           role="img"
           :aria-label="activeMap.title"
@@ -265,6 +293,9 @@
             :key="node.id"
             :transform="`translate(${node.x} ${node.y})`"
             :class="nodeClass(node)"
+            tabindex="0"
+            @click="selectNode(node)"
+            @keydown.enter="selectNode(node)"
           >
             <circle :r="node.weight >= 4 ? 48 : node.weight >= 3 ? 38 : node.weight >= 2 ? 30 : 24" />
             <text text-anchor="middle" dominant-baseline="middle">
@@ -286,8 +317,23 @@
 
       <aside class="map-insights">
         <section>
-          <strong>图谱解读</strong>
-          <p>{{ activeMap.description }}</p>
+          <strong>节点详情</strong>
+          <h3>{{ selectedNode?.label || activeMap.title }}</h3>
+          <p>{{ selectedNode?.type === 'resource' ? '该节点代表可继续阅读或下载的课程资料。' : selectedNode?.type === 'task' ? '该节点代表可执行的作业、自测或 AI 学习任务。' : activeMap.description }}</p>
+          <div class="node-meta">
+            <span>类型：{{ selectedNode?.type || 'graph' }}</span>
+            <span>关联：{{ selectedLinks.length }} 条</span>
+          </div>
+        </section>
+        <section>
+          <strong>图谱控制</strong>
+          <label><input v-model="showLearningPath" type="checkbox" /> 学习路径</label>
+          <label><input v-model="showResourceLinks" type="checkbox" /> 关联资源</label>
+          <div class="zoom-control">
+            <button type="button" @click="changeZoom(-0.08)">-</button>
+            <span>{{ Math.round(canvasZoom * 100) }}%</span>
+            <button type="button" @click="changeZoom(0.08)">+</button>
+          </div>
         </section>
         <section>
           <strong>可执行动作</strong>
@@ -643,6 +689,14 @@
     gap: 10px;
     min-height: 42px;
     padding-left: var(--branch-offset);
+    border-radius: 9px;
+    cursor: pointer;
+    outline: none;
+
+    &:hover,
+    &:focus-visible {
+      background: rgba(83, 103, 248, 0.06);
+    }
 
     &::before {
       position: absolute;
@@ -746,6 +800,8 @@
     width: 100%;
     height: 470px;
     display: block;
+    transform-origin: center;
+    transition: transform 0.18s ease;
     background:
       radial-gradient(circle at center, rgba(83, 103, 248, 0.08), transparent 38%),
       linear-gradient(90deg, rgba(229, 234, 246, 0.55) 1px, transparent 1px),
@@ -827,6 +883,12 @@
       fill: #fff;
       font-size: 13px;
     }
+
+    .selected circle {
+      stroke: #2563eb;
+      stroke-width: 3;
+      filter: drop-shadow(0 10px 18px rgba(37, 99, 235, 0.26));
+    }
   }
 
   .map-bottom {
@@ -878,6 +940,25 @@
       line-height: 1.7;
     }
 
+    h3 {
+      margin: 2px 0 6px;
+      color: #172033;
+      font-size: 16px;
+    }
+
+    label {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin: 8px 0;
+      color: #596579;
+      font-size: 11px;
+    }
+
+    input {
+      accent-color: #5367f8;
+    }
+
     button {
       width: 100%;
       height: 30px;
@@ -894,6 +975,41 @@
         color: #5367f8;
         background: #f5f7ff;
       }
+    }
+  }
+
+  .node-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 9px;
+
+    span {
+      padding: 4px 7px;
+      border-radius: 999px;
+      color: #5367f8;
+      background: #eef1ff;
+      font-size: 9px;
+    }
+  }
+
+  .zoom-control {
+    display: grid;
+    grid-template-columns: 30px minmax(0, 1fr) 30px;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+
+    span {
+      text-align: center;
+      color: #5367f8;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    button {
+      margin-top: 0;
+      padding: 0;
     }
   }
 

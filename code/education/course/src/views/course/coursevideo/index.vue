@@ -225,13 +225,27 @@
                 <span>{{ String(index + 1).padStart(2, '0') }}</span>
                 <div>
                   <h3>{{ note.title }}</h3>
-                  <p>{{ note.points.join('、') }}共同构成该主题的课堂理解框架。</p>
-                  <ul>
-                    <li v-for="point in note.points" :key="point">
-                      <strong>{{ point }}</strong>
-                      <small>建议结合课节案例复述定义、条件和应用边界。</small>
-                    </li>
-                  </ul>
+                  <p>{{ note.detail }}</p>
+                  <div class="note-chip-row">
+                    <em v-for="point in note.points" :key="point">{{ point }}</em>
+                  </div>
+                  <div class="note-columns">
+                    <section>
+                      <strong>学习产出</strong>
+                      <ul>
+                        <li v-for="item in note.outcomes" :key="item">{{ item }}</li>
+                      </ul>
+                    </section>
+                    <section>
+                      <strong>常见误区</strong>
+                      <ul>
+                        <li v-for="item in note.misconceptions" :key="item">{{ item }}</li>
+                      </ul>
+                    </section>
+                  </div>
+                  <div class="note-action-strip">
+                    <span v-for="item in note.activities" :key="item">{{ item }}</span>
+                  </div>
                 </div>
               </article>
             </div>
@@ -346,7 +360,11 @@
           <span>{{ String(index + 1).padStart(2, '0') }}</span>
           <div>
             <h3>{{ note.title }}</h3>
-            <ul><li v-for="point in note.points" :key="point">{{ point }}</li></ul>
+            <p>{{ note.detail }}</p>
+            <h4>学习产出</h4>
+            <ul><li v-for="item in note.outcomes" :key="item">{{ item }}</li></ul>
+            <h4>检查问题</h4>
+            <ul><li v-for="item in note.checks" :key="item">{{ item }}</li></ul>
           </div>
         </article>
       </div>
@@ -1588,6 +1606,65 @@ onBeforeRouteLeave(() => {
 
   li::marker {
     color: #6678f4;
+  }
+
+  .note-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+
+    em {
+      padding: 4px 8px;
+      border-radius: 999px;
+      color: #5367f8;
+      background: #eef2ff;
+      font-size: 10px;
+      font-style: normal;
+      font-weight: 650;
+    }
+  }
+
+  .note-columns {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 8px;
+
+    section {
+      padding: 9px 10px;
+      border: 1px solid #e8eef7;
+      border-radius: 9px;
+      background: #fff;
+    }
+
+    strong {
+      margin: 0 0 5px;
+      color: #334155;
+      font-size: 11px;
+    }
+
+    ul {
+      padding-left: 14px;
+      font-size: 10px;
+      line-height: 1.7;
+    }
+  }
+
+  .note-action-strip {
+    display: grid;
+    gap: 6px;
+    margin-top: 10px;
+
+    span {
+      padding: 7px 9px;
+      border-left: 3px solid #5367f8;
+      border-radius: 8px;
+      color: #5c6980;
+      background: #f7f9ff;
+      font-size: 10px;
+      line-height: 1.55;
+    }
   }
 }
 

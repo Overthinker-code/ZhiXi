@@ -22,6 +22,12 @@ export type ClassroomChapter = {
 export type ClassroomConcept = {
   title: string;
   points: string[];
+  detail?: string;
+  outcomes?: string[];
+  misconceptions?: string[];
+  activities?: string[];
+  resources?: string[];
+  checks?: string[];
 };
 
 export type ClassroomProfile = {
@@ -65,6 +71,61 @@ function makeChapters(
       };
     }),
   }));
+}
+
+function enrichConcept(
+  concept: ClassroomConcept,
+  course: Pick<ClassroomProfile, 'shortTitle' | 'difficulty'>
+): ClassroomConcept {
+  const points = concept.points.filter(Boolean);
+  const primary = points[0] || concept.title;
+  const secondary = points[1] || concept.title;
+  const third = points[2] || concept.title;
+  return {
+    ...concept,
+    detail:
+      concept.detail ||
+      `${concept.title} 是 ${course.shortTitle} 的关键学习单元，需要同时掌握“概念定义、适用条件、与相邻知识的边界、在题目或案例中的判断步骤”。`,
+    outcomes: concept.outcomes || [
+      `能用自己的话解释 ${concept.title}，并说明它解决哪类问题。`,
+      `能在题目或案例中定位 ${primary}、${secondary} 与 ${third} 的作用。`,
+      `能把该主题连接到前后章节，形成一条可复述的学习路径。`,
+    ],
+    misconceptions: concept.misconceptions || [
+      `只背 ${concept.title} 的结论，但说不清适用条件。`,
+      `把 ${primary} 与 ${secondary} 混用，导致推理步骤跳跃。`,
+      `忽略最后的校验或反例，答案看似完整但无法落到课程任务。`,
+    ],
+    activities: concept.activities || [
+      `先用 3 句话复述 ${concept.title}，再用课程案例标出条件、方法和结论。`,
+      `把 ${points.join('、')} 做成三列对比表，写出每一列的判断标准。`,
+      `完成 1 道基础题和 1 道变式题，并让 AI 批改错因。`,
+    ],
+    resources: concept.resources || [
+      `${concept.title} 课堂讲义`,
+      `${primary} 例题卡片`,
+      `${secondary} 与 ${third} 对比练习`,
+    ],
+    checks: concept.checks || [
+      `我能否说清 ${concept.title} 的定义和边界？`,
+      `我能否指出 ${primary} 在案例中的证据？`,
+      `我能否把错误答案改写成符合课程术语的答案？`,
+    ],
+  };
+}
+
+function enrichCourse(course: ClassroomProfile): ClassroomProfile {
+  const lessons = course.chapters.flatMap((chapter) => chapter.lessons);
+  const learned = lessons.filter((lesson) => lesson.status === 'done').length;
+  const total = lessons.length;
+  return {
+    ...course,
+    learned,
+    total,
+    progress: Math.round((learned / Math.max(total, 1)) * 100),
+    notes: course.notes.map((note) => enrichConcept(note, course)),
+    concepts: course.concepts.map((concept) => enrichConcept(concept, course)),
+  };
 }
 
 const classroomCourseSeed: ClassroomProfile[] = [
@@ -304,19 +365,7 @@ const classroomCourseSeed: ClassroomProfile[] = [
   },
 ];
 
-export const classroomCourses: ClassroomProfile[] = classroomCourseSeed.map(
-  (course) => {
-    const lessons = course.chapters.flatMap((chapter) => chapter.lessons);
-    const learned = lessons.filter((lesson) => lesson.status === 'done').length;
-    const total = lessons.length;
-    return {
-      ...course,
-      learned,
-      total,
-      progress: Math.round((learned / Math.max(total, 1)) * 100),
-    };
-  }
-);
+export const classroomCourses: ClassroomProfile[] = classroomCourseSeed.map(enrichCourse);
 
 export function getClassroomCourse(id?: string | null) {
   return classroomCourses.find((course) => course.id === id) || null;
