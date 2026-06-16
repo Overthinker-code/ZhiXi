@@ -55,7 +55,7 @@
   });
   const chapterCount = computed(() => course.value?.chapters.length || 0);
   const conceptCount = computed(() => course.value?.concepts.flatMap((item) => item.points).length || 0);
-  const resourceBadgeCount = computed(() =>
+  const actionBadgeCount = computed(() =>
     structureBranches.value.reduce((sum, item) => sum + item.resourceBadges.length, 0)
   );
 
@@ -73,7 +73,7 @@
           `当前课程：${course.value.title}`,
           `当前图谱：${activeMap.value.title}`,
           `操作目标：${action}`,
-          '请基于当前课程章节、资料、任务和薄弱点，输出可执行的学习路径，并说明每一步的依据。',
+          '请基于当前课程章节、任务、能力目标和薄弱点，输出可执行的学习路径，并说明每一步的依据。',
         ].join('\n'),
       })
     );
@@ -104,7 +104,7 @@
       <div>
         <span>COURSE KNOWLEDGE GRAPH</span>
         <h1>课程图谱中心</h1>
-        <p>把章节、资料、任务、能力目标与 AI 辅导入口组织成一张可操作的学习地图。</p>
+        <p>把章节、问题、能力目标与 AI 辅导入口组织成一张可操作的学习地图。</p>
       </div>
       <div class="hero-actions">
         <button type="button" @click="goResourceGenerator">
@@ -133,9 +133,9 @@
         <span>知识 / 问题 / 能力 / 目标 / 辅导</span>
       </article>
       <article>
-        <small>资料与任务挂载</small>
-        <strong>{{ resourceBadgeCount }}</strong>
-        <span>章节资源、作业、讨论统一进入结构图</span>
+        <small>学习动作</small>
+        <strong>{{ actionBadgeCount }}</strong>
+        <span>讲义、自测、案例、导图与讨论统一编排</span>
       </article>
     </div>
 
@@ -297,7 +297,7 @@
           <button type="button" @click="goCourseContent">回到课堂笔记</button>
         </section>
         <section>
-          <strong>资料联动</strong>
+          <strong>资源联动</strong>
           <p>资源中心可按当前图谱主题生成讲义、练习、课堂笔记和知识点卡片。</p>
           <button type="button" @click="goResourceGenerator">生成配套资料</button>
         </section>
@@ -702,17 +702,21 @@
       text-align: center;
     }
 
-    .badge-DOCX,
+    .badge-讲义,
     .badge-讨论 {
       background: #7ba4c8;
     }
 
-    .badge-练习 {
+    .badge-自测 {
       background: #8bd0b0;
     }
 
-    .badge-PPTX {
+    .badge-案例 {
       background: #d86f76;
+    }
+
+    .badge-导图 {
+      background: #8d7ad9;
     }
   }
 

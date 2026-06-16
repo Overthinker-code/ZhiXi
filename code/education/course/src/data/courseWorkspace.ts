@@ -57,7 +57,7 @@ export interface CourseKnowledgeMap {
 export interface CourseStructureBranch {
   id: string;
   title: string;
-  resourceBadges: Array<'PDF' | 'PPTX' | 'DOCX' | '练习' | '讨论'>;
+  resourceBadges: Array<'讲义' | '自测' | '案例' | '导图' | '讨论'>;
   taskCount: number;
   weakPoint: string;
   progress: number;
@@ -155,10 +155,10 @@ export function buildCourseStructureBranches(
       id: chapter.id,
       title: chapter.title.replace(/^第\d+章\s*/, ''),
       resourceBadges: [
-        'PDF',
-        resources[resourceStart]?.type === '课件' ? 'PPTX' : 'DOCX',
-        tasks[index]?.type === '测验' ? '练习' : '讨论',
-        resources[resourceStart + 1]?.type === '讲义' ? 'PDF' : 'PPTX',
+        '讲义',
+        resources[resourceStart]?.type === '案例' ? '案例' : '导图',
+        tasks[index]?.type === '测验' ? '自测' : '讨论',
+        resources[resourceStart + 1]?.type === '讲义' ? '讲义' : '案例',
       ],
       taskCount: tasks.filter((task) => task.chapter === chapter.title).length || 1,
       weakPoint: weakPoints[index % Math.max(weakPoints.length, 1)] || chapter.title,
