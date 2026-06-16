@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { computed, ref } from 'vue';
+  import { computed, ref, watch } from 'vue';
   import { useRoute, useRouter } from 'vue-router';
   import {
     IconBulb,
@@ -69,6 +69,54 @@
       (link) => link.source === selectedNode.value?.id || link.target === selectedNode.value?.id
     )
   );
+  const selectedNeighbors = computed(() => {
+    const map = activeMap.value;
+    const node = selectedNode.value;
+    if (!map || !node) return [];
+    return selectedLinks.value
+      .map((link) => {
+        const neighborId = link.source === node.id ? link.target : link.source;
+        const neighbor = map.nodes.find((item) => item.id === neighborId);
+        return neighbor ? { link, neighbor } : null;
+      })
+      .filter(Boolean) as Array<{
+        link: CourseKnowledgeMap['links'][number];
+        neighbor: CourseKnowledgeNode;
+      }>;
+  });
+  const selectedNodeMastery = computed(() => selectedNode.value?.mastery ?? course.value?.progress ?? 0);
+  const selectedNodeEvidence = computed(() => selectedNode.value?.evidence?.slice(0, 5) || []);
+  const selectedNodeChecks = computed(() => selectedNode.value?.checks?.slice(0, 4) || []);
+  const selectedNodeActivities = computed(() => selectedNode.value?.activities?.slice(0, 4) || []);
+  const selectedNodeOutcomes = computed(() => selectedNode.value?.outcomes?.slice(0, 3) || []);
+  const selectedNodeMisconceptions = computed(() => selectedNode.value?.misconceptions?.slice(0, 3) || []);
+  const selectedNodeResources = computed(() => selectedNode.value?.resources?.slice(0, 4) || []);
+  const guidedLearningPath = computed(() => {
+    const node = selectedNode.value;
+    if (!node) return [];
+    const related = selectedNeighbors.value.slice(0, 3);
+    return [
+      {
+        label: '定位',
+        title: `确认「${node.label}」的定义与边界`,
+        desc: node.detail || activeMap.value?.description || '从当前图谱节点开始定位学习目标。',
+      },
+      {
+        label: '证据',
+        title: selectedNodeEvidence.value[0] || '绑定课堂资料和任务证据',
+        desc: selectedNodeResources.value.length
+          ? `优先检查：${selectedNodeResources.value.join('、')}`
+          : '把课堂笔记、资料和任务记录挂到当前节点。',
+      },
+      {
+        label: '练习',
+        title: node.recommendedAction || '生成针对性练习并回收错因',
+        desc: related.length
+          ? `建议串联 ${related.map((item) => item.neighbor.label).join('、')}。`
+          : '完成自测后把错因回写到图谱。',
+      },
+    ];
+  });
   const chapterCount = computed(() => course.value?.chapters.length || 0);
   const conceptCount = computed(() => course.value?.concepts.flatMap((item) => item.points).length || 0);
   const actionBadgeCount = computed(() =>
@@ -83,12 +131,20 @@
     selectedNodeId.value = node.id;
   }
 
+  function selectBranch(index: number) {
+    selectedNodeId.value = `chapter-${index}`;
+    if (activeType.value !== 'knowledge' && activeType.value !== 'target') {
+      activeType.value = 'knowledge';
+    }
+  }
+
   function changeZoom(delta: number) {
     canvasZoom.value = Math.min(1.45, Math.max(0.72, Number((canvasZoom.value + delta).toFixed(2))));
   }
 
   function askGraphAgent(action: string) {
     if (!course.value || !activeMap.value) return;
+    const node = selectedNode.value;
     router.push(
       courseWorkspaceLocation(course.value.id, 'agent', {
         task: 'map',
@@ -96,21 +152,28 @@
         prompt: [
           `当前课程：${course.value.title}`,
           `当前图谱：${activeMap.value.title}`,
+          node ? `当前节点：${node.label}（${node.type}，掌握度 ${selectedNodeMastery.value}%）` : '',
+          node?.detail ? `节点说明：${node.detail}` : '',
+          selectedNodeEvidence.value.length ? `证据资料：${selectedNodeEvidence.value.join('；')}` : '',
           `操作目标：${action}`,
-          '请基于当前课程章节、任务、能力目标和薄弱点，输出可执行的学习路径，并说明每一步的依据。',
-        ].join('\n'),
+          '请基于当前课程章节、任务、能力目标、资料证据和薄弱点，输出可执行的学习路径，并说明每一步的依据。',
+        ].filter(Boolean).join('\n'),
       })
     );
   }
 
   function goResourceGenerator() {
     if (!course.value || !activeMap.value) return;
+    const node = selectedNode.value;
     router.push({
       name: 'StudentCourseResourceGenerator',
       params: { courseId: course.value.id },
       query: {
         subject: course.value.title,
-        topic: activeMap.value.title,
+        topic: node?.label || activeMap.value.title,
+        goal: node
+          ? `围绕${node.label}生成带证据清单、误区纠正、检查题和学习路径的个性化资料。`
+          : `围绕${activeMap.value.title}生成课程图谱配套资料。`,
         source: 'knowledge-map',
       },
     });
@@ -120,6 +183,13 @@
     if (!course.value) return;
     router.push(courseWorkspaceLocation(course.value.id, 'content'));
   }
+
+  watch(activeMap, (map) => {
+    if (!map) return;
+    if (!map.nodes.some((node) => node.id === selectedNodeId.value)) {
+      selectedNodeId.value = map.nodes[0]?.id || 'course-root';
+    }
+  });
 </script>
 
 <template>
@@ -238,10 +308,11 @@
               v-for="(branch, index) in structureBranches"
               :key="branch.id"
               class="structure-branch"
+              :class="{ active: selectedNodeId === `chapter-${index}` }"
               :style="{ '--branch-offset': `${index * 4}px` }"
               tabindex="0"
-              @click="selectedNodeId = `chapter-${index}`"
-              @keydown.enter="selectedNodeId = `chapter-${index}`"
+              @click="selectBranch(index)"
+              @keydown.enter="selectBranch(index)"
             >
               <div class="branch-title">
                 <span>{{ String(index + 1).padStart(2, '0') }}</span>
@@ -313,18 +384,84 @@
             <icon-bulb /> 生成复习路径
           </button>
         </div>
+
+        <div class="guided-path">
+          <article v-for="step in guidedLearningPath" :key="step.label">
+            <span>{{ step.label }}</span>
+            <strong>{{ step.title }}</strong>
+            <p>{{ step.desc }}</p>
+          </article>
+        </div>
       </main>
 
       <aside class="map-insights">
-        <section>
-          <strong>节点详情</strong>
-          <h3>{{ selectedNode?.label || activeMap.title }}</h3>
-          <p>{{ selectedNode?.type === 'resource' ? '该节点代表可继续阅读或下载的课程资料。' : selectedNode?.type === 'task' ? '该节点代表可执行的作业、自测或 AI 学习任务。' : activeMap.description }}</p>
+        <section class="node-detail-section">
+          <div class="node-detail-head">
+            <div>
+              <strong>节点详情</strong>
+              <h3>{{ selectedNode?.label || activeMap.title }}</h3>
+            </div>
+            <div class="mastery-ring" :style="{ '--mastery': `${selectedNodeMastery * 3.6}deg` }">
+              <span>{{ selectedNodeMastery }}%</span>
+            </div>
+          </div>
+          <p>{{ selectedNode?.detail || (selectedNode?.type === 'resource' ? '该节点代表可继续阅读或下载的课程资料。' : selectedNode?.type === 'task' ? '该节点代表可执行的作业、自测或 AI 学习任务。' : activeMap.description) }}</p>
           <div class="node-meta">
             <span>类型：{{ selectedNode?.type || 'graph' }}</span>
             <span>关联：{{ selectedLinks.length }} 条</span>
+            <span>建议：{{ selectedNode?.recommendedAction || '生成学习路径' }}</span>
           </div>
         </section>
+
+        <section v-if="selectedNodeEvidence.length">
+          <strong>证据与资源</strong>
+          <ul class="evidence-list">
+            <li v-for="item in selectedNodeEvidence" :key="item">{{ item }}</li>
+          </ul>
+          <div class="resource-pills">
+            <em v-for="item in selectedNodeResources" :key="item">{{ item }}</em>
+          </div>
+        </section>
+
+        <section v-if="selectedNodeOutcomes.length || selectedNodeMisconceptions.length">
+          <strong>掌握标准</strong>
+          <div class="insight-columns">
+            <div>
+              <span>学习产出</span>
+              <p v-for="item in selectedNodeOutcomes" :key="item">{{ item }}</p>
+            </div>
+            <div>
+              <span>常见误区</span>
+              <p v-for="item in selectedNodeMisconceptions" :key="item">{{ item }}</p>
+            </div>
+          </div>
+        </section>
+
+        <section v-if="selectedNodeActivities.length || selectedNodeChecks.length">
+          <strong>检查动作</strong>
+          <ol class="action-list">
+            <li v-for="item in selectedNodeActivities" :key="item">{{ item }}</li>
+          </ol>
+          <div class="check-list">
+            <span v-for="item in selectedNodeChecks" :key="item">{{ item }}</span>
+          </div>
+        </section>
+
+        <section v-if="selectedNeighbors.length">
+          <strong>相邻节点</strong>
+          <button
+            v-for="item in selectedNeighbors.slice(0, 5)"
+            :key="`${item.link.source}-${item.link.target}`"
+            type="button"
+            class="neighbor-button"
+            @click="selectNode(item.neighbor)"
+          >
+            <span>{{ item.link.relation }}</span>
+            <b>{{ item.neighbor.label }}</b>
+            <em>{{ item.link.strength || 72 }}%</em>
+          </button>
+        </section>
+
         <section>
           <strong>图谱控制</strong>
           <label><input v-model="showLearningPath" type="checkbox" /> 学习路径</label>
@@ -337,9 +474,9 @@
         </section>
         <section>
           <strong>可执行动作</strong>
-          <button type="button" @click="askGraphAgent('解释图谱中的先修关系')">解释先修关系</button>
+          <button type="button" @click="askGraphAgent('解释当前节点和先修关系')">解释当前节点</button>
           <button type="button" @click="askGraphAgent('找出最应该复习的三个知识点')">定位三处薄弱点</button>
-          <button type="button" @click="askGraphAgent('基于图谱生成一组自测题')">生成图谱自测</button>
+          <button type="button" @click="askGraphAgent('基于当前节点生成一组自测题')">生成图谱自测</button>
           <button type="button" @click="goCourseContent">回到课堂笔记</button>
         </section>
         <section>
@@ -694,8 +831,13 @@
     outline: none;
 
     &:hover,
-    &:focus-visible {
+    &:focus-visible,
+    &.active {
       background: rgba(83, 103, 248, 0.06);
+    }
+
+    &.active {
+      box-shadow: inset 0 0 0 1px rgba(83, 103, 248, 0.22);
     }
 
     &::before {
@@ -917,6 +1059,53 @@
     }
   }
 
+  .guided-path {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    padding: 12px 14px 14px;
+    border-top: 1px solid #edf0f5;
+    background: #fff;
+
+    article {
+      min-width: 0;
+      padding: 11px;
+      border: 1px solid #e6ebf5;
+      border-radius: 10px;
+      background: linear-gradient(180deg, #fbfcff, #f7f9fd);
+    }
+
+    span {
+      display: inline-flex;
+      margin-bottom: 6px;
+      padding: 3px 7px;
+      border-radius: 999px;
+      color: #227a45;
+      background: #ecfff4;
+      font-size: 9px;
+      font-weight: 700;
+    }
+
+    strong {
+      display: block;
+      color: #253148;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    p {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      min-height: 30px;
+      margin: 5px 0 0;
+      overflow: hidden;
+      color: #7b8598;
+      font-size: 9px;
+      line-height: 1.65;
+    }
+  }
+
   .map-insights {
     padding: 12px;
 
@@ -978,6 +1167,127 @@
     }
   }
 
+  .node-detail-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 54px;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .mastery-ring {
+    width: 48px;
+    height: 48px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background:
+      radial-gradient(circle, #fff 56%, transparent 58%),
+      conic-gradient(#5367f8 var(--mastery), #edf1f8 0);
+
+    span {
+      color: #5367f8;
+      font-size: 11px;
+      font-weight: 800;
+    }
+  }
+
+  .evidence-list,
+  .action-list {
+    display: grid;
+    gap: 6px;
+    margin: 0;
+    padding-left: 16px;
+    color: #677286;
+    font-size: 10px;
+    line-height: 1.55;
+  }
+
+  .resource-pills,
+  .check-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 8px;
+
+    em,
+    span {
+      padding: 4px 7px;
+      border-radius: 7px;
+      color: #2f7652;
+      background: #effaf4;
+      font-size: 9px;
+      font-style: normal;
+      line-height: 1.35;
+    }
+  }
+
+  .check-list span {
+    color: #6c5bb8;
+    background: #f5f2ff;
+  }
+
+  .insight-columns {
+    display: grid;
+    gap: 8px;
+
+    > div {
+      padding: 9px;
+      border: 1px solid #e8edf5;
+      border-radius: 9px;
+      background: #fbfcff;
+    }
+
+    span {
+      display: block;
+      margin-bottom: 5px;
+      color: #5367f8;
+      font-size: 10px;
+      font-weight: 800;
+    }
+
+    p + p {
+      margin-top: 5px;
+    }
+  }
+
+  .neighbor-button {
+    display: grid !important;
+    grid-template-columns: 56px minmax(0, 1fr) 38px;
+    gap: 6px;
+    align-items: center;
+    height: auto !important;
+    min-height: 34px;
+    padding: 7px 8px !important;
+    text-align: left;
+
+    span,
+    b,
+    em {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    span {
+      color: #8792a6;
+      font-size: 9px;
+    }
+
+    b {
+      color: #344057;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    em {
+      color: #5367f8;
+      font-size: 9px;
+      font-style: normal;
+      text-align: right;
+    }
+  }
+
   .node-meta {
     display: flex;
     flex-wrap: wrap;
@@ -1033,6 +1343,7 @@
 
     .hero-actions,
     .knowledge-summary,
+    .guided-path,
     .structure-map,
     .knowledge-shell {
       grid-template-columns: 1fr;
