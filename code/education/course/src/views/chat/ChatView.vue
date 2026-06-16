@@ -1,6 +1,7 @@
 <script setup lang="ts">
   import { computed, h, onMounted, ref, resolveComponent } from 'vue';
   import { Message } from '@arco-design/web-vue';
+  import type { TableColumnData, TableData } from '@arco-design/web-vue/es/table/interface';
   import { useUserStore } from '@/store';
   import { useChatStore } from '@/store/chat';
   import {
@@ -14,6 +15,7 @@
   import ReferenceFileUploadDialog from './components/ReferenceFileUploadDialog.vue';
 
   type DrawerKey = 'profile' | 'resources' | 'agents';
+  type ReferenceFileTableData = TableData & ReferenceFile;
 
   const showUploadModal = ref(false);
   const activeDrawer = ref<DrawerKey | null>(null);
@@ -299,49 +301,56 @@
     Message.success('已取消本对话引用文件');
   }
 
-  const columns = [
+  const columns: TableColumnData[] = [
     { title: '名称', dataIndex: 'name' },
     {
       title: '类型',
       dataIndex: 'scope',
-      render: ({ record }: { record: ReferenceFile }) =>
-        getScopeLabel(record.scope),
+      render: ({ record }) => {
+        const file = record as ReferenceFileTableData;
+        return getScopeLabel(file.scope);
+      },
     },
     {
       title: '大小',
       dataIndex: 'size',
-      render: ({ record }: { record: ReferenceFile }) =>
-        formatBytes(record.size),
+      render: ({ record }) => {
+        const file = record as ReferenceFileTableData;
+        return formatBytes(file.size);
+      },
     },
     {
       title: '创建时间',
       dataIndex: 'created',
-      render: ({ record }: { record: ReferenceFile }) =>
-        record.created ? formatDate(record.created) : '-',
+      render: ({ record }) => {
+        const file = record as ReferenceFileTableData;
+        return file.created ? formatDate(file.created) : '-';
+      },
     },
     {
       title: '操作',
       dataIndex: 'actions',
-      render: ({ record }: { record: ReferenceFile }) => {
-        const isMounted = mountedFile.value?.file_id === record.file_id;
+      render: ({ record }) => {
+        const file = record as ReferenceFileTableData;
+        const isMounted = mountedFile.value?.file_id === file.file_id;
         const actions = [
           h(
             resolveComponent('a-button'),
             {
               type: isMounted ? 'primary' : 'text',
               size: 'mini',
-              onClick: () => (isMounted ? clearMountedFile() : mountReferenceFile(record)),
+              onClick: () => (isMounted ? clearMountedFile() : mountReferenceFile(file)),
             },
             { default: () => (isMounted ? '已引用' : '设为引用') }
           ),
         ];
-        if (record.can_manage) {
+        if (file.can_manage) {
           actions.push(
             h(
               resolveComponent('a-popconfirm'),
               {
-                content: `删除 ${record.name}?`,
-                onOk: () => handleDelete(record),
+                content: `删除 ${file.name}?`,
+                onOk: () => handleDelete(file),
               },
               {
                 default: () =>

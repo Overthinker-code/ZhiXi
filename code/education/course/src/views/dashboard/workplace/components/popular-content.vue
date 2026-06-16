@@ -88,17 +88,20 @@
 
 <script lang="ts" setup>
   import { ref } from 'vue';
+  import type { TableData } from '@arco-design/web-vue/es/table/interface';
   import { getTeacherPopular, type PopularItem } from '@/api/dashboard';
 
   const type = ref<'course' | 'resource'>('course');
   const loading = ref(true);
   const error = ref<string | null>(null);
-  const renderList = ref<PopularItem[]>([]);
+  type PopularTableItem = TableData & PopularItem;
+
+  const renderList = ref<PopularTableItem[]>([]);
   const fetchData = async (contentType: 'course' | 'resource') => {
     loading.value = true;
     error.value = null;
     try {
-      renderList.value = await getTeacherPopular(contentType);
+      renderList.value = (await getTeacherPopular(contentType)) as PopularTableItem[];
     } catch (err) {
       console.error('[popular-content] fetchData failed:', err);
       error.value = 'failed';
