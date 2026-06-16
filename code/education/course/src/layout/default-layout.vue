@@ -118,7 +118,10 @@
     quickChatRef.value?.handleDragLeave(event);
   };
   const hideFloatUI = computed(
-    () => route.path.startsWith('/assistant') || route.path.startsWith('/tutor')
+    () =>
+      route.path.startsWith('/assistant') ||
+      route.path.startsWith('/tutor') ||
+      route.name === 'StudentCourseAgent'
   );
 
   const startDragRobot = (e: MouseEvent) => {

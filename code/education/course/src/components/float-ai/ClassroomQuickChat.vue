@@ -16,8 +16,8 @@
 
     <div class="course-card">
       <span class="course-badge">当前课程</span>
-      <strong>数据库原理</strong>
-      <span class="course-meta">第 5 章 · 事务与并发控制</span>
+      <strong>{{ currentCourse?.title || '课程学习' }}</strong>
+      <span class="course-meta">{{ currentLessonLabel }}</span>
     </div>
 
     <div ref="messagePanel" class="message-panel" @scroll="handlePanelScroll">
@@ -30,7 +30,7 @@
           </div>
         </div>
         <p class="intro-lead">
-          Hi，我是小智！在数据库原理课程中，我可以帮你：
+          Hi，我是小智！在{{ currentCourse?.shortTitle || '当前课程' }}中，我可以帮你：
         </p>
         <ul class="feature-list">
           <li><icon-book /> 讲解知识点与考试要点</li>
@@ -198,11 +198,13 @@
   import { createAssistantChatStream, uploadThreadFile } from '@/api/rag';
   import { Message } from '@arco-design/web-vue';
   import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
+  import { useRoute } from 'vue-router';
   import { renderMarkdown, stripMarkdownCodeToolbar } from '@/utils/markdown';
   import humanizeAgentReasoning from '@/utils/humanizeAgentReasoning';
   import { appendThoughtToReasoning } from '@/utils/thoughtToNarrative';
   import { shouldAppendThoughtToReasoning } from '@/utils/streamReasoning';
   import { normalizeSuggestionList } from '@/utils/llmDisplay';
+  import { getClassroomCourse } from '@/data/classroomCourses';
 
   interface ChatItem {
     id: number;
@@ -213,15 +215,44 @@
     showReasoning?: boolean;
   }
 
-  const DEFAULT_SYSTEM_PROMPT =
-    '你是数据库原理课的课堂助教，请以教师口吻清晰讲解知识点，优先给出能直接用于考试与刷题的要点。';
-
-  const defaultChips = [
-    '解释事务 ACID',
-    '讲解这道 SQL 题',
-    '总结本章要点',
-    '复习薄弱知识点',
-  ];
+  const route = useRoute();
+  const currentCourse = computed(() =>
+    getClassroomCourse(
+      typeof route.params.courseId === 'string'
+        ? route.params.courseId
+        : typeof route.query.courseId === 'string'
+          ? route.query.courseId
+          : null
+    )
+  );
+  const currentLesson = computed(() => {
+    const lessons =
+      currentCourse.value?.chapters.flatMap((chapter) => chapter.lessons) || [];
+    const lessonId =
+      typeof route.query.lessonId === 'string' ? route.query.lessonId : '';
+    return (
+      lessons.find((lesson) => lesson.id === lessonId) ||
+      lessons.find((lesson) => lesson.status === 'pending') ||
+      lessons[0]
+    );
+  });
+  const currentLessonLabel = computed(
+    () => currentLesson.value?.label || '课程知识答疑与练习辅导'
+  );
+  const defaultSystemPrompt = computed(() => {
+    const title = currentCourse.value?.title || '当前课程';
+    const lesson = currentLesson.value?.label || '当前学习内容';
+    return `你是《${title}》的课堂助教，当前课节为“${lesson}”。请以教师口吻清晰讲解，优先使用本课程知识与资料，不得混入其他课程内容。`;
+  });
+  const defaultChips = computed(() => {
+    const points = currentCourse.value?.concepts.flatMap((item) => item.points) || [];
+    return [
+      points[0] ? `解释${points[0]}` : '讲解当前知识点',
+      '讲解这道题',
+      '总结本章要点',
+      '复习薄弱知识点',
+    ];
+  });
 
   const inputValue = ref('');
   const loading = ref(false);
@@ -230,7 +261,9 @@
   const suggestions = ref<string[]>([]);
   const messagePanel = ref<HTMLElement | null>(null);
   const autoStickToBottom = ref(true);
-  const localThreadId = ref(`monitor-db-${Date.now()}`);
+  const localThreadId = ref(
+    `course-${currentCourse.value?.id || 'general'}-${Date.now()}`
+  );
   const menuOpen = ref(false);
   const dragActive = ref(false);
   const webSearchEnabled = ref(false);
@@ -243,6 +276,20 @@
   const streamContentLen = ref(0);
   const streamReasonLen = ref(0);
   let streamChaseTimer: ReturnType<typeof setInterval> | null = null;
+
+  watch(
+    () => currentCourse.value?.id || '',
+    (nextId, previousId) => {
+      if (!previousId || nextId === previousId) return;
+      abortController?.abort();
+      loading.value = false;
+      messages.value = [];
+      suggestions.value = [];
+      fileList.value.forEach((file) => URL.revokeObjectURL(file.url));
+      fileList.value = [];
+      localThreadId.value = `course-${nextId || 'general'}-${Date.now()}`;
+    }
+  );
 
   const renderSafeMarkdown = (content: string, streaming = false) =>
     stripMarkdownCodeToolbar(renderMarkdown(content || '', { streaming }));
@@ -476,7 +523,7 @@
     if (fileName) {
       prompts.push(`学生挂载了参考文件《${fileName}》，回答时优先结合该文件。`);
     }
-    return [DEFAULT_SYSTEM_PROMPT, ...prompts].join('\n');
+    return [defaultSystemPrompt.value, ...prompts].join('\n');
   };
 
   const buildUserText = (text: string, hasImages: boolean) => {

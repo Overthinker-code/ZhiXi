@@ -1,5 +1,9 @@
 import { defineComponent } from 'vue';
-import type { RouteMeta, NavigationGuard } from 'vue-router';
+import type {
+  RouteMeta,
+  NavigationGuard,
+  RouteRecordRedirectOption,
+} from 'vue-router';
 
 export type Component<T = any> =
   | ReturnType<typeof defineComponent>
@@ -10,7 +14,7 @@ export interface AppRouteRecordRaw {
   path: string;
   name?: string | symbol;
   meta?: RouteMeta;
-  redirect?: string;
+  redirect?: RouteRecordRedirectOption;
   /** 仅有 redirect 的子路由可不填 */
   component?: Component | string;
   children?: AppRouteRecordRaw[];

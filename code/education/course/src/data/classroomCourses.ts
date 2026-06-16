@@ -67,7 +67,7 @@ function makeChapters(
   }));
 }
 
-export const classroomCourses: ClassroomProfile[] = [
+const classroomCourseSeed: ClassroomProfile[] = [
   {
     id: SCENARIO_COURSE_IDS[0],
     title: '数据库系统原理',
@@ -303,6 +303,20 @@ export const classroomCourses: ClassroomProfile[] = [
     ],
   },
 ];
+
+export const classroomCourses: ClassroomProfile[] = classroomCourseSeed.map(
+  (course) => {
+    const lessons = course.chapters.flatMap((chapter) => chapter.lessons);
+    const learned = lessons.filter((lesson) => lesson.status === 'done').length;
+    const total = lessons.length;
+    return {
+      ...course,
+      learned,
+      total,
+      progress: Math.round((learned / Math.max(total, 1)) * 100),
+    };
+  }
+);
 
 export function getClassroomCourse(id?: string | null) {
   return classroomCourses.find((course) => course.id === id) || null;

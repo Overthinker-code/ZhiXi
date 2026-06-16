@@ -488,7 +488,13 @@ const graphCanvas = ref<CanvasExpose | null>(null);
 const modalCanvas = ref<CanvasExpose | null>(null);
 
 const currentCourse = computed(() =>
-  getClassroomCourse(typeof route.query.courseId === 'string' ? route.query.courseId : null)
+  getClassroomCourse(
+    typeof route.params.courseId === 'string'
+      ? route.params.courseId
+      : typeof route.query.courseId === 'string'
+        ? route.query.courseId
+        : null
+  )
 );
 const courseOptions = classroomCourses.map((course) => ({
   label: course.title,
@@ -561,11 +567,11 @@ watch(
 );
 
 function openCourse(courseId: string) {
-  router.push({ name: 'CourseContent', query: { courseId } });
+  router.push({ name: 'StudentCourseContent', params: { courseId } });
 }
 
 function backToPicker() {
-  router.push({ name: 'CourseContent' });
+  router.push({ name: 'CourseList' });
 }
 
 function toggleChapter(id: string) {

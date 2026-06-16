@@ -409,7 +409,10 @@
   }
 
   function goToCourseDetail(courseId: string) {
-    router.push(`/course/detail/${courseId}`);
+    router.push({
+      name: 'StudentCourseHome',
+      params: { courseId },
+    });
   }
 
   function adaptCourse(course: Course) {

@@ -90,7 +90,10 @@
       router.push({ name: 'CourseList' });
       return;
     }
-    router.push(`/course/course-content?courseId=${id}`);
+    router.push({
+      name: 'StudentCourseContent',
+      params: { courseId: id },
+    });
   }
 </script>
 

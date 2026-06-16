@@ -95,12 +95,12 @@ export const scenarioCourseMetrics: Record<
   string,
   { progress: number; rating: string; teacher: string; learners: number }
 > = {
-  [SCENARIO_COURSE_IDS[0]]: { progress: 68, rating: '4.8', teacher: '林老师', learners: 128 },
-  [SCENARIO_COURSE_IDS[1]]: { progress: 56, rating: '4.7', teacher: '陈老师', learners: 116 },
-  [SCENARIO_COURSE_IDS[2]]: { progress: 62, rating: '4.9', teacher: '周老师', learners: 142 },
-  [SCENARIO_COURSE_IDS[3]]: { progress: 48, rating: '4.6', teacher: '王老师', learners: 96 },
-  [SCENARIO_COURSE_IDS[4]]: { progress: 52, rating: '4.7', teacher: '赵老师', learners: 88 },
-  [SCENARIO_COURSE_IDS[5]]: { progress: 44, rating: '4.6', teacher: '许老师', learners: 103 },
+  [SCENARIO_COURSE_IDS[0]]: { progress: 58, rating: '4.8', teacher: '林老师', learners: 128 },
+  [SCENARIO_COURSE_IDS[1]]: { progress: 50, rating: '4.7', teacher: '陈老师', learners: 116 },
+  [SCENARIO_COURSE_IDS[2]]: { progress: 58, rating: '4.9', teacher: '周老师', learners: 142 },
+  [SCENARIO_COURSE_IDS[3]]: { progress: 42, rating: '4.6', teacher: '王老师', learners: 96 },
+  [SCENARIO_COURSE_IDS[4]]: { progress: 50, rating: '4.7', teacher: '赵老师', learners: 88 },
+  [SCENARIO_COURSE_IDS[5]]: { progress: 42, rating: '4.6', teacher: '许老师', learners: 103 },
 };
 
 export function getScenarioCourseById(id: string) {

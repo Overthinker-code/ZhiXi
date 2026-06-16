@@ -83,3 +83,46 @@ export function fetchCourseResourceAnalysis(courseId: string) {
     })
     .then((res) => res.data as CourseResourceAnalysis)
 }
+
+export interface CourseWorkspaceData {
+  course: Course;
+  teaching_classes: TeachingClass[];
+  course_plans: Array<{
+    id: string;
+    tc_id: string;
+    week: number;
+    goal: string;
+    key_point: string;
+    created_at: string;
+    updated_at: string;
+  }>;
+  assignments: Array<{
+    id: string;
+    course_id: string;
+    title: string;
+    description: string | null;
+    due_date: string;
+  }>;
+  resources: Array<{
+    id: string;
+    course_id: string;
+    title: string;
+    type: string;
+    file_name: string;
+    file_size: number;
+  }>;
+  summary: {
+    teaching_class_count: number;
+    plan_count: number;
+    assignment_count: number;
+    resource_count: number;
+  };
+}
+
+export function fetchCourseWorkspace(courseId: string) {
+  return axios
+    .get(`/api/education/courses/${courseId}/workspace`, {
+      timeout: READ_TIMEOUT_MS,
+    })
+    .then((res) => res.data as CourseWorkspaceData);
+}

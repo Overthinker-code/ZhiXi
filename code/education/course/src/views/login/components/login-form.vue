@@ -213,10 +213,17 @@
         const { redirect, ...othersQuery } = router.currentRoute.value.query;
         const roleDefaultRoute =
           userStore.role === 'teacher' ? 'Workplace' : 'AssistantHome';
-        router.push({
-          name: (redirect as string) || roleDefaultRoute,
-          query: { ...othersQuery },
-        });
+        const redirectTarget = Array.isArray(redirect)
+          ? String(redirect[0] || '')
+          : String(redirect || '');
+        if (redirectTarget.startsWith('/')) {
+          await router.push(redirectTarget);
+        } else {
+          await router.push({
+            name: redirectTarget || roleDefaultRoute,
+            query: { ...othersQuery },
+          });
+        }
         Message.success(t('login.form.login.success'));
         const { rememberPassword } = loginConfig.value;
         const { username, password } = values;

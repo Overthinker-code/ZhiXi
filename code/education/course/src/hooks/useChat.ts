@@ -1,4 +1,5 @@
 import { computed } from 'vue';
+import { useRoute } from 'vue-router';
 import { Message } from '@arco-design/web-vue';
 import { getToken } from '@/utils/auth';
 import { useChatStore } from '@/store/chat';
@@ -22,6 +23,7 @@ import {
   uploadThreadFile,
   type ReasoningActionItem,
 } from '@/api/rag';
+import { getClassroomCourse } from '@/data/classroomCourses';
 
 /**
  * Parse raw assistant response that may contain <think>/<analysis>/<final> XML tags.
@@ -183,6 +185,7 @@ function buildModePrompt(messageContent: ChatSendContent, toolMode: string) {
 export function useChat() {
   const chatStore = useChatStore();
   const settingStore = useSettingStore();
+  const route = useRoute();
   let streamAbortController: AbortController | null = null;
 
   const currentThreadId = computed(() => chatStore.currentConversationId);
@@ -191,6 +194,30 @@ export function useChat() {
   const currentTitle = computed(
     () => chatStore.currentConversation?.title || 'LLM Chat'
   );
+  const routeCourseId = computed(() => {
+    const value =
+      route.params.courseId ||
+      route.query.courseId ||
+      route.query.course_id;
+    return typeof value === 'string' ? value : '';
+  });
+  const routeCourse = computed(() => getClassroomCourse(routeCourseId.value));
+  const routeCoursePrompt = computed(() => {
+    if (!routeCourse.value) return '';
+    const resourceId =
+      typeof route.query.resourceId === 'string' ? route.query.resourceId : '';
+    const source =
+      typeof route.query.source === 'string' ? route.query.source : 'course';
+    return [
+      `当前对话属于课程《${routeCourse.value.title}》（course_id=${routeCourse.value.id}）。`,
+      `课程进度为 ${routeCourse.value.progress}%，课程类型为${routeCourse.value.type}。`,
+      resourceId ? `当前关联资料 ID：${resourceId}。` : '',
+      `入口来源：${source}。`,
+      '回答必须限定在当前课程上下文；如证据不足，应明确说明，不得混入其他课程资料。',
+    ]
+      .filter(Boolean)
+      .join('\n');
+  });
 
   /**
    * Load chat history for a specific thread from the backend.
@@ -449,6 +476,7 @@ export function useChat() {
       const commonOptions = {
         systemPrompt: [
           settingStore.settings.customSystemPrompt || '',
+          routeCoursePrompt.value,
           modePrompt,
         ]
           .filter(Boolean)
@@ -467,7 +495,12 @@ export function useChat() {
             : settingStore.settings.temperature,
         topP: settingStore.settings.topP,
         topK: settingStore.settings.topK,
-        forceAgent: settingStore.settings.forceAgent || undefined,
+        forceAgent:
+          (typeof route.query.forceAgent === 'string'
+            ? route.query.forceAgent
+            : '') ||
+          settingStore.settings.forceAgent ||
+          undefined,
         forceCache: Boolean(settingStore.settings.forceCache),
         debugMode: Boolean(settingStore.settings.debugMode),
       };

@@ -260,3 +260,58 @@ def get_course_resources_analysis(
         "image_count": random.randint(50, 200),
         "homework_count": random.randint(500, 3000),
     }
+
+
+@router.get("/{course_id}/workspace")
+def get_course_workspace(
+    *,
+    db: Any = Depends(deps.get_db),
+    current_user: models.User = Depends(deps.get_current_user),
+    course_id: UUID,
+) -> Any:
+    """返回课程壳层需要的教学班、计划、作业与资源聚合数据。"""
+    course = db.get(models.Course, course_id)
+    if not course:
+        raise HTTPException(status_code=404, detail="未找到指定的课程")
+
+    teaching_classes = list(
+        db.exec(select(models.TC).where(models.TC.course_id == course_id)).all()
+    )
+    tc_ids = [tc.id for tc in teaching_classes]
+    plans = (
+        list(
+            db.exec(
+                select(models.CoursePlan)
+                .where(models.CoursePlan.tc_id.in_(tc_ids))
+                .order_by(models.CoursePlan.week)
+            ).all()
+        )
+        if tc_ids
+        else []
+    )
+    assignments = list(
+        db.exec(
+            select(models.Assignment)
+            .where(models.Assignment.course_id == course_id)
+            .order_by(models.Assignment.due_date)
+        ).all()
+    )
+    resources = list(
+        db.exec(
+            select(models.Resource).where(models.Resource.course_id == course_id)
+        ).all()
+    )
+
+    return {
+        "course": _course_public(course),
+        "teaching_classes": teaching_classes,
+        "course_plans": plans,
+        "assignments": assignments,
+        "resources": resources,
+        "summary": {
+            "teaching_class_count": len(teaching_classes),
+            "plan_count": len(plans),
+            "assignment_count": len(assignments),
+            "resource_count": len(resources),
+        },
+    }

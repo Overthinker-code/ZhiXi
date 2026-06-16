@@ -1,7 +1,7 @@
 <template>
   <ZyPageShell title="" max-width="1320px">
     <div class="course-info-page">
-      <nav class="breadcrumb" aria-label="面包屑">
+      <nav v-if="!route.params.courseId" class="breadcrumb" aria-label="面包屑">
         <button type="button" @click="router.push({ name: 'CourseList' })">课程资源管理</button>
         <span>/</span>
         <strong>课程信息</strong>
@@ -292,12 +292,12 @@ import {
   type TeachingClass,
 } from '@/api/course';
 import {
-  SCENARIO_COURSE_IDS,
   getScenarioCourseById,
   getScenarioResourceAnalysis,
   getScenarioTeachingClasses,
   scenarioCourseMetrics,
 } from '@/data/teachingScenario';
+import { getClassroomCourse } from '@/data/classroomCourses';
 import DatabaseImg from '@/assets/images/数据库图片.png';
 import VideoIcon from '@/assets/images/视频.png';
 import DocumentIcon from '@/assets/images/文档.png';
@@ -309,10 +309,17 @@ type ActivityTab = 'latest' | 'all';
 const route = useRoute();
 const router = useRouter();
 const activeActivityTab = ref<ActivityTab>('latest');
-const defaultCourseId = SCENARIO_COURSE_IDS[0];
-const course = ref<Course | null>(getScenarioCourseById(defaultCourseId) || null);
-const teachingClasses = ref<TeachingClass[]>(getScenarioTeachingClasses(defaultCourseId));
-const resourceAnalysis = ref<CourseResourceAnalysis>(getScenarioResourceAnalysis(defaultCourseId));
+const course = ref<Course | null>(null);
+const teachingClasses = ref<TeachingClass[]>([]);
+const resourceAnalysis = ref<CourseResourceAnalysis>({
+  document_size: 0,
+  document_count: 0,
+  video_size: 0,
+  video_count: 0,
+  image_size: 0,
+  image_count: 0,
+  homework_count: 0,
+});
 
 const activityTabs: Array<{ label: string; value: ActivityTab }> = [
   { label: '最新动态', value: 'latest' },
@@ -365,17 +372,21 @@ const resourceItems = computed(() => [
 ]);
 
 const courseId = computed(() => {
-  const id = route.params.id || route.query.id;
-  return typeof id === 'string' && id ? id : defaultCourseId;
+  const id = route.params.courseId || route.params.id || route.query.id;
+  return typeof id === 'string' ? id : '';
 });
+const classroomProfile = computed(() => getClassroomCourse(courseId.value));
 const scenarioMetrics = computed(() => scenarioCourseMetrics[courseId.value]);
 const currentActivities = computed(() => activityData[activeActivityTab.value]);
 const courseTitle = computed(() => {
-  const name = course.value?.name || '数据库系统原理';
+  const name = course.value?.name || classroomProfile.value?.title || '课程信息';
   return name === '数据库系统' ? '数据库系统原理' : name;
 });
 const courseDescription = computed(
-  () => course.value?.description || '关系模型、SQL、事务与存储，配套实验与案例。',
+  () =>
+    course.value?.description ||
+    classroomProfile.value?.description ||
+    '课程介绍暂未发布。',
 );
 const courseCategory = computed(() => {
   const type = course.value?.course_type;
@@ -396,16 +407,17 @@ const className = computed(() => {
   if (name && !name.includes('春季教学班')) return name;
   return `2026春-${courseTitle.value}-01班`;
 });
-const courseCover = computed(() => DatabaseImg);
+const courseCover = computed(() => classroomProfile.value?.cover || DatabaseImg);
 const resourceTotal = computed(() => '2,856');
 
 function hydrateScenario(id: string) {
-  course.value = getScenarioCourseById(id) || getScenarioCourseById(defaultCourseId) || null;
+  course.value = getScenarioCourseById(id);
   teachingClasses.value = getScenarioTeachingClasses(id);
   resourceAnalysis.value = getScenarioResourceAnalysis(id);
 }
 
 async function syncCourseData(id: string) {
+  if (!id) return;
   const [courseResult, classesResult, resourceResult] = await Promise.allSettled([
     fetchCourseById(id),
     fetchTeachingClasses(id),
@@ -428,6 +440,10 @@ async function syncCourseData(id: string) {
 }
 
 function loadCourseDetail() {
+  if (!courseId.value) {
+    course.value = null;
+    return;
+  }
   hydrateScenario(courseId.value);
   void syncCourseData(courseId.value);
 }

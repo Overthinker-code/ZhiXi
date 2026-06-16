@@ -4,7 +4,7 @@
   import { useUserStore } from '@/store';
   import { fetchStudentMessages } from '@/api/student-hub';
   import { getTopNavGroups, type TopNavGroup } from '@/config/top-nav-menu';
-  import { SCENARIO_COURSE_IDS } from '@/data/teachingScenario';
+  import { courseWorkspaceLocation } from '@/composables/useCourseRouteContext';
   import ZyMegaMenuPanel from './ZyMegaMenuPanel.vue';
   import logoImg from '@/assets/logo.svg?url';
 
@@ -33,11 +33,24 @@
   const navigateByName = async (name: string) => {
     closeMenu();
     mobileOpen.value = false;
-    if (name === 'CourseOne') {
-      await router.push({
-        name: 'CourseOne',
-        params: { id: SCENARIO_COURSE_IDS[0] },
-      });
+    const routeCourseId =
+      (typeof route.params.courseId === 'string' && route.params.courseId) ||
+      (typeof route.params.id === 'string' && route.params.id) ||
+      (typeof route.query.courseId === 'string' && route.query.courseId) ||
+      '';
+    const courseSections: Record<string, 'home' | 'content' | 'resources'> = {
+      CourseOne: 'home',
+      CourseContent: 'content',
+      CourseResourceGeneration: 'resources',
+    };
+    if (name in courseSections) {
+      if (!routeCourseId) {
+        await router.push({ name: 'CourseList' });
+        return;
+      }
+      await router.push(
+        courseWorkspaceLocation(routeCourseId, courseSections[name])
+      );
       return;
     }
     await router.push({ name });
@@ -65,6 +78,7 @@
   };
 
   const isActive = (group: TopNavGroup) => {
+    if (route.meta.topNavGroup === group.key) return true;
     if (group.routeName && route.name === group.routeName) return true;
     return Boolean(group.items?.some((item) => item.routeName === route.name));
   };
