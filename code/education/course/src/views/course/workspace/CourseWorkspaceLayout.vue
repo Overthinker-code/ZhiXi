@@ -8,6 +8,7 @@
     IconBulb,
     IconFile,
     IconHome,
+    IconMindMapping,
     IconRight,
     IconRobot,
     IconStorage,
@@ -30,6 +31,7 @@
     { key: 'content', label: '课堂内容', desc: '章节、笔记与图谱', icon: IconBook },
     { key: 'tasks', label: '任务中心', desc: '作业、测验与复习', icon: IconFile },
     { key: 'resources', label: '课程资料', desc: '课件与资源分配', icon: IconStorage },
+    { key: 'knowledge', label: '课程图谱', desc: '知识、问题与能力', icon: IconMindMapping },
     { key: 'analytics', label: '课程学情', desc: '进度与薄弱点', icon: IconBarChart },
     { key: 'agent', label: 'AI 课程助手', desc: '定制任务工作台', icon: IconRobot },
   ] as const;

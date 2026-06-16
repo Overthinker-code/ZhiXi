@@ -1,15 +1,33 @@
 <script setup lang="ts">
   import { computed } from 'vue';
   import { useRoute, useRouter } from 'vue-router';
-  import { IconRobot, IconRight } from '@arco-design/web-vue/es/icon';
+  import {
+    IconBook,
+    IconMindMapping,
+    IconRobot,
+    IconRight,
+    IconStorage,
+  } from '@arco-design/web-vue/es/icon';
   import { getClassroomCourse } from '@/data/classroomCourses';
   import { courseAgentTasks } from '@/data/courseWorkspace';
+  import { courseWorkspaceLocation } from '@/composables/useCourseRouteContext';
   import LegacyAssistantPanel from '@/views/chat/LegacyAssistantPanel.vue';
 
   const route = useRoute();
   const router = useRouter();
   const course = computed(() => getClassroomCourse(String(route.params.courseId || '')));
   const selectedTask = computed(() => String(route.query.task || ''));
+  const taskGroups = computed(() =>
+    ['教学增强', '学习工具', '资料科研'].map((category) => ({
+      category,
+      tasks: courseAgentTasks.filter((task) => task.category === category),
+    }))
+  );
+  const selectedTaskTitle = computed(
+    () =>
+      courseAgentTasks.find((task) => task.key === selectedTask.value)?.title ||
+      '未选择'
+  );
 
   function activateTask(task: (typeof courseAgentTasks)[number]) {
     if (!course.value) return;
@@ -29,6 +47,24 @@
       },
     });
   }
+
+  function openKnowledgeCenter() {
+    if (!course.value) return;
+    router.push(courseWorkspaceLocation(course.value.id, 'knowledge'));
+  }
+
+  function openResourceGenerator() {
+    if (!course.value) return;
+    router.push({
+      name: 'StudentCourseResourceGenerator',
+      params: { courseId: course.value.id },
+      query: {
+        subject: course.value.title,
+        topic: selectedTaskTitle.value,
+        source: 'course-agent',
+      },
+    });
+  }
 </script>
 
 <template>
@@ -39,30 +75,50 @@
         <h1>AI 课程助手</h1>
         <p>已锁定《{{ course.title }}》上下文，选择任务后可继续追问、上传资料或提交答案。</p>
       </div>
-      <div class="context-pill"><icon-robot /> {{ course.shortTitle }}专属工作台</div>
+      <div class="agent-heading__actions">
+        <button type="button" @click="openKnowledgeCenter">
+          <icon-mind-mapping /> 课程图谱
+        </button>
+        <button type="button" @click="openResourceGenerator">
+          <icon-storage /> 生成资源
+        </button>
+        <div class="context-pill"><icon-robot /> {{ course.shortTitle }}专属工作台</div>
+      </div>
     </header>
 
     <div class="agent-layout">
       <aside class="agent-tasks">
         <div class="agent-tasks__heading">
-          <strong>推荐任务</strong>
-          <span>6 个</span>
+          <strong>课程工具 Agent</strong>
+          <span>{{ courseAgentTasks.length }} 个</span>
         </div>
-        <button
-          v-for="task in courseAgentTasks"
-          :key="task.key"
-          type="button"
-          :class="{ active: selectedTask === task.key }"
-          @click="activateTask(task)"
+        <section
+          v-for="group in taskGroups"
+          :key="group.category"
+          class="agent-task-group"
         >
-          <span class="task-icon"><component :is="task.icon" /></span>
-          <span class="task-copy">
-            <strong>{{ task.title }}</strong>
-            <small>{{ task.description }}</small>
-            <em>{{ task.estimate }}</em>
-          </span>
-          <icon-right />
-        </button>
+          <div class="agent-task-group__title">
+            <icon-book v-if="group.category === '教学增强'" />
+            <icon-robot v-else-if="group.category === '学习工具'" />
+            <icon-storage v-else />
+            <span>{{ group.category }}</span>
+          </div>
+          <button
+            v-for="task in group.tasks"
+            :key="task.key"
+            type="button"
+            :class="{ active: selectedTask === task.key }"
+            @click="activateTask(task)"
+          >
+            <span class="task-icon"><component :is="task.icon" /></span>
+            <span class="task-copy">
+              <strong>{{ task.title }}</strong>
+              <small>{{ task.description }}</small>
+              <em>{{ task.estimate }}</em>
+            </span>
+            <icon-right />
+          </button>
+        </section>
       </aside>
 
       <main class="agent-chat">
@@ -79,7 +135,11 @@
             <span>资料范围</span>
             <strong>当前课程库</strong>
           </div>
-          <small>切换课程后将开启新的课程上下文</small>
+          <div>
+            <span>当前工具</span>
+            <strong>{{ selectedTaskTitle }}</strong>
+          </div>
+          <small>任务、图谱和资源生成共享当前课程上下文</small>
         </div>
         <LegacyAssistantPanel />
       </main>
@@ -130,6 +190,27 @@
     font-size: 10px;
   }
 
+  .agent-heading__actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+
+    button {
+      height: 34px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 11px;
+      border: 1px solid #dce2ff;
+      border-radius: 9px;
+      color: #5367f8;
+      background: #fff;
+      font-size: 10px;
+      cursor: pointer;
+    }
+  }
+
   .agent-layout {
     display: grid;
     grid-template-columns: 246px minmax(0, 1fr);
@@ -162,7 +243,24 @@
     }
   }
 
-  .agent-tasks > button {
+  .agent-task-group + .agent-task-group {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid #edf0f5;
+  }
+
+  .agent-task-group__title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+    padding: 0 4px;
+    color: #5367f8;
+    font-size: 10px;
+    font-weight: 700;
+  }
+
+  .agent-task-group > button {
     width: 100%;
     display: grid;
     grid-template-columns: 32px minmax(0, 1fr) 12px;
@@ -241,7 +339,7 @@
   .agent-context-bar {
     min-height: 46px;
     display: grid;
-    grid-template-columns: repeat(3, max-content) 1fr;
+    grid-template-columns: repeat(4, max-content) 1fr;
     align-items: center;
     gap: 24px;
     padding: 7px 14px;
@@ -297,6 +395,10 @@
       flex-direction: column;
     }
 
+    .agent-heading__actions {
+      justify-content: flex-start;
+    }
+
     .agent-layout {
       grid-template-columns: 1fr;
     }
@@ -312,7 +414,7 @@
     }
 
     .agent-context-bar {
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
 
       > small {
         display: none;
@@ -329,7 +431,8 @@
       grid-template-columns: 1fr 1fr;
     }
 
-    .agent-context-bar > div:nth-child(3) {
+    .agent-context-bar > div:nth-child(3),
+    .agent-context-bar > div:nth-child(4) {
       display: none;
     }
   }

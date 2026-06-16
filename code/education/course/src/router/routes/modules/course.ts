@@ -100,6 +100,7 @@ const COURSE: AppRouteRecordRaw = {
         locale: '资源生成中心',
         requiresAuth: true,
         roles: ['student', 'teacher'],
+        topNavGroup: 'course',
       },
     },
     {
@@ -190,6 +191,19 @@ const COURSE: AppRouteRecordRaw = {
             requiresAuth: true,
             roles: ['student'],
             courseSection: 'resources',
+            topNavGroup: 'course',
+          },
+        },
+        {
+          path: 'knowledge',
+          name: 'StudentCourseKnowledge',
+          component: () =>
+            import('@/views/course/workspace/CourseKnowledgePage.vue'),
+          meta: {
+            locale: '课程图谱',
+            requiresAuth: true,
+            roles: ['student'],
+            courseSection: 'knowledge',
             topNavGroup: 'course',
           },
         },

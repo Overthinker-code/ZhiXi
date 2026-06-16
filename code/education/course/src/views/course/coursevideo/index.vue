@@ -199,6 +199,9 @@
                 <button type="button" @click="openArtifact('notes')">
                   <icon-expand /> 放大阅读
                 </button>
+                <button type="button" @click="generateFromNotes">
+                  <icon-robot /> 生成资料
+                </button>
                 <button type="button" @click="exportNotes">
                   <icon-download /> 导出
                 </button>
@@ -245,12 +248,15 @@
               <div class="panel-heading">
                 <div><icon-share-alt /><strong>课程知识图谱</strong></div>
                 <div class="panel-actions">
-                  <button type="button" @click="openArtifact('graph')">
-                    <icon-expand /> 放大
-                  </button>
-                  <button type="button" @click="exportCanvas('graph')">
-                    <icon-download /> SVG
-                  </button>
+                <button type="button" @click="openArtifact('graph')">
+                  <icon-expand /> 放大
+                </button>
+                <button type="button" @click="openKnowledgeCenter">
+                  <icon-mind-mapping /> 完整图谱
+                </button>
+                <button type="button" @click="exportCanvas('graph')">
+                  <icon-download /> SVG
+                </button>
                 </div>
               </div>
               <div class="concept-preview">
@@ -450,12 +456,14 @@ import {
   IconPlayArrowFill,
   IconPlayCircleFill,
   IconRight,
+  IconRobot,
   IconShareAlt,
   IconUpload,
   IconZoomIn,
   IconZoomOut,
 } from '@arco-design/web-vue/es/icon';
 import ZyPageShell from '@/components/zy/ZyPageShell.vue';
+import { courseWorkspaceLocation } from '@/composables/useCourseRouteContext';
 import { useSelectionQueryMenu } from '@/composables/useSelectionQueryMenu';
 import {
   classroomCourses,
@@ -671,6 +679,25 @@ function openArtifact(type: ArtifactType) {
   artifactType.value = type;
   artifactZoom.value = 1;
   artifactVisible.value = true;
+}
+
+function openKnowledgeCenter() {
+  if (!currentCourse.value) return;
+  router.push(courseWorkspaceLocation(currentCourse.value.id, 'knowledge'));
+}
+
+function generateFromNotes() {
+  if (!currentCourse.value) return;
+  router.push({
+    name: 'StudentCourseResourceGenerator',
+    params: { courseId: currentCourse.value.id },
+    query: {
+      subject: currentCourse.value.title,
+      topic: currentLesson.value.title || currentCourse.value.notes[0]?.title,
+      goal: `基于${currentCourse.value.title}的课堂笔记生成讲义、知识卡和自测题。`,
+      source: 'classroom-notes',
+    },
+  });
 }
 
 function changeZoom(delta: number) {

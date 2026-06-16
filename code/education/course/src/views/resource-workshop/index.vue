@@ -97,6 +97,25 @@
             <strong>{{ incomingSeedSummary }}</strong>
           </div>
 
+          <div v-if="activeCourse" class="course-seed-card">
+            <div class="course-seed-card__head">
+              <span>课程上下文</span>
+              <strong>{{ activeCourse.title }}</strong>
+            </div>
+            <p>{{ activeCourse.description }}</p>
+            <div class="seed-links">
+              <button
+                v-for="action in courseSeedActions"
+                :key="action.topic"
+                type="button"
+                @click="applyCourseSeed(action.topic, action.goal)"
+              >
+                <strong>{{ action.topic }}</strong>
+                <small>{{ action.goal }}</small>
+              </button>
+            </div>
+          </div>
+
           <a-form
             v-if="isPackageMode"
             :model="form"
@@ -501,6 +520,7 @@
   import { computed, onMounted, reactive, ref, watch } from 'vue';
   import { useRoute, useRouter } from 'vue-router';
   import { Message } from '@arco-design/web-vue';
+  import { getClassroomCourse } from '@/data/classroomCourses';
   import { fetchLearningReport, LearningReport } from '@/api/rag';
   import {
     analyzeImageProblem,
@@ -537,6 +557,11 @@
   const imageResult = ref<ImageAnalyzeResponse | null>(null);
   const imageName = ref('');
   const activeMode = ref<WorkbenchMode>(resolveRouteMode(route.name));
+  const activeCourse = computed(() =>
+    getClassroomCourse(
+      String(route.params.courseId || route.query.courseId || '').trim()
+    )
+  );
 
   const form = reactive<{
     subject: string;
@@ -771,10 +796,32 @@
     const source = String(route.query.source || '').trim();
     if (!topic && !goal && !source) return '';
     const segments = [];
-    if (source) segments.push(`来自 ${source}`);
+    if (source) segments.push(`来自 ${sourceLabel(source)}`);
     if (topic) segments.push(`主题：${topic}`);
     if (goal) segments.push(`目标：${goal}`);
     return segments.join(' / ');
+  });
+  const courseSeedActions = computed(() => {
+    if (!activeCourse.value) return [];
+    const firstNote = activeCourse.value.notes[0];
+    const firstConcept = activeCourse.value.concepts[0];
+    return [
+      {
+        topic: String(route.query.topic || firstConcept?.title || '课程重点'),
+        goal: String(
+          route.query.goal ||
+            `基于《${activeCourse.value.title}》生成课堂笔记、知识卡和自测题`
+        ),
+      },
+      {
+        topic: firstNote?.title || '课堂笔记整理',
+        goal: `把${firstNote?.points.join('、') || '课堂笔记'}整理成复习讲义和练习`,
+      },
+      {
+        topic: '课程知识图谱',
+        goal: '按知识、问题、能力和目标四类图谱生成一套学习资源包',
+      },
+    ];
   });
   const gradeStats = computed(() => {
     if (!gradeResult.value) return [];
@@ -858,6 +905,10 @@
       form.subject = seedSubject;
       gradeForm.subject = seedSubject;
       imageForm.subject = seedSubject;
+    } else if (activeCourse.value && !form.subject) {
+      form.subject = activeCourse.value.title;
+      gradeForm.subject = activeCourse.value.title;
+      imageForm.subject = activeCourse.value.title;
     }
     if (seedTopic) {
       form.topic = seedTopic;
@@ -868,7 +919,22 @@
     }
     if (seedGoal) {
       form.goal = seedGoal;
+    } else if (activeCourse.value && !form.goal) {
+      form.goal = `结合${activeCourse.value.shortTitle}的课堂笔记、课程图谱和薄弱点生成可执行学习资源。`;
     }
+  }
+
+  function applyCourseSeed(topic: string, goal: string) {
+    if (activeCourse.value) {
+      form.subject = activeCourse.value.title;
+      gradeForm.subject = activeCourse.value.title;
+      imageForm.subject = activeCourse.value.title;
+    }
+    form.topic = topic;
+    gradeForm.topic = topic;
+    form.goal = goal;
+    activeMode.value = 'package';
+    Message.success('已载入课程上下文');
   }
 
   function basisLabel(items: Array<{ value: number }>) {
@@ -886,6 +952,15 @@
       high: '高风险',
     };
     return map[level || ''] || level || '待评估';
+  }
+
+  function sourceLabel(source: string) {
+    const map: Record<string, string> = {
+      'classroom-notes': '课堂笔记',
+      'knowledge-map': '课程图谱',
+      'course-agent': '课程 Agent',
+    };
+    return map[source] || source;
   }
 
   function resourceTypeLabel(type: ResourceItem['type']) {
@@ -1618,6 +1693,87 @@
     color: #4f5f8d;
     font-size: 11px;
     line-height: 1.45;
+  }
+
+  .course-seed-card {
+    display: grid;
+    gap: 10px;
+    margin-bottom: 14px;
+    padding: 12px;
+    background:
+      radial-gradient(circle at right top, rgba(83, 104, 245, 0.12), transparent 36%),
+      #fff;
+    border: 1px solid #e0e6f6;
+    border-radius: 10px;
+  }
+
+  .course-seed-card__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .course-seed-card__head span {
+    color: #5368f5;
+    font-size: 10px;
+    font-weight: 800;
+  }
+
+  .course-seed-card__head strong {
+    min-width: 0;
+    overflow: hidden;
+    color: #293655;
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .course-seed-card p {
+    margin: 0;
+    color: #7d879d;
+    font-size: 11px;
+    line-height: 1.65;
+  }
+
+  .seed-links {
+    display: grid;
+    gap: 6px;
+  }
+
+  .seed-links button {
+    display: grid;
+    gap: 3px;
+    padding: 9px 10px;
+    color: #66728c;
+    text-align: left;
+    background: #f8faff;
+    border: 1px solid #e6ebf6;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+
+  .seed-links button:hover {
+    color: #5368f5;
+    border-color: #d7defc;
+  }
+
+  .seed-links strong,
+  .seed-links small {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .seed-links strong {
+    color: #34405c;
+    font-size: 11px;
+  }
+
+  .seed-links small {
+    color: #8d98ad;
+    font-size: 9px;
   }
 
   .compact-form :deep(.arco-form-item) {

@@ -10,6 +10,7 @@ export type CourseWorkspaceSection =
   | 'content'
   | 'tasks'
   | 'resources'
+  | 'knowledge'
   | 'analytics'
   | 'agent';
 
@@ -18,6 +19,7 @@ const sectionRouteNames: Record<CourseWorkspaceSection, string> = {
   content: 'StudentCourseContent',
   tasks: 'StudentCourseTasks',
   resources: 'StudentCourseResources',
+  knowledge: 'StudentCourseKnowledge',
   analytics: 'StudentCourseAnalytics',
   agent: 'StudentCourseAgent',
 };

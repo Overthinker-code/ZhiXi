@@ -5,6 +5,7 @@
   import {
     IconDownload,
     IconFile,
+    IconMindMapping,
     IconRobot,
     IconSearch,
     IconStorage,
@@ -64,6 +65,11 @@
     });
   }
 
+  function openKnowledgeMap() {
+    if (!course.value) return;
+    router.push(courseWorkspaceLocation(course.value.id, 'knowledge'));
+  }
+
   function downloadDemo(item: CourseResourceItem) {
     const content = `# ${item.title}\n\n课程：${course.value?.title || ''}\n章节：${item.chapter}\n类型：${item.type}\n\n这是课程资源演示文件。`;
     const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
@@ -104,6 +110,31 @@
         <div><small>本周新增</small><strong>6</strong></div>
       </article>
     </div>
+
+    <section class="resource-flow">
+      <div>
+        <span>RESOURCE TO GRAPH</span>
+        <h2>把资料接入课程图谱</h2>
+        <p>参考 CCNU 的课程结构图，把章节资料、作业任务和讨论节点统一放进学习路径里。</p>
+      </div>
+      <div class="flow-steps">
+        <button type="button" @click="openKnowledgeMap">
+          <icon-mind-mapping />
+          <strong>查看课程图谱</strong>
+          <small>知识 / 问题 / 能力 / 目标</small>
+        </button>
+        <button type="button" @click="openGenerator">
+          <icon-robot />
+          <strong>生成图谱资源</strong>
+          <small>讲义、练习、笔记、知识卡</small>
+        </button>
+        <button type="button" @click="askAboutResource(resources[0])" :disabled="!resources[0]">
+          <icon-file />
+          <strong>资料助手问答</strong>
+          <small>基于当前课程资料追问</small>
+        </button>
+      </div>
+    </section>
 
     <div class="resource-toolbar">
       <label>
@@ -224,6 +255,89 @@
       margin-top: 4px;
       color: #29364d;
       font-size: 20px;
+    }
+  }
+
+  .resource-flow {
+    margin-top: 12px;
+    display: grid;
+    grid-template-columns: minmax(220px, 0.75fr) minmax(0, 1fr);
+    gap: 12px;
+    padding: 16px;
+    border: 1px solid #dfe5ff;
+    border-radius: 12px;
+    background:
+      radial-gradient(circle at right top, rgba(83, 103, 248, 0.11), transparent 34%),
+      #fff;
+
+    span {
+      color: #5367f8;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+    }
+
+    h2 {
+      margin: 6px 0 5px;
+      color: #26334b;
+      font-size: 18px;
+    }
+
+    p {
+      margin: 0;
+      color: #7f899b;
+      font-size: 11px;
+      line-height: 1.7;
+    }
+  }
+
+  .flow-steps {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+
+    button {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: 30px minmax(0, 1fr);
+      align-items: center;
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid #e5e9f4;
+      border-radius: 10px;
+      color: #667188;
+      background: rgba(255, 255, 255, 0.86);
+      text-align: left;
+      cursor: pointer;
+
+      &:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+
+      svg {
+        grid-row: 1 / span 2;
+        color: #5367f8;
+      }
+
+      strong,
+      small {
+        display: block;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      strong {
+        color: #334059;
+        font-size: 11px;
+      }
+
+      small {
+        margin-top: 2px;
+        font-size: 9px;
+      }
     }
   }
 
@@ -401,13 +515,16 @@
 
   @media (max-width: 720px) {
     .resource-heading,
-    .resource-toolbar {
+    .resource-toolbar,
+    .resource-flow {
       align-items: flex-start;
       flex-direction: column;
     }
 
     .resource-overview,
-    .resource-grid {
+    .resource-grid,
+    .resource-flow,
+    .flow-steps {
       grid-template-columns: 1fr;
     }
   }
