@@ -15,7 +15,7 @@
 
   interface Emits {
     (e: 'update:visible', value: boolean): void;
-    (e: 'success'): void;
+    (e: 'success', file: { file_id: string; name: string; size: number; created: string; scope: 'system' | 'personal' }): void;
   }
 
   const props = defineProps<Props>();
@@ -152,8 +152,15 @@
       stages.value.completed.status = 'success';
 
       Message.success('Upload completed successfully');
+      const uploadedFile = {
+        file_id: fileId.value,
+        name: selectedFile.value?.name || fileId.value,
+        size: fileSize.value,
+        created: createdAt.value,
+        scope: uploadScope.value,
+      };
       handleClose();
-      emit('success');
+      emit('success', uploadedFile);
     } catch (error: any) {
       Message.error(error?.message || 'Commit failed');
       stages.value.committing.status = 'error';

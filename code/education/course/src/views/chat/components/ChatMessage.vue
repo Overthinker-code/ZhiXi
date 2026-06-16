@@ -108,7 +108,7 @@
   // 处理复制函数
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(props.message.content);
+      await navigator.clipboard.writeText(stripInlineCitationMarkers(props.message.content || ''));
       isCopied.value = true;
 
       // 1.5秒后恢复原始图标
@@ -167,6 +167,13 @@
       approve,
     });
   };
+
+  const stripInlineCitationMarkers = (value) =>
+    String(value || '')
+      .replace(/\s*\[citation:\d+\]/gi, '')
+      .replace(/\s*\[doc:\d+\]/gi, '')
+      .replace(/[ \t]+\n/g, '\n')
+      .trim();
 
   // 处理代码块的复制
   const handleCodeCopy = async (event) => {
@@ -263,6 +270,9 @@
     let raw = props.message.content || '';
     if (isStreamingAssistantBubble()) {
       raw = raw.slice(0, streamTypeLen.value);
+    }
+    if (props.message.role === 'assistant') {
+      raw = stripInlineCitationMarkers(raw);
     }
     return renderMarkdown(raw, {
       streaming: isStreamingAssistantBubble(),

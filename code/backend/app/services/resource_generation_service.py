@@ -157,21 +157,26 @@ class ResourceGenerationService:
                 "embedding_provider": settings.EMBEDDINGS_PROVIDER,
                 "multimodal_model": settings.MULTIMODAL_MODEL,
                 "deployment": "local-first",
+                "mode": "课程画像 + 领域模板 + 质量审查",
+                "domain": context["domain"],
             },
             agent_trace=[
                 "ProfileAgent: 读取学习画像和目标难度",
-                "LectureAgent: 生成讲义结构",
-                "ExerciseAgent: 生成分层练习",
-                "MindMapAgent: 生成知识结构",
-                "CaseAgent: 生成实操任务",
-                "ScriptAgent: 生成讲解脚本",
-                "SafetyReviewAgent: 检查事实边界和输出格式",
+                f"DomainAgent: 识别课程域为 {context['domain']}",
+                "EvidenceAgent: 生成课程证据清单和引用模板",
+                "LectureAgent: 生成讲义、概念卡和课堂案例",
+                "ExerciseAgent: 生成分层练习和评分量规",
+                "MindMapAgent: 生成知识结构与迁移节点",
+                "CaseAgent: 生成实操任务和提交物模板",
+                "ScriptAgent: 生成讲解脚本与课后动作",
+                "SafetyReviewAgent: 检查事实边界、适用条件和输出格式",
                 "FinalizerAgent: 汇总为可下载资源包",
             ],
             quality_notes=[
-                "本阶段资源产物在本地生成并落盘，可下载、可追溯。",
-                "PDF 采用本地轻量导出回退，后续可替换为正式排版引擎。",
-                "联网搜索默认受控关闭；若启用，结果必须在内容中单独标注来源。",
+                f"已按“{context['scenario']}”组织案例，不再只输出通用学习建议。",
+                "讲义、练习、阅读和案例均包含证据项或评分量规，便于学生自查与 AI 批改。",
+                "所有可下载 Markdown 为中文主产物；PDF 为轻量预览版，排版完整性以 Markdown 为准。",
+                "联网搜索默认受控关闭；若启用，外部资料必须在内容中单独标注来源。",
             ],
             artifacts=artifacts,
         )
@@ -248,6 +253,7 @@ class ResourceGenerationService:
             "challenge": "挑战拓展",
         }[request.difficulty]
         terms = self._topic_terms(request.subject, request.topic)
+        domain = self._domain_profile(request.subject, request.topic, terms)
         return {
             "subject": request.subject.strip(),
             "topic": request.topic.strip(),
@@ -259,6 +265,13 @@ class ResourceGenerationService:
             "secondary": terms[1],
             "third": terms[2],
             "profile": self._course_profile(request.subject, request.topic),
+            "domain": domain["domain"],
+            "scenario": domain["scenario"],
+            "case": domain["case"],
+            "evidence": "；".join(domain["evidence"]),
+            "rubric": "；".join(domain["rubric"]),
+            "mistakes": "；".join(domain["mistakes"]),
+            "transfer": domain["transfer"],
         }
 
     def _write_artifact(
@@ -344,6 +357,162 @@ class ResourceGenerationService:
         )
 
     @staticmethod
+    def _domain_profile(subject: str, topic: str, terms: list[str]) -> dict[str, object]:
+        text = f"{subject} {topic}".lower()
+        primary, secondary, third = terms[:3]
+        if "数据库" in text or "sql" in text:
+            return {
+                "domain": "数据库课程",
+                "scenario": "把校园选课、成绩登记或图书借阅业务转化为关系模式与 SQL 查询任务",
+                "case": "给出学生、课程、选课三张表，要求识别主键/外键、写出连接查询，并说明事务提交失败时如何恢复。",
+                "evidence": [
+                    "关系模式是否标出主键、外键和属性域",
+                    "SQL 是否能从投影、筛选、连接和聚合四步追溯",
+                    "事务分析是否说明 ACID 与并发调度依据",
+                ],
+                "rubric": [
+                    "概念边界 25%",
+                    "SQL 或模式设计步骤 35%",
+                    "约束与异常处理 25%",
+                    "可读性与验证 15%",
+                ],
+                "mistakes": [
+                    "把外键写成普通属性",
+                    "JOIN 条件缺失导致笛卡尔积",
+                    "只写最终 SQL 不解释业务约束",
+                ],
+                "transfer": "能把新的业务描述拆成实体、联系、约束、查询和事务五类对象。",
+            }
+        if "数据结构" in text or "算法" in text:
+            return {
+                "domain": "数据结构课程",
+                "scenario": "为一个检索、排队或路径问题选择合适的数据结构并分析复杂度",
+                "case": "根据操作频率选择数组、链表、堆或图存储，写出关键操作伪代码并计算最坏复杂度。",
+                "evidence": [
+                    "问题操作是否拆成访问、插入、删除、遍历",
+                    "结构选择是否匹配复杂度需求",
+                    "边界条件是否覆盖空结构、单元素和重复值",
+                ],
+                "rubric": [
+                    "抽象建模 25%",
+                    "结构选择 25%",
+                    "算法步骤 30%",
+                    "复杂度与边界 20%",
+                ],
+                "mistakes": [
+                    "只背结构定义，不说明适用操作",
+                    "平均复杂度和最坏复杂度混用",
+                    "忽略空指针或越界条件",
+                ],
+                "transfer": "能从题目中的操作频率反推结构选择，而不是凭关键词套模板。",
+            }
+        if "人工智能" in text or "ai" in text:
+            return {
+                "domain": "人工智能课程",
+                "scenario": "把真实问题转化为状态空间、知识表示或模型训练任务",
+                "case": "为路径规划、诊断或分类任务定义状态、动作、评价指标，并比较搜索与学习方法的适用边界。",
+                "evidence": [
+                    "是否明确输入、输出、状态或样本标签",
+                    "是否说明启发函数、知识表示或模型假设",
+                    "是否用准确率、召回率或代价函数评价结果",
+                ],
+                "rubric": [
+                    "问题建模 30%",
+                    "方法选择 25%",
+                    "评价指标 25%",
+                    "风险与边界 20%",
+                ],
+                "mistakes": [
+                    "把 AI 方法名称当成答案",
+                    "不区分训练数据、验证数据和测试数据",
+                    "忽略偏差、方差或不可解释性风险",
+                ],
+                "transfer": "能判断一个任务更适合搜索、规则推理、传统机器学习还是深度学习。",
+            }
+        if "宏观" in text or "经济" in text:
+            return {
+                "domain": "宏观经济学课程",
+                "scenario": "用总量指标和模型解释政策变化对产出、价格和就业的影响",
+                "case": "分析降准、财政扩张或外需下降对 AD-AS、利率和就业的传导路径。",
+                "evidence": [
+                    "变量是否区分名义量与实际量",
+                    "传导链是否包含部门、市场和时间滞后",
+                    "结论是否说明短期与长期差异",
+                ],
+                "rubric": [
+                    "指标解释 25%",
+                    "模型推理 35%",
+                    "政策边界 25%",
+                    "图形表达 15%",
+                ],
+                "mistakes": [
+                    "把相关关系当因果关系",
+                    "只说政策方向，不写传导链",
+                    "忽略价格水平和实际产出的区别",
+                ],
+                "transfer": "能把新闻中的宏观政策转写为变量变化和模型移动。",
+            }
+        if "审计" in text:
+            return {
+                "domain": "审计学课程",
+                "scenario": "围绕重大错报风险设计审计程序并评价证据是否充分适当",
+                "case": "对收入确认或存货跌价风险设计询问、观察、函证和重新计算程序。",
+                "evidence": [
+                    "是否从认定出发识别风险",
+                    "程序是否能回应对应风险",
+                    "证据是否同时评价充分性与适当性",
+                ],
+                "rubric": [
+                    "风险识别 30%",
+                    "程序设计 30%",
+                    "证据评价 25%",
+                    "职业判断 15%",
+                ],
+                "mistakes": [
+                    "把审计目标和具体程序混写",
+                    "只列程序不说明能验证哪项认定",
+                    "证据数量和证据质量不区分",
+                ],
+                "transfer": "能针对新的业务循环选择匹配的审计程序和证据标准。",
+            }
+        if "金融" in text:
+            return {
+                "domain": "金融学课程",
+                "scenario": "用现金流、风险收益和资本成本分析投资或融资决策",
+                "case": "根据债券现金流、股票估值或项目 NPV 判断是否投资，并说明风险调整依据。",
+                "evidence": [
+                    "现金流时点是否列清",
+                    "贴现率是否与风险水平匹配",
+                    "结论是否包含敏感性或情景分析",
+                ],
+                "rubric": [
+                    "现金流建模 30%",
+                    "折现与估值 30%",
+                    "风险解释 25%",
+                    "决策建议 15%",
+                ],
+                "mistakes": [
+                    "混淆现值和终值",
+                    "贴现率随意取值",
+                    "只算结果不解释风险来源",
+                ],
+                "transfer": "能把任意资产或项目拆成现金流、折现率、风险和决策标准。",
+            }
+        return {
+            "domain": "通用课程",
+            "scenario": f"围绕 {topic} 完成概念解释、案例拆解和迁移练习",
+            "case": f"选择一个与 {topic} 相关的课堂案例，标出条件、方法、结论和边界。",
+            "evidence": [
+                f"是否能定义 {primary}",
+                f"是否能说明 {secondary} 的适用条件",
+                f"是否能用 {third} 做结果校验",
+            ],
+            "rubric": ["概念准确 30%", "步骤完整 30%", "应用迁移 25%", "表达清晰 15%"],
+            "mistakes": ["只背结论", "条件遗漏", "缺少边界校验"],
+            "transfer": "能把本节主题迁移到新的题目或真实问题。",
+        }
+
+    @staticmethod
     def _safe_file_name(value: str) -> str:
         name = re.sub(r"[^a-zA-Z0-9._-]+", "-", value.strip()).strip("-")
         return name or f"artifact-{uuid4().hex[:8]}.md"
@@ -357,6 +526,7 @@ class ResourceGenerationService:
 难度：{ctx['difficulty']}
 建议学习时长：{ctx['minutes']} 分钟
 生成依据：{ctx['profile']}
+课程域：{ctx['domain']}
 
 ## 1. 一句话定位
 {ctx['topic']} 是本节学习的核心对象。学习时先弄清它解决什么问题，再看它和 {ctx['primary']}、{ctx['secondary']}、{ctx['third']} 的关系。
@@ -368,22 +538,31 @@ class ResourceGenerationService:
 | {ctx['secondary']} | 用来完成主要推理或操作步骤 | 能否列出 3 个判断条件 |
 | {ctx['third']} | 用来做结果校验和边界判断 | 能否解释一个反例 |
 
-## 3. 课堂案例拆解
+## 3. 课程证据清单
+{ctx['evidence']}
+
+使用资料时先把每个结论对应到上述证据项。若某一步没有证据，只能标为“推断”或“待查”。
+
+## 4. 课堂案例拆解
+场景：{ctx['scenario']}
+
+案例：{ctx['case']}
+
 1. 标出题干或材料中的已知条件。
 2. 判断这些条件分别对应 {ctx['primary']}、{ctx['secondary']} 还是 {ctx['third']}。
 3. 写出推理链：条件 -> 方法 -> 中间结果 -> 结论。
 4. 用一个反例或边界条件检查结论是否过度推广。
 
-## 4. 易错点
-- 只记术语，不会把术语放回题目条件。
-- 把 {ctx['primary']} 和 {ctx['secondary']} 混用，导致步骤不成立。
-- 没有说明为什么选择该方法，答案缺少可追溯依据。
-- 最后不做边界校验，导致结论看似完整但无法迁移。
+## 5. 易错点
+{ctx['mistakes']}
 
-## 5. 学习建议
+## 6. 学习建议
 按照“概念复述 5 分钟 -> 案例拆解 12 分钟 -> 分层练习 15 分钟 -> AI 批改 8 分钟”的顺序完成。提交答案后使用 AI 批改模式更新掌握度。
 
-## 6. 自我检查
+## 7. 迁移目标
+{ctx['transfer']}
+
+## 8. 自我检查
 - 我能否不用教材原句解释 {ctx['topic']}？
 - 我能否指出 {ctx['primary']} 在案例中的证据？
 - 我能否说出一个不适用 {ctx['topic']} 的场景？
@@ -392,6 +571,9 @@ class ResourceGenerationService:
     @staticmethod
     def _practice_markdown(ctx: dict[str, str]) -> str:
         return f"""# {ctx['topic']} 分层练习
+
+课程：{ctx['subject']}
+匹配场景：{ctx['scenario']}
 
 ## 基础题
 1. 用 80 字以内解释 {ctx['topic']}，并写出它和 {ctx['primary']} 的关系。
@@ -405,6 +587,9 @@ class ResourceGenerationService:
 ## 挑战题
 6. 比较 {ctx['topic']} 与 {ctx['secondary']} 的差异，至少列出 3 个判断标准。
 7. 写一个容易出错的答案，并说明它错在定义、条件、步骤还是结论。
+
+## 评分量规
+{ctx['rubric']}
 
 ## 参考解析
 - 基础题看定义是否准确、例子是否贴合。
@@ -420,19 +605,23 @@ class ResourceGenerationService:
     定义
       核心含义
       适用条件
+      课程域::{ctx['domain']}
     方法
       步骤拆解
       结果校验
+      证据清单
     练习
       基础题
       变式题
       挑战题
+      评分量规
     易错点
       概念混淆
       条件遗漏
       结论无依据
     应用
       课堂案例
+      迁移任务
       实操任务
 """
 
@@ -450,6 +639,13 @@ class ResourceGenerationService:
 - 一个真实应用案例或工程实践说明，阅读时标出输入、方法、输出和限制。
 - 一组同类题解析，阅读时关注评分点，而不是只看最终答案。
 
+## 阅读证据模板
+| 资料 | 支撑的结论 | 关键页/片段 | 是否可直接引用 |
+| --- | --- | --- | --- |
+| 课程讲义 | {ctx['primary']} 的定义和边界 | 待填写 | 是 |
+| 课堂案例 | {ctx['secondary']} 的应用步骤 | 待填写 | 是 |
+| 练习解析 | {ctx['third']} 的校验方式 | 待填写 | 需要复核 |
+
 ## 阅读任务
 读完后写下 3 个问题：一个定义问题、一个应用问题、一个易错边界问题。每个问题都要标注来自讲义、图谱还是练习。
 """
@@ -460,6 +656,9 @@ class ResourceGenerationService:
 
 ## 任务背景
 围绕 {ctx['subject']} 中的 {ctx['topic']}，完成一个 20-30 分钟的小任务，用来验证是否能把概念迁移到真实情境。
+
+## 真实情境
+{ctx['scenario']}
 
 ## 输入材料
 - 一段课程案例或题干。
@@ -478,6 +677,13 @@ class ResourceGenerationService:
 - 结论能回扣题目目标。
 - 能说明一个可能出错的地方。
 - 能把错误修改成一版更符合课程术语的答案。
+
+## 提交物模板
+| 模块 | 内容 | 依据 |
+| --- | --- | --- |
+| 条件识别 | 写出题干条件 | 引用讲义或案例片段 |
+| 方法选择 | 说明为何选择该方法 | 对应 {ctx['primary']} / {ctx['secondary']} |
+| 结果验证 | 写出校验或反例 | 对应 {ctx['third']} |
 """
 
     @staticmethod
@@ -493,6 +699,10 @@ class ResourceGenerationService:
 第三步，用一个例子检查理解。如果你能把定义、步骤和结论讲给同学听，说明已经初步掌握。
 
 最后提醒，最常见的错误是把相邻概念混用，或者只写结论不写依据。做题后建议进入 AI 批改模式，让系统根据答案更新掌握度。
+
+镜头提示：在“证据清单”处展示 {ctx['primary']}、{ctx['secondary']}、{ctx['third']} 三张卡片；在案例处展示“条件 -> 方法 -> 结论 -> 校验”的流程。
+
+课后动作：把自己的答案复制到 AI 陪练，要求它按评分量规检查：{ctx['rubric']}。
 """
 
     @staticmethod

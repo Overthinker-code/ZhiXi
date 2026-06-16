@@ -14,26 +14,26 @@ const promptTemplates = [
   {
     key: 'explain',
     label: '解释概念',
-    prompt: (selected: string) =>
-      `请用简白易懂的方式解释以下数据库概念：\n"${selected}"\n\n要求：先给定义，再举实例，最后说明实际应用。`,
+    prompt: (selected: string, context: string) =>
+      `请结合当前课程内容解释被选中的知识点：\n"${selected}"\n\n课堂上下文：\n${context || '暂无额外上下文'}\n\n要求：先给定义，再说明适用条件，最后给一个贴合本课程的例子。`,
   },
   {
     key: 'example',
     label: '举个例子',
-    prompt: (selected: string) =>
-      `关于"${selected}"这个概念，请给出：\n1. 一个具体的现实生活中的例子\n2. 对应的数据库表结构示例\n3. 相关的SQL语句`,
+    prompt: (selected: string, context: string) =>
+      `关于"${selected}"，请基于当前课程举例说明。\n\n课堂上下文：\n${context || '暂无额外上下文'}\n\n请输出：\n1. 一个具体场景\n2. 这个场景中哪些条件对应被选知识点\n3. 学生最容易混淆的地方`,
   },
   {
     key: 'summarize',
     label: '总结要点',
-    prompt: (selected: string) =>
-      `请总结以下代码段或内容的核心要点：\n"${selected}"\n\n要求：用3-5条关键点概括，每条简洁清晰`,
+    prompt: (selected: string, context: string) =>
+      `请总结以下课堂内容的核心要点：\n"${selected}"\n\n课堂上下文：\n${context || '暂无额外上下文'}\n\n要求：用 3-5 条关键点概括，并指出它和当前课程其它知识点的关系。`,
   },
   {
     key: 'deepdive',
     label: '深入讲解',
-    prompt: (selected: string) =>
-      `请对"${selected}"进行深入讲解，包括：\n1. 原理和机制\n2. 常见的做法或最佳实践\n3. 可能的陷阱和注意事项`,
+    prompt: (selected: string, context: string) =>
+      `请对"${selected}"进行课程内深入讲解。\n\n课堂上下文：\n${context || '暂无额外上下文'}\n\n请包括：\n1. 原理和机制\n2. 与前后知识点的关系\n3. 常见误区和检查题\n4. 一个可继续追问的问题`,
   },
 ];
 
@@ -380,7 +380,10 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
         surroundingContext.value,
         localSelectionThreadId.value,
         {
-          systemPrompt: template.prompt(selectedText.value),
+          systemPrompt: template.prompt(
+            selectedText.value,
+            surroundingContext.value || getContextSource()
+          ),
           ragK: settingStore.settings.ragK as 3 | 4 | 5,
           promptKey: 'custom',
           strictMode: settingStore.settings.strictMode,

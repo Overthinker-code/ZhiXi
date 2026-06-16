@@ -158,7 +158,24 @@ def _drain_reasoning_queue(queue: list[dict[str, Any]]):
 
 
 def _normalize_answer_text(text: str) -> str:
-    return normalize_math_delimiters(text or "")
+    cleaned = re.sub(
+        r"(?m)^[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t]*$",
+        "",
+        text or "",
+    )
+    return normalize_math_delimiters(cleaned).strip()
+
+
+def _strip_inline_citation_markers(text: str) -> str:
+    return re.sub(r"\s*\[(?:citation|doc):\d+\]", "", text or "", flags=re.I).strip()
+
+
+def _citation_ids_from_text(text: str) -> set[int]:
+    return {
+        int(value)
+        for value in re.findall(r"\[(?:citation|doc):(\d+)\]", text or "", flags=re.I)
+        if int(value) > 0
+    }
 
 
 def _stream_answer_tokens(text: str, chunk_size: int = 24):
@@ -1345,25 +1362,12 @@ def _stream_grounded_document_answer(
         }
         return
 
-    cited_ids = {
-        int(value)
-        for value in re.findall(r"\[citation:(\d+)\]", text, flags=re.I)
-    }
-    document_evidence = [
-        item
-        for item in rag_results
-        if item.get("context_scope") == "uploaded_document"
-    ]
-    if not cited_ids:
-        cited_ids = {
-            int(item.get("citation_id") or 0)
-            for item in document_evidence[:3]
-            if int(item.get("citation_id") or 0) > 0
-        }
+    cited_ids = _citation_ids_from_text(text)
     citations = _normalize_structured_citations(
         rag_results,
         [{"citation_id": citation_id} for citation_id in sorted(cited_ids)],
     )
+    display_text = _strip_inline_citation_markers(text)
     suggestions = _normalize_followups(request.user_input, text, [])
     latency_ms = max(1, round((time.perf_counter() - started_at) * 1000))
     ttft_ms = (
@@ -1387,7 +1391,7 @@ def _stream_grounded_document_answer(
     yield {"type": "suggestions", "data": suggestions}
     yield {
         "type": "final",
-        "content": text,
+        "content": display_text,
         "agent": "knowledge_mentor",
         "intent": "document_grounded_reasoning",
         "routing_reason": "当前上传文档直接讲解",
@@ -1741,6 +1745,14 @@ def finalize_node(state: State) -> dict[str, Any]:
                 has_citations=bool(citations),
             )
             if clean:
+                if not citations:
+                    marker_ids = _citation_ids_from_text(clean)
+                    if marker_ids:
+                        citations = _normalize_structured_citations(
+                            state.get("rag_results") or [],
+                            [{"citation_id": citation_id} for citation_id in sorted(marker_ids)],
+                        )
+                clean = _strip_inline_citation_markers(clean)
                 llm_followups = _llm_followup_suggestions(current_q, clean)
                 follow_ups = _normalize_followups(
                     current_q,
@@ -1763,6 +1775,14 @@ def finalize_node(state: State) -> dict[str, Any]:
                     worker_material=worker_mat,
                 )
                 if clean:
+                    if not citations:
+                        marker_ids = _citation_ids_from_text(clean)
+                        if marker_ids:
+                            citations = _normalize_structured_citations(
+                                state.get("rag_results") or [],
+                                [{"citation_id": citation_id} for citation_id in sorted(marker_ids)],
+                            )
+                    clean = _strip_inline_citation_markers(clean)
                     llm_followups = _llm_followup_suggestions(current_q, clean)
                     follow_ups = _normalize_followups(
                         current_q,
@@ -1784,6 +1804,7 @@ def finalize_node(state: State) -> dict[str, Any]:
                 rag_excerpt=rag_ex,
                 worker_material=worker_mat,
             )
+            fallback_text = _strip_inline_citation_markers(fallback_text)
             msg = AIMessage(content=fallback_text, name="final_answer")
         else:
             msg = AIMessage(
@@ -1801,18 +1822,6 @@ def finalize_node(state: State) -> dict[str, Any]:
             msg.content,
             llm_followups or _default_suggestions(current_q),
         )
-    if state.get("current_file_id") and not citations:
-        document_evidence = [
-            item
-            for item in state.get("rag_results") or []
-            if item.get("context_scope") == "uploaded_document"
-        ][:3]
-        citations = _normalize_structured_citations(
-            state.get("rag_results") or [],
-            [{"citation_id": item.get("citation_id")} for item in document_evidence],
-        )
-        if citations:
-            grounding_mode = "rag"
     return {
         "messages": [msg],
         "selected_agent": "supervisor",
@@ -2090,6 +2099,17 @@ def _normalize_structured_citations(
     rag_results: list[dict[str, Any]],
     citations: list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
+    def _score(value: Any) -> float:
+        try:
+            raw = float(value or 0.0)
+        except Exception:
+            return 0.0
+        if raw <= 0:
+            return 0.0
+        if raw > 1:
+            raw = raw / 100
+        return max(0.0, min(raw, 1.0))
+
     by_id = {
         int(item.get("citation_id") or 0): item
         for item in rag_results or []
@@ -2114,10 +2134,10 @@ def _normalize_structured_citations(
                 "chunk_id": base.get("chunk_id"),
                 "context_scope": str(base.get("context_scope") or ""),
                 "locator": str(base.get("locator") or (f"片段 {base.get('chunk_id')}" if base.get("chunk_id") else "")),
-                "score": float(base.get("score") or 0.0),
+                "score": _score(base.get("score")),
                 "snippet": str(raw.get("snippet") or base.get("content") or "")[:220],
                 "reason": str(raw.get("reason") or "").strip(),
-                "relevance_score": float(raw.get("relevance_score") or 0.0),
+                "relevance_score": _score(raw.get("relevance_score")),
             }
         )
     return out

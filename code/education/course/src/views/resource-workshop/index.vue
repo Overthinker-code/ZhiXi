@@ -293,7 +293,7 @@
               <div class="artifact-download-panel__head">
                 <div>
                   <strong>真实生成文件</strong>
-                  <span>后端已生成 Markdown、PDF、导图和脚本，可直接下载</span>
+                  <span>后端已生成 Markdown、PDF、导图和脚本，并完成生成审查</span>
                 </div>
                 <div class="artifact-stats">
                   <article v-for="item in artifactStats" :key="item.label">
@@ -301,6 +301,33 @@
                     <strong>{{ item.value }}</strong>
                   </article>
                 </div>
+              </div>
+              <div
+                v-if="downloadablePackage.quality_notes?.length || downloadablePackage.agent_trace?.length"
+                class="artifact-audit-panel"
+              >
+                <section v-if="downloadablePackage.quality_notes?.length">
+                  <strong>质量审查</strong>
+                  <ul>
+                    <li
+                      v-for="item in downloadablePackage.quality_notes"
+                      :key="item"
+                    >
+                      {{ item }}
+                    </li>
+                  </ul>
+                </section>
+                <section v-if="downloadablePackage.agent_trace?.length">
+                  <strong>生成链路</strong>
+                  <ol>
+                    <li
+                      v-for="item in downloadablePackage.agent_trace"
+                      :key="item"
+                    >
+                      {{ item }}
+                    </li>
+                  </ol>
+                </section>
               </div>
               <div class="artifact-grid">
                 <article
@@ -2106,6 +2133,46 @@
     font-size: 11px;
   }
 
+  .artifact-audit-panel {
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+    gap: 10px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #e5ebf5;
+  }
+
+  .artifact-audit-panel section {
+    min-width: 0;
+    padding: 10px 11px;
+    border: 1px solid #e4eaf6;
+    border-radius: 8px;
+    background: #fff;
+  }
+
+  .artifact-audit-panel strong {
+    display: block;
+    margin-bottom: 7px;
+    color: #2c385a;
+    font-size: 12px;
+  }
+
+  .artifact-audit-panel ul,
+  .artifact-audit-panel ol {
+    display: grid;
+    gap: 5px;
+    margin: 0;
+    padding-left: 16px;
+    color: #68758f;
+    font-size: 11px;
+    line-height: 1.55;
+  }
+
+  .artifact-audit-panel li::marker {
+    color: #5368f5;
+    font-weight: 800;
+  }
+
   .artifact-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2615,6 +2682,10 @@
     .workshop-hero {
       grid-template-columns: 1fr;
       padding: 18px;
+    }
+
+    .artifact-audit-panel {
+      grid-template-columns: 1fr;
     }
 
     .hero-visual {

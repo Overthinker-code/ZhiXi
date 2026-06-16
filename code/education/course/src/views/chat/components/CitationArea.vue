@@ -29,6 +29,11 @@
   const showDiagnostics = computed(
     () => Boolean(settingStore.settings.debugMode)
   );
+  const normalizeScore = (item: CitationItem) => {
+    const raw = Number(item.relevance_score || item.score || 0);
+    if (!Number.isFinite(raw) || raw <= 0) return 0;
+    return Math.min(1, raw > 1 ? raw / 100 : raw);
+  };
   const normalizedCitations = computed(() =>
     (props.citations || []).map((item, index) => {
       const source = item.file_name || item.source || `来源 ${item.citation_id || index + 1}`;
@@ -45,10 +50,11 @@
         sourceLabel: source.replace(/^.*[\\/]/, ''),
         locator,
         scope,
-        score: Number(item.relevance_score || item.score || 0),
+        score: normalizeScore(item),
       };
     })
   );
+  const hasCitations = computed(() => normalizedCitations.value.length > 0);
 
   const confidenceLabel = (value?: string) => {
     const normalized = String(value || '').toLowerCase();
@@ -72,9 +78,7 @@
 <template>
   <div
     v-if="
-      (citations && citations.length > 0) ||
-      confidence ||
-      groundingMode ||
+      hasCitations ||
       (showDiagnostics && metrics?.agent_hops)
     "
     class="citation-area"
@@ -90,10 +94,10 @@
         <span>个来源</span>
         <i>{{ expanded ? '收起' : '查看' }}</i>
       </button>
-      <span v-if="groundingMode" class="meta-pill">
+      <span v-if="hasCitations && groundingMode" class="meta-pill">
         {{ groundingLabel(groundingMode) }}
       </span>
-      <span v-if="confidence" class="meta-pill">
+      <span v-if="hasCitations && confidence" class="meta-pill">
         {{ confidenceLabel(confidence) }}
       </span>
       <span
@@ -112,7 +116,7 @@
 
     <div v-if="normalizedCitations.length" class="source-chips">
       <button
-        v-for="item in normalizedCitations.slice(0, 4)"
+        v-for="item in normalizedCitations.slice(0, 3)"
         :key="`${item.citation_id}-${item.sourceLabel}`"
         type="button"
         class="source-chip"

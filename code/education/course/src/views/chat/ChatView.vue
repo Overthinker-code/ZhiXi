@@ -160,6 +160,9 @@
   });
 
   const latestFiles = computed(() => files.value.slice(0, 6));
+  const mountedFile = computed(() =>
+    chatStore.getMountedFile(chatStore.currentConversationId)
+  );
 
   const masteryRings = computed(() => {
     const map = learningReport.value?.mastery_map || {};
@@ -269,11 +272,31 @@
   async function handleDelete(record: ReferenceFile) {
     try {
       await deleteReferenceFile(record.file_id);
+      if (mountedFile.value?.file_id === record.file_id) {
+        chatStore.setMountedFile(chatStore.currentConversationId, null);
+      }
       Message.success('资料已删除');
       await loadReferenceFiles();
     } catch (error: any) {
       Message.error(error?.message || '删除失败');
     }
+  }
+
+  function mountReferenceFile(record: ReferenceFile) {
+    chatStore.setMountedFile(chatStore.currentConversationId, {
+      file_id: record.file_id,
+      file_name: record.name,
+      name: record.name,
+      size: record.size,
+      scope: record.scope,
+      created: record.created,
+    });
+    Message.success(`已将《${record.name}》设为本对话引用文件`);
+  }
+
+  function clearMountedFile() {
+    chatStore.setMountedFile(chatStore.currentConversationId, null);
+    Message.success('已取消本对话引用文件');
   }
 
   const columns = [
@@ -300,22 +323,38 @@
       title: '操作',
       dataIndex: 'actions',
       render: ({ record }: { record: ReferenceFile }) => {
-        if (!record.can_manage) return '-';
-        return h(
-          resolveComponent('a-popconfirm'),
-          {
-            content: `删除 ${record.name}?`,
-            onOk: () => handleDelete(record),
-          },
-          {
-            default: () =>
-              h(
-                resolveComponent('a-button'),
-                { type: 'text', status: 'danger' },
-                { default: () => '删除' }
-              ),
-          }
-        );
+        const isMounted = mountedFile.value?.file_id === record.file_id;
+        const actions = [
+          h(
+            resolveComponent('a-button'),
+            {
+              type: isMounted ? 'primary' : 'text',
+              size: 'mini',
+              onClick: () => (isMounted ? clearMountedFile() : mountReferenceFile(record)),
+            },
+            { default: () => (isMounted ? '已引用' : '设为引用') }
+          ),
+        ];
+        if (record.can_manage) {
+          actions.push(
+            h(
+              resolveComponent('a-popconfirm'),
+              {
+                content: `删除 ${record.name}?`,
+                onOk: () => handleDelete(record),
+              },
+              {
+                default: () =>
+                  h(
+                    resolveComponent('a-button'),
+                    { type: 'text', status: 'danger', size: 'mini' },
+                    { default: () => '删除' }
+                  ),
+              }
+            ) as any
+          );
+        }
+        return h('div', { class: 'resource-action-group' }, actions);
       },
     },
   ];
@@ -339,7 +378,10 @@
     openUploadModal();
   }
 
-  function handleUploadSuccess() {
+  function handleUploadSuccess(file?: ReferenceFile) {
+    if (file?.file_id) {
+      mountReferenceFile(file);
+    }
     filesLoaded.value = false;
     loadReferenceFiles();
   }
@@ -442,6 +484,13 @@
             上传资料
           </a-button>
         </div>
+        <div v-if="mountedFile" class="mounted-file-card">
+          <div>
+            <span>本对话引用文件</span>
+            <strong>{{ mountedFile.file_name || mountedFile.name }}</strong>
+          </div>
+          <a-button size="small" @click="clearMountedFile">取消引用</a-button>
+        </div>
         <div class="drawer-toolbar">
           <a-select
             v-model="scopeFilter"
@@ -466,7 +515,13 @@
                 {{ getScopeLabel(file.scope) }} · {{ formatBytes(file.size) }}
               </span>
             </div>
-            <small>{{ file.created ? formatDate(file.created) : '-' }}</small>
+            <button
+              type="button"
+              :class="{ active: mountedFile?.file_id === file.file_id }"
+              @click="mountedFile?.file_id === file.file_id ? clearMountedFile() : mountReferenceFile(file)"
+            >
+              {{ mountedFile?.file_id === file.file_id ? '已引用' : '引用' }}
+            </button>
           </article>
         </div>
         <a-empty v-else description="暂无资料，可先上传课程文档">
@@ -750,6 +805,37 @@
     }
   }
 
+  .mounted-file-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+    padding: 10px 12px;
+    border: 1px solid #c9d3ff;
+    border-radius: var(--zy-radius-sm);
+    background: #f4f6ff;
+
+    span,
+    strong {
+      display: block;
+    }
+
+    span {
+      color: #65738f;
+      font-size: 11px;
+    }
+
+    strong {
+      min-width: 0;
+      margin-top: 3px;
+      overflow: hidden;
+      color: #253154;
+      font-size: 13px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
   .drawer-toolbar {
     display: grid;
     grid-template-columns: 1fr auto;
@@ -766,6 +852,31 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
+  }
+
+  .file-list button {
+    flex: 0 0 auto;
+    height: 26px;
+    padding: 0 9px;
+    border: 1px solid #d7def4;
+    border-radius: 7px;
+    color: #5367f8;
+    background: #fff;
+    font-size: 11px;
+    cursor: pointer;
+
+    &.active {
+      border-color: transparent;
+      color: #fff;
+      background: #5367f8;
+    }
+  }
+
+  :deep(.resource-action-group) {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    justify-content: flex-end;
   }
 
   .file-list strong,
