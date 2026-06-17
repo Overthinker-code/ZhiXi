@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { computed, ref } from 'vue';
+  import { computed, ref, watch } from 'vue';
   import { useRoute, useRouter } from 'vue-router';
   import {
     IconBook,
@@ -35,6 +35,13 @@
   const favoriteKeys = ref(new Set<string>(['resource', 'practice', 'reader']));
 
   const categoryTabs: AgentCategory[] = ['全部智能体', '自学中心', '效率工具', '学习助手', '资料科研'];
+  const categoryCopy: Record<AgentCategory, string> = {
+    全部智能体: '覆盖资料、陪练、阅读、图谱和科研任务',
+    自学中心: '面向预习、复习和课程理解',
+    效率工具: '面向写作、公式和产物整理',
+    学习助手: '面向答疑、陪练和作业反馈',
+    资料科研: '面向资料检索、阅读和研究问题',
+  };
 
   const agentCatalog = computed(() => {
     const taskByKey = new Map(courseAgentTasks.map((task) => [task.key, task]));
@@ -48,6 +55,11 @@
         source: '课程内置',
         launch: 'resource' as AgentLaunchMode,
         estimate: '6 分钟',
+        status: '高频',
+        usage: '2,184',
+        accuracy: 94,
+        outputs: ['讲义', '练习', '思维导图', '阅读清单'],
+        workflow: ['读取课程画像', '绑定章节与薄弱点', '生成资料包', '回到图谱验证'],
         task: taskByKey.get('resource'),
       },
       {
@@ -59,6 +71,11 @@
         source: '课程内置',
         launch: 'chat' as AgentLaunchMode,
         estimate: '8 分钟',
+        status: '推荐',
+        usage: '1,372',
+        accuracy: 91,
+        outputs: ['检索式', '研究问题', '阅读框架', '引用清单'],
+        workflow: ['提炼课程主题', '生成检索策略', '拆分阅读任务', '形成资料证据'],
         task: taskByKey.get('research'),
       },
       {
@@ -70,6 +87,11 @@
         source: '课程内置',
         launch: 'chat' as AgentLaunchMode,
         estimate: '8 分钟',
+        status: '高频',
+        usage: '3,016',
+        accuracy: 93,
+        outputs: ['梯度题', '提示', '错因', '追练'],
+        workflow: ['定位薄弱点', '生成分层题', '等待作答', '给出追练路径'],
         task: taskByKey.get('quiz'),
       },
       {
@@ -81,6 +103,11 @@
         source: '资料增强',
         launch: 'chat' as AgentLaunchMode,
         estimate: '5 分钟',
+        status: '精选',
+        usage: '1,948',
+        accuracy: 92,
+        outputs: ['摘要', '问题清单', '引用依据', '导图'],
+        workflow: ['识别资料结构', '抽取关键段落', '生成阅读问题', '沉淀可追溯摘要'],
         task: taskByKey.get('resource'),
       },
       {
@@ -92,6 +119,11 @@
         source: '写作工具',
         launch: 'resource' as AgentLaunchMode,
         estimate: '7 分钟',
+        status: '新',
+        usage: '846',
+        accuracy: 89,
+        outputs: ['报告', '复盘', '讨论稿', '实验说明'],
+        workflow: ['确定写作目标', '读取课程证据', '生成结构草稿', '输出可下载文档'],
         task: taskByKey.get('review'),
       },
       {
@@ -103,6 +135,11 @@
         source: '图谱类',
         launch: 'graph' as AgentLaunchMode,
         estimate: '即时',
+        status: '高频',
+        usage: '2,637',
+        accuracy: 95,
+        outputs: ['知识图谱', '问题图谱', '能力路径', '资料关系'],
+        workflow: ['汇总章节节点', '映射资源与任务', '高亮薄弱路径', '启动图谱伴学'],
         task: taskByKey.get('map'),
       },
       {
@@ -114,6 +151,11 @@
         source: '多模态',
         launch: 'chat' as AgentLaunchMode,
         estimate: '7 分钟',
+        status: '多模态',
+        usage: '713',
+        accuracy: 87,
+        outputs: ['讲解结构', '关键帧', '复习点', '疑问清单'],
+        workflow: ['接收视频线索', '提炼讲解层级', '标记关键节点', '生成复习动作'],
         task: taskByKey.get('video'),
       },
       {
@@ -125,6 +167,11 @@
         source: '学习工具',
         launch: 'chat' as AgentLaunchMode,
         estimate: '5 分钟',
+        status: '工具',
+        usage: '1,106',
+        accuracy: 90,
+        outputs: ['LaTeX', '符号解释', '推导步骤', '适用条件'],
+        workflow: ['识别公式结构', '标准化排版', '解释符号含义', '关联题目场景'],
         task: taskByKey.get('formula'),
       },
       {
@@ -136,7 +183,60 @@
         source: '评价类',
         launch: 'chat' as AgentLaunchMode,
         estimate: '4 分钟',
+        status: '评价',
+        usage: '1,562',
+        accuracy: 92,
+        outputs: ['评分点', '错因', '订正步骤', '掌握度'],
+        workflow: ['读取题目与答案', '匹配评分点', '定位错因', '生成订正计划'],
         task: taskByKey.get('grade'),
+      },
+      {
+        key: 'planner',
+        title: '学习规划师',
+        category: '自学中心' as AgentCategory,
+        desc: '把课程进度、图谱薄弱点和近期任务合成可执行的每日学习计划。',
+        icon: IconStar,
+        source: '规划类',
+        launch: 'chat' as AgentLaunchMode,
+        estimate: '3 分钟',
+        status: '推荐',
+        usage: '2,041',
+        accuracy: 93,
+        outputs: ['学习日程', '优先级', '检查点', '复盘提示'],
+        workflow: ['读取当前进度', '排序薄弱节点', '安排每日任务', '设置复盘检查'],
+        task: taskByKey.get('project'),
+      },
+      {
+        key: 'checker',
+        title: '作业查重',
+        category: '效率工具' as AgentCategory,
+        desc: '对照课程资料、作业要求和参考结构，生成相似片段与改写建议。',
+        icon: IconSearch,
+        source: '审查类',
+        launch: 'chat' as AgentLaunchMode,
+        estimate: '6 分钟',
+        status: '审查',
+        usage: '624',
+        accuracy: 88,
+        outputs: ['相似片段', '风险等级', '改写建议', '引用提醒'],
+        workflow: ['读取作业文本', '比对课程资料', '标记相似风险', '给出改写路径'],
+        task: taskByKey.get('grade'),
+      },
+      {
+        key: 'translator',
+        title: '术语翻译',
+        category: '效率工具' as AgentCategory,
+        desc: '围绕课程术语提供中英互译、定义解释和上下文用法，避免直译误差。',
+        icon: IconBook,
+        source: '语言工具',
+        launch: 'chat' as AgentLaunchMode,
+        estimate: '2 分钟',
+        status: '工具',
+        usage: '932',
+        accuracy: 91,
+        outputs: ['术语表', '双语解释', '例句', '易混提醒'],
+        workflow: ['提取术语', '匹配课程语境', '给出双语解释', '补充例句与误区'],
+        task: taskByKey.get('explain'),
       },
     ];
   });
@@ -166,6 +266,8 @@
     agentCatalog.value.filter((agent) => favoriteKeys.value.has(agent.key))
   );
 
+  const highlightedAgents = computed(() => agentCatalog.value.filter((agent) => agent.status === '高频').slice(0, 3));
+
   const categoryStats = computed(() =>
     categoryTabs.map((category) => ({
       category,
@@ -173,8 +275,21 @@
         category === '全部智能体'
           ? agentCatalog.value.length
           : agentCatalog.value.filter((agent) => agent.category === category).length,
+      desc: categoryCopy[category],
     }))
   );
+
+  const hubStats = computed(() => [
+    { label: '可用智能体', value: `${agentCatalog.value.length}` },
+    { label: '课程进度', value: `${course.value?.progress || 0}%` },
+    { label: '已收藏', value: `${favoriteAgents.value.length}` },
+  ]);
+
+  const launchLabel = computed(() => {
+    if (selectedAgent.value?.launch === 'resource') return '生成学习资料';
+    if (selectedAgent.value?.launch === 'graph') return '进入课程图谱';
+    return '开始对话执行';
+  });
 
   function selectAgent(key: string) {
     selectedAgentKey.value = key;
@@ -227,13 +342,14 @@
 
   function openResourceGenerator(agent = selectedAgent.value) {
     if (!course.value || !agent) return;
+    const normalizedDesc = agent.desc.replace(/[。.!！?？]+$/u, '');
     router.push({
       name: 'StudentCourseResourceGenerator',
       params: { courseId: course.value.id },
       query: {
         subject: course.value.title,
         topic: agent.title,
-        goal: `${agent.desc}。请结合当前课程章节、课堂笔记、知识图谱和学习进度生成可下载资料。`,
+        goal: `${normalizedDesc}。请结合当前课程章节、课堂笔记、知识图谱和学习进度生成可下载资料。`,
         source: 'course-agent',
         task: agent.key,
       },
@@ -250,140 +366,194 @@
     navigator.clipboard?.writeText(`${agent.title}：${agent.desc}`).catch(() => null);
     Message.success('已复制智能体说明');
   }
+
+  watch([activeCategory, keyword], () => {
+    const agents = filteredAgents.value;
+    if (agents.length && !agents.some((agent) => agent.key === selectedAgentKey.value)) {
+      selectedAgentKey.value = agents[0].key;
+    }
+  });
 </script>
 
 <template>
   <section v-if="course" class="agent-hub">
-    <header class="hub-top">
-      <div class="hub-title">
-        <span><icon-robot /> AI智能体</span>
-        <h1>课程智能体中心</h1>
-        <p>围绕当前课程提供资料生成、知识图谱、陪练答疑、科研阅读和学习规划。</p>
-      </div>
-      <label class="hub-search">
-        <icon-search />
-        <input v-model="keyword" type="search" placeholder="搜索智能体、资料或知识点" />
-      </label>
-    </header>
+    <div class="hub-shell">
+      <header class="hub-top">
+        <div class="hub-title">
+          <span><icon-robot /> AI智能体</span>
+          <h1>{{ course.shortTitle }}智能体中心</h1>
+          <p>把资料、阅读、陪练、图谱和科研任务集中到可直接执行的课程 Agent 工作台。</p>
+        </div>
+        <label class="hub-search">
+          <icon-search />
+          <input v-model="keyword" type="search" placeholder="搜索智能体、资料或知识点" />
+        </label>
+      </header>
 
-    <nav class="category-tabs" aria-label="AI智能体分类">
-      <button
-        v-for="item in categoryStats"
-        :key="item.category"
-        type="button"
-        :class="{ active: activeCategory === item.category }"
-        @click="activeCategory = item.category"
-      >
-        <span>{{ item.category }}</span>
-        <small>{{ item.count }}</small>
-      </button>
-    </nav>
-
-    <div class="hub-layout">
-      <main class="agent-market">
-        <section v-if="favoriteAgents.length" class="quick-row">
-          <div class="section-heading">
-            <strong><icon-star /> 常用智能体</strong>
-            <span>收藏后可直接从这里启动</span>
-          </div>
-          <div class="quick-list">
-            <button
-              v-for="agent in favoriteAgents"
-              :key="agent.key"
-              type="button"
-              @click="launchAgent(agent)"
-            >
-              <component :is="agent.icon" />
-              <span>{{ agent.title }}</span>
-            </button>
-          </div>
-        </section>
-
-        <section class="agent-section">
-          <div class="section-heading">
-            <strong>{{ activeCategory }}</strong>
-            <span>{{ filteredAgents.length }} 个可用智能体</span>
-          </div>
-
-          <div class="agent-grid">
-            <article
-              v-for="agent in filteredAgents"
-              :key="agent.key"
-              class="agent-card"
-              :class="{ active: selectedAgent?.key === agent.key }"
-            >
-              <button type="button" class="agent-main" @click="selectAgent(agent.key)">
-                <span class="agent-icon"><component :is="agent.icon" /></span>
-                <span class="agent-copy">
-                  <strong>{{ agent.title }}</strong>
-                  <small>{{ agent.desc }}</small>
-                </span>
-              </button>
-              <div class="agent-meta">
-                <span>{{ agent.category }}</span>
-                <span>{{ agent.source }}</span>
-                <span>{{ agent.estimate }}</span>
-              </div>
-              <div class="agent-actions">
-                <button type="button" class="launch-btn" @click="launchAgent(agent)">
-                  <icon-play-arrow-fill /> 即用
-                </button>
-                <button type="button" @click="openResourceGenerator(agent)">
-                  <icon-storage /> 资料
-                </button>
-                <button
-                  type="button"
-                  class="favorite-btn"
-                  :aria-label="favoriteKeys.has(agent.key) ? '取消收藏' : '收藏智能体'"
-                  @click="toggleFavorite(agent.key)"
-                >
-                  <icon-heart-fill v-if="favoriteKeys.has(agent.key)" />
-                  <icon-heart v-else />
-                </button>
-              </div>
-            </article>
-          </div>
-        </section>
-      </main>
-
-      <aside class="agent-panel">
-        <section class="selected-agent">
-          <span>当前智能体</span>
-          <div class="selected-head">
-            <span class="agent-icon agent-icon--large">
-              <component :is="selectedAgent?.icon" />
-            </span>
-            <div>
-              <h2>{{ selectedAgent?.title }}</h2>
-              <p>{{ selectedAgent?.desc }}</p>
-            </div>
-          </div>
-          <div class="selected-actions">
-            <button type="button" class="primary" @click="launchAgent()">
-              <icon-robot /> 启动智能体
-            </button>
-            <button type="button" @click="openResourceGenerator()">
-              <icon-storage /> 生成资料
-            </button>
-            <button type="button" @click="openKnowledgeCenter">
-              <icon-mind-mapping /> 课程图谱
-            </button>
-          </div>
-        </section>
-
-        <section class="course-context">
-          <strong>课程上下文</strong>
-          <p>{{ course.description }}</p>
-          <div class="context-tags">
-            <span v-for="concept in course.concepts" :key="concept.title">
-              {{ concept.title }}
-            </span>
-          </div>
-          <button type="button" @click="copyAgent()">
-            复制智能体说明
+      <section class="hub-overview">
+        <article v-for="item in hubStats" :key="item.label">
+          <span>{{ item.label }}</span>
+          <strong>{{ item.value }}</strong>
+        </article>
+        <div class="spotlight-strip">
+          <span>高频推荐</span>
+          <button
+            v-for="agent in highlightedAgents"
+            :key="agent.key"
+            type="button"
+            @click="launchAgent(agent)"
+          >
+            <component :is="agent.icon" />
+            {{ agent.title }}
           </button>
-        </section>
-      </aside>
+        </div>
+      </section>
+
+      <nav class="category-tabs" aria-label="AI智能体分类">
+        <button
+          v-for="item in categoryStats"
+          :key="item.category"
+          type="button"
+          :class="{ active: activeCategory === item.category }"
+          @click="activeCategory = item.category"
+        >
+          <span>{{ item.category }}</span>
+          <small>{{ item.count }} 个 · {{ item.desc }}</small>
+        </button>
+      </nav>
+
+      <div class="hub-layout">
+        <main class="agent-market">
+          <section v-if="favoriteAgents.length" class="quick-row">
+            <div class="section-heading">
+              <strong><icon-star /> 我的收藏</strong>
+              <span>常用智能体可直接启动</span>
+            </div>
+            <div class="quick-list">
+              <button
+                v-for="agent in favoriteAgents"
+                :key="agent.key"
+                type="button"
+                @click="launchAgent(agent)"
+              >
+                <component :is="agent.icon" />
+                <span>{{ agent.title }}</span>
+              </button>
+            </div>
+          </section>
+
+          <section class="agent-section">
+            <div class="section-heading">
+              <strong>{{ activeCategory }}</strong>
+              <span>{{ filteredAgents.length }} 个可用智能体</span>
+            </div>
+
+            <div v-if="filteredAgents.length" class="agent-grid">
+              <article
+                v-for="agent in filteredAgents"
+                :key="agent.key"
+                class="agent-card"
+                :class="{ active: selectedAgent?.key === agent.key }"
+              >
+                <button type="button" class="agent-main" @click="selectAgent(agent.key)">
+                  <span class="agent-icon"><component :is="agent.icon" /></span>
+                  <span class="agent-copy">
+                    <span class="agent-status">{{ agent.status }}</span>
+                    <strong>{{ agent.title }}</strong>
+                    <small>{{ agent.desc }}</small>
+                  </span>
+                </button>
+                <div class="agent-meta">
+                  <span>{{ agent.category }}</span>
+                  <span>{{ agent.source }}</span>
+                  <span>{{ agent.estimate }}</span>
+                  <span>{{ agent.accuracy }}% 匹配</span>
+                </div>
+                <div class="output-list">
+                  <em v-for="item in agent.outputs.slice(0, 4)" :key="`${agent.key}-${item}`">
+                    {{ item }}
+                  </em>
+                </div>
+                <div class="agent-actions">
+                  <button type="button" class="launch-btn" @click="launchAgent(agent)">
+                    <icon-play-arrow-fill /> 即用
+                  </button>
+                  <button type="button" @click="openResourceGenerator(agent)">
+                    <icon-storage /> 资料
+                  </button>
+                  <button
+                    type="button"
+                    class="favorite-btn"
+                    :aria-label="favoriteKeys.has(agent.key) ? '取消收藏' : '收藏智能体'"
+                    @click="toggleFavorite(agent.key)"
+                  >
+                    <icon-heart-fill v-if="favoriteKeys.has(agent.key)" />
+                    <icon-heart v-else />
+                  </button>
+                </div>
+              </article>
+            </div>
+            <div v-else class="empty-agents">
+              <icon-search />
+              <strong>没有匹配的智能体</strong>
+              <p>换一个关键词，或切回“全部智能体”查看课程可用能力。</p>
+              <button type="button" @click="activeCategory = '全部智能体'; keyword = ''">查看全部智能体</button>
+            </div>
+          </section>
+        </main>
+
+        <aside class="agent-panel">
+          <section class="selected-agent">
+            <div class="panel-kicker">Selected Agent</div>
+            <div class="selected-head">
+              <span class="agent-icon agent-icon--large">
+                <component :is="selectedAgent?.icon" />
+              </span>
+              <div>
+                <h2>{{ selectedAgent?.title }}</h2>
+                <p>{{ selectedAgent?.desc }}</p>
+              </div>
+            </div>
+            <div class="confidence-row">
+              <span>课程匹配度</span>
+              <strong>{{ selectedAgent?.accuracy }}%</strong>
+              <i :style="{ width: `${selectedAgent?.accuracy || 0}%` }"></i>
+            </div>
+            <div class="selected-actions">
+              <button type="button" class="primary" @click="launchAgent()">
+                <icon-robot /> {{ launchLabel }}
+              </button>
+              <button type="button" @click="openResourceGenerator()">
+                <icon-storage /> 生成资料
+              </button>
+              <button type="button" @click="openKnowledgeCenter">
+                <icon-mind-mapping /> 课程图谱
+              </button>
+            </div>
+          </section>
+
+          <section class="agent-flow">
+            <strong>执行流</strong>
+            <ol>
+              <li v-for="(step, index) in selectedAgent?.workflow || []" :key="step">
+                <span>{{ index + 1 }}</span>
+                <p>{{ step }}</p>
+              </li>
+            </ol>
+          </section>
+
+          <section class="course-context">
+            <strong>课程上下文</strong>
+            <p>{{ course.description }}</p>
+            <div class="context-tags">
+              <span v-for="concept in course.concepts" :key="concept.title">
+                {{ concept.title }}
+              </span>
+            </div>
+            <button type="button" @click="copyAgent()">复制智能体说明</button>
+          </section>
+        </aside>
+      </div>
     </div>
   </section>
 </template>
@@ -394,12 +564,23 @@
     color: #172033;
   }
 
+  .hub-shell {
+    padding: 24px;
+    border: 1px solid #e7edf7;
+    border-radius: 30px;
+    background:
+      radial-gradient(circle at 6% 0%, rgba(65, 125, 246, 0.13), transparent 32%),
+      radial-gradient(circle at 94% 0%, rgba(95, 205, 184, 0.12), transparent 30%),
+      linear-gradient(180deg, #fbfdff, #f4f8fc);
+    box-shadow: 0 24px 62px rgba(31, 45, 83, 0.08);
+  }
+
   .hub-top {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 20px;
-    padding: 4px 2px 18px;
+    padding: 2px 2px 18px;
   }
 
   .hub-title {
@@ -407,18 +588,21 @@
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      padding: 7px 13px;
+      padding: 10px 18px;
+      border: 4px solid rgba(255, 255, 255, 0.88);
       border-radius: 999px;
-      background: #2563eb;
       color: #fff;
-      font-size: 13px;
+      background: linear-gradient(135deg, #3677f7, #4f63ef);
+      font-size: 17px;
       font-weight: 800;
-      box-shadow: 0 8px 18px rgba(37, 99, 235, 0.18);
+      box-shadow: 0 12px 24px rgba(56, 104, 235, 0.22);
     }
 
     h1 {
-      margin: 12px 0 5px;
+      margin: 14px 0 5px;
+      color: #121c31;
       font-size: 30px;
+      font-weight: 900;
       letter-spacing: 0;
     }
 
@@ -430,17 +614,17 @@
   }
 
   .hub-search {
-    width: min(360px, 38vw);
-    height: 44px;
+    width: min(390px, 38vw);
+    height: 46px;
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 0 15px;
-    border: 1px solid #e2e7f0;
+    padding: 0 17px;
+    border: 1px solid #e5ebf5;
     border-radius: 999px;
-    background: #fff;
+    background: rgba(255, 255, 255, 0.92);
     color: #8b96aa;
-    box-shadow: 0 8px 24px rgba(37, 51, 91, 0.06);
+    box-shadow: 0 10px 28px rgba(37, 51, 91, 0.07);
 
     input {
       min-width: 0;
@@ -453,40 +637,124 @@
     }
   }
 
-  .category-tabs {
+  .hub-overview {
+    display: grid;
+    grid-template-columns: repeat(3, 118px) minmax(0, 1fr);
+    gap: 12px;
+    margin-bottom: 16px;
+
+    article,
+    .spotlight-strip {
+      min-width: 0;
+      border: 1px solid #e7edf6;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.86);
+      box-shadow: 0 10px 24px rgba(35, 48, 82, 0.05);
+    }
+
+    article {
+      padding: 13px 15px;
+
+      span,
+      strong {
+        display: block;
+      }
+
+      span {
+        color: #7b8799;
+        font-size: 12px;
+      }
+
+      strong {
+        margin-top: 6px;
+        color: #172033;
+        font-size: 22px;
+      }
+    }
+  }
+
+  .spotlight-strip {
     display: flex;
-    gap: 26px;
-    padding: 0 24px;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 9px;
+    padding: 12px;
+
+    > span {
+      color: #647086;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    button {
+      height: 34px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0 12px;
+      border: 1px solid #dce6f5;
+      border-radius: 999px;
+      color: #315181;
+      background: #f8fbff;
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+
+      &:hover {
+        border-color: #bfd3ff;
+        color: #2f68df;
+        background: #eef5ff;
+      }
+    }
+  }
+
+  .category-tabs {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0;
+    padding: 0;
     border: 1px solid #e8edf5;
-    border-radius: 18px 18px 0 0;
-    background: #fff;
+    border-radius: 22px 22px 0 0;
+    background: rgba(255, 255, 255, 0.94);
+    overflow: hidden;
 
     button {
       position: relative;
-      height: 68px;
+      min-width: 0;
+      min-height: 72px;
       display: inline-flex;
+      flex-direction: column;
       align-items: center;
-      gap: 8px;
+      justify-content: center;
+      gap: 5px;
+      padding: 0 12px;
       border: 0;
+      border-right: 1px solid #eef2f8;
       color: #596275;
       background: transparent;
-      font-size: 16px;
+      font-size: 15px;
       font-weight: 700;
       cursor: pointer;
+
+      &:last-child {
+        border-right: 0;
+      }
 
       &::after {
         content: '';
         position: absolute;
-        left: 0;
-        right: 0;
+        left: 50%;
         bottom: 0;
+        width: 34px;
         height: 4px;
+        transform: translateX(-50%);
         border-radius: 999px 999px 0 0;
         background: transparent;
       }
 
       &.active {
         color: #111827;
+        background: #fff;
 
         &::after {
           background: #3b82f6;
@@ -494,21 +762,26 @@
       }
 
       small {
+        max-width: 100%;
+        overflow: hidden;
         color: #94a3b8;
-        font-size: 12px;
+        font-size: 11px;
+        font-weight: 600;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
     }
   }
 
   .hub-layout {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 310px;
-    gap: 16px;
-    padding: 22px;
+    grid-template-columns: minmax(0, 1fr) 330px;
+    gap: 18px;
+    padding: 18px;
     border: 1px solid #e8edf5;
     border-top: 0;
-    border-radius: 0 0 18px 18px;
-    background: #fff;
+    border-radius: 0 0 22px 22px;
+    background: rgba(255, 255, 255, 0.96);
   }
 
   .agent-market {
@@ -519,13 +792,14 @@
   .agent-section,
   .agent-panel section {
     border: 1px solid #e7ecf4;
-    border-radius: 12px;
+    border-radius: 18px;
     background: #fff;
+    box-shadow: 0 12px 28px rgba(42, 56, 90, 0.055);
   }
 
   .quick-row {
-    padding: 14px;
-    margin-bottom: 14px;
+    padding: 16px;
+    margin-bottom: 16px;
   }
 
   .section-heading {
@@ -540,7 +814,7 @@
       align-items: center;
       gap: 7px;
       color: #202b42;
-      font-size: 15px;
+      font-size: 16px;
     }
 
     span {
@@ -555,51 +829,98 @@
     gap: 10px;
 
     button {
-      height: 36px;
+      height: 38px;
       display: inline-flex;
       align-items: center;
       gap: 7px;
-      padding: 0 12px;
+      padding: 0 13px;
       border: 1px solid #dce5f5;
-      border-radius: 10px;
+      border-radius: 12px;
       color: #315181;
       background: #f8fbff;
+      font-size: 12px;
+      font-weight: 800;
       cursor: pointer;
     }
   }
 
   .agent-section {
-    padding: 14px;
+    padding: 16px;
   }
 
   .agent-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 14px;
+  }
+
+  .empty-agents {
+    min-height: 260px;
+    display: grid;
+    place-items: center;
+    align-content: center;
+    gap: 10px;
+    padding: 32px;
+    border: 1px dashed #cfd9ea;
+    border-radius: 18px;
+    color: #7a879b;
+    background: #fbfdff;
+    text-align: center;
+
+    svg {
+      color: #3b82f6;
+      font-size: 28px;
+    }
+
+    strong {
+      color: #172033;
+      font-size: 17px;
+    }
+
+    p {
+      margin: 0;
+      font-size: 13px;
+    }
+
+    button {
+      height: 34px;
+      padding: 0 13px;
+      border: 1px solid #bfd3ff;
+      border-radius: 10px;
+      color: #2f68df;
+      background: #eef5ff;
+      font-weight: 800;
+      cursor: pointer;
+    }
   }
 
   .agent-card {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    min-height: 190px;
+    gap: 13px;
+    min-height: 238px;
     padding: 16px;
     border: 1px solid #e5ebf3;
-    border-radius: 12px;
-    background: #fff;
-    transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+    border-radius: 18px;
+    background:
+      linear-gradient(180deg, rgba(248, 251, 255, 0.96), #fff 42%),
+      #fff;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease, background 0.18s ease;
 
     &.active,
     &:hover {
       border-color: #bcd0ff;
-      box-shadow: 0 16px 34px rgba(39, 65, 121, 0.1);
+      background:
+        linear-gradient(180deg, rgba(239, 246, 255, 0.98), #fff 48%),
+        #fff;
+      box-shadow: 0 18px 38px rgba(39, 65, 121, 0.11);
       transform: translateY(-2px);
     }
   }
 
   .agent-main {
     display: grid;
-    grid-template-columns: 58px minmax(0, 1fr);
+    grid-template-columns: 60px minmax(0, 1fr);
     gap: 14px;
     align-items: flex-start;
     padding: 0;
@@ -613,29 +934,42 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 58px;
-    height: 58px;
-    border: 1px solid #dfe6f2;
-    border-radius: 14px;
+    width: 60px;
+    height: 60px;
+    border: 1px solid #dfe7f3;
+    border-radius: 16px;
     color: #3b82f6;
-    background: linear-gradient(145deg, #f8fbff, #edf6ff);
+    background:
+      linear-gradient(145deg, #f8fbff, #edf6ff);
     font-size: 26px;
 
     &--large {
-      width: 64px;
-      height: 64px;
+      width: 66px;
+      height: 66px;
       flex-shrink: 0;
     }
   }
 
   .agent-copy {
+    .agent-status,
     strong,
     small {
       display: block;
     }
 
+    .agent-status {
+      width: fit-content;
+      margin-bottom: 7px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      color: #2f68df;
+      background: #edf4ff;
+      font-size: 10px;
+      font-weight: 900;
+    }
+
     strong {
-      margin: 4px 0 8px;
+      margin: 0 0 8px;
       color: #111827;
       font-size: 18px;
     }
@@ -648,7 +982,8 @@
   }
 
   .agent-meta,
-  .agent-actions {
+  .agent-actions,
+  .output-list {
     display: flex;
     flex-wrap: wrap;
     gap: 7px;
@@ -666,17 +1001,33 @@
     }
   }
 
+  .output-list {
+    em {
+      padding: 5px 8px;
+      border-radius: 9px;
+      color: #25744d;
+      background: #effaf4;
+      font-size: 11px;
+      font-style: normal;
+      line-height: 1.3;
+    }
+  }
+
   .agent-actions {
+    margin-top: auto;
+
     button {
-      height: 32px;
+      height: 34px;
       display: inline-flex;
       align-items: center;
       gap: 5px;
-      padding: 0 10px;
+      padding: 0 11px;
       border: 1px solid #dfe6f2;
-      border-radius: 9px;
+      border-radius: 10px;
       color: #36506f;
       background: #fff;
+      font-size: 12px;
+      font-weight: 800;
       cursor: pointer;
 
       &.launch-btn {
@@ -701,14 +1052,17 @@
   }
 
   .selected-agent,
-  .course-context {
+  .course-context,
+  .agent-flow {
     padding: 16px;
   }
 
-  .selected-agent > span {
+  .panel-kicker {
     color: #2563eb;
     font-size: 11px;
     font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
   }
 
   .selected-head {
@@ -727,6 +1081,42 @@
       color: #657286;
       font-size: 13px;
       line-height: 1.55;
+    }
+  }
+
+  .confidence-row {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    margin-bottom: 14px;
+    padding-bottom: 12px;
+    color: #68758a;
+    font-size: 12px;
+
+    strong {
+      color: #2563eb;
+    }
+
+    &::before,
+    i {
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      height: 5px;
+      border-radius: 999px;
+      content: '';
+    }
+
+    &::before {
+      background: #edf2f8;
+    }
+
+    i {
+      right: auto;
+      display: block;
+      background: linear-gradient(90deg, #3677f7, #64c8a2);
     }
   }
 
@@ -749,8 +1139,50 @@
       &.primary {
         border-color: transparent;
         color: #fff;
-        background: #2563eb;
+        background: #4468f2;
+        box-shadow: 0 10px 20px rgba(68, 104, 242, 0.18);
       }
+    }
+  }
+
+  .agent-flow {
+    strong {
+      color: #172033;
+      font-size: 15px;
+    }
+
+    ol {
+      display: grid;
+      gap: 10px;
+      margin: 12px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    li {
+      display: grid;
+      grid-template-columns: 26px minmax(0, 1fr);
+      gap: 9px;
+      align-items: start;
+    }
+
+    li span {
+      width: 24px;
+      height: 24px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      color: #2f68df;
+      background: #eef4ff;
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    p {
+      margin: 2px 0 0;
+      color: #68758a;
+      font-size: 12px;
+      line-height: 1.55;
     }
   }
 
@@ -793,16 +1225,25 @@
   }
 
   @media (max-width: 1180px) {
-    .hub-layout {
-      grid-template-columns: 1fr;
+    .hub-overview {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+
+      .spotlight-strip {
+        grid-column: 1 / -1;
+      }
     }
 
-    .agent-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+    .hub-layout {
+      grid-template-columns: 1fr;
     }
   }
 
   @media (max-width: 760px) {
+    .hub-shell {
+      padding: 14px;
+      border-radius: 22px;
+    }
+
     .hub-top,
     .category-tabs {
       align-items: stretch;
@@ -814,20 +1255,24 @@
     }
 
     .category-tabs {
+      display: flex;
       gap: 6px;
       padding: 10px;
+      border-radius: 18px 18px 0 0;
 
       button {
-        height: 40px;
+        min-height: 52px;
+        border-right: 0;
       }
+    }
+
+    .hub-overview,
+    .agent-grid {
+      grid-template-columns: 1fr;
     }
 
     .hub-layout {
       padding: 12px;
-    }
-
-    .agent-grid {
-      grid-template-columns: 1fr;
     }
   }
 </style>
