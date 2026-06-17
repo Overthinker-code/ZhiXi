@@ -29,6 +29,9 @@
   const showResourceLinks = ref(true);
   const showLearningPath = ref(true);
   const canvasZoom = ref(1.08);
+  const canvasPan = ref({ x: 0, y: 0 });
+  const isPanning = ref(false);
+  const panStart = ref({ pointerX: 0, pointerY: 0, x: 0, y: 0 });
 
   const course = computed(() => getClassroomCourse(String(route.params.courseId || '')));
   const maps = computed(() => (course.value ? buildCourseKnowledgeMaps(course.value) : []));
@@ -97,6 +100,36 @@
   const selectedNodeOutcomes = computed(() => selectedNode.value?.outcomes?.slice(0, 3) || []);
   const selectedNodeMisconceptions = computed(() => selectedNode.value?.misconceptions?.slice(0, 3) || []);
   const selectedNodeResources = computed(() => selectedNode.value?.resources?.slice(0, 4) || []);
+  const canvasTransform = computed(
+    () => `translate(${canvasPan.value.x}px, ${canvasPan.value.y}px) scale(${canvasZoom.value})`
+  );
+  const graphStats = computed(() => [
+    { label: '节点', value: String(visibleNodes.value.length) },
+    { label: '关系', value: String(visibleLinks.value.length) },
+    { label: '掌握度', value: `${course.value?.progress || 0}%` },
+  ]);
+  const lowMasteryNodes = computed(() =>
+    [...visibleNodes.value]
+      .filter((node) => node.weight < 4)
+      .sort((a, b) => (a.mastery ?? course.value?.progress ?? 0) - (b.mastery ?? course.value?.progress ?? 0))
+      .slice(0, 4)
+  );
+  const relationSummary = computed(() =>
+    relationTypes.value.map((relation) => ({
+      relation,
+      count:
+        relation === '全部'
+          ? visibleLinks.value.length
+          : visibleLinks.value.filter((link) => link.relation === relation).length,
+    }))
+  );
+  const selectedRelationTags = computed(() =>
+    selectedLinks.value.slice(0, 3).map((link) => {
+      const neighborId = link.source === selectedNode.value?.id ? link.target : link.source;
+      const neighbor = activeMap.value?.nodes.find((item) => item.id === neighborId);
+      return `${link.relation} · ${neighbor?.label || '相邻节点'}`;
+    })
+  );
   const guidedLearningPath = computed(() => {
     const node = selectedNode.value;
     if (!node) return [];
@@ -130,24 +163,31 @@
   );
 
   function nodeClass(node: CourseKnowledgeNode) {
+    const selected = selectedNode.value;
+    const shouldDim = Boolean(
+      selected && selected.weight < 4 && node.id !== selected.id && !selectedNeighborIds.value.has(node.id)
+    );
     return [
       `node-${node.type}`,
       `node-weight-${node.weight}`,
       {
-        selected: selectedNode.value?.id === node.id,
+        selected: selected?.id === node.id,
         related: selectedNeighborIds.value.has(node.id),
-        dimmed: selectedNode.value && !selectedNeighborIds.value.has(node.id),
+        dimmed: shouldDim,
       },
     ];
   }
 
   function linkClass(link: CourseKnowledgeMap['links'][number]) {
-    const selectedId = selectedNode.value?.id;
+    const selected = selectedNode.value;
+    const selectedId = selected?.id;
     return [
       `link-${link.relation}`,
       {
         selected: selectedId === link.source || selectedId === link.target,
-        dimmed: Boolean(selectedId && selectedId !== link.source && selectedId !== link.target),
+        dimmed: Boolean(
+          selectedId && selected?.weight !== 4 && selectedId !== link.source && selectedId !== link.target
+        ),
       },
     ];
   }
@@ -203,10 +243,14 @@
     const source = activeMap.value?.nodes.find((node) => node.id === link.source);
     const target = activeMap.value?.nodes.find((node) => node.id === link.target);
     if (!source || !target) return '';
-    const midX = (source.x + target.x) / 2;
-    const midY = (source.y + target.y) / 2;
-    const bend = Math.max(-54, Math.min(54, (target.y - source.y) * 0.18));
-    return `M ${source.x} ${source.y} Q ${midX} ${midY - bend}, ${target.x} ${target.y}`;
+    const dx = target.x - source.x;
+    const dy = target.y - source.y;
+    const pull = Math.max(50, Math.min(118, Math.abs(dx) * 0.22 + Math.abs(dy) * 0.14));
+    const c1x = source.x + dx * 0.34;
+    const c2x = target.x - dx * 0.34;
+    const c1y = source.y + dy * 0.16 - pull * Math.sign(dx || 1) * 0.12;
+    const c2y = target.y - dy * 0.16 + pull * Math.sign(dx || 1) * 0.12;
+    return `M ${source.x} ${source.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${target.x} ${target.y}`;
   }
 
   function shortNodeLabel(label: string, limit = 9) {
@@ -215,6 +259,12 @@
 
   function selectNode(node: CourseKnowledgeNode) {
     selectedNodeId.value = node.id;
+  }
+
+  function selectMap(type: CourseKnowledgeMapType) {
+    activeType.value = type;
+    activeRelation.value = '全部';
+    canvasPan.value = { x: 0, y: 0 };
   }
 
   function selectBranch(index: number) {
@@ -226,6 +276,37 @@
 
   function changeZoom(delta: number) {
     canvasZoom.value = Math.min(1.58, Math.max(0.78, Number((canvasZoom.value + delta).toFixed(2))));
+  }
+
+  function resetCanvas() {
+    canvasZoom.value = 1.08;
+    canvasPan.value = { x: 0, y: 0 };
+  }
+
+  function beginCanvasPan(event: PointerEvent) {
+    if ((event.target as Element | null)?.closest?.('.graph-node')) return;
+    isPanning.value = true;
+    panStart.value = {
+      pointerX: event.clientX,
+      pointerY: event.clientY,
+      x: canvasPan.value.x,
+      y: canvasPan.value.y,
+    };
+    (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
+  }
+
+  function moveCanvasPan(event: PointerEvent) {
+    if (!isPanning.value) return;
+    canvasPan.value = {
+      x: panStart.value.x + event.clientX - panStart.value.pointerX,
+      y: panStart.value.y + event.clientY - panStart.value.pointerY,
+    };
+  }
+
+  function endCanvasPan(event: PointerEvent) {
+    if (!isPanning.value) return;
+    isPanning.value = false;
+    (event.currentTarget as HTMLElement).releasePointerCapture?.(event.pointerId);
   }
 
   function askGraphAgent(action: string) {
@@ -276,6 +357,13 @@
       selectedNodeId.value = map.nodes[0]?.id || 'course-root';
     }
   });
+
+  watch([visibleNodes, visibleLinks], ([nodes]) => {
+    if (!nodes.length) return;
+    if (!nodes.some((node) => node.id === selectedNodeId.value)) {
+      selectedNodeId.value = nodes[0].id;
+    }
+  });
 </script>
 
 <template>
@@ -303,280 +391,343 @@
         </div>
       </header>
 
-      <nav class="graph-tabs" aria-label="图谱分类">
-        <button
-          v-for="item in maps"
-          :key="item.type"
-          type="button"
-          :class="{ active: activeType === item.type }"
-          @click="activeType = item.type"
-        >
-          <span>{{ item.title }}</span>
-          <em>{{ item.nodes.length }} 节点</em>
-        </button>
-      </nav>
+      <div class="graph-workbench-grid">
+        <aside class="map-catalog">
+          <section class="catalog-card catalog-intro">
+            <span>KNOWLEDGE MAP</span>
+            <strong>课程图谱目录</strong>
+            <p>选择图谱后，中间画布会同步切换节点、关系和右侧学习动作。</p>
+          </section>
 
-      <div class="graph-filter-row">
-        <div class="relation-filter">
-          <button
-            v-for="relation in relationTypes"
-            :key="relation"
-            type="button"
-            :class="{ active: activeRelation === relation }"
-            @click="activeRelation = relation"
-          >
-            {{ relation }}
-          </button>
-        </div>
-        <div class="graph-switches">
-          <label><input v-model="showLearningPath" type="checkbox" /> 学习路径</label>
-          <label><input v-model="showResourceLinks" type="checkbox" /> 资料关系</label>
-          <div class="view-switch" aria-label="图谱视图">
+          <nav class="graph-tabs" aria-label="图谱分类">
             <button
+              v-for="item in maps"
+              :key="item.type"
               type="button"
-              :class="{ active: viewMode === 'network' }"
-              @click="viewMode = 'network'"
+              :class="{ active: activeType === item.type }"
+              @click="selectMap(item.type)"
             >
-              图谱
+              <span>{{ item.title }}</span>
+              <em>{{ item.nodes.length }} 节点 · {{ item.links.length }} 关系</em>
             </button>
+          </nav>
+
+          <section class="catalog-card">
+            <strong>薄弱节点</strong>
             <button
-              type="button"
-              :class="{ active: viewMode === 'structure' }"
-              @click="viewMode = 'structure'"
-            >
-              脉络
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <main class="graph-stage">
-        <section class="graph-canvas-panel">
-          <div class="graph-canvas-head">
-            <div>
-              <strong>{{ activeMap.title }}</strong>
-              <span>{{ visibleNodes.length }} 个节点 · {{ visibleLinks.length }} 条关系 · {{ selectedNode?.label }}</span>
-            </div>
-            <div class="zoom-control">
-              <button type="button" @click="changeZoom(-0.08)">-</button>
-              <span>{{ Math.round(canvasZoom * 100) }}%</span>
-              <button type="button" @click="changeZoom(0.08)">+</button>
-            </div>
-          </div>
-
-          <div v-if="viewMode === 'structure'" class="structure-map">
-            <div class="structure-root">
-              <span>2026春</span>
-              <strong>{{ course.shortTitle }}</strong>
-            </div>
-            <div class="structure-trunk" aria-hidden="true"></div>
-            <div class="structure-branches">
-              <article
-                v-for="(branch, index) in structureBranches"
-                :key="branch.id"
-                class="structure-branch"
-                :class="{ active: selectedNodeId === `chapter-${index}` }"
-                :style="{ '--branch-offset': `${index * 4}px` }"
-                tabindex="0"
-                @click="selectBranch(index)"
-                @keydown.enter="selectBranch(index)"
-              >
-                <div class="branch-title">
-                  <span>{{ String(index + 1).padStart(2, '0') }}</span>
-                  <strong>{{ branch.title }}</strong>
-                </div>
-                <div class="branch-badges">
-                  <em
-                    v-for="(badge, badgeIndex) in branch.resourceBadges"
-                    :key="`${branch.id}-${badge}-${badgeIndex}`"
-                    :class="`badge-${badge}`"
-                  >
-                    {{ badge }}
-                  </em>
-                </div>
-                <div class="branch-meta">
-                  <span>任务 {{ branch.taskCount }}</span>
-                  <span>薄弱点：{{ branch.weakPoint }}</span>
-                  <strong>{{ branch.progress }}%</strong>
-                </div>
-              </article>
-            </div>
-          </div>
-
-          <svg
-            v-else
-            class="map-canvas"
-            :style="{ transform: `scale(${canvasZoom})` }"
-            viewBox="80 18 780 420"
-            role="img"
-            :aria-label="activeMap.title"
-          >
-            <defs>
-              <linearGradient id="graphRootFill" x1="0" x2="1" y1="0" y2="1">
-                <stop offset="0%" stop-color="#4c63f3" />
-                <stop offset="100%" stop-color="#7c55d9" />
-              </linearGradient>
-              <filter id="graphNodeShadow" x="-24%" y="-80%" width="148%" height="240%">
-                <feDropShadow dx="0" dy="8" stdDeviation="7" flood-color="#20305c" flood-opacity=".14" />
-              </filter>
-              <filter id="graphRootShadow" x="-24%" y="-80%" width="148%" height="240%">
-                <feDropShadow dx="0" dy="12" stdDeviation="10" flood-color="#4054cf" flood-opacity=".28" />
-              </filter>
-            </defs>
-
-            <g class="graph-links">
-              <path
-                v-for="link in visibleLinks"
-                :key="`${link.source}-${link.target}-${link.relation}`"
-                :d="linkPath(link)"
-                :class="linkClass(link)"
-              />
-            </g>
-
-            <g
-              v-for="node in visibleNodes"
+              v-for="node in lowMasteryNodes"
               :key="node.id"
-              :transform="`translate(${node.x - nodeBoxWidth(node) / 2} ${node.y - nodeBoxHeight(node) / 2})`"
-              :class="nodeClass(node)"
-              class="graph-node"
-              tabindex="0"
-              role="button"
-              @click="selectNode(node)"
-              @keydown.enter="selectNode(node)"
-            >
-              <rect
-                :width="nodeBoxWidth(node)"
-                :height="nodeBoxHeight(node)"
-                :rx="node.weight >= 4 ? 18 : 12"
-                :fill="nodeFill(node)"
-                :stroke="nodeStroke(node)"
-                :filter="node.weight >= 4 ? 'url(#graphRootShadow)' : 'url(#graphNodeShadow)'"
-              />
-              <rect
-                v-if="node.weight < 4"
-                class="node-track"
-                x="16"
-                :y="nodeBoxHeight(node) - 8"
-                :width="nodeBoxWidth(node) - 32"
-                height="3"
-                rx="1.5"
-              />
-              <rect
-                v-if="node.weight < 4"
-                class="node-progress"
-                x="16"
-                :y="nodeBoxHeight(node) - 8"
-                :width="(nodeBoxWidth(node) - 32) * ((node.mastery ?? course.progress) / 100)"
-                height="3"
-                rx="1.5"
-                :fill="nodeStroke(node)"
-              />
-              <circle
-                v-if="node.weight < 4"
-                cx="17"
-                :cy="nodeBoxHeight(node) / 2"
-                r="4"
-                :fill="nodeStroke(node)"
-              />
-              <text
-                :x="nodeBoxWidth(node) / 2 + (node.weight >= 4 ? 0 : 8)"
-                :y="node.weight >= 4 ? 26 : nodeBoxHeight(node) / 2 - 1"
-                text-anchor="middle"
-                :fill="nodeTextColor(node)"
-              >
-                {{ shortNodeLabel(node.label, node.weight >= 4 ? 10 : 8) }}
-              </text>
-              <text
-                v-if="node.weight >= 4"
-                :x="nodeBoxWidth(node) / 2"
-                y="46"
-                text-anchor="middle"
-                class="node-subtitle"
-              >
-                {{ nodeSubtitle(node) }}
-              </text>
-            </g>
-          </svg>
-
-          <div v-if="viewMode === 'network'" class="map-canvas-tools">
-            <div class="graph-legend">
-              <span class="legend-primary">核心路径</span>
-              <span class="legend-resource">资料支撑</span>
-              <span class="legend-task">任务驱动</span>
-            </div>
-            <div class="graph-quick-actions">
-              <button type="button" @click="askGraphAgent('沿当前节点展开前置和后置知识路径')">展开路径</button>
-              <button type="button" @click="askGraphAgent('解释当前节点连接的资料、任务和能力证据')">AI 解读</button>
-              <button type="button" @click="goResourceGenerator">生成资料</button>
-            </div>
-          </div>
-        </section>
-
-        <aside class="map-insights">
-          <section class="node-detail-section">
-            <div class="node-detail-head">
-              <div>
-                <strong>{{ nodeTypeLabel(selectedNode?.type) }}</strong>
-                <h3>{{ selectedNode?.label || activeMap.title }}</h3>
-              </div>
-              <div class="mastery-ring" :style="{ '--mastery': `${selectedNodeMastery * 3.6}deg` }">
-                <span>{{ selectedNodeMastery }}%</span>
-              </div>
-            </div>
-            <p>{{ selectedNode?.detail || activeMap.description }}</p>
-            <div class="node-meta">
-              <span>关联 {{ selectedLinks.length }} 条</span>
-              <span>{{ selectedNode?.recommendedAction || '生成学习路径' }}</span>
-            </div>
-          </section>
-
-          <section v-if="selectedNodeEvidence.length">
-            <strong>证据与资源</strong>
-            <ul class="evidence-list">
-              <li v-for="item in selectedNodeEvidence" :key="item">{{ item }}</li>
-            </ul>
-            <div class="resource-pills">
-              <em v-for="item in selectedNodeResources" :key="item">{{ item }}</em>
-            </div>
-          </section>
-
-          <section v-if="selectedNodeOutcomes.length || selectedNodeMisconceptions.length">
-            <strong>掌握标准</strong>
-            <div class="insight-columns">
-              <div>
-                <span>学习产出</span>
-                <p v-for="item in selectedNodeOutcomes" :key="item">{{ item }}</p>
-              </div>
-              <div>
-                <span>常见误区</span>
-                <p v-for="item in selectedNodeMisconceptions" :key="item">{{ item }}</p>
-              </div>
-            </div>
-          </section>
-
-          <section v-if="selectedNeighbors.length">
-            <strong>相邻节点</strong>
-            <button
-              v-for="item in selectedNeighbors.slice(0, 5)"
-              :key="`${item.link.source}-${item.link.target}`"
               type="button"
-              class="neighbor-button"
-              @click="selectNode(item.neighbor)"
+              class="weak-node"
+              :class="{ active: selectedNode?.id === node.id }"
+              @click="selectNode(node)"
             >
-              <span>{{ item.link.relation }}</span>
-              <b>{{ item.neighbor.label }}</b>
-              <em>{{ item.link.strength || 72 }}%</em>
+              <span>{{ node.label }}</span>
+              <em>{{ node.mastery ?? course.progress }}%</em>
             </button>
-          </section>
-
-          <section>
-            <strong>AI 动作</strong>
-            <button type="button" @click="askGraphAgent('解释当前节点和先修关系')">解释当前节点</button>
-            <button type="button" @click="askGraphAgent('基于当前节点生成一组自测题')">生成图谱自测</button>
-            <button type="button" @click="goResourceGenerator">生成配套资料</button>
           </section>
         </aside>
-      </main>
+
+        <div class="graph-work-area">
+          <div class="graph-filter-row">
+            <div class="relation-filter">
+              <button
+                v-for="item in relationSummary"
+                :key="item.relation"
+                type="button"
+                :class="{ active: activeRelation === item.relation }"
+                @click="activeRelation = item.relation"
+              >
+                {{ item.relation }}
+                <em>{{ item.count }}</em>
+              </button>
+            </div>
+            <div class="graph-switches">
+              <label><input v-model="showLearningPath" type="checkbox" /> 学习路径</label>
+              <label><input v-model="showResourceLinks" type="checkbox" /> 资料关系</label>
+              <div class="view-switch" aria-label="图谱视图">
+                <button
+                  type="button"
+                  :class="{ active: viewMode === 'network' }"
+                  @click="viewMode = 'network'"
+                >
+                  图谱
+                </button>
+                <button
+                  type="button"
+                  :class="{ active: viewMode === 'structure' }"
+                  @click="viewMode = 'structure'"
+                >
+                  脉络
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <main class="graph-stage">
+            <section class="graph-canvas-panel">
+              <div class="graph-canvas-head">
+                <div>
+                  <span class="canvas-eyebrow">{{ activeMap.title }}</span>
+                  <strong>{{ selectedNode?.label || course.shortTitle }}</strong>
+                  <p>{{ visibleNodes.length }} 个节点 · {{ visibleLinks.length }} 条关系 · 当前聚焦 {{ nodeTypeLabel(selectedNode?.type) }}</p>
+                </div>
+                <div class="canvas-head-right">
+                  <div class="stat-strip">
+                    <span v-for="item in graphStats" :key="item.label">
+                      <b>{{ item.value }}</b>
+                      {{ item.label }}
+                    </span>
+                  </div>
+                  <div class="zoom-control">
+                    <button type="button" @click="changeZoom(-0.08)">-</button>
+                    <span>{{ Math.round(canvasZoom * 100) }}%</span>
+                    <button type="button" @click="changeZoom(0.08)">+</button>
+                    <button type="button" @click="resetCanvas">复位</button>
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="viewMode === 'structure'" class="structure-map">
+                <div class="structure-root">
+                  <span>2026春</span>
+                  <strong>{{ course.shortTitle }}</strong>
+                </div>
+                <div class="structure-trunk" aria-hidden="true"></div>
+                <div class="structure-branches">
+                  <article
+                    v-for="(branch, index) in structureBranches"
+                    :key="branch.id"
+                    class="structure-branch"
+                    :class="{ active: selectedNodeId === `chapter-${index}` }"
+                    :style="{ '--branch-offset': `${index * 4}px` }"
+                    tabindex="0"
+                    @click="selectBranch(index)"
+                    @keydown.enter="selectBranch(index)"
+                  >
+                    <div class="branch-title">
+                      <span>{{ String(index + 1).padStart(2, '0') }}</span>
+                      <strong>{{ branch.title }}</strong>
+                    </div>
+                    <div class="branch-badges">
+                      <em
+                        v-for="(badge, badgeIndex) in branch.resourceBadges"
+                        :key="`${branch.id}-${badge}-${badgeIndex}`"
+                        :class="`badge-${badge}`"
+                      >
+                        {{ badge }}
+                      </em>
+                    </div>
+                    <div class="branch-meta">
+                      <span>任务 {{ branch.taskCount }}</span>
+                      <span>薄弱点：{{ branch.weakPoint }}</span>
+                      <strong>{{ branch.progress }}%</strong>
+                    </div>
+                  </article>
+                </div>
+              </div>
+
+              <div
+                v-else
+                class="map-canvas-viewport"
+                :class="{ panning: isPanning }"
+                @pointerdown="beginCanvasPan"
+                @pointermove="moveCanvasPan"
+                @pointerup="endCanvasPan"
+                @pointerleave="endCanvasPan"
+              >
+                <svg
+                  class="map-canvas"
+                  :style="{ transform: canvasTransform }"
+                  viewBox="40 0 880 460"
+                  role="img"
+                  :aria-label="activeMap.title"
+                >
+                  <defs>
+                    <linearGradient id="graphRootFill" x1="0" x2="1" y1="0" y2="1">
+                      <stop offset="0%" stop-color="#5379ff" />
+                      <stop offset="100%" stop-color="#7660d8" />
+                    </linearGradient>
+                    <filter id="graphNodeShadow" x="-24%" y="-80%" width="148%" height="240%">
+                      <feDropShadow dx="0" dy="8" stdDeviation="7" flood-color="#20305c" flood-opacity=".14" />
+                    </filter>
+                    <filter id="graphRootShadow" x="-24%" y="-80%" width="148%" height="240%">
+                      <feDropShadow dx="0" dy="16" stdDeviation="12" flood-color="#4054cf" flood-opacity=".34" />
+                    </filter>
+                  </defs>
+
+                  <g class="graph-links">
+                    <path
+                      v-for="link in visibleLinks"
+                      :key="`${link.source}-${link.target}-${link.relation}`"
+                      :d="linkPath(link)"
+                      :class="linkClass(link)"
+                    />
+                  </g>
+
+                  <g
+                    v-for="node in visibleNodes"
+                    :key="node.id"
+                    :transform="`translate(${node.x - nodeBoxWidth(node) / 2} ${node.y - nodeBoxHeight(node) / 2})`"
+                    :class="nodeClass(node)"
+                    class="graph-node"
+                    tabindex="0"
+                    role="button"
+                    @click="selectNode(node)"
+                    @keydown.enter="selectNode(node)"
+                  >
+                    <title>{{ node.label }} · {{ nodeSubtitle(node) }}</title>
+                    <rect
+                      :width="nodeBoxWidth(node)"
+                      :height="nodeBoxHeight(node)"
+                      :rx="node.weight >= 4 ? 18 : 12"
+                      :fill="nodeFill(node)"
+                      :stroke="nodeStroke(node)"
+                      :filter="node.weight >= 4 ? 'url(#graphRootShadow)' : 'url(#graphNodeShadow)'"
+                    />
+                    <rect
+                      v-if="node.weight < 4"
+                      class="node-track"
+                      x="16"
+                      :y="nodeBoxHeight(node) - 8"
+                      :width="nodeBoxWidth(node) - 32"
+                      height="3"
+                      rx="1.5"
+                    />
+                    <rect
+                      v-if="node.weight < 4"
+                      class="node-progress"
+                      x="16"
+                      :y="nodeBoxHeight(node) - 8"
+                      :width="(nodeBoxWidth(node) - 32) * ((node.mastery ?? course.progress) / 100)"
+                      height="3"
+                      rx="1.5"
+                      :fill="nodeStroke(node)"
+                    />
+                    <circle
+                      v-if="node.weight < 4"
+                      cx="17"
+                      :cy="nodeBoxHeight(node) / 2"
+                      r="4"
+                      :fill="nodeStroke(node)"
+                    />
+                    <text
+                      :x="nodeBoxWidth(node) / 2 + (node.weight >= 4 ? 0 : 8)"
+                      :y="node.weight >= 4 ? 26 : nodeBoxHeight(node) / 2 - 1"
+                      text-anchor="middle"
+                      :fill="nodeTextColor(node)"
+                    >
+                      {{ shortNodeLabel(node.label, node.weight >= 4 ? 10 : 8) }}
+                    </text>
+                    <text
+                      v-if="node.weight >= 4"
+                      :x="nodeBoxWidth(node) / 2"
+                      y="46"
+                      text-anchor="middle"
+                      class="node-subtitle"
+                    >
+                      {{ nodeSubtitle(node) }}
+                    </text>
+                  </g>
+                </svg>
+
+                <div v-if="!visibleNodes.length" class="graph-empty">
+                  <strong>没有匹配节点</strong>
+                  <span>换一个关键词或切回全部关系后继续查看图谱。</span>
+                </div>
+              </div>
+
+              <div v-if="viewMode === 'network'" class="map-canvas-tools">
+                <div class="graph-legend">
+                  <span class="legend-primary">核心路径</span>
+                  <span class="legend-resource">资料支撑</span>
+                  <span class="legend-task">任务驱动</span>
+                </div>
+                <div class="graph-quick-actions">
+                  <button type="button" @click="askGraphAgent('沿当前节点展开前置和后置知识路径')">展开路径</button>
+                  <button type="button" @click="askGraphAgent('解释当前节点连接的资料、任务和能力证据')">AI 解读</button>
+                  <button type="button" @click="goResourceGenerator">生成资料</button>
+                </div>
+              </div>
+            </section>
+
+            <aside class="map-insights">
+              <section class="node-detail-section">
+                <div class="node-detail-head">
+                  <div>
+                    <strong>{{ nodeTypeLabel(selectedNode?.type) }}</strong>
+                    <h3>{{ selectedNode?.label || activeMap.title }}</h3>
+                  </div>
+                  <div class="mastery-ring" :style="{ '--mastery': `${selectedNodeMastery * 3.6}deg` }">
+                    <span>{{ selectedNodeMastery }}%</span>
+                  </div>
+                </div>
+                <p>{{ selectedNode?.detail || activeMap.description }}</p>
+                <div class="node-meta">
+                  <span>关联 {{ selectedLinks.length }} 条</span>
+                  <span>{{ selectedNode?.recommendedAction || '生成学习路径' }}</span>
+                </div>
+                <div v-if="selectedRelationTags.length" class="relation-tags">
+                  <em v-for="item in selectedRelationTags" :key="item">{{ item }}</em>
+                </div>
+              </section>
+
+              <section v-if="selectedNodeEvidence.length">
+                <strong>证据与资源</strong>
+                <ul class="evidence-list">
+                  <li v-for="item in selectedNodeEvidence" :key="item">{{ item }}</li>
+                </ul>
+                <div class="resource-pills">
+                  <em v-for="item in selectedNodeResources" :key="item">{{ item }}</em>
+                </div>
+              </section>
+
+              <section v-if="selectedNodeOutcomes.length || selectedNodeMisconceptions.length">
+                <strong>掌握标准</strong>
+                <div class="insight-columns">
+                  <div>
+                    <span>学习产出</span>
+                    <p v-for="item in selectedNodeOutcomes" :key="item">{{ item }}</p>
+                  </div>
+                  <div>
+                    <span>常见误区</span>
+                    <p v-for="item in selectedNodeMisconceptions" :key="item">{{ item }}</p>
+                  </div>
+                </div>
+              </section>
+
+              <section v-if="selectedNodeChecks.length">
+                <strong>检查题</strong>
+                <ul class="check-list">
+                  <li v-for="item in selectedNodeChecks" :key="item">{{ item }}</li>
+                </ul>
+              </section>
+
+              <section v-if="selectedNeighbors.length">
+                <strong>相邻节点</strong>
+                <button
+                  v-for="item in selectedNeighbors.slice(0, 5)"
+                  :key="`${item.link.source}-${item.link.target}`"
+                  type="button"
+                  class="neighbor-button"
+                  @click="selectNode(item.neighbor)"
+                >
+                  <span>{{ item.link.relation }}</span>
+                  <b>{{ item.neighbor.label }}</b>
+                  <em>{{ item.link.strength || 72 }}%</em>
+                </button>
+              </section>
+
+              <section>
+                <strong>AI 动作</strong>
+                <button type="button" @click="askGraphAgent('解释当前节点和先修关系')">解释当前节点</button>
+                <button type="button" @click="askGraphAgent('基于当前节点生成一组自测题')">生成图谱自测</button>
+                <button type="button" @click="goResourceGenerator">生成配套资料</button>
+              </section>
+            </aside>
+          </main>
+        </div>
+      </div>
 
       <div class="guided-path">
         <article v-for="step in guidedLearningPath" :key="step.label">
@@ -1599,6 +1750,497 @@
       &::after {
         display: none;
       }
+    }
+  }
+
+  .graph-workbench-grid {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: 246px minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+  }
+
+  .graph-lab-shell .graph-topbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(430px, 0.42fr);
+    align-items: center;
+  }
+
+  .graph-lab-shell .graph-brand > div {
+    min-width: 0;
+  }
+
+  .graph-lab-shell .graph-brand h1 {
+    max-width: 100%;
+    overflow: hidden;
+    font-size: 23px;
+    line-height: 1.24;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .graph-lab-shell .graph-brand p {
+    max-width: 760px;
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .graph-lab-shell .graph-top-actions {
+    min-width: 0;
+  }
+
+  .graph-lab-shell .graph-search {
+    flex: 1 1 260px;
+    min-width: 210px;
+  }
+
+  .map-catalog {
+    display: grid;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .catalog-card {
+    min-width: 0;
+    padding: 16px;
+    border: 1px solid #e7edf7;
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 14px 32px rgba(31, 45, 83, 0.06);
+
+    > span {
+      display: block;
+      margin-bottom: 7px;
+      color: #5b78f3;
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: 0.14em;
+    }
+
+    > strong {
+      display: block;
+      color: #18223a;
+      font-size: 16px;
+      font-weight: 900;
+    }
+
+    p {
+      margin: 8px 0 0;
+      color: #748197;
+      font-size: 12px;
+      line-height: 1.7;
+    }
+  }
+
+  .catalog-intro {
+    background:
+      linear-gradient(135deg, rgba(237, 244, 255, 0.98), rgba(255, 255, 255, 0.94)),
+      radial-gradient(circle at 90% 10%, rgba(118, 96, 216, 0.14), transparent 34%);
+  }
+
+  .graph-workbench-grid .graph-tabs {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 9px;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    overflow: visible;
+
+    button {
+      position: relative;
+      min-height: 66px;
+      display: grid;
+      place-items: initial;
+      align-content: center;
+      gap: 5px;
+      padding: 12px 14px 12px 18px;
+      border: 1px solid #e6edf8;
+      border-radius: 16px;
+      color: #5d6a80;
+      background: rgba(255, 255, 255, 0.88);
+      box-shadow: 0 10px 24px rgba(31, 45, 83, 0.045);
+      text-align: left;
+
+      &::before {
+        position: absolute;
+        top: 15px;
+        bottom: 15px;
+        left: 0;
+        width: 4px;
+        border-radius: 0 999px 999px 0;
+        content: '';
+        background: transparent;
+      }
+
+      &::after {
+        display: none;
+      }
+
+      &.active {
+        border-color: #c9d8ff;
+        color: #17213a;
+        background: #fff;
+        box-shadow: 0 16px 32px rgba(71, 103, 223, 0.13);
+      }
+
+      &.active::before {
+        background: #4774ff;
+      }
+    }
+
+    span {
+      font-size: 14px;
+      line-height: 1.2;
+      font-weight: 900;
+    }
+
+    em {
+      color: #98a4b7;
+      font-size: 11px;
+      font-style: normal;
+    }
+  }
+
+  .weak-node {
+    width: 100%;
+    min-height: 38px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 42px;
+    gap: 8px;
+    align-items: center;
+    margin-top: 8px;
+    padding: 8px 10px;
+    border: 1px solid #ebeff7;
+    border-radius: 12px;
+    color: #516078;
+    background: #fbfcff;
+    cursor: pointer;
+
+    span,
+    em {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    span {
+      font-size: 12px;
+      font-weight: 800;
+      text-align: left;
+    }
+
+    em {
+      color: #e58b35;
+      font-size: 11px;
+      font-style: normal;
+      font-weight: 900;
+      text-align: right;
+    }
+
+    &.active,
+    &:hover {
+      border-color: #ffd9a7;
+      background: #fff8ef;
+    }
+  }
+
+  .graph-work-area {
+    min-width: 0;
+    border: 1px solid #e7edf7;
+    border-radius: 24px;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 18px 42px rgba(31, 45, 83, 0.07);
+    overflow: hidden;
+  }
+
+  .graph-work-area .graph-filter-row {
+    border: 0;
+    border-bottom: 1px solid #edf2f8;
+    padding: 14px 16px;
+    background: #fff;
+  }
+
+  .graph-work-area .relation-filter button {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 32px;
+    padding: 0 12px;
+
+    em {
+      min-width: 20px;
+      padding: 1px 6px;
+      border-radius: 999px;
+      color: #7a879b;
+      background: #f1f4f9;
+      font-size: 10px;
+      font-style: normal;
+      font-weight: 900;
+    }
+
+    &.active em {
+      color: #2f68df;
+      background: #fff;
+    }
+  }
+
+  .graph-work-area .graph-stage {
+    grid-template-columns: minmax(0, 1fr) 332px;
+    gap: 16px;
+    min-height: 650px;
+    padding: 16px;
+    border: 0;
+    border-radius: 0;
+    background: #f7faff;
+  }
+
+  .graph-work-area .graph-canvas-panel,
+  .graph-work-area .map-insights {
+    border-radius: 18px;
+    box-shadow: none;
+  }
+
+  .graph-work-area .graph-canvas-head {
+    min-height: 78px;
+    align-items: flex-start;
+    padding: 16px 18px;
+
+    strong {
+      color: #131c30;
+      font-size: 21px;
+      line-height: 1.25;
+    }
+
+    p {
+      margin: 5px 0 0;
+      color: #7c889b;
+      font-size: 12px;
+    }
+  }
+
+  .canvas-eyebrow {
+    margin: 0 0 4px !important;
+    color: #5878f5 !important;
+    font-size: 10px !important;
+    font-weight: 900;
+    letter-spacing: 0.14em;
+  }
+
+  .canvas-head-right {
+    display: grid;
+    justify-items: end;
+    gap: 10px;
+  }
+
+  .stat-strip {
+    display: flex;
+    gap: 8px;
+
+    span {
+      min-width: 54px;
+      display: grid !important;
+      gap: 1px;
+      margin: 0 !important;
+      padding: 6px 9px;
+      border: 1px solid #edf2fa;
+      border-radius: 11px;
+      color: #98a3b5 !important;
+      background: #fbfcff;
+      font-size: 10px !important;
+      text-align: center;
+    }
+
+    b {
+      color: #25304a;
+      font-size: 14px;
+      line-height: 1;
+    }
+  }
+
+  .graph-work-area .zoom-control {
+    grid-template-columns: 30px 48px 30px 46px;
+  }
+
+  .map-canvas-viewport {
+    position: relative;
+    height: 558px;
+    overflow: hidden;
+    cursor: grab;
+    background:
+      radial-gradient(circle at 48% 48%, rgba(83, 121, 255, 0.09), transparent 30%),
+      radial-gradient(circle, #dce4f1 1px, transparent 1.2px);
+    background-color: #fbfdff;
+    background-size: auto, 24px 24px;
+    user-select: none;
+
+    &.panning {
+      cursor: grabbing;
+    }
+  }
+
+  .graph-work-area .map-canvas {
+    height: 100%;
+    min-width: 0;
+    background: transparent;
+    transform-origin: center;
+    will-change: transform;
+  }
+
+  .graph-empty {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    gap: 6px;
+    color: #7a8799;
+    text-align: center;
+    background: rgba(251, 253, 255, 0.72);
+
+    strong {
+      color: #26334d;
+      font-size: 16px;
+    }
+
+    span {
+      font-size: 12px;
+    }
+  }
+
+  .graph-work-area .graph-links path {
+    stroke-width: 2.2;
+  }
+
+  .graph-work-area .graph-links .link-父子关系,
+  .graph-work-area .graph-links .link-前后置关系 {
+    stroke: #6d9fe8;
+    stroke-width: 3;
+  }
+
+  .graph-work-area .graph-links .link-关联关系 {
+    stroke: #aab7c9;
+  }
+
+  .graph-work-area .graph-links .link-资料支撑 {
+    stroke: #68bd91;
+    stroke-width: 2.6;
+  }
+
+  .graph-work-area .graph-links .link-任务驱动 {
+    stroke: #e8a453;
+    stroke-width: 2.6;
+  }
+
+  .graph-work-area .graph-links .selected {
+    stroke: #416df4;
+    stroke-width: 4;
+  }
+
+  .graph-work-area .graph-node.selected rect:not(.node-track):not(.node-progress) {
+    stroke: #355ff2;
+    stroke-width: 3.4;
+  }
+
+  .graph-work-area .map-canvas-tools {
+    left: 18px;
+    right: 18px;
+    bottom: 18px;
+    padding: 11px 13px;
+  }
+
+  .graph-work-area .map-insights {
+    max-height: 652px;
+    background: #fff;
+  }
+
+  .relation-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+
+    em {
+      max-width: 100%;
+      overflow: hidden;
+      padding: 5px 8px;
+      border-radius: 999px;
+      color: #5a6b85;
+      background: #f3f6fb;
+      font-size: 10px;
+      font-style: normal;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .check-list {
+    display: grid;
+    gap: 7px;
+    margin: 0;
+    padding-left: 17px;
+    color: #647186;
+    font-size: 11px;
+    line-height: 1.58;
+  }
+
+  @media (max-width: 1320px) {
+    .graph-lab-shell .graph-topbar {
+      grid-template-columns: 1fr;
+    }
+
+    .graph-lab-shell .graph-top-actions {
+      width: 100%;
+    }
+
+    .graph-workbench-grid {
+      grid-template-columns: 220px minmax(0, 1fr);
+    }
+
+    .graph-work-area .graph-stage {
+      grid-template-columns: 1fr;
+    }
+
+    .graph-work-area .map-insights {
+      max-height: none;
+    }
+  }
+
+  @media (max-width: 980px) {
+    .graph-workbench-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .graph-workbench-grid .graph-tabs {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .canvas-head-right {
+      justify-items: start;
+    }
+
+    .graph-work-area .graph-canvas-head {
+      flex-direction: column;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .graph-workbench-grid .graph-tabs {
+      grid-template-columns: 1fr;
+    }
+
+    .stat-strip {
+      flex-wrap: wrap;
+    }
+
+    .map-canvas-viewport {
+      height: 430px;
+      overflow: auto;
     }
   }
 </style>
