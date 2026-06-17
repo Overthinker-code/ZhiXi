@@ -23,12 +23,12 @@
   const router = useRouter();
   const keyword = ref('');
   const activeType = ref<CourseKnowledgeMapType>('knowledge');
-  const viewMode = ref<'network' | 'structure'>('structure');
+  const viewMode = ref<'network' | 'structure'>('network');
   const activeRelation = ref<'全部' | '父子关系' | '前后置关系' | '关联关系' | '资料支撑' | '任务驱动'>('全部');
   const selectedNodeId = ref('course-root');
   const showResourceLinks = ref(true);
   const showLearningPath = ref(true);
-  const canvasZoom = ref(1);
+  const canvasZoom = ref(1.08);
 
   const course = computed(() => getClassroomCourse(String(route.params.courseId || '')));
   const maps = computed(() => (course.value ? buildCourseKnowledgeMaps(course.value) : []));
@@ -68,6 +68,12 @@
     visibleLinks.value.filter(
       (link) => link.source === selectedNode.value?.id || link.target === selectedNode.value?.id
     )
+  );
+  const selectedNeighborIds = computed(
+    () =>
+      new Set(
+        selectedLinks.value.flatMap((link) => [link.source, link.target])
+      )
   );
   const selectedNeighbors = computed(() => {
     const map = activeMap.value;
@@ -124,7 +130,87 @@
   );
 
   function nodeClass(node: CourseKnowledgeNode) {
-    return [`node-${node.type}`, `node-weight-${node.weight}`, { selected: selectedNode.value?.id === node.id }];
+    return [
+      `node-${node.type}`,
+      `node-weight-${node.weight}`,
+      {
+        selected: selectedNode.value?.id === node.id,
+        related: selectedNeighborIds.value.has(node.id),
+        dimmed: selectedNode.value && !selectedNeighborIds.value.has(node.id),
+      },
+    ];
+  }
+
+  function linkClass(link: CourseKnowledgeMap['links'][number]) {
+    const selectedId = selectedNode.value?.id;
+    return [
+      `link-${link.relation}`,
+      {
+        selected: selectedId === link.source || selectedId === link.target,
+        dimmed: Boolean(selectedId && selectedId !== link.source && selectedId !== link.target),
+      },
+    ];
+  }
+
+  function nodeTypeLabel(type?: CourseKnowledgeNode['type']) {
+    if (type === 'chapter') return '章节';
+    if (type === 'concept') return '知识点';
+    if (type === 'resource') return '资料';
+    if (type === 'task') return '任务';
+    if (type === 'ability') return '能力';
+    return '图谱';
+  }
+
+  function nodeSubtitle(node: CourseKnowledgeNode) {
+    const mastery = node.mastery ?? course.value?.progress ?? 0;
+    return `${nodeTypeLabel(node.type)} · ${mastery}%`;
+  }
+
+  function nodeBoxWidth(node: CourseKnowledgeNode) {
+    if (node.weight >= 4) return 190;
+    if (node.weight >= 3) return 154;
+    if (node.type === 'resource' || node.type === 'task') return 140;
+    return 128;
+  }
+
+  function nodeBoxHeight(node: CourseKnowledgeNode) {
+    return node.weight >= 4 ? 70 : node.weight >= 3 ? 52 : 42;
+  }
+
+  function nodeFill(node: CourseKnowledgeNode) {
+    if (node.weight >= 4) return 'url(#graphRootFill)';
+    if (node.type === 'chapter') return '#f5f8ff';
+    if (node.type === 'resource') return '#f1fbf6';
+    if (node.type === 'task') return '#fff7ec';
+    if (node.type === 'ability') return '#f7f2ff';
+    return '#ffffff';
+  }
+
+  function nodeStroke(node: CourseKnowledgeNode) {
+    if (node.weight >= 4) return '#5c6df5';
+    if (node.type === 'chapter') return '#79a9e8';
+    if (node.type === 'resource') return '#75caa2';
+    if (node.type === 'task') return '#eba85a';
+    if (node.type === 'ability') return '#9b83db';
+    return '#d9e2f3';
+  }
+
+  function nodeTextColor(node: CourseKnowledgeNode) {
+    return node.weight >= 4 ? '#ffffff' : '#26334d';
+  }
+
+  function linkPath(link: CourseKnowledgeMap['links'][number]) {
+    const source = activeMap.value?.nodes.find((node) => node.id === link.source);
+    const target = activeMap.value?.nodes.find((node) => node.id === link.target);
+    if (!source || !target) return '';
+    const midX = (source.x + target.x) / 2;
+    const midY = (source.y + target.y) / 2;
+    const bend = Math.max(-54, Math.min(54, (target.y - source.y) * 0.18));
+    return `M ${source.x} ${source.y} Q ${midX} ${midY - bend}, ${target.x} ${target.y}`;
+  }
+
+  function shortNodeLabel(label: string, limit = 9) {
+    return label.length > limit ? `${label.slice(0, limit - 1)}…` : label;
   }
 
   function selectNode(node: CourseKnowledgeNode) {
@@ -139,7 +225,7 @@
   }
 
   function changeZoom(delta: number) {
-    canvasZoom.value = Math.min(1.45, Math.max(0.72, Number((canvasZoom.value + delta).toFixed(2))));
+    canvasZoom.value = Math.min(1.58, Math.max(0.78, Number((canvasZoom.value + delta).toFixed(2))));
   }
 
   function askGraphAgent(action: string) {
@@ -194,70 +280,44 @@
 
 <template>
   <section v-if="course && activeMap" class="knowledge-page">
-    <header class="knowledge-hero">
-      <div>
-        <span>COURSE KNOWLEDGE GRAPH</span>
-        <h1>课程图谱中心</h1>
-        <p>把章节、问题、能力目标与 AI 辅导入口组织成一张可操作的学习地图。</p>
-      </div>
-      <div class="hero-actions">
-        <button type="button" @click="goResourceGenerator">
-          <icon-file /> 从图谱生成资源
-        </button>
-        <button type="button" @click="askGraphAgent('解释当前图谱并生成下一步学习计划')">
-          <icon-robot /> 让小智解读
-        </button>
-      </div>
-    </header>
-
-    <div class="knowledge-summary">
-      <article>
-        <small>章节节点</small>
-        <strong>{{ chapterCount }}</strong>
-        <span>覆盖整门课程结构</span>
-      </article>
-      <article>
-        <small>知识点</small>
-        <strong>{{ conceptCount }}</strong>
-        <span>含重点、难点与先修关系</span>
-      </article>
-      <article>
-        <small>图谱模式</small>
-        <strong>{{ maps.length }}</strong>
-        <span>知识 / 问题 / 能力 / 目标 / 辅导</span>
-      </article>
-      <article>
-        <small>学习动作</small>
-        <strong>{{ actionBadgeCount }}</strong>
-        <span>讲义、自测、案例、导图与讨论统一编排</span>
-      </article>
-    </div>
-
-    <div class="knowledge-shell">
-      <aside class="map-sidebar">
-        <label class="map-search">
-          <icon-search />
-          <input v-model="keyword" type="search" placeholder="检索分类或知识点" />
-        </label>
-
-        <div class="map-tabs">
-          <button
-            v-for="item in maps"
-            :key="item.type"
-            type="button"
-            :class="{ active: activeType === item.type }"
-            @click="activeType = item.type"
-          >
-            <icon-mind-mapping />
-            <span>
-              <strong>{{ item.title }}</strong>
-              <small>{{ item.nodes.length }} 节点</small>
-            </span>
+    <div class="graph-lab-shell">
+      <header class="graph-topbar">
+        <div class="graph-brand">
+          <span class="graph-pill">
+            <icon-mind-mapping /> AI 课程图谱
+          </span>
+          <div>
+            <h1>{{ course.title }}知识图谱</h1>
+            <p>{{ activeMap.description }}</p>
+          </div>
+        </div>
+        <div class="graph-top-actions">
+          <label class="graph-search">
+            <icon-search />
+            <input v-model="keyword" type="search" placeholder="搜索知识点、资料、任务" />
+          </label>
+          <button type="button" class="ghost-action" @click="goCourseContent">课堂笔记</button>
+          <button type="button" class="primary-action" @click="goResourceGenerator">
+            <icon-file /> 生成资源
           </button>
         </div>
+      </header>
 
+      <nav class="graph-tabs" aria-label="图谱分类">
+        <button
+          v-for="item in maps"
+          :key="item.type"
+          type="button"
+          :class="{ active: activeType === item.type }"
+          @click="activeType = item.type"
+        >
+          <span>{{ item.title }}</span>
+          <em>{{ item.nodes.length }} 节点</em>
+        </button>
+      </nav>
+
+      <div class="graph-filter-row">
         <div class="relation-filter">
-          <strong>关系类型</strong>
           <button
             v-for="relation in relationTypes"
             :key="relation"
@@ -268,553 +328,823 @@
             {{ relation }}
           </button>
         </div>
-      </aside>
-
-      <main class="map-canvas-card">
-        <div class="map-toolbar">
-          <div>
-            <span>{{ activeMap.title }}</span>
-            <strong>{{ activeMap.description }}</strong>
-          </div>
+        <div class="graph-switches">
+          <label><input v-model="showLearningPath" type="checkbox" /> 学习路径</label>
+          <label><input v-model="showResourceLinks" type="checkbox" /> 资料关系</label>
           <div class="view-switch" aria-label="图谱视图">
-            <button
-              type="button"
-              :class="{ active: viewMode === 'structure' }"
-              @click="viewMode = 'structure'"
-            >
-              结构图
-            </button>
             <button
               type="button"
               :class="{ active: viewMode === 'network' }"
               @click="viewMode = 'network'"
             >
-              多图谱
+              图谱
+            </button>
+            <button
+              type="button"
+              :class="{ active: viewMode === 'structure' }"
+              @click="viewMode = 'structure'"
+            >
+              脉络
             </button>
           </div>
-          <div class="focus-tags">
-            <em v-for="tag in activeMap.focusTags" :key="tag">{{ tag }}</em>
-          </div>
         </div>
+      </div>
 
-        <div v-if="viewMode === 'structure'" class="structure-map">
-          <div class="structure-root">
-            <span>2026春</span>
-            <strong>{{ course.shortTitle }}</strong>
+      <main class="graph-stage">
+        <section class="graph-canvas-panel">
+          <div class="graph-canvas-head">
+            <div>
+              <strong>{{ activeMap.title }}</strong>
+              <span>{{ visibleNodes.length }} 个节点 · {{ visibleLinks.length }} 条关系 · {{ selectedNode?.label }}</span>
+            </div>
+            <div class="zoom-control">
+              <button type="button" @click="changeZoom(-0.08)">-</button>
+              <span>{{ Math.round(canvasZoom * 100) }}%</span>
+              <button type="button" @click="changeZoom(0.08)">+</button>
+            </div>
           </div>
-          <div class="structure-trunk" aria-hidden="true"></div>
-          <div class="structure-branches">
-            <article
-              v-for="(branch, index) in structureBranches"
-              :key="branch.id"
-              class="structure-branch"
-              :class="{ active: selectedNodeId === `chapter-${index}` }"
-              :style="{ '--branch-offset': `${index * 4}px` }"
-              tabindex="0"
-              @click="selectBranch(index)"
-              @keydown.enter="selectBranch(index)"
-            >
-              <div class="branch-title">
-                <span>{{ String(index + 1).padStart(2, '0') }}</span>
-                <strong>{{ branch.title }}</strong>
-              </div>
-              <div class="branch-badges">
-                <em
-                  v-for="(badge, badgeIndex) in branch.resourceBadges"
-                  :key="`${branch.id}-${badge}-${badgeIndex}`"
-                  :class="`badge-${badge}`"
-                >
-                  {{ badge }}
-                </em>
-              </div>
-              <div class="branch-meta">
-                <span>任务 {{ branch.taskCount }}</span>
-                <span>薄弱点：{{ branch.weakPoint }}</span>
-                <strong>{{ branch.progress }}%</strong>
-              </div>
-            </article>
-          </div>
-        </div>
 
-        <svg
-          v-else
-          class="map-canvas"
-          :style="{ transform: `scale(${canvasZoom})` }"
-          viewBox="0 0 940 470"
-          role="img"
-          :aria-label="activeMap.title"
-        >
-          <defs>
-            <linearGradient id="nodePrimary" x1="0" x2="1" y1="0" y2="1">
-              <stop offset="0%" stop-color="#6474ff" />
-              <stop offset="100%" stop-color="#35b8e8" />
-            </linearGradient>
-          </defs>
-          <line
-            v-for="link in visibleLinks"
-            :key="`${link.source}-${link.target}-${link.relation}`"
-            :x1="activeMap.nodes.find((node) => node.id === link.source)?.x"
-            :y1="activeMap.nodes.find((node) => node.id === link.source)?.y"
-            :x2="activeMap.nodes.find((node) => node.id === link.target)?.x"
-            :y2="activeMap.nodes.find((node) => node.id === link.target)?.y"
-            :class="`link-${link.relation}`"
-          />
-          <g
-            v-for="node in visibleNodes"
-            :key="node.id"
-            :transform="`translate(${node.x} ${node.y})`"
-            :class="nodeClass(node)"
-            tabindex="0"
-            @click="selectNode(node)"
-            @keydown.enter="selectNode(node)"
+          <div v-if="viewMode === 'structure'" class="structure-map">
+            <div class="structure-root">
+              <span>2026春</span>
+              <strong>{{ course.shortTitle }}</strong>
+            </div>
+            <div class="structure-trunk" aria-hidden="true"></div>
+            <div class="structure-branches">
+              <article
+                v-for="(branch, index) in structureBranches"
+                :key="branch.id"
+                class="structure-branch"
+                :class="{ active: selectedNodeId === `chapter-${index}` }"
+                :style="{ '--branch-offset': `${index * 4}px` }"
+                tabindex="0"
+                @click="selectBranch(index)"
+                @keydown.enter="selectBranch(index)"
+              >
+                <div class="branch-title">
+                  <span>{{ String(index + 1).padStart(2, '0') }}</span>
+                  <strong>{{ branch.title }}</strong>
+                </div>
+                <div class="branch-badges">
+                  <em
+                    v-for="(badge, badgeIndex) in branch.resourceBadges"
+                    :key="`${branch.id}-${badge}-${badgeIndex}`"
+                    :class="`badge-${badge}`"
+                  >
+                    {{ badge }}
+                  </em>
+                </div>
+                <div class="branch-meta">
+                  <span>任务 {{ branch.taskCount }}</span>
+                  <span>薄弱点：{{ branch.weakPoint }}</span>
+                  <strong>{{ branch.progress }}%</strong>
+                </div>
+              </article>
+            </div>
+          </div>
+
+          <svg
+            v-else
+            class="map-canvas"
+            :style="{ transform: `scale(${canvasZoom})` }"
+            viewBox="80 18 780 420"
+            role="img"
+            :aria-label="activeMap.title"
           >
-            <circle :r="node.weight >= 4 ? 48 : node.weight >= 3 ? 38 : node.weight >= 2 ? 30 : 24" />
-            <text text-anchor="middle" dominant-baseline="middle">
-              {{ node.label.length > 9 ? `${node.label.slice(0, 8)}…` : node.label }}
-            </text>
-          </g>
-        </svg>
+            <defs>
+              <linearGradient id="graphRootFill" x1="0" x2="1" y1="0" y2="1">
+                <stop offset="0%" stop-color="#4c63f3" />
+                <stop offset="100%" stop-color="#7c55d9" />
+              </linearGradient>
+              <filter id="graphNodeShadow" x="-24%" y="-80%" width="148%" height="240%">
+                <feDropShadow dx="0" dy="8" stdDeviation="7" flood-color="#20305c" flood-opacity=".14" />
+              </filter>
+              <filter id="graphRootShadow" x="-24%" y="-80%" width="148%" height="240%">
+                <feDropShadow dx="0" dy="12" stdDeviation="10" flood-color="#4054cf" flood-opacity=".28" />
+              </filter>
+            </defs>
 
-        <div class="map-bottom">
-          <div>
-            <icon-tags />
-            <span>当前显示 {{ visibleNodes.length }} 个节点、{{ visibleLinks.length }} 条关系</span>
+            <g class="graph-links">
+              <path
+                v-for="link in visibleLinks"
+                :key="`${link.source}-${link.target}-${link.relation}`"
+                :d="linkPath(link)"
+                :class="linkClass(link)"
+              />
+            </g>
+
+            <g
+              v-for="node in visibleNodes"
+              :key="node.id"
+              :transform="`translate(${node.x - nodeBoxWidth(node) / 2} ${node.y - nodeBoxHeight(node) / 2})`"
+              :class="nodeClass(node)"
+              class="graph-node"
+              tabindex="0"
+              role="button"
+              @click="selectNode(node)"
+              @keydown.enter="selectNode(node)"
+            >
+              <rect
+                :width="nodeBoxWidth(node)"
+                :height="nodeBoxHeight(node)"
+                :rx="node.weight >= 4 ? 18 : 12"
+                :fill="nodeFill(node)"
+                :stroke="nodeStroke(node)"
+                :filter="node.weight >= 4 ? 'url(#graphRootShadow)' : 'url(#graphNodeShadow)'"
+              />
+              <rect
+                v-if="node.weight < 4"
+                class="node-track"
+                x="16"
+                :y="nodeBoxHeight(node) - 8"
+                :width="nodeBoxWidth(node) - 32"
+                height="3"
+                rx="1.5"
+              />
+              <rect
+                v-if="node.weight < 4"
+                class="node-progress"
+                x="16"
+                :y="nodeBoxHeight(node) - 8"
+                :width="(nodeBoxWidth(node) - 32) * ((node.mastery ?? course.progress) / 100)"
+                height="3"
+                rx="1.5"
+                :fill="nodeStroke(node)"
+              />
+              <circle
+                v-if="node.weight < 4"
+                cx="17"
+                :cy="nodeBoxHeight(node) / 2"
+                r="4"
+                :fill="nodeStroke(node)"
+              />
+              <text
+                :x="nodeBoxWidth(node) / 2 + (node.weight >= 4 ? 0 : 8)"
+                :y="node.weight >= 4 ? 26 : nodeBoxHeight(node) / 2 - 1"
+                text-anchor="middle"
+                :fill="nodeTextColor(node)"
+              >
+                {{ shortNodeLabel(node.label, node.weight >= 4 ? 10 : 8) }}
+              </text>
+              <text
+                v-if="node.weight >= 4"
+                :x="nodeBoxWidth(node) / 2"
+                y="46"
+                text-anchor="middle"
+                class="node-subtitle"
+              >
+                {{ nodeSubtitle(node) }}
+              </text>
+            </g>
+          </svg>
+
+          <div v-if="viewMode === 'network'" class="map-canvas-tools">
+            <div class="graph-legend">
+              <span class="legend-primary">核心路径</span>
+              <span class="legend-resource">资料支撑</span>
+              <span class="legend-task">任务驱动</span>
+            </div>
+            <div class="graph-quick-actions">
+              <button type="button" @click="askGraphAgent('沿当前节点展开前置和后置知识路径')">展开路径</button>
+              <button type="button" @click="askGraphAgent('解释当前节点连接的资料、任务和能力证据')">AI 解读</button>
+              <button type="button" @click="goResourceGenerator">生成资料</button>
+            </div>
           </div>
-          <button type="button" @click="askGraphAgent('围绕薄弱节点生成 20 分钟复习路径')">
-            <icon-bulb /> 生成复习路径
-          </button>
-        </div>
+        </section>
 
-        <div class="guided-path">
-          <article v-for="step in guidedLearningPath" :key="step.label">
-            <span>{{ step.label }}</span>
-            <strong>{{ step.title }}</strong>
-            <p>{{ step.desc }}</p>
-          </article>
-        </div>
+        <aside class="map-insights">
+          <section class="node-detail-section">
+            <div class="node-detail-head">
+              <div>
+                <strong>{{ nodeTypeLabel(selectedNode?.type) }}</strong>
+                <h3>{{ selectedNode?.label || activeMap.title }}</h3>
+              </div>
+              <div class="mastery-ring" :style="{ '--mastery': `${selectedNodeMastery * 3.6}deg` }">
+                <span>{{ selectedNodeMastery }}%</span>
+              </div>
+            </div>
+            <p>{{ selectedNode?.detail || activeMap.description }}</p>
+            <div class="node-meta">
+              <span>关联 {{ selectedLinks.length }} 条</span>
+              <span>{{ selectedNode?.recommendedAction || '生成学习路径' }}</span>
+            </div>
+          </section>
+
+          <section v-if="selectedNodeEvidence.length">
+            <strong>证据与资源</strong>
+            <ul class="evidence-list">
+              <li v-for="item in selectedNodeEvidence" :key="item">{{ item }}</li>
+            </ul>
+            <div class="resource-pills">
+              <em v-for="item in selectedNodeResources" :key="item">{{ item }}</em>
+            </div>
+          </section>
+
+          <section v-if="selectedNodeOutcomes.length || selectedNodeMisconceptions.length">
+            <strong>掌握标准</strong>
+            <div class="insight-columns">
+              <div>
+                <span>学习产出</span>
+                <p v-for="item in selectedNodeOutcomes" :key="item">{{ item }}</p>
+              </div>
+              <div>
+                <span>常见误区</span>
+                <p v-for="item in selectedNodeMisconceptions" :key="item">{{ item }}</p>
+              </div>
+            </div>
+          </section>
+
+          <section v-if="selectedNeighbors.length">
+            <strong>相邻节点</strong>
+            <button
+              v-for="item in selectedNeighbors.slice(0, 5)"
+              :key="`${item.link.source}-${item.link.target}`"
+              type="button"
+              class="neighbor-button"
+              @click="selectNode(item.neighbor)"
+            >
+              <span>{{ item.link.relation }}</span>
+              <b>{{ item.neighbor.label }}</b>
+              <em>{{ item.link.strength || 72 }}%</em>
+            </button>
+          </section>
+
+          <section>
+            <strong>AI 动作</strong>
+            <button type="button" @click="askGraphAgent('解释当前节点和先修关系')">解释当前节点</button>
+            <button type="button" @click="askGraphAgent('基于当前节点生成一组自测题')">生成图谱自测</button>
+            <button type="button" @click="goResourceGenerator">生成配套资料</button>
+          </section>
+        </aside>
       </main>
 
-      <aside class="map-insights">
-        <section class="node-detail-section">
-          <div class="node-detail-head">
-            <div>
-              <strong>节点详情</strong>
-              <h3>{{ selectedNode?.label || activeMap.title }}</h3>
-            </div>
-            <div class="mastery-ring" :style="{ '--mastery': `${selectedNodeMastery * 3.6}deg` }">
-              <span>{{ selectedNodeMastery }}%</span>
-            </div>
-          </div>
-          <p>{{ selectedNode?.detail || (selectedNode?.type === 'resource' ? '该节点代表可继续阅读或下载的课程资料。' : selectedNode?.type === 'task' ? '该节点代表可执行的作业、自测或 AI 学习任务。' : activeMap.description) }}</p>
-          <div class="node-meta">
-            <span>类型：{{ selectedNode?.type || 'graph' }}</span>
-            <span>关联：{{ selectedLinks.length }} 条</span>
-            <span>建议：{{ selectedNode?.recommendedAction || '生成学习路径' }}</span>
-          </div>
-        </section>
-
-        <section v-if="selectedNodeEvidence.length">
-          <strong>证据与资源</strong>
-          <ul class="evidence-list">
-            <li v-for="item in selectedNodeEvidence" :key="item">{{ item }}</li>
-          </ul>
-          <div class="resource-pills">
-            <em v-for="item in selectedNodeResources" :key="item">{{ item }}</em>
-          </div>
-        </section>
-
-        <section v-if="selectedNodeOutcomes.length || selectedNodeMisconceptions.length">
-          <strong>掌握标准</strong>
-          <div class="insight-columns">
-            <div>
-              <span>学习产出</span>
-              <p v-for="item in selectedNodeOutcomes" :key="item">{{ item }}</p>
-            </div>
-            <div>
-              <span>常见误区</span>
-              <p v-for="item in selectedNodeMisconceptions" :key="item">{{ item }}</p>
-            </div>
-          </div>
-        </section>
-
-        <section v-if="selectedNodeActivities.length || selectedNodeChecks.length">
-          <strong>检查动作</strong>
-          <ol class="action-list">
-            <li v-for="item in selectedNodeActivities" :key="item">{{ item }}</li>
-          </ol>
-          <div class="check-list">
-            <span v-for="item in selectedNodeChecks" :key="item">{{ item }}</span>
-          </div>
-        </section>
-
-        <section v-if="selectedNeighbors.length">
-          <strong>相邻节点</strong>
-          <button
-            v-for="item in selectedNeighbors.slice(0, 5)"
-            :key="`${item.link.source}-${item.link.target}`"
-            type="button"
-            class="neighbor-button"
-            @click="selectNode(item.neighbor)"
-          >
-            <span>{{ item.link.relation }}</span>
-            <b>{{ item.neighbor.label }}</b>
-            <em>{{ item.link.strength || 72 }}%</em>
+      <div class="guided-path">
+        <article v-for="step in guidedLearningPath" :key="step.label">
+          <span>{{ step.label }}</span>
+          <strong>{{ step.title }}</strong>
+          <p>{{ step.desc }}</p>
+        </article>
+        <article class="path-action">
+          <span>伴学</span>
+          <strong>让 AI 基于图谱制定下一步</strong>
+          <button type="button" @click="askGraphAgent('围绕薄弱节点生成 20 分钟复习路径')">
+            <icon-robot /> 生成复习路径
           </button>
-        </section>
-
-        <section>
-          <strong>图谱控制</strong>
-          <label><input v-model="showLearningPath" type="checkbox" /> 学习路径</label>
-          <label><input v-model="showResourceLinks" type="checkbox" /> 关联资源</label>
-          <div class="zoom-control">
-            <button type="button" @click="changeZoom(-0.08)">-</button>
-            <span>{{ Math.round(canvasZoom * 100) }}%</span>
-            <button type="button" @click="changeZoom(0.08)">+</button>
-          </div>
-        </section>
-        <section>
-          <strong>可执行动作</strong>
-          <button type="button" @click="askGraphAgent('解释当前节点和先修关系')">解释当前节点</button>
-          <button type="button" @click="askGraphAgent('找出最应该复习的三个知识点')">定位三处薄弱点</button>
-          <button type="button" @click="askGraphAgent('基于当前节点生成一组自测题')">生成图谱自测</button>
-          <button type="button" @click="goCourseContent">回到课堂笔记</button>
-        </section>
-        <section>
-          <strong>资源联动</strong>
-          <p>资源中心可按当前图谱主题生成讲义、练习、课堂笔记和知识点卡片。</p>
-          <button type="button" @click="goResourceGenerator">生成配套资料</button>
-        </section>
-      </aside>
+        </article>
+      </div>
     </div>
   </section>
 </template>
 
 <style scoped lang="less">
   .knowledge-page {
-    color: #17213a;
+    color: #151e33;
   }
 
-  .knowledge-hero {
+  .graph-lab-shell {
+    position: relative;
+    overflow: hidden;
+    padding: 24px;
+    border: 1px solid #e7ecf6;
+    border-radius: 28px;
+    background:
+      radial-gradient(circle at 12% 0%, rgba(58, 130, 214, 0.12), transparent 30%),
+      radial-gradient(circle at 100% 0%, rgba(121, 92, 207, 0.11), transparent 26%),
+      linear-gradient(180deg, #fbfdff, #f4f8fc);
+    box-shadow: 0 22px 58px rgba(31, 45, 83, 0.08);
+  }
+
+  .graph-topbar,
+  .graph-filter-row,
+  .graph-stage,
+  .guided-path {
+    position: relative;
+    z-index: 1;
+  }
+
+  .graph-topbar {
     display: flex;
-    align-items: flex-end;
+    align-items: center;
     justify-content: space-between;
     gap: 20px;
-    padding: 2px 2px 18px;
+    margin-bottom: 18px;
+  }
 
-    span {
-      color: #5367f8;
-      font-size: 10px;
-      font-weight: 800;
-      letter-spacing: 0.14em;
-    }
+  .graph-brand {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-width: 0;
 
     h1 {
-      margin: 6px 0 5px;
-      font-size: 26px;
+      margin: 0;
+      color: #141d31;
+      font-size: 25px;
+      font-weight: 800;
+      letter-spacing: 0;
+      white-space: nowrap;
     }
 
     p {
-      margin: 0;
-      color: #7d879a;
-      font-size: 12px;
+      margin: 5px 0 0;
+      color: #6f7d93;
+      font-size: 13px;
+      line-height: 1.5;
     }
   }
 
-  .hero-actions {
-    display: flex;
-    gap: 8px;
-
-    button {
-      height: 36px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 0 13px;
-      border: 1px solid #dce2ff;
-      border-radius: 9px;
-      color: #5367f8;
-      background: #f5f7ff;
-      cursor: pointer;
-
-      &:last-child {
-        border-color: transparent;
-        color: #fff;
-        background: #5367f8;
-      }
-    }
+  .graph-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 44px;
+    padding: 0 18px;
+    border: 4px solid rgba(255, 255, 255, 0.9);
+    border-radius: 999px;
+    color: #fff;
+    background: linear-gradient(135deg, #3477f6, #5d55eb);
+    box-shadow: 0 10px 22px rgba(68, 97, 225, 0.24);
+    font-size: 17px;
+    font-weight: 800;
+    white-space: nowrap;
   }
 
-  .knowledge-summary {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 12px;
-    margin-bottom: 12px;
-
-    article {
-      padding: 15px 16px;
-      border: 1px solid #e4e8f1;
-      border-radius: 12px;
-      background: #fff;
-      box-shadow: 0 3px 12px rgba(34, 48, 88, 0.04);
-    }
-
-    small,
-    strong,
-    span {
-      display: block;
-    }
-
-    small,
-    span {
-      color: #8e98a9;
-      font-size: 10px;
-    }
-
-    strong {
-      margin: 4px 0;
-      color: #29364d;
-      font-size: 22px;
-    }
-  }
-
-  .knowledge-shell {
-    display: grid;
-    grid-template-columns: 220px minmax(0, 1fr) 238px;
-    gap: 12px;
-    align-items: stretch;
-  }
-
-  .map-sidebar,
-  .map-canvas-card,
-  .map-insights {
-    border: 1px solid #e4e8f1;
-    border-radius: 12px;
-    background: #fff;
-    box-shadow: 0 3px 12px rgba(34, 48, 88, 0.04);
-  }
-
-  .map-sidebar {
-    padding: 12px;
-  }
-
-  .map-search {
-    height: 34px;
+  .graph-top-actions {
+    flex: 0 0 auto;
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 0 10px;
-    border: 1px solid #e1e6ef;
-    border-radius: 9px;
-    color: #929cad;
-    background: #fafbff;
+    justify-content: flex-end;
+    gap: 10px;
+    min-width: 360px;
+  }
+
+  .graph-search {
+    width: 290px;
+    height: 42px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 0 15px;
+    border: 1px solid #e8edf6;
+    border-radius: 999px;
+    color: #a6afbe;
+    background: rgba(255, 255, 255, 0.88);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
 
     input {
-      min-width: 0;
       width: 100%;
+      min-width: 0;
       border: 0;
       outline: 0;
+      color: #24304a;
       background: transparent;
-      font-size: 10px;
+      font-size: 13px;
     }
   }
 
-  .map-tabs {
+  .ghost-action,
+  .primary-action {
+    height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 15px;
+    border-radius: 12px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .ghost-action {
+    border: 1px solid #e2e8f4;
+    color: #536079;
+    background: rgba(255, 255, 255, 0.84);
+  }
+
+  .primary-action {
+    border: 0;
+    color: #fff;
+    background: #4468f2;
+    box-shadow: 0 10px 18px rgba(68, 104, 242, 0.18);
+  }
+
+  .graph-tabs {
     display: grid;
-    gap: 7px;
-    margin-top: 12px;
-
-    button {
-      display: grid;
-      grid-template-columns: 28px minmax(0, 1fr);
-      gap: 8px;
-      align-items: center;
-      padding: 10px;
-      border: 1px solid transparent;
-      border-radius: 10px;
-      color: #798397;
-      background: #fafbfc;
-      text-align: left;
-      cursor: pointer;
-
-      &.active {
-        border-color: #dce2ff;
-        color: #5367f8;
-        background: #f3f5ff;
-      }
-    }
-
-    strong,
-    small {
-      display: block;
-    }
-
-    strong {
-      color: #334059;
-      font-size: 11px;
-    }
-
-    small {
-      margin-top: 2px;
-      font-size: 9px;
-    }
-  }
-
-  .relation-filter {
-    margin-top: 14px;
-    padding-top: 12px;
-    border-top: 1px solid #edf0f5;
-
-    strong {
-      display: block;
-      margin-bottom: 8px;
-      font-size: 11px;
-    }
-
-    button {
-      margin: 0 5px 6px 0;
-      padding: 5px 8px;
-      border: 1px solid #e3e7ef;
-      border-radius: 999px;
-      color: #7b8598;
-      background: #fff;
-      font-size: 9px;
-      cursor: pointer;
-
-      &.active {
-        border-color: #dce2ff;
-        color: #5367f8;
-        background: #f5f7ff;
-      }
-    }
-  }
-
-  .map-canvas-card {
-    min-width: 0;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0;
+    margin-bottom: 0;
+    border: 1px solid #e8edf6;
+    border-radius: 22px 22px 0 0;
+    background: rgba(255, 255, 255, 0.92);
     overflow: hidden;
+
+    button {
+      min-width: 0;
+      height: 62px;
+      display: grid;
+      place-items: center;
+      gap: 2px;
+      border: 0;
+      border-right: 1px solid #eef2f8;
+      color: #606b81;
+      background: transparent;
+      cursor: pointer;
+      position: relative;
+
+      &:last-child {
+        border-right: 0;
+      }
+
+      &::after {
+        position: absolute;
+        bottom: 0;
+        width: 34px;
+        height: 4px;
+        border-radius: 999px 999px 0 0;
+        content: '';
+        background: transparent;
+      }
+
+      &.active {
+        color: #17213a;
+        background: #fff;
+      }
+
+      &.active::after {
+        background: #3778f6;
+      }
+    }
+
+    span {
+      font-size: 15px;
+      font-weight: 800;
+    }
+
+    em {
+      color: #95a0b3;
+      font-size: 11px;
+      font-style: normal;
+    }
   }
 
-  .map-toolbar,
-  .map-bottom {
+  .graph-filter-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    padding: 12px 14px;
-    border-bottom: 1px solid #edf0f5;
+    gap: 14px;
+    padding: 14px 18px;
+    border: 1px solid #e8edf6;
+    border-top: 0;
+    background: rgba(255, 255, 255, 0.94);
+  }
 
-    span,
-    strong {
-      display: block;
+  .relation-filter,
+  .graph-switches {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .relation-filter button,
+  .view-switch button {
+    height: 30px;
+    padding: 0 12px;
+    border: 1px solid #e4e9f3;
+    border-radius: 999px;
+    color: #707b91;
+    background: #fff;
+    font-size: 12px;
+    cursor: pointer;
+
+    &.active {
+      border-color: #bfd2ff;
+      color: #2f68df;
+      background: #edf4ff;
     }
+  }
 
-    span {
-      color: #5367f8;
-      font-size: 10px;
-      font-weight: 700;
-    }
+  .graph-switches label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #68748a;
+    font-size: 12px;
+    white-space: nowrap;
 
-    strong {
-      margin-top: 3px;
-      color: #4c5870;
-      font-size: 12px;
-      font-weight: 500;
+    input {
+      accent-color: #3778f6;
     }
   }
 
   .view-switch {
     display: inline-flex;
+    gap: 4px;
     padding: 3px;
-    border: 1px solid #e1e6f4;
-    border-radius: 9px;
-    background: #f8faff;
+    border: 1px solid #e7edf8;
+    border-radius: 999px;
+    background: #f7f9fd;
+  }
 
-    button {
-      height: 24px;
-      padding: 0 10px;
-      border: 0;
-      border-radius: 7px;
-      color: #758098;
-      background: transparent;
-      font-size: 10px;
-      cursor: pointer;
+  .graph-stage {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 316px;
+    gap: 18px;
+    min-height: 590px;
+    padding: 18px;
+    border: 1px solid #e8edf6;
+    border-top: 0;
+    border-radius: 0 0 22px 22px;
+    background: rgba(255, 255, 255, 0.96);
+  }
 
-      &.active {
-        color: #fff;
-        background: #5367f8;
-      }
+  .graph-canvas-panel,
+  .map-insights {
+    border: 1px solid #e7edf6;
+    border-radius: 20px;
+    background: #fff;
+    box-shadow: 0 14px 32px rgba(42, 56, 90, 0.06);
+  }
+
+  .graph-canvas-panel {
+    position: relative;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .graph-canvas-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 15px 18px;
+    border-bottom: 1px solid #edf2f8;
+
+    strong,
+    span {
+      display: block;
+    }
+
+    strong {
+      color: #17213a;
+      font-size: 16px;
+    }
+
+    span {
+      margin-top: 3px;
+      color: #7e899a;
+      font-size: 12px;
     }
   }
 
-  .focus-tags {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 5px;
+  .zoom-control {
+    display: grid;
+    grid-template-columns: 30px 48px 30px;
+    align-items: center;
+    gap: 6px;
 
-    em {
-      padding: 4px 7px;
+    button {
+      height: 28px;
+      border: 1px solid #dfe6f1;
+      border-radius: 10px;
+      color: #5f6b80;
+      background: #fff;
+      cursor: pointer;
+    }
+
+    span {
+      color: #3970e7;
+      font-size: 12px;
+      font-weight: 800;
+      text-align: center;
+    }
+  }
+
+  .map-canvas {
+    width: 100%;
+    height: 528px;
+    display: block;
+    transform-origin: center;
+    transition: transform 0.18s ease;
+    background:
+      radial-gradient(circle at 50% 50%, rgba(75, 101, 239, 0.08), transparent 32%),
+      radial-gradient(circle, #dbe3f1 1.1px, transparent 1.2px);
+    background-color: #fbfdff;
+    background-size: auto, 24px 24px;
+  }
+
+  .graph-links path {
+    fill: none;
+    stroke: #cfd8e7;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    opacity: 0.82;
+    transition: opacity 0.16s ease, stroke 0.16s ease, stroke-width 0.16s ease;
+  }
+
+  .graph-links .link-父子关系,
+  .graph-links .link-前后置关系 {
+    stroke: #6fa4de;
+    stroke-width: 2.6;
+  }
+
+  .graph-links .link-资料支撑 {
+    stroke: #6fba92;
+    stroke-dasharray: 6 6;
+  }
+
+  .graph-links .link-任务驱动 {
+    stroke: #e5a156;
+    stroke-dasharray: 5 5;
+  }
+
+  .graph-links .selected {
+    stroke: #3d70f2;
+    stroke-width: 3.4;
+    opacity: 1;
+  }
+
+  .graph-links .dimmed {
+    opacity: 0.2;
+  }
+
+  .graph-node {
+    cursor: pointer;
+    outline: none;
+    transition: opacity 0.16s ease;
+
+    rect:not(.node-track):not(.node-progress) {
+      transition: transform 0.16s ease, filter 0.16s ease, stroke-width 0.16s ease;
+      transform-box: fill-box;
+      transform-origin: center;
+    }
+
+    .node-track {
+      fill: rgba(158, 171, 195, 0.22);
+      stroke: none;
+      pointer-events: none;
+    }
+
+    .node-progress {
+      stroke: none;
+      pointer-events: none;
+    }
+
+    text {
+      font-size: 13px;
+      font-weight: 800;
+      pointer-events: none;
+    }
+
+    .node-subtitle {
+      fill: rgba(255, 255, 255, 0.78);
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    &:hover rect:not(.node-track):not(.node-progress),
+    &:focus-visible rect:not(.node-track):not(.node-progress) {
+      transform: translateY(-2px);
+      stroke-width: 2.4;
+    }
+
+    &.selected rect:not(.node-track):not(.node-progress) {
+      stroke: #255fe8;
+      stroke-width: 3;
+    }
+
+    &.related:not(.selected) {
+      opacity: 0.92;
+    }
+
+    &.dimmed {
+      opacity: 0.38;
+    }
+  }
+
+  .map-canvas-tools {
+    position: absolute;
+    right: 16px;
+    bottom: 16px;
+    left: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid rgba(214, 224, 241, 0.92);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.86);
+    box-shadow: 0 12px 30px rgba(35, 48, 82, 0.08);
+    backdrop-filter: blur(10px);
+  }
+
+  .graph-legend,
+  .graph-quick-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .graph-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #6f7a90;
+    font-size: 11px;
+    white-space: nowrap;
+
+    &::before {
+      width: 22px;
+      height: 3px;
       border-radius: 999px;
-      color: #5367f8;
-      background: #eef1ff;
-      font-size: 9px;
-      font-style: normal;
+      content: '';
+      background: #6fa4de;
+    }
+  }
+
+  .graph-legend .legend-resource::before {
+    background: repeating-linear-gradient(90deg, #6fba92 0 6px, transparent 6px 10px);
+  }
+
+  .graph-legend .legend-task::before {
+    background: repeating-linear-gradient(90deg, #e5a156 0 5px, transparent 5px 9px);
+  }
+
+  .graph-quick-actions button {
+    height: 30px;
+    padding: 0 11px;
+    border: 1px solid #dfe7f3;
+    border-radius: 10px;
+    color: #3d4b64;
+    background: #fff;
+    font-size: 11px;
+    font-weight: 800;
+    cursor: pointer;
+
+    &:hover {
+      border-color: #bfd2ff;
+      color: #2f68df;
+      background: #eff4ff;
     }
   }
 
   .structure-map {
     position: relative;
-    min-height: 470px;
+    min-height: 528px;
     display: grid;
-    grid-template-columns: minmax(130px, 0.24fr) 18px minmax(0, 1fr);
-    gap: 20px;
+    grid-template-columns: minmax(140px, 0.23fr) 20px minmax(0, 1fr);
+    gap: 22px;
     align-items: center;
-    padding: 24px 26px;
+    padding: 34px;
     overflow: hidden;
     background:
-      radial-gradient(circle at 22% 50%, rgba(83, 103, 248, 0.11), transparent 28%),
-      linear-gradient(90deg, rgba(229, 234, 246, 0.6) 1px, transparent 1px),
-      linear-gradient(rgba(229, 234, 246, 0.6) 1px, transparent 1px);
-    background-color: #fbfcff;
-    background-size: auto, 34px 34px, 34px 34px;
+      radial-gradient(circle at 22% 50%, rgba(59, 126, 226, 0.11), transparent 28%),
+      radial-gradient(circle, #dbe3f1 1.1px, transparent 1.2px);
+    background-color: #fbfdff;
+    background-size: auto, 24px 24px;
   }
 
   .structure-root {
-    position: relative;
-    z-index: 1;
     justify-self: end;
     display: grid;
-    gap: 8px;
+    gap: 9px;
     text-align: right;
 
     span,
     strong {
       display: inline-flex;
       justify-content: flex-end;
-      padding: 8px 12px;
-      border: 1px solid #bfe5ce;
+      padding: 9px 14px;
+      border: 1px solid #bfe7ce;
       border-radius: 999px;
-      color: #227a45;
-      background: #f0fff6;
+      color: #237c4c;
+      background: #effbf5;
       font-size: 13px;
+      font-weight: 800;
     }
 
     strong {
       color: #fff;
-      background: #4fb86b;
+      background: #58ba77;
     }
   }
 
   .structure-trunk {
-    width: 4px;
-    height: min(410px, 100%);
+    width: 5px;
+    height: min(420px, 100%);
     border-radius: 999px;
-    background: linear-gradient(180deg, #55bf75, #82d7a0);
-    box-shadow: 0 0 0 6px rgba(90, 191, 118, 0.08);
+    background: linear-gradient(180deg, #58bd78, #83d89f);
+    box-shadow: 0 0 0 7px rgba(89, 189, 120, 0.08);
   }
 
   .structure-branches {
     display: grid;
-    gap: 10px;
+    gap: 11px;
     min-width: 0;
   }
 
@@ -824,52 +1154,52 @@
     grid-template-columns: minmax(120px, 0.34fr) minmax(0, 1fr) minmax(150px, 0.34fr);
     align-items: center;
     gap: 10px;
-    min-height: 42px;
+    min-height: 46px;
     padding-left: var(--branch-offset);
-    border-radius: 9px;
+    border-radius: 12px;
     cursor: pointer;
     outline: none;
 
     &:hover,
     &:focus-visible,
     &.active {
-      background: rgba(83, 103, 248, 0.06);
+      background: rgba(55, 120, 246, 0.07);
     }
 
     &.active {
-      box-shadow: inset 0 0 0 1px rgba(83, 103, 248, 0.22);
+      box-shadow: inset 0 0 0 1px rgba(55, 120, 246, 0.24);
     }
 
     &::before {
       position: absolute;
-      left: -20px;
-      width: 18px;
+      left: -23px;
+      width: 22px;
       height: 2px;
       content: '';
-      background: #86d4a1;
+      background: #85d4a2;
     }
 
     &::after {
       position: absolute;
-      left: -24px;
-      width: 8px;
-      height: 8px;
+      left: -28px;
+      width: 9px;
+      height: 9px;
       border-radius: 50%;
       content: '';
       background: #64c681;
-      box-shadow: 0 0 0 4px #e8f8ee;
+      box-shadow: 0 0 0 5px #e8f8ee;
     }
   }
 
   .branch-title {
     display: flex;
     align-items: center;
-    gap: 7px;
+    gap: 8px;
 
     span {
       color: #8b96aa;
       font-size: 10px;
-      font-weight: 800;
+      font-weight: 900;
     }
 
     strong {
@@ -882,47 +1212,45 @@
     }
   }
 
-  .branch-badges {
+  .branch-badges,
+  .resource-pills,
+  .node-meta {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
+    gap: 5px;
+  }
 
-    em {
-      min-width: 34px;
-      padding: 3px 5px;
-      border-radius: 4px;
-      color: #fff;
-      background: #d84d55;
-      font-size: 9px;
-      font-style: normal;
-      text-align: center;
-    }
+  .branch-badges em {
+    min-width: 34px;
+    padding: 4px 6px;
+    border-radius: 7px;
+    color: #fff;
+    background: #d86f76;
+    font-size: 9px;
+    font-style: normal;
+    text-align: center;
+  }
 
-    .badge-讲义,
-    .badge-讨论 {
-      background: #7ba4c8;
-    }
+  .branch-badges .badge-讲义,
+  .branch-badges .badge-讨论 {
+    background: #6fa4de;
+  }
 
-    .badge-自测 {
-      background: #8bd0b0;
-    }
+  .branch-badges .badge-自测 {
+    background: #76c79a;
+  }
 
-    .badge-案例 {
-      background: #d86f76;
-    }
-
-    .badge-导图 {
-      background: #8d7ad9;
-    }
+  .branch-badges .badge-导图 {
+    background: #9277d8;
   }
 
   .branch-meta {
     display: grid;
-    grid-template-columns: minmax(0, 0.5fr) minmax(0, 1fr) 40px;
+    grid-template-columns: minmax(0, 0.5fr) minmax(0, 1fr) 44px;
     gap: 6px;
     align-items: center;
-    color: #8a94a7;
-    font-size: 9px;
+    color: #8792a6;
+    font-size: 10px;
 
     span {
       min-width: 0;
@@ -932,332 +1260,155 @@
     }
 
     strong {
-      color: #5367f8;
-      font-size: 11px;
+      color: #3970e7;
+      font-size: 12px;
       text-align: right;
     }
   }
 
-  .map-canvas {
-    width: 100%;
-    height: 470px;
-    display: block;
-    transform-origin: center;
-    transition: transform 0.18s ease;
-    background:
-      radial-gradient(circle at center, rgba(83, 103, 248, 0.08), transparent 38%),
-      linear-gradient(90deg, rgba(229, 234, 246, 0.55) 1px, transparent 1px),
-      linear-gradient(rgba(229, 234, 246, 0.55) 1px, transparent 1px);
-    background-color: #fbfcff;
-    background-size: auto, 34px 34px, 34px 34px;
+  .map-insights {
+    max-height: 592px;
+    padding: 16px;
+    overflow: auto;
 
-    line {
-      stroke: #cfd6e8;
-      stroke-width: 1.4;
-      stroke-dasharray: 4 4;
+    section + section {
+      margin-top: 13px;
+      padding-top: 13px;
+      border-top: 1px solid #edf2f8;
     }
 
-    .link-父子关系,
-    .link-前后置关系 {
-      stroke: #6575ff;
-      stroke-width: 1.8;
-      stroke-dasharray: none;
-    }
-
-    .link-资料支撑 {
-      stroke: #31b88a;
-    }
-
-    .link-任务驱动 {
-      stroke: #f6a23c;
-    }
-
-    g {
-      cursor: pointer;
-    }
-
-    circle {
-      fill: #fff;
-      stroke: #dfe5f5;
-      stroke-width: 1.5;
-      filter: drop-shadow(0 8px 16px rgba(45, 57, 98, 0.12));
-    }
-
-    text {
-      max-width: 80px;
-      fill: #2c3952;
-      font-size: 10px;
-      font-weight: 700;
-      pointer-events: none;
-    }
-
-    .node-chapter circle {
-      fill: #f5f7ff;
-      stroke: #bfc8ff;
-    }
-
-    .node-concept circle {
-      fill: #fff;
-      stroke: #dfe5f5;
-    }
-
-    .node-resource circle {
-      fill: #f3fff9;
-      stroke: #bcebd8;
-    }
-
-    .node-task circle {
-      fill: #fff8ef;
-      stroke: #f8d7a9;
-    }
-
-    .node-ability circle {
-      fill: #f5f0ff;
-      stroke: #d7c9ff;
-    }
-
-    .node-weight-4 circle {
-      fill: url(#nodePrimary);
-      stroke: transparent;
-    }
-
-    .node-weight-4 text {
-      fill: #fff;
+    strong {
+      display: block;
+      margin-bottom: 7px;
+      color: #334059;
       font-size: 13px;
     }
 
-    .selected circle {
-      stroke: #2563eb;
-      stroke-width: 3;
-      filter: drop-shadow(0 10px 18px rgba(37, 99, 235, 0.26));
-    }
-  }
-
-  .map-bottom {
-    border-top: 1px solid #edf0f5;
-    border-bottom: 0;
-    color: #7d879a;
-    font-size: 10px;
-
-    > div {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    button {
-      height: 30px;
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      padding: 0 11px;
-      border: 1px solid #dce2ff;
-      border-radius: 8px;
-      color: #5367f8;
-      background: #f5f7ff;
-      cursor: pointer;
-    }
-  }
-
-  .guided-path {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 10px;
-    padding: 12px 14px 14px;
-    border-top: 1px solid #edf0f5;
-    background: #fff;
-
-    article {
-      min-width: 0;
-      padding: 11px;
-      border: 1px solid #e6ebf5;
-      border-radius: 10px;
-      background: linear-gradient(180deg, #fbfcff, #f7f9fd);
-    }
-
-    span {
-      display: inline-flex;
-      margin-bottom: 6px;
-      padding: 3px 7px;
-      border-radius: 999px;
-      color: #227a45;
-      background: #ecfff4;
-      font-size: 9px;
-      font-weight: 700;
-    }
-
-    strong {
-      display: block;
-      color: #253148;
-      font-size: 11px;
-      line-height: 1.45;
-    }
-
-    p {
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-      min-height: 30px;
-      margin: 5px 0 0;
-      overflow: hidden;
-      color: #7b8598;
-      font-size: 9px;
-      line-height: 1.65;
-    }
-  }
-
-  .map-insights {
-    padding: 12px;
-
-    section + section {
-      margin-top: 10px;
-      padding-top: 10px;
-      border-top: 1px solid #edf0f5;
-    }
-
-    strong {
-      display: block;
-      margin-bottom: 6px;
-      color: #334059;
-      font-size: 12px;
+    h3 {
+      margin: 2px 0 7px;
+      color: #172033;
+      font-size: 20px;
+      line-height: 1.25;
     }
 
     p {
       margin: 0;
-      color: #808a9c;
-      font-size: 10px;
-      line-height: 1.7;
-    }
-
-    h3 {
-      margin: 2px 0 6px;
-      color: #172033;
-      font-size: 16px;
-    }
-
-    label {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      margin: 8px 0;
-      color: #596579;
-      font-size: 11px;
-    }
-
-    input {
-      accent-color: #5367f8;
+      color: #68748a;
+      font-size: 12px;
+      line-height: 1.72;
     }
 
     button {
       width: 100%;
-      height: 30px;
-      margin-top: 6px;
-      border: 1px solid #e0e5ee;
-      border-radius: 8px;
-      color: #5f6b80;
-      background: #fafbfc;
-      font-size: 10px;
+      min-height: 34px;
+      margin-top: 7px;
+      border: 1px solid #e1e7f1;
+      border-radius: 11px;
+      color: #536079;
+      background: #fbfcff;
+      font-size: 12px;
       cursor: pointer;
 
       &:hover {
-        border-color: #dce2ff;
-        color: #5367f8;
-        background: #f5f7ff;
+        border-color: #c8d8ff;
+        color: #2f68df;
+        background: #f0f5ff;
       }
     }
   }
 
   .node-detail-head {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 54px;
+    grid-template-columns: minmax(0, 1fr) 58px;
     gap: 10px;
     align-items: center;
   }
 
   .mastery-ring {
-    width: 48px;
-    height: 48px;
+    width: 52px;
+    height: 52px;
     display: grid;
     place-items: center;
     border-radius: 50%;
     background:
       radial-gradient(circle, #fff 56%, transparent 58%),
-      conic-gradient(#5367f8 var(--mastery), #edf1f8 0);
+      conic-gradient(#3778f6 var(--mastery), #edf2f8 0);
 
     span {
-      color: #5367f8;
-      font-size: 11px;
-      font-weight: 800;
+      color: #2f68df;
+      font-size: 12px;
+      font-weight: 900;
     }
   }
 
-  .evidence-list,
-  .action-list {
+  .node-meta {
+    margin-top: 10px;
+
+    span {
+      padding: 5px 8px;
+      border-radius: 999px;
+      color: #2f68df;
+      background: #eef4ff;
+      font-size: 10px;
+    }
+  }
+
+  .evidence-list {
     display: grid;
-    gap: 6px;
+    gap: 7px;
     margin: 0;
-    padding-left: 16px;
-    color: #677286;
-    font-size: 10px;
+    padding-left: 17px;
+    color: #657287;
+    font-size: 11px;
     line-height: 1.55;
   }
 
-  .resource-pills,
-  .check-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 5px;
-    margin-top: 8px;
+  .resource-pills {
+    margin-top: 9px;
 
-    em,
-    span {
-      padding: 4px 7px;
-      border-radius: 7px;
-      color: #2f7652;
+    em {
+      padding: 5px 8px;
+      border-radius: 8px;
+      color: #25744d;
       background: #effaf4;
-      font-size: 9px;
+      font-size: 10px;
       font-style: normal;
       line-height: 1.35;
     }
   }
 
-  .check-list span {
-    color: #6c5bb8;
-    background: #f5f2ff;
-  }
-
   .insight-columns {
     display: grid;
-    gap: 8px;
+    gap: 9px;
 
     > div {
-      padding: 9px;
+      padding: 10px;
       border: 1px solid #e8edf5;
-      border-radius: 9px;
+      border-radius: 12px;
       background: #fbfcff;
     }
 
     span {
       display: block;
-      margin-bottom: 5px;
-      color: #5367f8;
-      font-size: 10px;
-      font-weight: 800;
+      margin-bottom: 6px;
+      color: #2f68df;
+      font-size: 11px;
+      font-weight: 900;
     }
 
     p + p {
-      margin-top: 5px;
+      margin-top: 6px;
     }
   }
 
   .neighbor-button {
     display: grid !important;
-    grid-template-columns: 56px minmax(0, 1fr) 38px;
-    gap: 6px;
+    grid-template-columns: 62px minmax(0, 1fr) 42px;
+    gap: 7px;
     align-items: center;
     height: auto !important;
-    min-height: 34px;
-    padding: 7px 8px !important;
+    min-height: 38px;
+    padding: 8px 9px !important;
     text-align: left;
 
     span,
@@ -1271,86 +1422,161 @@
 
     span {
       color: #8792a6;
-      font-size: 9px;
+      font-size: 10px;
     }
 
     b {
       color: #344057;
-      font-size: 10px;
-      font-weight: 700;
+      font-size: 12px;
+      font-weight: 800;
     }
 
     em {
-      color: #5367f8;
-      font-size: 9px;
+      color: #2f68df;
+      font-size: 10px;
       font-style: normal;
       text-align: right;
     }
   }
 
-  .node-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 9px;
+  .guided-path {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 16px;
+
+    article {
+      min-width: 0;
+      padding: 14px;
+      border: 1px solid #e7edf6;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: 0 10px 24px rgba(35, 48, 82, 0.05);
+    }
 
     span {
-      padding: 4px 7px;
+      display: inline-flex;
+      margin-bottom: 8px;
+      padding: 4px 9px;
       border-radius: 999px;
-      color: #5367f8;
-      background: #eef1ff;
-      font-size: 9px;
+      color: #237c4c;
+      background: #ecfff4;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    strong {
+      display: block;
+      color: #253148;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    p {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      min-height: 38px;
+      margin: 7px 0 0;
+      overflow: hidden;
+      color: #778299;
+      font-size: 11px;
+      line-height: 1.7;
     }
   }
 
-  .zoom-control {
-    display: grid;
-    grid-template-columns: 30px minmax(0, 1fr) 30px;
+  .path-action button {
+    height: 34px;
+    display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
-    margin-top: 8px;
-
-    span {
-      text-align: center;
-      color: #5367f8;
-      font-size: 11px;
-      font-weight: 700;
-    }
-
-    button {
-      margin-top: 0;
-      padding: 0;
-    }
+    margin-top: 10px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 11px;
+    color: #fff;
+    background: #4468f2;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
   }
 
   @media (max-width: 1180px) {
-    .knowledge-shell {
-      grid-template-columns: 210px minmax(0, 1fr);
-    }
-
-    .map-insights {
-      grid-column: 1 / -1;
-    }
-  }
-
-  @media (max-width: 820px) {
-    .knowledge-hero,
-    .map-toolbar,
-    .map-bottom {
+    .graph-topbar,
+    .graph-filter-row {
       align-items: flex-start;
       flex-direction: column;
     }
 
-    .hero-actions,
-    .knowledge-summary,
-    .guided-path,
-    .structure-map,
-    .knowledge-shell {
+    .graph-top-actions,
+    .graph-search {
+      width: 100%;
+      min-width: 0;
+    }
+
+    .graph-stage {
       grid-template-columns: 1fr;
+    }
+
+    .map-insights {
+      max-height: none;
+    }
+
+    .guided-path {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 820px) {
+    .graph-lab-shell {
+      padding: 14px;
+      border-radius: 20px;
+    }
+
+    .graph-brand,
+    .graph-top-actions {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .graph-brand h1 {
+      white-space: normal;
+    }
+
+    .graph-tabs,
+    .guided-path,
+    .structure-map {
+      grid-template-columns: 1fr;
+    }
+
+    .graph-tabs {
+      border-radius: 18px 18px 0 0;
+    }
+
+    .graph-stage {
+      padding: 12px;
+    }
+
+    .map-canvas {
+      height: 430px;
+      min-width: 720px;
+    }
+
+    .graph-canvas-panel {
+      overflow: auto;
+    }
+
+    .map-canvas-tools {
+      position: static;
+      align-items: flex-start;
+      flex-direction: column;
+      margin: 10px 12px 12px;
     }
 
     .structure-map {
       gap: 14px;
+      padding: 18px;
     }
 
     .structure-root {
@@ -1365,22 +1591,14 @@
     .structure-branch {
       grid-template-columns: 1fr;
       padding: 10px;
-      border: 1px solid #e4e8f1;
-      border-radius: 10px;
+      border: 1px solid #e4eaf4;
+      border-radius: 12px;
       background: #fff;
 
       &::before,
       &::after {
         display: none;
       }
-    }
-
-    .knowledge-summary {
-      display: grid;
-    }
-
-    .map-canvas {
-      height: 390px;
     }
   }
 </style>
