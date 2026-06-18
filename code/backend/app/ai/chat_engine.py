@@ -159,7 +159,7 @@ def _drain_reasoning_queue(queue: list[dict[str, Any]]):
 
 def _normalize_answer_text(text: str) -> str:
     cleaned = re.sub(
-        r"(?m)^[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t]*$",
+        r"(?m)^[ \t]*(?:-{3,}|\*{3,}|_{3,}|[＿_—─━]{5,})[ \t]*$",
         "",
         text or "",
     )
@@ -733,19 +733,19 @@ def _rule_based_route(state: State) -> tuple[str, str] | None:
     if tool_mode == "digital_human_explain":
         return ("tutor_agent", "数字人讲解请求，交由辅导教师生成适合口播的视频讲稿。")
     active_tools = set(state.get("active_tools") or [])
+    current_file_id = (state.get("current_file_id") or "").strip()
+    if current_file_id:
+        file_name = (state.get("current_file_name") or "").strip()
+        return (
+            "doc_researcher",
+            f"当前对话已挂载文件《{file_name or current_file_id}》，优先基于该文件检索与回答。",
+        )
     if "web_search" in active_tools and _FRESH_WEB_HINT.search(user_q):
         return ("web_research_agent", "问题包含时效性或外部事实校验需求，启用联网研究员。")
     if _EXPLAIN_WITH_PRACTICE_HINT.search(user_q):
         return ("knowledge_mentor", "复合学习请求，先完成知识讲解与练习设计。")
     if _QUIZ_HINT.search(user_q):
         return ("quiz_master", "命中测验意图，进入主动测验流程。")
-    current_file_id = (state.get("current_file_id") or "").strip()
-    if current_file_id and _DOC_QUERY_HINT.search(user_q):
-        file_name = (state.get("current_file_name") or "").strip()
-        return (
-            "doc_researcher",
-            f"文档问题，优先检索《{file_name or current_file_id}》。",
-        )
     return None
 
 
@@ -1183,6 +1183,7 @@ def _build_rag_context(request: ChatRequest) -> tuple[SystemMessage, list[dict[s
         file_directive = (
             f"当前用户正在查看上传文件《{current_file_name or current_file_id}》。"
             "凡问题涉及该文件、论文、讲义、资料、上文或附件时，必须优先使用 scope=uploaded_document 的片段；"
+            "只要 scope=uploaded_document 片段能支撑结论，关键结论必须引用这些片段；"
             "只有这些片段不足时才补充知识库或通用知识，并在回答中明确区分。\n"
             if current_file_id
             else ""
@@ -1691,6 +1692,7 @@ def finalize_node(state: State) -> dict[str, Any]:
         "如果学生同时要求知识点讲解和练习题，answer 必须先系统讲解，再提供由浅入深练习题和提示。"
         "所有数学、算法复杂度或数据库符号公式必须使用标准 LaTeX，行内 $...$、块级 $$...$$；"
         "禁止输出 HTML/XML/MathML 标签，也禁止输出 class=\"math\" 之类的属性文本。"
+        "不要使用 ---、***、___ 或长下划线作为视觉分隔线。"
     )
     if is_selection_query:
         structured_prompt_text += (
@@ -2137,7 +2139,7 @@ def _normalize_structured_citations(
                 "score": _score(base.get("score")),
                 "snippet": str(raw.get("snippet") or base.get("content") or "")[:220],
                 "reason": str(raw.get("reason") or "").strip(),
-                "relevance_score": _score(raw.get("relevance_score")),
+                "relevance_score": _score(raw.get("relevance_score") or base.get("score")),
             }
         )
     return out

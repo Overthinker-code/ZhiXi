@@ -108,7 +108,7 @@
   // 处理复制函数
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(stripInlineCitationMarkers(props.message.content || ''));
+      await navigator.clipboard.writeText(normalizeAssistantMarkdown(props.message.content || ''));
       isCopied.value = true;
 
       // 1.5秒后恢复原始图标
@@ -173,6 +173,17 @@
       .replace(/\s*\[citation:\d+\]/gi, '')
       .replace(/\s*\[doc:\d+\]/gi, '')
       .replace(/[ \t]+\n/g, '\n')
+      .trim();
+
+  const normalizeAssistantMarkdown = (value) =>
+    stripInlineCitationMarkers(value)
+      .split('\n')
+      .filter((line) => {
+        const trimmed = line.trim();
+        return !/^([-*_])\1{2,}$/.test(trimmed) && !/^[＿_—─━]{5,}$/.test(trimmed);
+      })
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
       .trim();
 
   // 处理代码块的复制
@@ -272,7 +283,7 @@
       raw = raw.slice(0, streamTypeLen.value);
     }
     if (props.message.role === 'assistant') {
-      raw = stripInlineCitationMarkers(raw);
+      raw = normalizeAssistantMarkdown(raw);
     }
     return renderMarkdown(raw, {
       streaming: isStreamingAssistantBubble(),
@@ -327,6 +338,7 @@
     if (props.message.role !== 'assistant' || props.message.loading !== false) {
       return [];
     }
+    if (!settingStore.settings.debugMode) return [];
     const metrics = props.message.metrics || {};
     const cards = [
       {
@@ -780,7 +792,10 @@
         }
 
         :deep(hr) {
-          display: none;
+          display: none !important;
+          height: 0 !important;
+          border: 0 !important;
+          margin: 0 !important;
         }
 
         :deep(blockquote) {

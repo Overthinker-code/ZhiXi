@@ -48,6 +48,23 @@ def test_current_file_context_is_injected_before_general_rag(monkeypatch):
     assert "paper sentinel motivation and method" in str(message.content)
 
 
+def test_current_file_routes_to_document_researcher_without_keyword_hint():
+    route = chat_engine._rule_based_route(
+        {
+            "messages": [chat_engine.HumanMessage(content="帮我判断这部分最重要的三个点")],
+            "tool_mode": "chat",
+            "active_tools": ["knowledge_base"],
+            "current_file_id": "file-1",
+            "current_file_name": "paper.pdf",
+            "image_context": "",
+        }
+    )
+
+    assert route is not None
+    assert route[0] == "doc_researcher"
+    assert "paper.pdf" in route[1]
+
+
 def test_reasoning_chunk_prefers_model_reasoning_channel():
     chunk = AIMessageChunk(
         content="final text",

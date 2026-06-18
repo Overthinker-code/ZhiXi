@@ -71,7 +71,10 @@ export interface CitationItem {
   citation_id: number;
   source: string;
   file_id?: string;
+  file_name?: string;
   chunk_id?: number | string;
+  context_scope?: 'uploaded_document' | 'knowledge_base' | string;
+  locator?: string;
   score?: number;
   snippet: string;
   reason?: string;

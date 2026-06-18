@@ -219,6 +219,13 @@
     :deep(.katex) {
       font-size: 1.02em;
     }
+
+    :deep(hr) {
+      display: none !important;
+      height: 0 !important;
+      border: 0 !important;
+      margin: 0 !important;
+    }
   }
 
   .rb-caret {
