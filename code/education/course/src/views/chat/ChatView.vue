@@ -120,7 +120,7 @@
       web_research_agent: '联网检索专员',
       safety_review_agent: '事实审查专员',
       semantic_cache: '语义缓存',
-      demo_mode: '本地兜底回答',
+      demo_mode: '离线参考回答',
     };
     const descriptions: Record<string, string> = {
       profile_agent: '根据问答与练习更新画像与掌握度',
@@ -130,7 +130,7 @@
       web_research_agent: '在启用联网搜索时补充时效信息',
       safety_review_agent: '做事实性与内容安全复核',
       semantic_cache: '命中缓存，快速返回已验证回答',
-      demo_mode: '当前使用本地兜底路径',
+      demo_mode: '当前使用课程内置知识快照生成参考说明',
     };
     const defaultOrder = [
       'profile_agent',

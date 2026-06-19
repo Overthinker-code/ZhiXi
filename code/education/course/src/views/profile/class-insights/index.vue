@@ -70,8 +70,8 @@
       subtitle="汇总你所带班级的学习投入、预警趋势与学生参与情况"
       :image="bannerImg"
     >
-      <a-tag v-if="usingFallback" color="orangered" style="margin-top: 12px">
-        演示数据
+      <a-tag v-if="usingFallback" color="arcoblue" style="margin-top: 12px">
+        离线学情快照
       </a-tag>
     </ZyMediaHero>
 

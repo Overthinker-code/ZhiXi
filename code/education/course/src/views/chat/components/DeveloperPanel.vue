@@ -73,7 +73,7 @@
           </label>
           <label class="dev-switch">
             <input v-model="settingStore.settings.forceCache" type="checkbox" />
-            <span>启用本地兜底回答</span>
+            <span>启用离线参考回答</span>
           </label>
           <div class="dev-field">
             <span>强制路由专员</span>

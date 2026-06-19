@@ -1,5 +1,8 @@
 import axios from 'axios';
 
+/** 学生中心读接口在后端不可达时要尽快失败，页面才能进入课程快照状态。 */
+const READ_TIMEOUT_MS = 8000;
+
 export interface StudentMessage {
   id: string;
   title: string;
@@ -64,21 +67,28 @@ function unwrap<T>(res: unknown): T {
 }
 
 export async function fetchStudentMessages(limit = 20) {
-  const res = await axios.get('/api/student-hub/messages', { params: { limit } });
+  const res = await axios.get('/api/student-hub/messages', {
+    params: { limit },
+    timeout: READ_TIMEOUT_MS,
+  });
   return unwrap<{ data: StudentMessage[] }>(res).data ?? [];
 }
 
 export async function fetchStudyGroups() {
-  const res = await axios.get('/api/student-hub/groups');
+  const res = await axios.get('/api/student-hub/groups', { timeout: READ_TIMEOUT_MS });
   return unwrap<{ data: StudyGroupItem[] }>(res).data ?? [];
 }
 
 export async function fetchPracticeSummary() {
-  const res = await axios.get('/api/student-hub/practice/summary');
+  const res = await axios.get('/api/student-hub/practice/summary', {
+    timeout: READ_TIMEOUT_MS,
+  });
   return unwrap<PracticeSummary>(res);
 }
 
 export async function fetchAchievements() {
-  const res = await axios.get('/api/student-hub/achievements');
+  const res = await axios.get('/api/student-hub/achievements', {
+    timeout: READ_TIMEOUT_MS,
+  });
   return unwrap<AchievementPayload>(res);
 }

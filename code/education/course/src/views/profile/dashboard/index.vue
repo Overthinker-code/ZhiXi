@@ -9,6 +9,7 @@
     fetchStudyGroups,
   } from '@/api/student-hub';
   import { fetchCourses, type Course } from '@/api/course';
+  import { classroomCourses } from '@/data/classroomCourses';
 
   const userStore = useUserStore();
   const router = useRouter();
@@ -33,11 +34,15 @@
         nextStudy: ['第 4 章 函数式编程', '第 6 章 二叉树', '第 3 章 Vue 组件'][index] ?? '继续学习',
       }));
     }
-    return [
-      { id: 'demo-1', name: 'Python 程序设计', progress: 68, nextStudy: '第 4 章 函数式编程' },
-      { id: 'demo-2', name: '数据结构', progress: 42, nextStudy: '第 6 章 二叉树' },
-      { id: 'demo-3', name: '前端开发基础', progress: 85, nextStudy: '第 3 章 Vue 组件' },
-    ];
+    return classroomCourses.slice(0, 3).map((course) => ({
+      id: course.id,
+      name: course.title,
+      progress: course.progress,
+      nextStudy:
+        course.chapters
+          .flatMap((chapter) => chapter.lessons)
+          .find((lesson) => lesson.status === 'pending')?.label || '继续学习',
+    }));
   });
 
   const activityFeed = computed(() => {
@@ -86,10 +91,6 @@
   });
 
   function goCourse(id: string) {
-    if (id.startsWith('demo-')) {
-      router.push({ name: 'CourseList' });
-      return;
-    }
     router.push({
       name: 'StudentCourseContent',
       params: { courseId: id },

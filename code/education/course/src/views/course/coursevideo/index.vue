@@ -150,13 +150,13 @@
                 class="video-element"
                 :poster="currentCourse.cover"
               />
-              <div v-else class="demo-frame">
+              <div v-else class="media-frame">
                 <img :src="currentCourse.cover" :alt="`${currentCourse.title}课程资源预览`" />
-                <div class="demo-frame__shade"></div>
-                <div class="demo-frame__content">
+                <div class="media-frame__shade"></div>
+                <div class="media-frame__content">
                   <button
                     type="button"
-                    class="demo-play"
+                    class="media-play"
                     aria-label="载入本地课程视频"
                     @click="videoFileInput?.click()"
                   >
@@ -1438,7 +1438,7 @@ onBeforeRouteLeave(() => {
 }
 
 .video-element,
-.demo-frame {
+.media-frame {
   display: block;
   width: 100%;
   height: 100%;
@@ -1449,7 +1449,7 @@ onBeforeRouteLeave(() => {
   background: #080f1d;
 }
 
-.demo-frame {
+.media-frame {
   position: relative;
   overflow: hidden;
 
@@ -1461,7 +1461,7 @@ onBeforeRouteLeave(() => {
   }
 }
 
-.demo-frame__shade {
+.media-frame__shade {
   position: absolute;
   inset: 0;
   background:
@@ -1469,7 +1469,7 @@ onBeforeRouteLeave(() => {
     radial-gradient(circle at center, transparent 12%, rgba(5, 12, 27, .2));
 }
 
-.demo-frame__content {
+.media-frame__content {
   position: absolute;
   top: 50%;
   left: 50%;
@@ -1494,7 +1494,7 @@ onBeforeRouteLeave(() => {
   }
 }
 
-.demo-play {
+.media-play {
   display: grid;
   width: 70px;
   height: 70px;
