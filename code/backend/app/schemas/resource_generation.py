@@ -16,6 +16,7 @@ ResourceKind = Literal[
     "reading_list",
     "case_project",
     "video_script",
+    "quality_checklist",
 ]
 
 

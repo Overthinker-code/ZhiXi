@@ -302,6 +302,31 @@
                   </article>
                 </div>
               </div>
+              <div class="artifact-closure-strip">
+                <article
+                  v-for="item in artifactClosureCards"
+                  :key="item.label"
+                >
+                  <span>{{ item.kicker }}</span>
+                  <strong>{{ item.label }}</strong>
+                  <small>{{ item.value }}</small>
+                </article>
+              </div>
+              <div class="artifact-next-actions">
+                <button type="button" @click="openKnowledgeGraph">
+                  进入课程图谱核验
+                </button>
+                <button type="button" @click="openAiReview">
+                  进入 AI 批改追练
+                </button>
+                <button
+                  v-if="checklistArtifact"
+                  type="button"
+                  @click="downloadArtifact(checklistArtifact)"
+                >
+                  下载审查清单
+                </button>
+              </div>
               <div
                 v-if="downloadablePackage.quality_notes?.length || downloadablePackage.agent_trace?.length"
                 class="artifact-audit-panel"
@@ -341,6 +366,14 @@
                     <small>{{ artifact.file_name }} · {{ formatFileSize(artifact.file_size) }}</small>
                   </div>
                   <p>{{ artifact.preview }}</p>
+                  <div class="artifact-badges">
+                    <i
+                      v-for="badge in artifactQualityBadges(artifact)"
+                      :key="badge"
+                    >
+                      {{ badge }}
+                    </i>
+                  </div>
                   <button type="button" @click="downloadArtifact(artifact)">
                     下载文件
                   </button>
@@ -864,9 +897,42 @@
       0
     );
     return [
-      { label: '真实文件', value: `${downloadablePackage.value.artifacts.length} 个` },
+      {
+        label: '真实文件',
+        value: `${downloadablePackage.value.artifacts.length} 个`,
+      },
       { label: '下载体积', value: formatFileSize(totalSize) },
-      { label: '生成方式', value: downloadablePackage.value.local_model_profile?.mode || '课程资源生成' },
+      {
+        label: '生成方式',
+        value:
+          downloadablePackage.value.local_model_profile?.mode || '课程资源生成',
+      },
+    ];
+  });
+  const checklistArtifact = computed(
+    () =>
+      downloadablePackage.value?.artifacts.find(
+        (item) => item.kind === 'quality_checklist'
+      ) || null
+  );
+  const artifactClosureCards = computed(() => {
+    if (!downloadablePackage.value) return [];
+    return [
+      {
+        kicker: '课堂笔记',
+        label: '讲义与练习回填',
+        value: '定义、方法、校验、迁移四块笔记',
+      },
+      {
+        kicker: '课程图谱',
+        label: '节点关系核验',
+        value: '先修、核心、方法、校验、应用节点',
+      },
+      {
+        kicker: 'AI 伴学',
+        label: '错因追练闭环',
+        value: '批改、订正、再生成资源包',
+      },
     ];
   });
   const artifactKindLabel = (kind: ResourceKind) => {
@@ -879,9 +945,25 @@
       reading_list: '阅读清单',
       case_project: '案例项目',
       video_script: '数字人脚本',
+      quality_checklist: '审查清单',
     };
     return map[kind] || kind;
   };
+  function artifactQualityBadges(artifact: GeneratedResourceArtifact) {
+    const shared = ['可下载'];
+    const map: Partial<Record<ResourceKind, string[]>> = {
+      lecture_markdown: ['课堂笔记对齐', '图谱绑定'],
+      lecture_pdf: ['轻量预览'],
+      practice_markdown: ['评分量规', 'AI 追练'],
+      practice_pdf: ['轻量预览'],
+      mind_map: ['知识节点', '关系核验'],
+      reading_list: ['证据模板', '引用回指'],
+      case_project: ['提交物模板', '验收标准'],
+      video_script: ['互动停顿', '数字人可用'],
+      quality_checklist: ['质量门槛', '闭环规则'],
+    };
+    return [...(map[artifact.kind] || []), ...shared];
+  }
   const incomingSeedSummary = computed(() => {
     const topic = String(route.query.topic || '').trim();
     const goal = String(route.query.goal || '').trim();
@@ -1090,6 +1172,37 @@
     window.open(artifactDownloadUrl(artifact), '_blank', 'noopener,noreferrer');
   }
 
+  function openKnowledgeGraph() {
+    if (activeCourse.value) {
+      router.push({
+        name: 'StudentCourseKnowledge',
+        params: { courseId: activeCourse.value.id },
+        query: {
+          topic: downloadablePackage.value?.topic || form.topic,
+          source: 'resource-generation',
+          packageId: downloadablePackage.value?.package_id,
+        },
+      });
+      return;
+    }
+    Message.info('请先从具体课程进入资源生成，再回到课程图谱核验');
+  }
+
+  function openAiReview() {
+    const topic =
+      downloadablePackage.value?.topic || packageResult.value?.topic || form.topic;
+    router.push({
+      path: '/tutor',
+      query: {
+        subject: form.subject,
+        topic,
+        source: 'resource-generation',
+        packageId: downloadablePackage.value?.package_id,
+        intent: 'exercise-review',
+      },
+    });
+  }
+
   function productionResourceTypes(): ResourceKind[] {
     return [
       'lecture_markdown',
@@ -1100,6 +1213,7 @@
       'reading_list',
       'case_project',
       'video_script',
+      'quality_checklist',
     ];
   }
 
@@ -2133,6 +2247,71 @@
     font-size: 11px;
   }
 
+  .artifact-closure-strip {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 9px;
+    margin-top: 12px;
+  }
+
+  .artifact-closure-strip article {
+    min-width: 0;
+    padding: 10px 11px;
+    border: 1px solid #dfe8fb;
+    border-radius: 9px;
+    background: linear-gradient(180deg, #fff, #f5f8ff);
+  }
+
+  .artifact-closure-strip span,
+  .artifact-closure-strip strong,
+  .artifact-closure-strip small {
+    display: block;
+  }
+
+  .artifact-closure-strip span {
+    color: #6679f0;
+    font-size: 10px;
+    font-weight: 800;
+  }
+
+  .artifact-closure-strip strong {
+    margin-top: 4px;
+    color: #263253;
+    font-size: 13px;
+  }
+
+  .artifact-closure-strip small {
+    margin-top: 5px;
+    color: #73819d;
+    font-size: 11px;
+    line-height: 1.45;
+  }
+
+  .artifact-next-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .artifact-next-actions button {
+    height: 32px;
+    padding: 0 12px;
+    color: #4353d4;
+    font-size: 12px;
+    font-weight: 700;
+    background: #fff;
+    border: 1px solid #d9e2fb;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+
+  .artifact-next-actions button:first-child {
+    color: #fff;
+    background: #5367f8;
+    border-color: #5367f8;
+  }
+
   .artifact-audit-panel {
     display: grid;
     grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
@@ -2221,6 +2400,24 @@
     color: #728096;
     font-size: 11px;
     line-height: 1.65;
+  }
+
+  .artifact-badges {
+    display: flex;
+    grid-column: 1 / -1;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .artifact-badges i {
+    padding: 3px 7px;
+    color: #5261c8;
+    font-size: 10px;
+    font-style: normal;
+    font-weight: 700;
+    background: #eef2ff;
+    border: 1px solid #dfe5ff;
+    border-radius: 999px;
   }
 
   .artifact-card button {
@@ -2695,6 +2892,7 @@
     .hero-metrics,
     .insight-column,
     .form-two,
+    .artifact-closure-strip,
     .artifact-grid,
     .artifact-download-panel__head,
     .artifact-stats,

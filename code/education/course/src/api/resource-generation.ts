@@ -8,7 +8,8 @@ export type ResourceKind =
   | 'mind_map'
   | 'reading_list'
   | 'case_project'
-  | 'video_script';
+  | 'video_script'
+  | 'quality_checklist';
 
 export interface ResourceGenerationRequest {
   course_id?: string;

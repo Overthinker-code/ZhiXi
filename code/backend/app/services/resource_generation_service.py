@@ -24,6 +24,7 @@ DEFAULT_RESOURCE_TYPES: list[ResourceKind] = [
     "reading_list",
     "case_project",
     "video_script",
+    "quality_checklist",
 ]
 
 
@@ -136,6 +137,17 @@ class ResourceGenerationService:
                         "text/markdown",
                     )
                 )
+            elif kind == "quality_checklist":
+                artifacts.append(
+                    self._write_artifact(
+                        target_dir,
+                        kind,
+                        f"{request.topic} 使用审查清单",
+                        "quality-checklist.md",
+                        self._quality_checklist(context),
+                        "text/markdown",
+                    )
+                )
 
         self.write_manifest(
             target_dir,
@@ -166,15 +178,17 @@ class ResourceGenerationService:
                 "EvidenceAgent: 生成课程证据清单和引用模板",
                 "LectureAgent: 生成讲义、概念卡和课堂案例",
                 "ExerciseAgent: 生成分层练习和评分量规",
-                "MindMapAgent: 生成知识结构与迁移节点",
+                "MindMapAgent: 生成知识结构、图谱节点和迁移路径",
                 "CaseAgent: 生成实操任务和提交物模板",
                 "ScriptAgent: 生成讲解脚本与课后动作",
-                "SafetyReviewAgent: 检查事实边界、适用条件和输出格式",
+                "QualityAgent: 生成资源使用审查清单",
+                "SafetyReviewAgent: 检查事实边界、适用条件、课堂证据和输出格式",
                 "FinalizerAgent: 汇总为可下载资源包",
             ],
             quality_notes=[
                 f"已按“{context['scenario']}”组织案例，不再只输出通用学习建议。",
-                "讲义、练习、阅读和案例均包含证据项或评分量规，便于学生自查与 AI 批改。",
+                "讲义、练习、导图、阅读和案例均绑定课堂笔记、课程图谱与 AI 批改入口。",
+                "资源包包含 quality-checklist.md，可用于下载后逐项验收与学习闭环追踪。",
                 "所有可下载 Markdown 为中文主产物；PDF 为轻量预览版，排版完整性以 Markdown 为准。",
                 "联网搜索默认受控关闭；若启用，外部资料必须在内容中单独标注来源。",
             ],
@@ -254,6 +268,31 @@ class ResourceGenerationService:
         }[request.difficulty]
         terms = self._topic_terms(request.subject, request.topic)
         domain = self._domain_profile(request.subject, request.topic, terms)
+        note_blocks = [
+            f"概念边界：用自己的话解释 {request.topic}，并圈出 {terms[0]} 的判定条件",
+            f"方法步骤：把 {terms[1]} 拆成可检查的 3-5 个动作",
+            f"结果校验：用 {terms[2]}、反例或评价指标验证结论不过度推广",
+            f"迁移记录：把课堂案例改写成一个来自 {domain['domain']} 的新问题",
+        ]
+        graph_nodes = [
+            f"先修节点：{terms[0]}",
+            f"核心节点：{request.topic}",
+            f"方法节点：{terms[1]}",
+            f"校验节点：{terms[2]}",
+            f"应用节点：{domain['transfer']}",
+        ]
+        learning_sequence = [
+            "先读讲义第 1-4 节，补齐定义、证据和案例链路",
+            "再打开 mind-map.mmd，把每个节点对应到课堂笔记或资源文件",
+            "完成 practice.md 的基础题和标准题，并把错题送入 AI 批改",
+            "用 case-project.md 输出一份可提交任务，再用 quality-checklist.md 自查",
+        ]
+        quality_gate = [
+            "每个结论必须能回指课堂笔记、知识图谱节点或练习解析",
+            "每个练习必须有评分点、错因判断和下一步追练动作",
+            "每个案例必须包含输入材料、操作步骤、验收标准和可迁移边界",
+            "每个资源必须说明何时进入 AI 伴学、何时进入资源再生成",
+        ]
         return {
             "subject": request.subject.strip(),
             "topic": request.topic.strip(),
@@ -272,6 +311,14 @@ class ResourceGenerationService:
             "rubric": "；".join(domain["rubric"]),
             "mistakes": "；".join(domain["mistakes"]),
             "transfer": domain["transfer"],
+            "note_blocks": "\n".join(f"- {item}" for item in note_blocks),
+            "graph_nodes": "\n".join(f"- {item}" for item in graph_nodes),
+            "learning_sequence": "\n".join(f"{index}. {item}" for index, item in enumerate(learning_sequence, 1)),
+            "quality_gate": "\n".join(f"- {item}" for item in quality_gate),
+            "resource_contract": (
+                f"讲义负责讲清 {request.topic}，练习负责暴露错因，思维导图负责定位关系，"
+                f"案例负责迁移应用，质量清单负责把学习动作闭环到 AI 批改和课程图谱。"
+            ),
         }
 
     def _write_artifact(
@@ -527,9 +574,10 @@ class ResourceGenerationService:
 建议学习时长：{ctx['minutes']} 分钟
 生成依据：{ctx['profile']}
 课程域：{ctx['domain']}
+资源契约：{ctx['resource_contract']}
 
 ## 1. 一句话定位
-{ctx['topic']} 是本节学习的核心对象。学习时先弄清它解决什么问题，再看它和 {ctx['primary']}、{ctx['secondary']}、{ctx['third']} 的关系。
+{ctx['topic']} 是本节学习的核心对象。学习时先弄清它解决什么问题，再看它和 {ctx['primary']}、{ctx['secondary']}、{ctx['third']} 的关系。不要只背术语，必须能把定义、证据、步骤和适用边界串成一条可复述的链路。
 
 ## 2. 核心概念卡
 | 概念 | 课堂定位 | 学习检查 |
@@ -538,12 +586,17 @@ class ResourceGenerationService:
 | {ctx['secondary']} | 用来完成主要推理或操作步骤 | 能否列出 3 个判断条件 |
 | {ctx['third']} | 用来做结果校验和边界判断 | 能否解释一个反例 |
 
-## 3. 课程证据清单
+## 3. 课堂笔记对齐
+把课堂笔记整理成下面四个块，后续练习、导图和案例都从这里取证：
+
+{ctx['note_blocks']}
+
+## 4. 课程证据清单
 {ctx['evidence']}
 
-使用资料时先把每个结论对应到上述证据项。若某一步没有证据，只能标为“推断”或“待查”。
+使用资料时先把每个结论对应到上述证据项。若某一步没有证据，只能标为“推断”，并在 AI 伴学中要求补证或换例。
 
-## 4. 课堂案例拆解
+## 5. 课堂案例拆解
 场景：{ctx['scenario']}
 
 案例：{ctx['case']}
@@ -553,19 +606,25 @@ class ResourceGenerationService:
 3. 写出推理链：条件 -> 方法 -> 中间结果 -> 结论。
 4. 用一个反例或边界条件检查结论是否过度推广。
 
-## 5. 易错点
+## 6. 课程图谱绑定
+学习时按下面节点在课程图谱中逐个点开，确认每个节点都有笔记、资源和练习：
+
+{ctx['graph_nodes']}
+
+## 7. 易错点
 {ctx['mistakes']}
 
-## 6. 学习建议
-按照“概念复述 5 分钟 -> 案例拆解 12 分钟 -> 分层练习 15 分钟 -> AI 批改 8 分钟”的顺序完成。提交答案后使用 AI 批改模式更新掌握度。
+## 8. 学习路径
+{ctx['learning_sequence']}
 
-## 7. 迁移目标
+## 9. 迁移目标
 {ctx['transfer']}
 
-## 8. 自我检查
+## 10. 自我检查
 - 我能否不用教材原句解释 {ctx['topic']}？
 - 我能否指出 {ctx['primary']} 在案例中的证据？
 - 我能否说出一个不适用 {ctx['topic']} 的场景？
+- 我能否把本资源中的一个节点拖入课程图谱，并说明它连接了哪份练习？
 """
 
     @staticmethod
@@ -574,6 +633,7 @@ class ResourceGenerationService:
 
 课程：{ctx['subject']}
 匹配场景：{ctx['scenario']}
+练习目标：通过分层题暴露“定义不清、条件遗漏、步骤跳跃、结论无证据”四类错因。
 
 ## 基础题
 1. 用 80 字以内解释 {ctx['topic']}，并写出它和 {ctx['primary']} 的关系。
@@ -581,48 +641,81 @@ class ResourceGenerationService:
 3. 填空：解决这类问题时，第一步应先识别 ______，第二步再选择 ______。
 
 ## 标准题
-4. 给定一个课程案例，列出已知条件、适用概念、推理步骤和最终结论。
+4. 给定一个课程案例，列出已知条件、适用概念、推理步骤、最终结论和证据来源。
 5. 设计一道同类变式题，并写出标准答案和评分点。
 
 ## 挑战题
 6. 比较 {ctx['topic']} 与 {ctx['secondary']} 的差异，至少列出 3 个判断标准。
 7. 写一个容易出错的答案，并说明它错在定义、条件、步骤还是结论。
 
+## 标准答案框架
+| 题号 | 合格答案应包含 | 常见错因 | AI 追练指令 |
+| --- | --- | --- | --- |
+| 1 | 定义、适用对象、与 {ctx['primary']} 的关系 | 只背原句，没有边界 | 要求 AI 追问一个反例 |
+| 2 | 判断为否，并说明关键词不足以替代条件 | 关键词套模板 | 要求 AI 生成两个相似但不适用的题 |
+| 3 | 先识别条件，再选择方法或表示方式 | 步骤跳跃 | 要求 AI 按步骤逐格批改 |
+| 4 | 条件表、概念表、步骤表、结论表、证据表 | 结论没有证据 | 要求 AI 用评分量规打分 |
+| 5 | 题干、参考答案、评分点、变式说明 | 只换数字不换能力点 | 要求 AI 判断变式是否有效 |
+| 6 | 至少 3 个标准，并对应示例 | 概念混淆 | 要求 AI 做概念对照卡 |
+| 7 | 错误答案、错因分类、订正答案 | 只说“粗心” | 要求 AI 继续生成错因同类题 |
+
 ## 评分量规
 {ctx['rubric']}
 
-## 参考解析
-- 基础题看定义是否准确、例子是否贴合。
-- 标准题看步骤是否完整、结论是否可由条件推出。
-- 挑战题看能否抓住适用边界，而不是只罗列术语。
-- 全部题目完成后，把错题送入 AI 陪练，要求系统按“错因 -> 订正 -> 追练”继续生成下一组题。
+## 课堂笔记回填
+完成练习后，把错因回填到课堂笔记：
+
+{ctx['note_blocks']}
+
+## 完成后的闭环动作
+1. 把低于 80 分的题目送入 AI 批改，要求输出“错因 -> 订正 -> 追练”。
+2. 在课程图谱里标记对应节点为“待巩固”，并关联本练习题号。
+3. 若连续两题错在同一类原因，重新生成 15 分钟微资源包。
 """
 
     @staticmethod
     def _mind_map(ctx: dict[str, str]) -> str:
         return f"""mindmap
   root(({ctx['topic']}))
-    定义
-      核心含义
-      适用条件
+    课程定位
+      课程::{ctx['subject']}
       课程域::{ctx['domain']}
-    方法
-      步骤拆解
-      结果校验
-      证据清单
-    练习
-      基础题
-      变式题
-      挑战题
-      评分量规
-    易错点
-      概念混淆
+      学习目标::{ctx['goal']}
+    课堂笔记
+      概念边界::{ctx['primary']}
+      方法步骤::{ctx['secondary']}
+      结果校验::{ctx['third']}
+      迁移记录
+    知识图谱节点
+      先修节点::{ctx['primary']}
+      核心节点::{ctx['topic']}
+      方法节点::{ctx['secondary']}
+      校验节点::{ctx['third']}
+      应用节点::{ctx['transfer']}
+    资源文件
+      lecture.md
+        概念卡
+        课堂案例
+        自我检查
+      practice.md
+        基础题
+        标准题
+        挑战题
+        评分量规
+      case-project.md
+        输入材料
+        操作步骤
+        验收标准
+      quality-checklist.md
+        文件验收
+        图谱回填
+        AI批改闭环
+    易错与追练
+      定义不清
       条件遗漏
-      结论无依据
-    应用
-      课堂案例
-      迁移任务
-      实操任务
+      步骤跳跃
+      结论无证据
+      AI追练
 """
 
     @staticmethod
@@ -630,9 +723,9 @@ class ResourceGenerationService:
         return f"""# {ctx['topic']} 拓展阅读清单
 
 ## 课程内必读
-- 当前章节讲义：优先阅读定义、例题和课后练习部分。
-- 课堂笔记：重点检查 {ctx['primary']}、{ctx['secondary']}、{ctx['third']} 的边界。
-- 知识图谱：查看该主题的先修节点和关联资源。
+- 当前章节讲义：优先阅读定义、例题和课后练习部分，阅读后补全“概念边界”和“方法步骤”两块课堂笔记。
+- 课堂笔记：重点检查 {ctx['primary']}、{ctx['secondary']}、{ctx['third']} 的边界，并标记无法解释的句子。
+- 知识图谱：查看该主题的先修节点、方法节点、校验节点和关联资源，确认每个节点至少有一条证据。
 
 ## 拓展阅读
 - 与 {ctx['topic']} 相邻的概念对比材料，阅读时只记录“差异判断标准”。
@@ -642,9 +735,14 @@ class ResourceGenerationService:
 ## 阅读证据模板
 | 资料 | 支撑的结论 | 关键页/片段 | 是否可直接引用 |
 | --- | --- | --- | --- |
-| 课程讲义 | {ctx['primary']} 的定义和边界 | 待填写 | 是 |
-| 课堂案例 | {ctx['secondary']} 的应用步骤 | 待填写 | 是 |
-| 练习解析 | {ctx['third']} 的校验方式 | 待填写 | 需要复核 |
+| 课程讲义 | {ctx['primary']} 的定义和边界 | 记录讲义标题、章节名和首句关键词 | 是 |
+| 课堂案例 | {ctx['secondary']} 的应用步骤 | 记录案例名称和关键条件 | 是 |
+| 练习解析 | {ctx['third']} 的校验方式 | 记录题号、评分点和错因 | 需要复核 |
+
+## 阅读后产物
+1. 一张概念对照表：{ctx['topic']}、{ctx['primary']}、{ctx['secondary']} 的差异。
+2. 一条图谱边：把“{ctx['topic']} -> {ctx['third']}”写成可解释关系。
+3. 一个 AI 追问：要求 AI 根据阅读材料生成一道边界判断题。
 
 ## 阅读任务
 读完后写下 3 个问题：一个定义问题、一个应用问题、一个易错边界问题。每个问题都要标注来自讲义、图谱还是练习。
@@ -671,12 +769,14 @@ class ResourceGenerationService:
 3. 写出推理或实现步骤，每一步标注依据。
 4. 给出结论并做自检。
 5. 写出一个边界情况，说明本方法何时不适用。
+6. 将结果回填到课程图谱：新增一个“案例证据”节点，并连接到 {ctx['topic']}。
 
 ## 验收标准
 - 每一步都有依据。
 - 结论能回扣题目目标。
 - 能说明一个可能出错的地方。
 - 能把错误修改成一版更符合课程术语的答案。
+- 能说明该案例如何触发下一份练习或下一次 AI 批改。
 
 ## 提交物模板
 | 模块 | 内容 | 依据 |
@@ -684,6 +784,10 @@ class ResourceGenerationService:
 | 条件识别 | 写出题干条件 | 引用讲义或案例片段 |
 | 方法选择 | 说明为何选择该方法 | 对应 {ctx['primary']} / {ctx['secondary']} |
 | 结果验证 | 写出校验或反例 | 对应 {ctx['third']} |
+| 图谱回填 | 写出新增节点和关系 | 对应 mind-map.mmd |
+
+## AI 复核提示词
+请按“条件识别、方法选择、结果验证、图谱回填、迁移边界”五项检查我的案例提交物。每项给 0-20 分，指出证据是否来自课堂笔记或资源包文件。
 """
 
     @staticmethod
@@ -692,17 +796,59 @@ class ResourceGenerationService:
 
 大家好，这节课我们用 3 分钟讲清楚 {ctx['topic']}。
 
-第一步，先看它解决什么问题。不要急着背结论，要先知道它适合处理哪类场景。
+第一步，先看它解决什么问题。不要急着背结论，要先知道它适合处理哪类场景：{ctx['scenario']}。
 
 第二步，记住核心判断条件：{ctx['primary']}、{ctx['secondary']}、{ctx['third']}。遇到题目时，先圈出已知条件，再判断是否满足这些条件。
 
-第三步，用一个例子检查理解。如果你能把定义、步骤和结论讲给同学听，说明已经初步掌握。
+第三步，用一个例子检查理解：{ctx['case']}。如果你能把定义、步骤、证据和结论讲给同学听，说明已经初步掌握。
 
 最后提醒，最常见的错误是把相邻概念混用，或者只写结论不写依据。做题后建议进入 AI 批改模式，让系统根据答案更新掌握度。
 
-镜头提示：在“证据清单”处展示 {ctx['primary']}、{ctx['secondary']}、{ctx['third']} 三张卡片；在案例处展示“条件 -> 方法 -> 结论 -> 校验”的流程。
+镜头提示：在“证据清单”处展示 {ctx['primary']}、{ctx['secondary']}、{ctx['third']} 三张卡片；在案例处展示“条件 -> 方法 -> 结论 -> 校验 -> 图谱回填”的流程。
+
+互动停顿：
+1. 请学生用 20 秒说出 {ctx['topic']} 的适用条件。
+2. 请学生判断一个反例是否满足 {ctx['third']}。
+3. 请学生把错因归类为定义、条件、步骤或证据。
 
 课后动作：把自己的答案复制到 AI 陪练，要求它按评分量规检查：{ctx['rubric']}。
+"""
+
+    @staticmethod
+    def _quality_checklist(ctx: dict[str, str]) -> str:
+        return f"""# {ctx['topic']} 资源包使用审查清单
+
+课程：{ctx['subject']}
+目标：{ctx['goal']}
+闭环说明：{ctx['resource_contract']}
+
+## 1. 文件完整性
+| 文件 | 必须完成的动作 | 验收标准 |
+| --- | --- | --- |
+| lecture.md | 阅读概念卡、课堂案例和图谱绑定 | 能用自己的话复述 {ctx['topic']}，并指出证据来源 |
+| practice.md | 完成基础题、标准题和挑战题 | 每题都有错因分类、订正答案和下一步追练 |
+| mind-map.mmd | 在课程图谱中定位先修、核心、方法、校验、应用节点 | 每个节点都能连接到讲义、练习或案例 |
+| reading-list.md | 完成阅读证据模板和阅读后产物 | 每条引用都能说明支撑的结论 |
+| case-project.md | 提交条件表、方法表、验证表和图谱回填 | 结果能被 AI 按量规复核 |
+| video-script.md | 用 3 分钟复述主题并完成互动停顿 | 能发现至少一个易错边界 |
+
+## 2. 课堂笔记对齐
+{ctx['note_blocks']}
+
+## 3. 课程图谱绑定
+{ctx['graph_nodes']}
+
+## 4. 个性化学习路径
+{ctx['learning_sequence']}
+
+## 5. 质量门槛
+{ctx['quality_gate']}
+
+## 6. 继续生成规则
+- 如果定义题低于 80 分：重新生成“基础巩固”资源包，只保留讲义、导图和基础练习。
+- 如果案例题低于 80 分：重新生成“标准提升”资源包，增加案例项目和评分量规。
+- 如果能完成迁移任务：生成“挑战拓展”资源包，加入跨章节对比和开放题。
+- 如果引用无法指向文件：回到阅读清单补充资料、片段和支撑结论，再进入 AI 伴学核验。
 """
 
     @staticmethod
