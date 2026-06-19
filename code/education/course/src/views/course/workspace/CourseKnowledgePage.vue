@@ -156,6 +156,40 @@
       },
     ];
   });
+  const graphCommandDeck = computed(() => {
+    const node = selectedNode.value;
+    const nodeLabel = node?.label || activeMap.value?.title || course.value?.shortTitle || '当前节点';
+    return [
+      {
+        key: 'notes',
+        kicker: '课堂笔记',
+        title: `定位「${nodeLabel}」笔记证据`,
+        desc: selectedNodeEvidence.value[0] || '回到课堂笔记，补齐定义、条件和边界。',
+        metric: `${selectedNodeEvidence.value.length || 1} 条证据`,
+      },
+      {
+        key: 'resources',
+        kicker: '资料资源',
+        title: '生成节点配套资料',
+        desc: selectedNodeResources.value[0] || '生成讲义、导图、练习和审查清单。',
+        metric: `${selectedNodeResources.value.length || 4} 项资源`,
+      },
+      {
+        key: 'checks',
+        kicker: '检查题',
+        title: '用题目验证掌握度',
+        desc: selectedNodeChecks.value[0] || '按定义、条件、步骤、证据四类错因检查。',
+        metric: `${selectedNodeChecks.value.length || 3} 道检查`,
+      },
+      {
+        key: 'agent',
+        kicker: 'AI 伴学',
+        title: '让 AI 解释关系与路径',
+        desc: selectedRelationTags.value[0] || '基于相邻节点生成下一步学习动作。',
+        metric: `${selectedLinks.value.length} 条关系`,
+      },
+    ];
+  });
   const chapterCount = computed(() => course.value?.chapters.length || 0);
   const conceptCount = computed(() => course.value?.concepts.flatMap((item) => item.points).length || 0);
   const actionBadgeCount = computed(() =>
@@ -351,6 +385,22 @@
     router.push(courseWorkspaceLocation(course.value.id, 'content'));
   }
 
+  function runGraphCommand(key: string) {
+    if (key === 'notes') {
+      goCourseContent();
+      return;
+    }
+    if (key === 'resources') {
+      goResourceGenerator();
+      return;
+    }
+    if (key === 'checks') {
+      askGraphAgent('基于当前节点生成一组分层检查题，并说明每道题对应的图谱关系');
+      return;
+    }
+    askGraphAgent('解释当前节点、相邻节点和学习路径，并给出下一步可执行动作');
+  }
+
   watch(activeMap, (map) => {
     if (!map) return;
     if (!map.nodes.some((node) => node.id === selectedNodeId.value)) {
@@ -462,6 +512,19 @@
                 </button>
               </div>
             </div>
+          </div>
+
+          <div class="graph-command-deck">
+            <article v-for="item in graphCommandDeck" :key="item.key">
+              <div>
+                <span>{{ item.kicker }}</span>
+                <strong>{{ item.title }}</strong>
+                <p>{{ item.desc }}</p>
+              </div>
+              <button type="button" @click="runGraphCommand(item.key)">
+                {{ item.metric }}
+              </button>
+            </article>
           </div>
 
           <main class="graph-stage">
@@ -1967,6 +2030,78 @@
     background: #fff;
   }
 
+  .graph-command-deck {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+    padding: 12px 16px 14px;
+    border-bottom: 1px solid #edf2f8;
+    background:
+      linear-gradient(180deg, #fff, #f8fbff),
+      radial-gradient(circle at 8% 0%, rgba(71, 116, 255, 0.08), transparent 24%);
+  }
+
+  .graph-command-deck article {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+    min-width: 0;
+    min-height: 94px;
+    padding: 12px;
+    border: 1px solid #e4ebf8;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.92);
+  }
+
+  .graph-command-deck span,
+  .graph-command-deck strong,
+  .graph-command-deck p {
+    display: block;
+    min-width: 0;
+  }
+
+  .graph-command-deck span {
+    color: #5878f5;
+    font-size: 10px;
+    font-weight: 900;
+  }
+
+  .graph-command-deck strong {
+    margin-top: 4px;
+    overflow: hidden;
+    color: #17213a;
+    font-size: 13px;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .graph-command-deck p {
+    display: -webkit-box;
+    margin: 6px 0 0;
+    overflow: hidden;
+    color: #748197;
+    font-size: 11px;
+    line-height: 1.55;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .graph-command-deck button {
+    width: 72px;
+    min-height: 34px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: 10px;
+    color: #fff;
+    background: #4f6df5;
+    box-shadow: 0 9px 18px rgba(79, 109, 245, 0.18);
+    font-size: 11px;
+    font-weight: 900;
+    cursor: pointer;
+  }
+
   .graph-work-area .relation-filter button {
     display: inline-flex;
     align-items: center;
@@ -2209,6 +2344,10 @@
     .graph-work-area .map-insights {
       max-height: none;
     }
+
+    .graph-command-deck {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
   }
 
   @media (max-width: 980px) {
@@ -2236,6 +2375,10 @@
 
     .stat-strip {
       flex-wrap: wrap;
+    }
+
+    .graph-command-deck {
+      grid-template-columns: 1fr;
     }
 
     .map-canvas-viewport {
