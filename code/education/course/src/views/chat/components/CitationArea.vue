@@ -92,6 +92,21 @@
       return (b.score || 0) - (a.score || 0);
     });
   });
+  const citationMarkers = computed(() =>
+    normalizedCitations.value.slice(0, 5).map((item) => ({
+      id: item.citation_id,
+      scope: item.scope,
+      sourceLabel: item.sourceLabel,
+      locator: item.locator,
+    }))
+  );
+  const primarySourceSummary = computed(() => {
+    const first = compactSources.value[0];
+    if (!first) return '';
+    const suffix =
+      compactSources.value.length > 1 ? ` 等 ${compactSources.value.length} 个来源` : '';
+    return `${first.sourceLabel}${suffix}`;
+  });
 
   const confidenceLabel = (value?: string) => {
     const normalized = String(value || '').toLowerCase();
@@ -125,26 +140,27 @@
         v-if="normalizedCitations.length"
         type="button"
         class="source-toggle"
+        :aria-expanded="expanded"
         @click="expanded = !expanded"
       >
-        <span class="source-count">{{ compactSources.length }}</span>
-        <span>来源</span>
-        <i>{{ expanded ? '收起' : '查看' }}</i>
+        <span class="source-count">{{ normalizedCitations.length }}</span>
+        <span>引用</span>
+        <strong>{{ primarySourceSummary }}</strong>
       </button>
-      <button
-        v-for="item in compactSources.slice(0, 3)"
-        :key="`${item.scope}-${item.sourceLabel}`"
-        type="button"
-        class="source-pill"
-        @click="expanded = !expanded"
-      >
-        <span v-if="item.scope">{{ item.scope }}</span>
-        <strong>{{ item.sourceLabel }}</strong>
-        <small>{{ item.displayIds }}</small>
-      </button>
-      <span v-if="compactSources.length > 3" class="source-more">
-        +{{ compactSources.length - 3 }}
-      </span>
+      <div v-if="citationMarkers.length" class="citation-markers">
+        <button
+          v-for="item in citationMarkers"
+          :key="item.id"
+          type="button"
+          :title="`${item.scope || '资料'} · ${item.sourceLabel}${item.locator ? ` · ${item.locator}` : ''}`"
+          @click="expanded = !expanded"
+        >
+          {{ item.id }}
+        </button>
+        <span v-if="normalizedCitations.length > citationMarkers.length">
+          +{{ normalizedCitations.length - citationMarkers.length }}
+        </span>
+      </div>
       <span
         v-if="showDiagnostics && metrics?.agent_hops"
         class="meta-pill meta-pill--soft"
@@ -203,7 +219,7 @@
   }
 
   .source-toggle,
-  .source-pill {
+  .citation-markers button {
     border: 1px solid rgba(148, 163, 184, 0.22);
     background: rgba(248, 250, 252, 0.82);
     color: #475569;
@@ -214,9 +230,10 @@
   .source-toggle {
     display: inline-flex;
     align-items: center;
-    gap: 0.26rem;
+    gap: 0.3rem;
     height: 1.52rem;
-    padding: 0 0.46rem 0 0.28rem;
+    max-width: min(19rem, 72vw);
+    padding: 0 0.52rem 0 0.28rem;
     border-radius: 999px;
     font-size: 0.72rem;
     font-weight: 650;
@@ -233,10 +250,14 @@
       font-size: 0.66rem;
     }
 
-    i {
+    strong {
+      min-width: 0;
+      overflow: hidden;
       color: #64748b;
-      font-style: normal;
-      font-weight: 500;
+      font-size: 0.68rem;
+      font-weight: 550;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     &:hover {
@@ -246,64 +267,44 @@
     }
   }
 
-  .source-pill {
+  .citation-markers {
     display: inline-flex;
     align-items: center;
-    gap: 0.24rem;
-    max-width: min(16rem, 62vw);
-    height: 1.52rem;
-    padding: 0 0.48rem;
-    border-radius: 999px;
+    gap: 0.18rem;
 
-    span {
-      flex: 0 0 auto;
-      color: #6366f1;
-      font-size: 0.68rem;
-      font-weight: 700;
-    }
-
-    strong {
-      min-width: 0;
-      overflow: hidden;
-      color: #334155;
-      font-size: 0.72rem;
-      font-weight: 650;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    small {
-      flex: 0 0 auto;
-      min-width: 1rem;
-      color: #94a3b8;
+    button {
+      display: inline-grid;
+      width: 1.32rem;
+      height: 1.32rem;
+      place-items: center;
+      padding: 0;
+      border-radius: 50%;
+      color: #4f46e5;
+      background: #fff;
       font-size: 0.66rem;
+      font-weight: 750;
     }
 
-    &:hover {
+    button:hover {
       border-color: rgba(79, 70, 229, 0.32);
       background: #fff;
+    }
+
+    span {
+      color: #94a3b8;
+      font-size: 0.68rem;
+      font-weight: 700;
     }
   }
 
   .meta-pill {
     display: inline-flex;
     align-items: center;
-    height: 1.75rem;
+    height: 1.52rem;
     padding: 0 0.52rem;
     border-radius: 999px;
-    background: rgba(99, 102, 241, 0.08);
-    color: #4f46e5;
-    font-size: 0.72rem;
-    font-weight: 650;
-
-    &--soft {
-      background: rgba(15, 23, 42, 0.06);
-      color: #475569;
-    }
-  }
-
-  .source-more {
-    color: #94a3b8;
+    background: rgba(15, 23, 42, 0.06);
+    color: #475569;
     font-size: 0.72rem;
     font-weight: 650;
   }

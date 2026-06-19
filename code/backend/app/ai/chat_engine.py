@@ -2112,6 +2112,28 @@ def _normalize_structured_citations(
             raw = raw / 100
         return max(0.0, min(raw, 1.0))
 
+    def _citation_payload(
+        *,
+        base: dict[str, Any],
+        citation_id: int,
+        raw: dict[str, Any] | None = None,
+        synthesized_reason: str = "",
+    ) -> dict[str, Any]:
+        metadata = base.get("metadata") or {}
+        return {
+            "citation_id": citation_id,
+            "source": str(base.get("source") or "unknown"),
+            "file_id": str(base.get("file_id") or metadata.get("file_id") or ""),
+            "file_name": str(base.get("file_name") or metadata.get("source") or base.get("source") or ""),
+            "chunk_id": base.get("chunk_id"),
+            "context_scope": str(base.get("context_scope") or ""),
+            "locator": str(base.get("locator") or (f"片段 {base.get('chunk_id')}" if base.get("chunk_id") else "")),
+            "score": _score(base.get("score")),
+            "snippet": str((raw or {}).get("snippet") or base.get("content") or "")[:220],
+            "reason": str((raw or {}).get("reason") or synthesized_reason).strip(),
+            "relevance_score": _score((raw or {}).get("relevance_score") or base.get("score")),
+        }
+
     by_id = {
         int(item.get("citation_id") or 0): item
         for item in rag_results or []
@@ -2127,20 +2149,43 @@ def _normalize_structured_citations(
         if not base:
             continue
         seen.add(citation_id)
-        out.append(
-            {
-                "citation_id": citation_id,
-                "source": str(base.get("source") or "unknown"),
-                "file_id": str((base.get("metadata") or {}).get("file_id") or ""),
-                "file_name": str(base.get("file_name") or (base.get("metadata") or {}).get("source") or base.get("source") or ""),
-                "chunk_id": base.get("chunk_id"),
-                "context_scope": str(base.get("context_scope") or ""),
-                "locator": str(base.get("locator") or (f"片段 {base.get('chunk_id')}" if base.get("chunk_id") else "")),
-                "score": _score(base.get("score")),
-                "snippet": str(raw.get("snippet") or base.get("content") or "")[:220],
-                "reason": str(raw.get("reason") or "").strip(),
-                "relevance_score": _score(raw.get("relevance_score") or base.get("score")),
-            }
+        out.append(_citation_payload(base=base, citation_id=citation_id, raw=raw))
+
+    uploaded_bases = [
+        item
+        for item in rag_results or []
+        if str(item.get("context_scope") or "") == "uploaded_document"
+    ]
+    if uploaded_bases:
+        uploaded_seen = {
+            int(item.get("citation_id") or 0)
+            for item in out
+            if item.get("context_scope") == "uploaded_document"
+        }
+        if not uploaded_seen:
+            uploaded_sorted = sorted(
+                uploaded_bases,
+                key=lambda item: _score(item.get("score")),
+                reverse=True,
+            )
+            for base in uploaded_sorted[:2]:
+                citation_id = int(base.get("citation_id") or 0)
+                if citation_id <= 0 or citation_id in seen:
+                    continue
+                seen.add(citation_id)
+                out.append(
+                    _citation_payload(
+                        base=base,
+                        citation_id=citation_id,
+                        synthesized_reason="当前挂载文件的高相关片段，已自动用于校准回答依据。",
+                    )
+                )
+        out.sort(
+            key=lambda item: (
+                0 if item.get("context_scope") == "uploaded_document" else 1,
+                -float(item.get("relevance_score") or item.get("score") or 0),
+                int(item.get("citation_id") or 0),
+            )
         )
     return out
 
