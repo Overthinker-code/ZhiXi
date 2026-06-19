@@ -190,6 +190,96 @@
       },
     ];
   });
+  const selectedNodeHealth = computed(() => {
+    const mastery = selectedNodeMastery.value;
+    return [
+      {
+        label: '掌握状态',
+        value: `${mastery}%`,
+        desc: mastery >= 80 ? '可进入迁移任务' : mastery >= 60 ? '需要补一轮自测' : '建议先补概念证据',
+        tone: mastery >= 80 ? 'green' : mastery >= 60 ? 'blue' : 'orange',
+      },
+      {
+        label: '证据覆盖',
+        value: `${selectedNodeEvidence.value.length}`,
+        desc: selectedNodeEvidence.value.length >= 3 ? '证据链完整' : '需要补课堂片段',
+        tone: selectedNodeEvidence.value.length >= 3 ? 'green' : 'orange',
+      },
+      {
+        label: '资源闭环',
+        value: `${selectedNodeResources.value.length}`,
+        desc: selectedNodeResources.value.length >= 3 ? '已连接资料包' : '建议生成节点资料',
+        tone: selectedNodeResources.value.length >= 3 ? 'blue' : 'orange',
+      },
+      {
+        label: '关系强度',
+        value: `${Math.round(
+          selectedLinks.value.reduce((sum, item) => sum + (item.strength || 72), 0) /
+            Math.max(selectedLinks.value.length, 1)
+        )}%`,
+        desc: selectedLinks.value.length ? '可沿相邻节点学习' : '需要建立前后置关系',
+        tone: selectedLinks.value.length ? 'blue' : 'orange',
+      },
+    ];
+  });
+  const evidenceMatrix = computed(() => {
+    const node = selectedNode.value;
+    return [
+      {
+        key: 'notes',
+        title: '课堂证据',
+        items: selectedNodeEvidence.value.length
+          ? selectedNodeEvidence.value
+          : [node?.detail || activeMap.value?.description || '暂无课堂证据'],
+      },
+      {
+        key: 'resources',
+        title: '资源文件',
+        items: selectedNodeResources.value.length
+          ? selectedNodeResources.value
+          : [`${node?.label || course.value?.shortTitle || '当前节点'} 专属讲义待生成`],
+      },
+      {
+        key: 'checks',
+        title: '验证问题',
+        items: selectedNodeChecks.value.length
+          ? selectedNodeChecks.value
+          : ['生成一组概念边界、条件识别和迁移应用检查题。'],
+      },
+    ];
+  });
+  const nodeActionTimeline = computed(() => [
+    {
+      step: '01',
+      title: '读证据',
+      desc: selectedNodeEvidence.value[0] || '回到课堂笔记确认定义、条件和边界。',
+      state: selectedNodeEvidence.value.length ? 'ready' : 'todo',
+    },
+    {
+      step: '02',
+      title: '看关系',
+      desc: selectedRelationTags.value[0] || '沿前后置关系找到相邻知识点。',
+      state: selectedLinks.value.length ? 'ready' : 'todo',
+    },
+    {
+      step: '03',
+      title: '做检查',
+      desc: selectedNodeChecks.value[0] || '用检查题验证是否真正掌握。',
+      state: selectedNodeMastery.value >= 70 ? 'ready' : 'warning',
+    },
+    {
+      step: '04',
+      title: '产资料',
+      desc: selectedNode.value?.recommendedAction || '把节点沉淀为讲义、练习和复习单。',
+      state: selectedNodeResources.value.length >= 3 ? 'ready' : 'warning',
+    },
+  ]);
+  const focusTagChips = computed(() =>
+    (activeMap.value?.focusTags || []).map((tag, index) => ({
+      tag,
+      count: index === 0 ? visibleNodes.value.length : Math.max(1, Math.round(visibleLinks.value.length / (index + 1))),
+    }))
+  );
   const chapterCount = computed(() => course.value?.chapters.length || 0);
   const conceptCount = computed(() => course.value?.concepts.flatMap((item) => item.points).length || 0);
   const actionBadgeCount = computed(() =>
@@ -208,6 +298,8 @@
         selected: selected?.id === node.id,
         related: selectedNeighborIds.value.has(node.id),
         dimmed: shouldDim,
+        weak: (node.mastery ?? course.value?.progress ?? 0) < 60,
+        stable: (node.mastery ?? course.value?.progress ?? 0) >= 80,
       },
     ];
   }
@@ -449,6 +541,19 @@
             <p>选择图谱后，中间画布会同步切换节点、关系和右侧学习动作。</p>
           </section>
 
+          <section class="catalog-card focus-chip-board">
+            <strong>当前图谱焦点</strong>
+            <button
+              v-for="item in focusTagChips"
+              :key="item.tag"
+              type="button"
+              @click="askGraphAgent(`围绕${item.tag}梳理当前图谱中的关键节点和学习动作`)"
+            >
+              <span>{{ item.tag }}</span>
+              <em>{{ item.count }}</em>
+            </button>
+          </section>
+
           <nav class="graph-tabs" aria-label="图谱分类">
             <button
               v-for="item in maps"
@@ -641,6 +746,7 @@
                   >
                     <title>{{ node.label }} · {{ nodeSubtitle(node) }}</title>
                     <rect
+                      class="node-body"
                       :width="nodeBoxWidth(node)"
                       :height="nodeBoxHeight(node)"
                       :rx="node.weight >= 4 ? 18 : 12"
@@ -667,6 +773,29 @@
                       rx="1.5"
                       :fill="nodeStroke(node)"
                     />
+                    <g
+                      v-if="node.weight < 4"
+                      class="node-mastery-badge"
+                      :class="{
+                        hot: (node.mastery ?? course.progress) < 60,
+                        done: (node.mastery ?? course.progress) >= 80,
+                      }"
+                    >
+                      <rect
+                        :x="nodeBoxWidth(node) - 48"
+                        y="-10"
+                        width="42"
+                        height="20"
+                        rx="10"
+                      />
+                      <text
+                        :x="nodeBoxWidth(node) - 27"
+                        y="4"
+                        text-anchor="middle"
+                      >
+                        {{ node.mastery ?? course.progress }}%
+                      </text>
+                    </g>
                     <circle
                       v-if="node.weight < 4"
                       cx="17"
@@ -735,14 +864,44 @@
                 </div>
               </section>
 
-              <section v-if="selectedNodeEvidence.length">
-                <strong>证据与资源</strong>
-                <ul class="evidence-list">
-                  <li v-for="item in selectedNodeEvidence" :key="item">{{ item }}</li>
-                </ul>
-                <div class="resource-pills">
-                  <em v-for="item in selectedNodeResources" :key="item">{{ item }}</em>
+              <section class="node-health-panel">
+                <strong>节点状态</strong>
+                <div class="node-health-grid">
+                  <article
+                    v-for="item in selectedNodeHealth"
+                    :key="item.label"
+                    :class="`tone-${item.tone}`"
+                  >
+                    <span>{{ item.label }}</span>
+                    <b>{{ item.value }}</b>
+                    <p>{{ item.desc }}</p>
+                  </article>
                 </div>
+              </section>
+
+              <section class="node-timeline-panel">
+                <strong>学习路径</strong>
+                <div class="node-timeline">
+                  <article
+                    v-for="item in nodeActionTimeline"
+                    :key="item.step"
+                    :class="`state-${item.state}`"
+                  >
+                    <span>{{ item.step }}</span>
+                    <div>
+                      <b>{{ item.title }}</b>
+                      <p>{{ item.desc }}</p>
+                    </div>
+                  </article>
+                </div>
+              </section>
+
+              <section class="evidence-matrix-panel">
+                <strong>证据矩阵</strong>
+                <article v-for="column in evidenceMatrix" :key="column.key" class="evidence-column">
+                  <span>{{ column.title }}</span>
+                  <p v-for="item in column.items.slice(0, 3)" :key="item">{{ item }}</p>
+                </article>
               </section>
 
               <section v-if="selectedNodeOutcomes.length || selectedNodeMisconceptions.length">
@@ -764,6 +923,13 @@
                 <ul class="check-list">
                   <li v-for="item in selectedNodeChecks" :key="item">{{ item }}</li>
                 </ul>
+              </section>
+
+              <section v-if="selectedNodeActivities.length">
+                <strong>课堂动作</strong>
+                <div class="activity-list">
+                  <p v-for="item in selectedNodeActivities" :key="item">{{ item }}</p>
+                </div>
               </section>
 
               <section v-if="selectedNeighbors.length">
@@ -1190,7 +1356,7 @@
     outline: none;
     transition: opacity 0.16s ease;
 
-    rect:not(.node-track):not(.node-progress) {
+    .node-body {
       transition: transform 0.16s ease, filter 0.16s ease, stroke-width 0.16s ease;
       transform-box: fill-box;
       transform-origin: center;
@@ -1207,6 +1373,43 @@
       pointer-events: none;
     }
 
+    .node-mastery-badge {
+      pointer-events: none;
+
+      rect {
+        fill: #edf4ff;
+        stroke: #c8d8ff;
+      }
+
+      text {
+        fill: #2f68df;
+        font-size: 9px;
+        font-weight: 900;
+      }
+
+      &.hot {
+        rect {
+          fill: #fff4e6;
+          stroke: #ffd6a1;
+        }
+
+        text {
+          fill: #d46f1d;
+        }
+      }
+
+      &.done {
+        rect {
+          fill: #ecfff4;
+          stroke: #b8e9cc;
+        }
+
+        text {
+          fill: #237c4c;
+        }
+      }
+    }
+
     text {
       font-size: 13px;
       font-weight: 800;
@@ -1219,13 +1422,13 @@
       font-weight: 600;
     }
 
-    &:hover rect:not(.node-track):not(.node-progress),
-    &:focus-visible rect:not(.node-track):not(.node-progress) {
+    &:hover .node-body,
+    &:focus-visible .node-body {
       transform: translateY(-2px);
       stroke-width: 2.4;
     }
 
-    &.selected rect:not(.node-track):not(.node-progress) {
+    &.selected .node-body {
       stroke: #255fe8;
       stroke-width: 3;
     }
@@ -1591,6 +1794,193 @@
     }
   }
 
+  .node-health-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+
+    article {
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid #e7edf7;
+      border-radius: 13px;
+      background: #fbfcff;
+    }
+
+    span,
+    b,
+    p {
+      display: block;
+      min-width: 0;
+    }
+
+    span {
+      color: #8b96aa;
+      font-size: 10px;
+      font-weight: 800;
+    }
+
+    b {
+      margin: 4px 0 3px;
+      color: #25304a;
+      font-size: 17px;
+      line-height: 1;
+    }
+
+    p {
+      color: #778299;
+      font-size: 10px;
+      line-height: 1.45;
+    }
+
+    .tone-green {
+      border-color: #ccefd9;
+      background: #f3fff7;
+
+      b {
+        color: #237c4c;
+      }
+    }
+
+    .tone-blue {
+      border-color: #cfe0ff;
+      background: #f5f8ff;
+
+      b {
+        color: #2f68df;
+      }
+    }
+
+    .tone-orange {
+      border-color: #ffe1b8;
+      background: #fff8ee;
+
+      b {
+        color: #cf731e;
+      }
+    }
+  }
+
+  .node-timeline {
+    position: relative;
+    display: grid;
+    gap: 9px;
+
+    &::before {
+      position: absolute;
+      top: 14px;
+      bottom: 14px;
+      left: 13px;
+      width: 2px;
+      border-radius: 999px;
+      background: #dfe7f4;
+      content: '';
+    }
+
+    article {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: 28px minmax(0, 1fr);
+      gap: 9px;
+      align-items: start;
+    }
+
+    span {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border: 1px solid #dfe7f4;
+      border-radius: 50%;
+      color: #7a8799;
+      background: #fff;
+      font-size: 9px;
+      font-weight: 900;
+    }
+
+    b {
+      display: block;
+      color: #28354e;
+      font-size: 12px;
+    }
+
+    p {
+      display: -webkit-box;
+      margin-top: 3px;
+      overflow: hidden;
+      color: #738096;
+      font-size: 11px;
+      line-height: 1.55;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+    }
+
+    .state-ready span {
+      border-color: #b8e9cc;
+      color: #237c4c;
+      background: #ecfff4;
+    }
+
+    .state-warning span {
+      border-color: #ffd6a1;
+      color: #d46f1d;
+      background: #fff4e6;
+    }
+  }
+
+  .evidence-matrix-panel {
+    display: grid;
+    gap: 8px;
+  }
+
+  .evidence-column {
+    padding: 10px;
+    border: 1px solid #e7edf7;
+    border-radius: 13px;
+    background: #fbfcff;
+
+    span {
+      display: block;
+      margin-bottom: 6px;
+      color: #2f68df;
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    p {
+      position: relative;
+      padding-left: 12px;
+
+      &::before {
+        position: absolute;
+        top: 8px;
+        left: 0;
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: #9eb2d0;
+        content: '';
+      }
+    }
+
+    p + p {
+      margin-top: 5px;
+    }
+  }
+
+  .activity-list {
+    display: grid;
+    gap: 7px;
+
+    p {
+      padding: 8px 10px;
+      border: 1px dashed #dce5f2;
+      border-radius: 11px;
+      background: #fbfcff;
+    }
+  }
+
   .insight-columns {
     display: grid;
     gap: 9px;
@@ -1903,6 +2293,58 @@
     background:
       linear-gradient(135deg, rgba(237, 244, 255, 0.98), rgba(255, 255, 255, 0.94)),
       radial-gradient(circle at 90% 10%, rgba(118, 96, 216, 0.14), transparent 34%);
+  }
+
+  .focus-chip-board {
+    display: grid;
+    gap: 8px;
+
+    button {
+      width: 100%;
+      min-height: 36px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 32px;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 10px;
+      border: 1px solid #e7edf8;
+      border-radius: 12px;
+      color: #4d5b73;
+      background: #fbfcff;
+      cursor: pointer;
+
+      &:hover {
+        border-color: #c8d8ff;
+        color: #2f68df;
+        background: #f1f6ff;
+      }
+    }
+
+    span,
+    em {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    span {
+      font-size: 12px;
+      font-weight: 800;
+      text-align: left;
+    }
+
+    em {
+      height: 22px;
+      display: grid;
+      place-items: center;
+      border-radius: 999px;
+      color: #2f68df;
+      background: #edf4ff;
+      font-size: 10px;
+      font-style: normal;
+      font-weight: 900;
+    }
   }
 
   .graph-workbench-grid .graph-tabs {
@@ -2277,7 +2719,7 @@
     stroke-width: 4;
   }
 
-  .graph-work-area .graph-node.selected rect:not(.node-track):not(.node-progress) {
+  .graph-work-area .graph-node.selected .node-body {
     stroke: #355ff2;
     stroke-width: 3.4;
   }

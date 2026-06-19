@@ -270,16 +270,50 @@
               <strong>{{ currentCourse.shortTitle }}知识框架</strong>
               <p>点击任意节点可划词唤醒 AI 解释；放大模式支持缩放、导出 SVG，并可继续进入资源生成中心生产讲义和练习。</p>
             </div>
-            <div class="concept-preview concept-preview--large">
-              <CourseConceptCanvas
-                ref="mindCanvas"
-                :title="currentCourse.title"
-                :short-title="currentCourse.shortTitle"
-                :concepts="currentCourse.concepts"
-                :accent="currentCourse.accent"
-                mode="mind"
-                @node-prompt="handleVisualNodePrompt($event)"
-              />
+            <div class="mindmap-workbench">
+              <div class="concept-preview concept-preview--large">
+                <CourseConceptCanvas
+                  ref="mindCanvas"
+                  :title="currentCourse.title"
+                  :short-title="currentCourse.shortTitle"
+                  :concepts="currentCourse.concepts"
+                  :accent="currentCourse.accent"
+                  mode="mind"
+                  @node-prompt="handleVisualNodePrompt($event)"
+                />
+              </div>
+              <aside v-if="mindNodeProfile" class="mind-node-card">
+                <span>{{ mindNodeProfile.kind }}</span>
+                <h3>{{ mindNodeProfile.title }}</h3>
+                <p>{{ mindNodeProfile.detail }}</p>
+                <div class="mind-node-section">
+                  <strong>学习产出</strong>
+                  <em v-for="item in mindNodeProfile.outcomes.slice(0, 3)" :key="item">{{ item }}</em>
+                </div>
+                <div class="mind-node-section">
+                  <strong>常见误区</strong>
+                  <em v-for="item in mindNodeProfile.misconceptions.slice(0, 2)" :key="item">{{ item }}</em>
+                </div>
+                <div class="mind-node-section compact">
+                  <strong>检查题</strong>
+                  <button
+                    v-for="item in mindNodeProfile.checks.slice(0, 3)"
+                    :key="item"
+                    type="button"
+                    @click="openMindCheckPrompt(item, $event)"
+                  >
+                    {{ item }}
+                  </button>
+                </div>
+                <div class="mind-node-actions">
+                  <button type="button" @click="askMindMapTutor">
+                    <icon-robot /> AI 解读
+                  </button>
+                  <button type="button" @click="generateFromNotes">
+                    <icon-file /> 生成资料
+                  </button>
+                </div>
+              </aside>
             </div>
           </section>
         </main>
@@ -486,6 +520,7 @@ import { getToken } from '@/utils/auth';
 import {
   classroomCourses,
   getClassroomCourse,
+  type ClassroomConcept,
   type ClassroomLesson,
 } from '@/data/classroomCourses';
 import VideoInfo from './components/VideoInfo.vue';
@@ -512,6 +547,7 @@ const artifactType = ref<ArtifactType>('notes');
 const artifactZoom = ref(1);
 const mindCanvas = ref<CanvasExpose | null>(null);
 const modalCanvas = ref<CanvasExpose | null>(null);
+const selectedMindNodeText = ref('');
 
 const currentCourse = computed(() =>
   getClassroomCourse(
@@ -580,6 +616,31 @@ const courseContext = computed(() => {
     .join('\n');
   return `${currentCourse.value.title}\n${currentCourse.value.description}\n\n课堂笔记\n${notes}\n\n知识结构\n${concepts}`;
 });
+const mindNodeProfile = computed(() => {
+  const course = currentCourse.value;
+  if (!course) return null;
+  const fallbackConcept = course.concepts[0] || course.notes[0];
+  const selectedText = selectedMindNodeText.value || course.shortTitle;
+  const matchedConcept =
+    course.concepts.find((item) => item.title === selectedText) ||
+    course.concepts.find((item) => item.points.includes(selectedText)) ||
+    course.notes.find((item) => item.title === selectedText) ||
+    course.notes.find((item) => item.points.includes(selectedText)) ||
+    fallbackConcept;
+  if (!matchedConcept) {
+    return {
+      kind: '课程总览',
+      title: course.shortTitle,
+      detail: course.description,
+      outcomes: [`能复述${course.shortTitle}的课程主线。`],
+      misconceptions: ['只看节点名称，不回到课堂证据。'],
+      checks: ['我能否说出当前课程最关键的三个知识点？'],
+      resources: [`${course.shortTitle} 总览讲义`],
+    };
+  }
+  const isPoint = matchedConcept.points.includes(selectedText);
+  return normalizeMindNodeProfile(matchedConcept, isPoint ? selectedText : matchedConcept.title, isPoint);
+});
 
 const {
   promptTemplates,
@@ -608,6 +669,7 @@ watch(
     notesOrganized.value = false;
     notesGenerating.value = false;
     currentLessonId.value = course?.chapters[0]?.lessons[0]?.id || '';
+    selectedMindNodeText.value = course?.shortTitle || '';
     openChapters.value = new Set(course?.chapters.map((chapter) => chapter.id) || []);
     clearAnswerPanel();
     if (route.query.open === 'mind' && course) {
@@ -860,6 +922,28 @@ function askMindMapTutor() {
   });
 }
 
+function normalizeMindNodeProfile(concept: ClassroomConcept, title: string, isPoint: boolean) {
+  const primary = concept.points[0] || title;
+  return {
+    kind: isPoint ? '知识点节点' : '主题节点',
+    title,
+    detail:
+      isPoint && concept.detail
+        ? `${title} 属于「${concept.title}」。${concept.detail}`
+        : concept.detail || `${title} 需要同时掌握定义、边界、证据和应用任务。`,
+    outcomes: concept.outcomes || [`能解释 ${title} 的定义、条件和应用边界。`],
+    misconceptions: concept.misconceptions || [`把 ${primary} 当成孤立概念，忽略与相邻知识的关系。`],
+    checks: concept.checks || [`我能否用课堂案例解释 ${title}？`],
+    resources: concept.resources || [`${title} 课堂讲义`, `${primary} 例题卡片`],
+  };
+}
+
+function openMindCheckPrompt(text: string, event: MouseEvent) {
+  const element = event.currentTarget as HTMLElement | null;
+  if (!element) return;
+  openMenuForText(text, element.getBoundingClientRect(), courseContext.value);
+}
+
 function changeZoom(delta: number) {
   artifactZoom.value = Math.min(1.6, Math.max(0.7, Number((artifactZoom.value + delta).toFixed(1))));
 }
@@ -879,6 +963,7 @@ function exportModalCanvas() {
 }
 
 function handleVisualNodePrompt(payload: { text: string; rect: DOMRect }) {
+  selectedMindNodeText.value = payload.text;
   openMenuForText(payload.text, payload.rect, courseContext.value);
 }
 
@@ -1703,11 +1788,136 @@ onBeforeRouteLeave(() => {
 
 .concept-preview--large {
   height: 500px;
-  margin: 0 14px 14px;
+  margin: 0;
   overflow: hidden;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   background: #fbfcff;
+}
+
+.mindmap-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 12px;
+  margin: 0 14px 14px;
+}
+
+.mind-node-card {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, #fff, #f8fbff),
+    radial-gradient(circle at 100% 0%, rgba(83, 103, 248, .12), transparent 34%);
+
+  > span {
+    display: inline-flex;
+    margin-bottom: 8px;
+    padding: 5px 9px;
+    border-radius: 999px;
+    color: #5367f8;
+    background: #eef2ff;
+    font-size: 10px;
+    font-weight: 800;
+  }
+
+  h3 {
+    margin: 0;
+    color: #263149;
+    font-size: 18px;
+    line-height: 1.28;
+  }
+
+  > p {
+    margin: 8px 0 12px;
+    color: #6f7d91;
+    font-size: 11px;
+    line-height: 1.72;
+  }
+}
+
+.mind-node-section {
+  display: grid;
+  gap: 7px;
+  padding: 11px 0;
+  border-top: 1px solid #edf1f7;
+
+  strong {
+    color: #334155;
+    font-size: 12px;
+  }
+
+  em,
+  button {
+    position: relative;
+    padding: 7px 9px 7px 20px;
+    border: 1px solid #e8eef7;
+    border-radius: 9px;
+    color: #5f6b80;
+    background: #fff;
+    font-size: 10px;
+    font-style: normal;
+    line-height: 1.5;
+    text-align: left;
+  }
+
+  em::before,
+  button::before {
+    position: absolute;
+    top: 13px;
+    left: 9px;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: #5367f8;
+    content: '';
+  }
+
+  button {
+    cursor: pointer;
+
+    &:hover {
+      border-color: #c8d0ff;
+      color: #4458d7;
+      background: #f7f9ff;
+    }
+  }
+}
+
+.mind-node-section.compact {
+  button {
+    width: 100%;
+  }
+}
+
+.mind-node-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid #edf1f7;
+
+  button {
+    min-height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    border: 1px solid #dfe6f1;
+    border-radius: 9px;
+    color: #536079;
+    background: #fff;
+    font-size: 11px;
+    font-weight: 750;
+    cursor: pointer;
+
+    &:first-child {
+      border-color: transparent;
+      color: #fff;
+      background: #5367f8;
+    }
+  }
 }
 
 .chapter-sidebar {
@@ -2021,6 +2231,14 @@ onBeforeRouteLeave(() => {
 
   .learning-layout {
     grid-template-columns: 1fr;
+  }
+
+  .mindmap-workbench {
+    grid-template-columns: 1fr;
+  }
+
+  .mind-node-card {
+    order: -1;
   }
 
   .chapter-sidebar {
