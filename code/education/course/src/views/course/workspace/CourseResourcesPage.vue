@@ -3,6 +3,8 @@
   import { Message } from '@arco-design/web-vue';
   import { useRoute, useRouter } from 'vue-router';
   import {
+    IconBulb,
+    IconCheckCircle,
     IconDownload,
     IconFile,
     IconMindMapping,
@@ -25,6 +27,12 @@
   const resources = computed(() =>
     course.value ? buildCourseResources(course.value) : []
   );
+  const completedChapterCount = computed(
+    () =>
+      course.value?.chapters.filter((chapter) =>
+        chapter.lessons.some((lesson) => lesson.status === 'done')
+      ).length || 0
+  );
   const resourceTypes = computed(() => [
     '全部' as const,
     ...Array.from(new Set(resources.value.map((item) => item.type))),
@@ -40,6 +48,108 @@
       return typeMatches && searchMatches;
     });
   });
+  const resourceQuality = computed(() => [
+    {
+      label: '资料定位',
+      value: '章节 / 知识点 / 任务',
+      desc: '每份资料都写入课程节点和使用场景',
+    },
+    {
+      label: '学习闭环',
+      value: '预习 / 练习 / 追问',
+      desc: '下载后可直接进入 AI 伴学和课程图谱',
+    },
+    {
+      label: '质量核查',
+      value: '目标 / 证据 / 产物',
+      desc: '导出文件包含可检查的学习交付标准',
+    },
+  ]);
+
+  function resourceIndex(item: CourseResourceItem) {
+    return Math.max(resources.value.findIndex((resource) => resource.id === item.id), 0);
+  }
+
+  function relatedConcept(item: CourseResourceItem) {
+    if (!course.value) return undefined;
+    return course.value.concepts[resourceIndex(item) % Math.max(course.value.concepts.length, 1)];
+  }
+
+  function relatedLesson(item: CourseResourceItem) {
+    if (!course.value) return undefined;
+    const lessons = course.value.chapters.flatMap((chapter) => chapter.lessons);
+    return lessons[resourceIndex(item) % Math.max(lessons.length, 1)];
+  }
+
+  function resourcePlan(item: CourseResourceItem) {
+    const concept = relatedConcept(item);
+    const lesson = relatedLesson(item);
+    const primaryPoint = concept?.points[0] || item.chapter;
+    return {
+      concept,
+      lesson,
+      goals: concept?.outcomes?.slice(0, 3) || [
+        `能解释 ${primaryPoint} 的核心定义和适用边界。`,
+        `能把 ${item.chapter} 的资料内容整理成可复述路径。`,
+        '能完成 1 组检查题并记录错因。',
+      ],
+      graphNodes: [
+        item.chapter.replace(/^第\d+章\s*/, ''),
+        ...(concept?.points.slice(0, 3) || [primaryPoint]),
+      ],
+      tasks: [
+        `用 8 分钟扫读《${item.title}》，标出定义、条件和例题证据。`,
+        `把 ${primaryPoint} 与相邻概念做成一张三列表格。`,
+        '完成资料末尾自测，并把错因交给 AI 伴学继续追问。',
+      ],
+      prompts: [
+        `请基于《${item.title}》解释 ${primaryPoint} 的常见误区。`,
+        `把 ${item.chapter} 整理成 20 分钟复习路径，并给出检查题。`,
+      ],
+    };
+  }
+
+  function buildResourceMarkdown(item: CourseResourceItem) {
+    const plan = resourcePlan(item);
+    const concept = plan.concept;
+    const courseTitle = course.value?.title || '';
+    const lessonTitle = plan.lesson?.title || item.chapter;
+    const lines = [
+      `# ${item.title}`,
+      '',
+      `课程：${courseTitle}`,
+      `章节：${item.chapter}`,
+      `课节：${lessonTitle}`,
+      `资料类型：${item.type}`,
+      `更新时间：${item.updatedAt}`,
+      '',
+      '## 学习目标',
+      ...plan.goals.map((goal, index) => `${index + 1}. ${goal}`),
+      '',
+      '## 图谱定位',
+      `核心节点：${plan.graphNodes.join(' / ')}`,
+      `前置关系：先复盘 ${item.chapter} 的基本定义，再进入 ${concept?.title || lessonTitle} 的应用边界。`,
+      `后续动作：把本资料生成的错题、摘要和追问同步到课程图谱。`,
+      '',
+      '## 课堂笔记骨架',
+      `- 关键概念：${concept?.title || lessonTitle}`,
+      `- 证据材料：${concept?.resources?.slice(0, 3).join('；') || `${item.title}、课堂讲义、例题卡片`}`,
+      `- 易错点：${concept?.misconceptions?.slice(0, 2).join('；') || '定义边界不清；只背结论不写条件'}`,
+      '',
+      '## 练习与交付',
+      ...plan.tasks.map((task, index) => `${index + 1}. ${task}`),
+      '',
+      '## AI 伴学追问提示',
+      ...plan.prompts.map((prompt, index) => `${index + 1}. ${prompt}`),
+      '',
+      '## 质量核查清单',
+      '- [ ] 能说清资料对应的章节、知识点和学习目标。',
+      '- [ ] 能指出至少 2 个题目或案例中的证据。',
+      '- [ ] 已完成自测并记录错因。',
+      '- [ ] 已把薄弱点同步到课程图谱或 AI 伴学。'
+    ];
+    return `${lines.join('\n')}\n`;
+  }
 
   function askAboutResource(item: CourseResourceItem) {
     if (!course.value) return;
@@ -70,16 +180,16 @@
     router.push(courseWorkspaceLocation(course.value.id, 'knowledge'));
   }
 
-  function downloadDemo(item: CourseResourceItem) {
-    const content = `# ${item.title}\n\n课程：${course.value?.title || ''}\n章节：${item.chapter}\n类型：${item.type}\n\n这是课程资源演示文件。`;
+  function downloadResourceBrief(item: CourseResourceItem) {
+    const content = buildResourceMarkdown(item);
     const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${item.title}.md`;
+    link.download = `${course.value?.shortTitle || 'course'}-${item.title}-学习包.md`;
     link.click();
     URL.revokeObjectURL(url);
-    Message.success('演示资源已下载');
+    Message.success('学习资源包已生成');
   }
 </script>
 
@@ -109,13 +219,17 @@
         <span class="overview-icon"><icon-download /></span>
         <div><small>本周新增</small><strong>6</strong></div>
       </article>
+      <article>
+        <span class="overview-icon"><icon-check-circle /></span>
+        <div><small>图谱绑定</small><strong>{{ completedChapterCount }}</strong></div>
+      </article>
     </div>
 
     <section class="resource-flow">
       <div>
         <span>RESOURCE TO GRAPH</span>
         <h2>把资料接入课程图谱</h2>
-        <p>参考 CCNU 的课程结构图，把章节资料、作业任务和讨论节点统一放进学习路径里。</p>
+        <p>把章节资料、作业任务和讨论节点统一放进学习路径里，下载、追问、生成和图谱复盘形成同一条闭环。</p>
       </div>
       <div class="flow-steps">
         <button type="button" @click="openKnowledgeMap">
@@ -134,6 +248,17 @@
           <small>基于当前课程资料追问</small>
         </button>
       </div>
+    </section>
+
+    <section class="quality-strip" aria-label="课程资料质量标准">
+      <article v-for="item in resourceQuality" :key="item.label">
+        <icon-bulb />
+        <div>
+          <strong>{{ item.label }}</strong>
+          <span>{{ item.value }}</span>
+          <small>{{ item.desc }}</small>
+        </div>
+      </article>
     </section>
 
     <div class="resource-toolbar">
@@ -163,13 +288,23 @@
         <span class="resource-file-icon"><icon-file /></span>
         <h2>{{ item.title }}</h2>
         <p>{{ item.chapter }}</p>
+        <div class="resource-path">
+          <span v-for="node in resourcePlan(item).graphNodes.slice(0, 3)" :key="node">
+            {{ node }}
+          </span>
+        </div>
+        <ul class="resource-checks">
+          <li v-for="task in resourcePlan(item).tasks.slice(0, 2)" :key="task">
+            {{ task }}
+          </li>
+        </ul>
         <div class="resource-meta">
           <span>{{ item.size }}</span>
           <span>{{ item.downloads }} 次使用</span>
         </div>
         <div class="resource-actions">
-          <button type="button" @click="downloadDemo(item)">
-            <icon-download /> 下载
+          <button type="button" @click="downloadResourceBrief(item)">
+            <icon-download /> 学习包
           </button>
           <button type="button" @click="askAboutResource(item)">
             <icon-robot /> 围绕资料提问
@@ -228,7 +363,7 @@
 
   .resource-overview {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 12px;
 
     article {
@@ -255,6 +390,62 @@
       margin-top: 4px;
       color: #29364d;
       font-size: 20px;
+    }
+  }
+
+  .quality-strip {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+
+    article {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr);
+      gap: 10px;
+      padding: 13px 14px;
+      border: 1px solid #e3e9f5;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #fff, #f8fbff);
+      box-shadow: 0 8px 22px rgba(33, 48, 78, 0.04);
+    }
+
+    svg {
+      width: 34px;
+      height: 34px;
+      padding: 8px;
+      border-radius: 10px;
+      color: #2e7d6a;
+      background: #eaf8f2;
+    }
+
+    strong,
+    span,
+    small {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    strong {
+      color: #27344c;
+      font-size: 12px;
+    }
+
+    span {
+      margin-top: 2px;
+      color: #5367f8;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    small {
+      margin-top: 5px;
+      color: #8a95a8;
+      font-size: 9px;
     }
   }
 
@@ -434,11 +625,61 @@
     }
 
     p {
-      height: 30px;
+      min-height: 30px;
       margin: 0;
       color: #8993a5;
       font-size: 10px;
       line-height: 1.5;
+    }
+  }
+
+  .resource-path {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    min-height: 24px;
+    margin-top: 10px;
+
+    span {
+      max-width: 100%;
+      padding: 4px 7px;
+      overflow: hidden;
+      border-radius: 999px;
+      color: #50617f;
+      background: #f3f6fb;
+      font-size: 9px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .resource-checks {
+    display: grid;
+    gap: 6px;
+    min-height: 74px;
+    margin: 10px 0 0;
+    padding: 10px 11px;
+    border-radius: 10px;
+    background: #f8fafc;
+    list-style: none;
+
+    li {
+      position: relative;
+      padding-left: 12px;
+      color: #657188;
+      font-size: 10px;
+      line-height: 1.5;
+
+      &::before {
+        position: absolute;
+        top: 7px;
+        left: 0;
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: #5367f8;
+        content: '';
+      }
     }
   }
 
@@ -524,6 +765,7 @@
     .resource-overview,
     .resource-grid,
     .resource-flow,
+    .quality-strip,
     .flow-steps {
       grid-template-columns: 1fr;
     }

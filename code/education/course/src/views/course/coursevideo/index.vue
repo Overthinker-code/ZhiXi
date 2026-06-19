@@ -151,7 +151,7 @@
                 :poster="currentCourse.cover"
               />
               <div v-else class="demo-frame">
-                <img :src="currentCourse.cover" :alt="`${currentCourse.title}演示画面`" />
+                <img :src="currentCourse.cover" :alt="`${currentCourse.title}课程资源预览`" />
                 <div class="demo-frame__shade"></div>
                 <div class="demo-frame__content">
                   <button
@@ -163,7 +163,7 @@
                     <icon-play-arrow-fill />
                   </button>
                   <strong>{{ currentLesson.title }}</strong>
-                  <span>课程演示画面 · 暂无真实教学视频</span>
+                  <span>课程资源预览 · 可载入本地教学视频</span>
                 </div>
                 <button
                   type="button"
