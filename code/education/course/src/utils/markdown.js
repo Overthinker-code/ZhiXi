@@ -243,7 +243,12 @@ function normalizeChatIndentation(segment) {
 function removeDecorativeHorizontalRules(segment) {
   return String(segment || '')
     .split('\n')
-    .filter((line) => !/^\s{0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line))
+    .filter(
+      (line) =>
+        !/^\s{0,3}(?:-{3,}|\*{3,}|_{3,}|={3,}|[＿_—─━―－﹘﹣]{3,})\s*$/.test(
+          line
+        )
+    )
     .join('\n');
 }
 

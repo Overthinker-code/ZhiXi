@@ -98,7 +98,11 @@
       scope: item.scope,
       sourceLabel: item.sourceLabel,
       locator: item.locator,
+      currentFile: item.scope === '当前文件',
     }))
+  );
+  const currentFileCitationCount = computed(
+    () => normalizedCitations.value.filter((item) => item.scope === '当前文件').length
   );
   const primarySourceSummary = computed(() => {
     const first = compactSources.value[0];
@@ -147,11 +151,15 @@
         <span>引用</span>
         <strong>{{ primarySourceSummary }}</strong>
       </button>
+      <span v-if="currentFileCitationCount" class="current-file-pill">
+        当前文件 {{ currentFileCitationCount }}
+      </span>
       <div v-if="citationMarkers.length" class="citation-markers">
         <button
           v-for="item in citationMarkers"
           :key="item.id"
           type="button"
+          :class="{ 'is-current-file': item.currentFile }"
           :title="`${item.scope || '资料'} · ${item.sourceLabel}${item.locator ? ` · ${item.locator}` : ''}`"
           @click="expanded = !expanded"
         >
@@ -285,6 +293,12 @@
       font-weight: 750;
     }
 
+    button.is-current-file {
+      border-color: rgba(16, 185, 129, 0.38);
+      background: #ecfdf5;
+      color: #047857;
+    }
+
     button:hover {
       border-color: rgba(79, 70, 229, 0.32);
       background: #fff;
@@ -307,6 +321,19 @@
     color: #475569;
     font-size: 0.72rem;
     font-weight: 650;
+  }
+
+  .current-file-pill {
+    display: inline-flex;
+    align-items: center;
+    height: 1.52rem;
+    padding: 0 0.5rem;
+    border-radius: 999px;
+    background: #ecfdf5;
+    color: #047857;
+    font-size: 0.68rem;
+    font-weight: 750;
+    box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.18);
   }
 
   .citation-detail-list {

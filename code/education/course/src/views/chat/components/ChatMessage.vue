@@ -180,7 +180,10 @@
       .split('\n')
       .filter((line) => {
         const trimmed = line.trim();
-        return !/^([-*_])\1{2,}$/.test(trimmed) && !/^[＿_—─━]{5,}$/.test(trimmed);
+        return (
+          !/^([-*_=])\1{2,}$/.test(trimmed) &&
+          !/^[＿_—─━―－﹘﹣]{3,}$/.test(trimmed)
+        );
       })
       .join('\n')
       .replace(/\n{3,}/g, '\n\n')
@@ -799,27 +802,47 @@
         }
 
         :deep(blockquote) {
-          margin: 0.55rem 0;
-          padding: 0.55rem 0.75rem;
-          border: 1px solid #e2e8f0;
-          background: #f8fafc;
-          color: #64748b;
-          border-radius: 10px;
+          position: relative;
+          margin: 0.62rem 0;
+          padding: 0.62rem 0.78rem 0.62rem 0.95rem;
+          border: 0;
+          background: linear-gradient(90deg, #f6f9ff, #fbfdff);
+          color: #56657a;
+          border-radius: 12px;
+          box-shadow: inset 3px 0 0 rgba(99, 102, 241, 0.28);
         }
 
         :deep(table) {
           width: 100%;
-          border-collapse: collapse;
-          margin: 0.5rem 0;
+          border-collapse: separate;
+          border-spacing: 0;
+          margin: 0.68rem 0;
+          overflow: hidden;
+          border-radius: 12px;
+          background: #f8fbff;
+          box-shadow: 0 0 0 1px rgba(214, 226, 241, 0.7);
 
           th,
           td {
-            padding: 0.45rem;
-            border: 1px solid #dce6f4;
+            padding: 0.52rem 0.62rem;
+            border: 0;
+            border-bottom: 1px solid rgba(220, 230, 244, 0.72);
+            border-right: 1px solid rgba(220, 230, 244, 0.52);
           }
 
           th {
-            background: #f4f8ff;
+            background: #eef4ff;
+            color: #334155;
+            font-weight: 750;
+          }
+
+          tr:last-child td {
+            border-bottom: 0;
+          }
+
+          th:last-child,
+          td:last-child {
+            border-right: 0;
           }
         }
 
@@ -840,7 +863,8 @@
         :deep(.code-block) {
           margin: 0.65rem 0;
           border-radius: 12px;
-          border: 1px solid #d6e2f1;
+          border: 0;
+          box-shadow: 0 0 0 1px rgba(214, 226, 241, 0.78);
           overflow: hidden;
 
           > pre {
@@ -853,7 +877,7 @@
             align-items: center;
             padding: 0.45rem 0.75rem;
             background: #eff5ff;
-            border-bottom: 1px solid #d6e2f1;
+            border-bottom: 1px solid rgba(214, 226, 241, 0.65);
 
             .code-lang {
               color: #4f6382;
@@ -912,11 +936,11 @@
           }
 
           &.dark-theme {
-            border-color: #223b66;
+            box-shadow: 0 0 0 1px rgba(34, 59, 102, 0.86);
 
             .code-header {
               background: #10233f;
-              border-color: #223b66;
+              border-color: rgba(34, 59, 102, 0.78);
 
               .code-lang {
                 color: #c8d9f5;
