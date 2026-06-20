@@ -43,6 +43,7 @@
   const selectedNodeId = ref('course-root');
   const showResourceLinks = ref(true);
   const showLearningPath = ref(true);
+  const isolateSearchResults = ref(false);
   const canvasZoom = ref(1.08);
   const canvasPan = ref({ x: 0, y: 0 });
   const isPanning = ref(false);
@@ -66,7 +67,14 @@
     const map = activeMap.value;
     const key = keyword.value.trim().toLowerCase();
     if (!map) return [];
-    return map.nodes.filter((node) => !key || node.label.toLowerCase().includes(key));
+    if (!key || !isolateSearchResults.value) return map.nodes;
+    const matchIds = searchMatchNodeIds.value;
+    const relatedIds = new Set<string>(matchIds);
+    map.links.forEach((link) => {
+      if (matchIds.has(link.source)) relatedIds.add(link.target);
+      if (matchIds.has(link.target)) relatedIds.add(link.source);
+    });
+    return map.nodes.filter((node) => relatedIds.has(node.id));
   });
   const visibleNodeIds = computed(() => new Set(visibleNodes.value.map((node) => node.id)));
   const visibleLinks = computed(() => {
@@ -354,6 +362,67 @@
       },
     ];
   });
+  const recommendedNode = computed(() => {
+    const map = activeMap.value;
+    if (!map || !course.value) return null;
+    const candidates = map.nodes
+      .filter((node) => node.weight < 4)
+      .map((node) => {
+        const mastery = node.mastery ?? course.value!.progress;
+        const evidenceGap = Math.max(0, 2 - (node.evidence?.length || 0));
+        const resourceGap = Math.max(0, 2 - (node.resources?.length || 0));
+        const checkGap = Math.max(0, 2 - (node.checks?.length || 0));
+        const relationCount = map.links.filter(
+          (link) => link.source === node.id || link.target === node.id
+        ).length;
+        const status = nodeStatuses.value[`${map.type}:${node.id}`] || {};
+        const unfinishedBonus =
+          Number(!status.reviewed) + Number(!status.practice) + Number(!status.resource);
+        return {
+          node,
+          score:
+            (100 - mastery) * 1.4 +
+            evidenceGap * 16 +
+            resourceGap * 12 +
+            checkGap * 14 +
+            relationCount * 2 +
+            unfinishedBonus * 8,
+          reasons: [
+            mastery < 65 ? `掌握度 ${mastery}%` : '',
+            evidenceGap ? `缺 ${evidenceGap} 条课堂证据` : '',
+            checkGap ? `缺 ${checkGap} 道检查题` : '',
+            resourceGap ? `缺 ${resourceGap} 项配套资料` : '',
+          ].filter(Boolean),
+        };
+      })
+      .sort((a, b) => b.score - a.score);
+    return candidates[0] || null;
+  });
+  const recommendationReasons = computed(() =>
+    recommendedNode.value?.reasons.length
+      ? recommendedNode.value.reasons
+      : ['可沿图谱完成一次证据、练习、资料闭环']
+  );
+  const recommendationActions = computed(() => [
+    {
+      key: 'evidence',
+      label: '读证据',
+      desc: selectedNodeEvidence.value[0] || '回到课堂笔记确认定义和边界',
+      done: Boolean(selectedNodeStatus.value.reviewed),
+    },
+    {
+      key: 'practice',
+      label: '做检查',
+      desc: selectedNodeChecks.value[0] || '生成分层检查题并记录错因',
+      done: Boolean(selectedNodeStatus.value.practice),
+    },
+    {
+      key: 'resource',
+      label: '补资料',
+      desc: selectedNodeResources.value[0] || '生成讲义、导图和复习单',
+      done: Boolean(selectedNodeStatus.value.resource),
+    },
+  ]);
   const nodeStudyPack = computed(() => {
     const node = selectedNode.value;
     const map = activeMap.value;
@@ -511,6 +580,9 @@
         score: number;
       }>;
   });
+  const searchMatchNodeIds = computed(
+    () => new Set(searchMatches.value.map((item) => item.node.id))
+  );
   const selectedNodeStatus = computed(() => {
     const key = nodeStudyStatusKey();
     return key ? nodeStatuses.value[key] || {} : {};
@@ -535,11 +607,13 @@
   const selectedNodePopoverStyle = computed(() => {
     const node = selectedNode.value;
     if (!node) return {};
-    const left = Math.max(8, Math.min(92, ((node.x - 40) / 880) * 100));
-    const top = Math.max(14, Math.min(88, (node.y / 460) * 100));
+    const baseLeft = ((node.x - 40) / 880) * 100;
+    const baseTop = (node.y / 460) * 100;
+    const left = Math.max(8, Math.min(92, 50 + (baseLeft - 50) * canvasZoom.value));
+    const top = Math.max(14, Math.min(88, 50 + (baseTop - 50) * canvasZoom.value));
     return {
-      left: `${left}%`,
-      top: `${top}%`,
+      left: `calc(${left}% + ${canvasPan.value.x}px)`,
+      top: `calc(${top}% + ${canvasPan.value.y}px)`,
     };
   });
   const chapterCount = computed(() => course.value?.chapters.length || 0);
@@ -684,6 +758,8 @@
     const selected = selectedNode.value;
     const packageNode = packageTarget.value?.node;
     const status = nodeStatuses.value[nodeStudyStatusKey(node)];
+    const hasSearch = Boolean(keyword.value.trim());
+    const isSearchHit = searchMatchNodeIds.value.has(node.id);
     const shouldDim = Boolean(
       selected && selected.weight < 4 && node.id !== selected.id && !selectedNeighborIds.value.has(node.id)
     );
@@ -697,7 +773,8 @@
         weak: (node.mastery ?? course.value?.progress ?? 0) < 60,
         stable: (node.mastery ?? course.value?.progress ?? 0) >= 80,
         'package-target': packageContext.value && packageNode?.id === node.id,
-        'search-hit': searchMatches.value.some((item) => item.node.id === node.id),
+        'search-hit': isSearchHit,
+        'search-muted': hasSearch && !isSearchHit && !selectedNeighborIds.value.has(node.id),
         'status-reviewed': Boolean(status?.reviewed),
         'status-practice': Boolean(status?.practice),
         'status-resource': Boolean(status?.resource),
@@ -709,11 +786,15 @@
     const selected = selectedNode.value;
     const selectedId = selected?.id;
     const isSelectedLink = selectedLinkKey.value === linkKey(link);
+    const hasSearch = Boolean(keyword.value.trim());
+    const touchesSearchHit =
+      searchMatchNodeIds.value.has(link.source) || searchMatchNodeIds.value.has(link.target);
     return [
       `link-${link.relation}`,
       {
         selected: isSelectedLink || selectedId === link.source || selectedId === link.target,
         'link-selected': isSelectedLink,
+        'search-muted': hasSearch && !touchesSearchHit,
         dimmed: Boolean(
           selectedId && selected?.weight !== 4 && !isSelectedLink && selectedId !== link.source && selectedId !== link.target
         ),
@@ -792,6 +873,7 @@
 
   function selectNode(node: CourseKnowledgeNode) {
     selectedNodeId.value = node.id;
+    selectedLinkKey.value = '';
     persistSelectedNode();
   }
 
@@ -807,6 +889,7 @@
   function selectMap(type: CourseKnowledgeMapType) {
     activeType.value = type;
     activeRelation.value = '全部';
+    selectedLinkKey.value = '';
     canvasPan.value = { x: 0, y: 0 };
   }
 
@@ -893,6 +976,11 @@
     const savedNodeId = window.localStorage.getItem(key);
     if (savedNodeId && activeMap.value.nodes.some((node) => node.id === savedNodeId)) {
       selectedNodeId.value = savedNodeId;
+      return;
+    }
+    if (!queryText(route.query.nodeId) && !queryText(route.query.nodeLabel) && !queryText(route.query.topic)) {
+      const recommended = recommendedNode.value?.node;
+      if (recommended) selectedNodeId.value = recommended.id;
     }
   }
 
@@ -915,9 +1003,14 @@
 
   function selectSearchMatch(node: CourseKnowledgeNode) {
     selectNode(node);
+    centerNodeInCanvas(node, 0.48);
+  }
+
+  function centerNodeInCanvas(node = selectedNode.value, pull = 0.46) {
+    if (!node) return;
     canvasPan.value = {
-      x: Math.round((470 - node.x) * 0.36),
-      y: Math.round((230 - node.y) * 0.36),
+      x: Math.round((480 - node.x) * pull),
+      y: Math.round((236 - node.y) * pull),
     };
   }
 
@@ -1030,8 +1123,21 @@
     canvasPan.value = { x: 0, y: 0 };
   }
 
+  function centerSelectedNode() {
+    centerNodeInCanvas(selectedNode.value, 0.5);
+  }
+
+  function handleCanvasWheel(event: WheelEvent) {
+    const delta = event.deltaY > 0 ? -0.06 : 0.06;
+    changeZoom(delta);
+  }
+
   function beginCanvasPan(event: PointerEvent) {
-    if ((event.target as Element | null)?.closest?.('.graph-node')) return;
+    if (
+      (event.target as Element | null)?.closest?.(
+        '.graph-node, .graph-links path, .node-canvas-popover, button, input, a'
+      )
+    ) return;
     isPanning.value = true;
     panStart.value = {
       pointerX: event.clientX,
@@ -1130,6 +1236,31 @@
       return;
     }
     askGraphAgent('解释当前节点、相邻节点和学习路径，并给出下一步可执行动作');
+  }
+
+  function startRecommendedNode() {
+    const node = recommendedNode.value?.node;
+    if (!node) return;
+    selectNode(node);
+    centerNodeInCanvas(node, 0.5);
+  }
+
+  function runRecommendationAction(key: string) {
+    if (recommendedNode.value?.node && selectedNode.value?.id !== recommendedNode.value.node.id) {
+      selectNode(recommendedNode.value.node);
+    }
+    if (key === 'evidence') {
+      toggleNodeStatus('reviewed');
+      goCourseContent();
+      return;
+    }
+    if (key === 'practice') {
+      toggleNodeStatus('practice');
+      askGraphAgent('基于当前推荐节点生成分层检查题，并给出判分标准和错因记录模板');
+      return;
+    }
+    toggleNodeStatus('resource');
+    goResourceGenerator();
   }
 
   function selectPathStep(nodeId: string) {
@@ -1298,8 +1429,13 @@
   watch(activeMap, (map) => {
     if (!map) return;
     if (!map.nodes.some((node) => node.id === selectedNodeId.value)) {
-      selectedNodeId.value = map.nodes[0]?.id || 'course-root';
+      selectedNodeId.value = recommendedNode.value?.node.id || map.nodes[0]?.id || 'course-root';
     }
+    selectedLinkKey.value = '';
+  });
+
+  watch(activeRelation, () => {
+    selectedLinkKey.value = '';
   });
 
   watch(
@@ -1475,10 +1611,42 @@
             </div>
           </div>
 
+          <section v-if="recommendedNode" class="today-recommendation">
+            <div class="today-recommendation__main">
+              <span>TODAY FOCUS</span>
+              <strong>建议先攻克「{{ recommendedNode.node.label }}」</strong>
+              <p>
+                {{ recommendedNode.node.recommendedAction || recommendedNode.node.detail || '沿图谱完成一次证据、检查、资料闭环。' }}
+              </p>
+              <div class="recommend-reasons">
+                <em v-for="item in recommendationReasons" :key="item">{{ item }}</em>
+              </div>
+            </div>
+            <div class="recommend-flow">
+              <button
+                v-for="item in recommendationActions"
+                :key="item.key"
+                type="button"
+                :class="{ done: item.done }"
+                @click="runRecommendationAction(item.key)"
+              >
+                <span>{{ item.label }}</span>
+                <b>{{ item.done ? '已完成' : '开始' }}</b>
+                <small>{{ item.desc }}</small>
+              </button>
+            </div>
+            <button type="button" class="recommend-start" @click="startRecommendedNode">
+              定位推荐节点
+            </button>
+          </section>
+
           <section v-if="keyword.trim()" class="graph-search-results" aria-label="图谱搜索结果">
             <div>
               <strong>搜索定位</strong>
               <span>{{ searchMatches.length ? `找到 ${searchMatches.length} 个相关节点` : '暂无命中节点' }}</span>
+              <button type="button" @click="isolateSearchResults = !isolateSearchResults">
+                {{ isolateSearchResults ? '显示全图' : '仅看相关' }}
+              </button>
             </div>
             <button
               v-for="item in searchMatches"
@@ -1505,58 +1673,6 @@
               </button>
             </article>
           </div>
-
-          <section class="path-inspector-panel" aria-label="图谱学习路径推演">
-            <div class="path-inspector-head">
-              <div>
-                <span>PATH REASONING</span>
-                <strong>{{ selectedNode?.label || activeMap.title }} 学习路径推演</strong>
-                <p>把当前知识点拆成前置确认、当前攻克、后续迁移三段，并绑定证据、资料和检查题。</p>
-              </div>
-              <div class="path-stats">
-                <article v-for="item in pathCoverageStats" :key="item.label">
-                  <span>{{ item.label }}</span>
-                  <strong>{{ item.value }}</strong>
-                </article>
-              </div>
-            </div>
-
-            <div class="path-step-grid">
-              <article
-                v-for="(item, index) in graphPathSteps"
-                :key="`${item.key}-${item.nodeId}-${index}`"
-                class="path-step-card"
-                :class="[`path-step-card--${item.key}`, { active: item.nodeId === selectedNode?.id }]"
-              >
-                <button type="button" class="path-step-node" @click="selectPathStep(item.nodeId)">
-                  <span>{{ item.phase }}</span>
-                  <strong>{{ item.title }}</strong>
-                  <small>{{ item.relation }} · {{ item.strength }}%</small>
-                </button>
-                <div class="path-step-body">
-                  <p>{{ item.desc }}</p>
-                  <div class="path-step-meta">
-                    <span>掌握 {{ item.mastery }}%</span>
-                    <span>{{ item.resource }}</span>
-                  </div>
-                  <div class="path-step-evidence">
-                    <b>证据</b>
-                    <span>{{ item.evidence }}</span>
-                  </div>
-                  <div class="path-step-check">
-                    <b>检查</b>
-                    <span>{{ item.check }}</span>
-                  </div>
-                </div>
-              </article>
-            </div>
-
-            <div class="path-inspector-actions">
-              <button type="button" @click="askPathTutor">AI 解释路径</button>
-              <button type="button" @click="generatePathResources">生成路径资料</button>
-              <button type="button" @click="downloadGraphPathPack">下载路径包</button>
-            </div>
-          </section>
 
           <main class="graph-stage">
             <section class="graph-canvas-panel">
@@ -1592,13 +1708,14 @@
                   <article
                     v-for="(branch, index) in structureBranches"
                     :key="branch.id"
-                    class="structure-branch"
-                    :class="{ active: selectedNodeId === `chapter-${index}` }"
-                    :style="{ '--branch-offset': `${index * 4}px` }"
-                    tabindex="0"
-                    @click="selectBranch(index)"
-                    @keydown.enter="selectBranch(index)"
-                  >
+                  class="structure-branch"
+                  :class="{ active: selectedNodeId === `chapter-${index}` }"
+                  :style="{ '--branch-offset': `${index * 4}px` }"
+                  tabindex="0"
+                  @click="selectBranch(index)"
+                  @keydown.enter="selectBranch(index)"
+                  @keydown.space.prevent="selectBranch(index)"
+                >
                     <div class="branch-title">
                       <span>{{ String(index + 1).padStart(2, '0') }}</span>
                       <strong>{{ branch.title }}</strong>
@@ -1629,6 +1746,8 @@
                 @pointermove="moveCanvasPan"
                 @pointerup="endCanvasPan"
                 @pointerleave="endCanvasPan"
+                @wheel.prevent="handleCanvasWheel"
+                @dblclick="centerSelectedNode"
               >
                 <svg
                   class="map-canvas"
@@ -1660,6 +1779,7 @@
                       tabindex="0"
                       @click.stop="selectLink(link)"
                       @keydown.enter.stop="selectLink(link)"
+                      @keydown.space.prevent.stop="selectLink(link)"
                     />
                   </g>
 
@@ -1673,6 +1793,7 @@
                     role="button"
                     @click="selectNode(node)"
                     @keydown.enter="selectNode(node)"
+                    @keydown.space.prevent="selectNode(node)"
                   >
                     <title>{{ node.label }} · {{ nodeSubtitle(node) }}</title>
                     <rect
@@ -1784,6 +1905,20 @@
                     </text>
                   </g>
                 </svg>
+
+                <div class="canvas-orbit-tools" aria-label="图谱画布工具">
+                  <button type="button" @click.stop="changeZoom(0.08)">放大</button>
+                  <button type="button" @click.stop="changeZoom(-0.08)">缩小</button>
+                  <button type="button" @click.stop="centerSelectedNode">居中</button>
+                  <button type="button" @click.stop="resetCanvas">复位</button>
+                  <button
+                    type="button"
+                    :class="{ active: isolateSearchResults }"
+                    @click.stop="isolateSearchResults = !isolateSearchResults"
+                  >
+                    命中
+                  </button>
+                </div>
 
                 <div v-if="!visibleNodes.length" class="graph-empty">
                   <strong>没有匹配节点</strong>
@@ -2050,6 +2185,58 @@
               </section>
             </aside>
           </main>
+
+          <section class="path-inspector-panel" aria-label="图谱学习路径推演">
+            <div class="path-inspector-head">
+              <div>
+                <span>PATH REASONING</span>
+                <strong>{{ selectedNode?.label || activeMap.title }} 学习路径推演</strong>
+                <p>把当前知识点拆成前置确认、当前攻克、后续迁移三段，并绑定证据、资料和检查题。</p>
+              </div>
+              <div class="path-stats">
+                <article v-for="item in pathCoverageStats" :key="item.label">
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </article>
+              </div>
+            </div>
+
+            <div class="path-step-grid">
+              <article
+                v-for="(item, index) in graphPathSteps"
+                :key="`${item.key}-${item.nodeId}-${index}`"
+                class="path-step-card"
+                :class="[`path-step-card--${item.key}`, { active: item.nodeId === selectedNode?.id }]"
+              >
+                <button type="button" class="path-step-node" @click="selectPathStep(item.nodeId)">
+                  <span>{{ item.phase }}</span>
+                  <strong>{{ item.title }}</strong>
+                  <small>{{ item.relation }} · {{ item.strength }}%</small>
+                </button>
+                <div class="path-step-body">
+                  <p>{{ item.desc }}</p>
+                  <div class="path-step-meta">
+                    <span>掌握 {{ item.mastery }}%</span>
+                    <span>{{ item.resource }}</span>
+                  </div>
+                  <div class="path-step-evidence">
+                    <b>证据</b>
+                    <span>{{ item.evidence }}</span>
+                  </div>
+                  <div class="path-step-check">
+                    <b>检查</b>
+                    <span>{{ item.check }}</span>
+                  </div>
+                </div>
+              </article>
+            </div>
+
+            <div class="path-inspector-actions">
+              <button type="button" @click="askPathTutor">AI 解释路径</button>
+              <button type="button" @click="generatePathResources">生成路径资料</button>
+              <button type="button" @click="downloadGraphPathPack">下载路径包</button>
+            </div>
+          </section>
         </div>
       </div>
 
@@ -4027,6 +4214,145 @@
     background: #fff;
   }
 
+  .today-recommendation {
+    display: grid;
+    grid-template-columns: minmax(240px, 0.9fr) minmax(360px, 1.1fr) auto;
+    gap: 12px;
+    align-items: stretch;
+    padding: 14px 16px;
+    border-bottom: 1px solid #e5edf8;
+    background:
+      linear-gradient(135deg, rgba(244, 249, 255, 0.98), rgba(255, 255, 255, 0.96)),
+      radial-gradient(circle at 0 0, rgba(67, 116, 255, 0.12), transparent 28%);
+  }
+
+  .today-recommendation__main {
+    min-width: 0;
+    display: grid;
+    align-content: center;
+    gap: 6px;
+    padding: 14px;
+    border: 1px solid #dfe9fa;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.9);
+
+    span {
+      color: #4774ff;
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: 0.14em;
+    }
+
+    strong {
+      overflow: hidden;
+      color: #14203a;
+      font-size: 18px;
+      line-height: 1.25;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    p {
+      display: -webkit-box;
+      margin: 0;
+      overflow: hidden;
+      color: #63718a;
+      font-size: 12px;
+      line-height: 1.55;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+    }
+  }
+
+  .recommend-reasons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+
+    em {
+      padding: 4px 8px;
+      border-radius: 999px;
+      color: #d07120;
+      background: #fff6ea;
+      font-size: 10px;
+      font-style: normal;
+      font-weight: 900;
+    }
+  }
+
+  .recommend-flow {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 9px;
+  }
+
+  .recommend-flow button {
+    min-width: 0;
+    display: grid;
+    gap: 5px;
+    padding: 12px;
+    border: 1px solid #dfe8f8;
+    border-radius: 15px;
+    color: #34435f;
+    background: #fff;
+    cursor: pointer;
+    text-align: left;
+
+    &:hover {
+      border-color: #b7c9ff;
+      background: #f4f7ff;
+    }
+
+    &.done {
+      border-color: #bfe8d1;
+      background: #f3fff8;
+
+      b {
+        color: #278052;
+      }
+    }
+
+    span,
+    b,
+    small {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    span {
+      color: #6b7890;
+      font-size: 10px;
+      font-weight: 900;
+    }
+
+    b {
+      color: #2f68df;
+      font-size: 14px;
+    }
+
+    small {
+      color: #758299;
+      font-size: 10px;
+      line-height: 1.4;
+    }
+  }
+
+  .recommend-start {
+    align-self: stretch;
+    min-width: 94px;
+    border: 0;
+    border-radius: 15px;
+    color: #fff;
+    background: #425fe8;
+    box-shadow: 0 12px 24px rgba(66, 95, 232, 0.2);
+    font-size: 12px;
+    font-weight: 900;
+    cursor: pointer;
+  }
+
   .graph-search-results {
     display: grid;
     grid-template-columns: 150px repeat(6, minmax(0, 1fr));
@@ -4058,6 +4384,17 @@
       span {
         color: #7a879b;
         font-size: 11px;
+      }
+
+      button {
+        justify-self: start;
+        min-height: 24px;
+        padding: 0 9px;
+        border-radius: 999px;
+        color: #2f68df;
+        background: #edf4ff;
+        font-size: 10px;
+        font-weight: 900;
       }
     }
 
@@ -4548,7 +4885,7 @@
 
   .map-canvas-viewport {
     position: relative;
-    height: 558px;
+    height: clamp(620px, calc(100vh - 260px), 820px);
     overflow: hidden;
     cursor: grab;
     background:
@@ -4628,6 +4965,10 @@
     filter: drop-shadow(0 4px 6px rgba(47, 104, 223, 0.24));
   }
 
+  .graph-work-area .graph-links .search-muted {
+    opacity: 0.12;
+  }
+
   .graph-work-area .graph-node.selected .node-body {
     stroke: #355ff2;
     stroke-width: 3.4;
@@ -4636,6 +4977,10 @@
   .graph-work-area .graph-node.search-hit .node-body {
     stroke: #2f68df;
     stroke-dasharray: 5 4;
+  }
+
+  .graph-work-area .graph-node.search-muted {
+    opacity: 0.22;
   }
 
   .graph-work-area .graph-node.status-practice .node-body {
@@ -4656,6 +5001,40 @@
 
       &:nth-child(3) {
         fill: #2c9a66;
+      }
+    }
+  }
+
+  .canvas-orbit-tools {
+    position: absolute;
+    top: 18px;
+    right: 18px;
+    z-index: 3;
+    display: grid;
+    gap: 7px;
+    padding: 8px;
+    border: 1px solid rgba(205, 218, 240, 0.92);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 14px 32px rgba(30, 44, 78, 0.12);
+    backdrop-filter: blur(12px);
+
+    button {
+      width: 52px;
+      height: 30px;
+      border: 1px solid #e0e7f3;
+      border-radius: 10px;
+      color: #4b5a74;
+      background: #fff;
+      font-size: 11px;
+      font-weight: 900;
+      cursor: pointer;
+
+      &:hover,
+      &.active {
+        border-color: #b7c9ff;
+        color: #2f68df;
+        background: #edf4ff;
       }
     }
   }
@@ -4892,6 +5271,10 @@
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
+    .today-recommendation {
+      grid-template-columns: 1fr;
+    }
+
     .graph-search-results {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -4957,6 +5340,18 @@
       grid-template-columns: 1fr;
     }
 
+    .today-recommendation {
+      padding: 12px;
+    }
+
+    .recommend-flow {
+      grid-template-columns: 1fr;
+    }
+
+    .recommend-start {
+      min-height: 40px;
+    }
+
     .path-inspector-panel {
       padding: 12px;
     }
@@ -4987,6 +5382,20 @@
     .map-canvas-viewport {
       height: 430px;
       overflow: auto;
+    }
+
+    .graph-work-area .map-canvas {
+      min-width: 720px;
+    }
+
+    .canvas-orbit-tools {
+      position: sticky;
+      top: 10px;
+      right: auto;
+      left: 10px;
+      width: max-content;
+      grid-auto-flow: column;
+      grid-template-columns: none;
     }
   }
 </style>
