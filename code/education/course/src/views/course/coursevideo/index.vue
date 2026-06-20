@@ -232,12 +232,43 @@
                 <p>{{ item.desc }}</p>
               </article>
             </div>
+            <div v-if="notesOrganized" class="notes-organized-banner">
+              <div>
+                <span>整理模式</span>
+                <strong>按“定义 - 证据 - 误区 - 检查题 - 行动”重排课堂笔记</strong>
+              </div>
+              <button type="button" @click="selectedMindNodeText = currentCourse.notes[0]?.title || currentCourse.shortTitle">
+                聚焦第一组主题
+              </button>
+            </div>
             <div class="notes-grid">
-              <article v-for="(note, index) in currentCourse.notes" :key="note.title">
+              <article
+                v-for="(note, index) in organizedNoteCards"
+                :key="note.title"
+                :class="{ 'note-card--organized': notesOrganized }"
+              >
                 <span>{{ String(index + 1).padStart(2, '0') }}</span>
                 <div>
                   <h3>{{ note.title }}</h3>
                   <p>{{ note.detail }}</p>
+                  <div v-if="notesOrganized" class="note-evidence-board">
+                    <section>
+                      <small>定义边界</small>
+                      <strong>{{ note.definition }}</strong>
+                    </section>
+                    <section>
+                      <small>课堂证据</small>
+                      <strong>{{ note.evidence }}</strong>
+                    </section>
+                    <section>
+                      <small>易错提醒</small>
+                      <strong>{{ note.pitfall }}</strong>
+                    </section>
+                    <section>
+                      <small>检查题</small>
+                      <strong>{{ note.check }}</strong>
+                    </section>
+                  </div>
                   <div class="note-chip-row">
                     <button
                       v-for="point in note.points"
@@ -599,6 +630,13 @@ import teacherAvatarImg from '@/assets/images/老师头像.png';
 
 type ArtifactType = 'notes' | 'mind';
 type CanvasExpose = { exportSvg: (filename: string) => void };
+type OrganizedNoteCard = ClassroomConcept & {
+  definition: string;
+  evidence: string;
+  pitfall: string;
+  check: string;
+  activities: string[];
+};
 type LocalLearningState = {
   lessonId: string;
   isFavorite: boolean;
@@ -743,9 +781,37 @@ const notesExplanation = computed(() => {
     {
       label: '可生成资料',
       value: 'PDF / Word / SVG',
-      desc: '笔记可一键导出，PDF 讲义由后端资源生成链路实时产出。',
+      desc: notesOrganized.value
+        ? '导出内容会保留整理后的定义、证据、误区、检查题和行动项。'
+        : '笔记可一键导出，PDF 讲义由后端资源生成链路实时产出。',
     },
   ];
+});
+const organizedNoteCards = computed<OrganizedNoteCard[]>(() => {
+  const course = currentCourse.value;
+  if (!course) return [];
+  return course.notes.map((note, index) => {
+    const concept = course.concepts[index] || course.concepts[0] || note;
+    const primary = note.points[0] || note.title;
+    const secondary = note.points[1] || concept.points[0] || note.title;
+    const activity = note.activities?.[0] || `围绕 ${note.title} 完成概念复述和错因订正。`;
+    return {
+      ...note,
+      definition: `${note.title} 需要先说清“是什么、解决什么问题、适用到哪一步”。${primary} 是本组笔记的入口证据。`,
+      evidence: `${secondary} 与 ${concept.title} 形成课堂证据链，建议回到当前课节标出定义、条件和例题位置。`,
+      pitfall:
+        note.misconceptions?.[0] ||
+        `只记 ${primary} 的结论但没有说明适用条件，会导致后续推理断裂。`,
+      check:
+        note.checks?.[0] ||
+        `我能否用一个课程案例解释 ${note.title}，并指出 ${primary} 的证据？`,
+      activities: [
+        activity,
+        `把 ${note.points.slice(0, 3).join('、')} 写成三列对照表。`,
+        `完成检查题后进入思维导图节点，补齐相邻知识关系。`,
+      ],
+    };
+  });
 });
 const courseContext = computed(() => {
   if (!currentCourse.value) return '';
@@ -999,6 +1065,20 @@ function downloadText(filename: string, content: string, mime = 'text/plain;char
 
 function notesMarkdown() {
   if (!currentCourse.value) return '';
+  const noteLines = notesOrganized.value
+    ? organizedNoteCards.value.flatMap((note) => [
+        `### ${note.title}`,
+        `- 定义边界：${note.definition}`,
+        `- 课堂证据：${note.evidence}`,
+        `- 易错提醒：${note.pitfall}`,
+        `- 检查题：${note.check}`,
+        '- 行动项：',
+        ...note.activities.map((item) => `  - ${item}`),
+      ])
+    : currentCourse.value.notes.flatMap((note) => [
+        `### ${note.title}`,
+        ...note.points.map((point) => `- ${point}`),
+      ]);
   return [
     `# ${currentCourse.value.title}课堂笔记`,
     `## ${currentLesson.value.label}`,
@@ -1006,10 +1086,8 @@ function notesMarkdown() {
     ...notesExplanation.value.map(
       (item) => `- **${item.label}：${item.value}**。${item.desc}`
     ),
-    ...currentCourse.value.notes.flatMap((note) => [
-      `### ${note.title}`,
-      ...note.points.map((point) => `- ${point}`),
-    ]),
+    notesOrganized.value ? '## AI 智能整理版' : '## 原始课堂笔记',
+    ...noteLines,
   ].join('\n\n');
 }
 
@@ -1028,9 +1106,22 @@ function notesWordHtml() {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
-  const sections = currentCourse.value.notes
-    .map(
-      (note) => `
+  const sections = (notesOrganized.value ? organizedNoteCards.value : currentCourse.value.notes)
+    .map((note) => {
+      if (notesOrganized.value) {
+        const organized = note as OrganizedNoteCard;
+        return `
+        <h2>${escapeHtml(organized.title)}</h2>
+        <table>
+          <tr><th>定义边界</th><td>${escapeHtml(organized.definition)}</td></tr>
+          <tr><th>课堂证据</th><td>${escapeHtml(organized.evidence)}</td></tr>
+          <tr><th>易错提醒</th><td>${escapeHtml(organized.pitfall)}</td></tr>
+          <tr><th>检查题</th><td>${escapeHtml(organized.check)}</td></tr>
+        </table>
+        <p><strong>行动项</strong></p>
+        <ul>${organized.activities.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`;
+      }
+      return `
         <h2>${escapeHtml(note.title)}</h2>
         <p>${escapeHtml(note.points.join('、'))}共同构成该主题的课堂理解框架。</p>
         <ul>${note.points
@@ -1038,8 +1129,8 @@ function notesWordHtml() {
             (point) =>
               `<li><strong>${escapeHtml(point)}</strong>：建议结合课节案例复述定义、条件和应用边界。</li>`
           )
-          .join('')}</ul>`
-    )
+          .join('')}</ul>`;
+    })
     .join('');
   return `<!doctype html>
 <html>
@@ -1052,6 +1143,9 @@ function notesWordHtml() {
     h2 { margin-top: 22px; font-size: 18px; color: #334155; }
     .meta { color: #64748b; }
     .brief { padding: 12px 16px; border: 1px solid #dbe4f0; background: #f8fafc; }
+    table { width: 100%; border-collapse: collapse; margin: 10px 0 12px; }
+    th, td { border: 1px solid #dbe4f0; padding: 8px 10px; vertical-align: top; }
+    th { width: 88px; background: #f3f6fb; color: #475569; text-align: left; }
   </style>
 </head>
 <body>
@@ -2039,6 +2133,49 @@ onBeforeRouteLeave(() => {
   }
 }
 
+.notes-organized-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 14px 14px 0;
+  padding: 12px 14px;
+  border: 1px solid #cad6ff;
+  border-radius: 10px;
+  background:
+    linear-gradient(135deg, rgba(240, 244, 255, .98), rgba(248, 251, 255, .98)),
+    #f7f9ff;
+
+  span,
+  strong {
+    display: block;
+  }
+
+  span {
+    color: #6675dc;
+    font-size: 10px;
+    font-weight: 800;
+  }
+
+  strong {
+    margin-top: 3px;
+    color: #24304a;
+    font-size: 13px;
+  }
+
+  button {
+    flex: 0 0 auto;
+    padding: 7px 10px;
+    border: 0;
+    border-radius: 7px;
+    color: #fff;
+    background: #5367f8;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+}
+
 .notes-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2054,6 +2191,14 @@ onBeforeRouteLeave(() => {
     border: 1px solid #e1e7f1;
     border-radius: 10px;
     background: linear-gradient(145deg, #fff, #fafcff);
+  }
+
+  .note-card--organized {
+    border-color: #cfd8ff;
+    background:
+      linear-gradient(145deg, rgba(255, 255, 255, .98), rgba(247, 250, 255, .98)),
+      #fff;
+    box-shadow: 0 8px 22px rgba(57, 78, 156, .08);
   }
 
   article > span {
@@ -2079,6 +2224,39 @@ onBeforeRouteLeave(() => {
     color: #748095;
     font-size: 11px;
     line-height: 1.65;
+  }
+
+  .note-evidence-board {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin: 10px 0;
+
+    section {
+      min-width: 0;
+      padding: 9px 10px;
+      border: 1px solid #dfe6f6;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    small {
+      color: #6979d7;
+      font-size: 9px;
+      font-weight: 800;
+    }
+
+    strong {
+      margin-top: 5px;
+      color: #3e4a62;
+      font-size: 10px;
+      line-height: 1.65;
+    }
+  }
+
+  .note-card--organized .note-action-strip span {
+    border-left-color: #1f9d78;
+    background: #f1fbf7;
   }
 
   ul {
@@ -2776,6 +2954,19 @@ onBeforeRouteLeave(() => {
   }
 
   .notes-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .notes-organized-banner {
+    align-items: stretch;
+    flex-direction: column;
+
+    button {
+      width: 100%;
+    }
+  }
+
+  .notes-grid .note-evidence-board {
     grid-template-columns: 1fr;
   }
 
