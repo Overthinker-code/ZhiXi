@@ -1,5 +1,6 @@
 <script setup>
-  import { computed, onMounted, onUnmounted, ref } from 'vue';
+  import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+  import { useRoute, useRouter } from 'vue-router';
   import {
     BadgeCheck,
     Bell,
@@ -26,6 +27,8 @@
 
   const showSearchDialog = ref(false);
   const userStore = useUserStore();
+  const route = useRoute();
+  const router = useRouter();
   const isTeacher = computed(() => userStore.role === 'teacher');
   const primaryAction = computed(() =>
     isTeacher.value ? '/dashboard/workplace' : '/tutor'
@@ -151,7 +154,20 @@
 
   const handleOverlayClick = (event) => {
     if (event.target.classList.contains('search-dialog-overlay')) {
-      showSearchDialog.value = false;
+      closeSearchDialog();
+    }
+  };
+
+  const openSearchDialog = () => {
+    showSearchDialog.value = true;
+  };
+
+  const closeSearchDialog = () => {
+    showSearchDialog.value = false;
+    if (route.query.search === '1') {
+      const nextQuery = { ...route.query };
+      delete nextQuery.search;
+      router.replace({ query: nextQuery });
     }
   };
 
@@ -162,19 +178,27 @@
       !searchDialog.contains(event.target) &&
       !event.target.closest('.search-container')
     ) {
-      showSearchDialog.value = false;
+      closeSearchDialog();
     }
   };
 
   const handleKeydown = (event) => {
     if (event.key === 'Escape') {
-      showSearchDialog.value = false;
+      closeSearchDialog();
     }
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
       event.preventDefault();
-      showSearchDialog.value = true;
+      openSearchDialog();
     }
   };
+
+  watch(
+    () => route.query.search,
+    (value) => {
+      if (value === '1') openSearchDialog();
+    },
+    { immediate: true }
+  );
 
   onMounted(() => {
     document.addEventListener('click', handleClickOutside);

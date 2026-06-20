@@ -30,6 +30,12 @@
     () => userStore.name || userStore.email || '同学'
   );
 
+  const openGlobalSearch = () => {
+    closeMenu();
+    mobileOpen.value = false;
+    router.push({ name: 'AssistantHome', query: { search: '1' } });
+  };
+
   const navigateByName = async (name: string) => {
     closeMenu();
     mobileOpen.value = false;
@@ -41,7 +47,6 @@
     const courseSections: Record<string, 'home' | 'content' | 'resources'> = {
       CourseOne: 'home',
       CourseContent: 'content',
-      CourseResourceGeneration: 'resources',
     };
     if (name in courseSections) {
       if (!routeCourseId) {
@@ -54,6 +59,14 @@
       return;
     }
     await router.push({ name });
+  };
+
+  const handleMobileGroupClick = async (group: TopNavGroup) => {
+    if (group.items?.length) {
+      closeMenu();
+      return;
+    }
+    if (group.routeName) await navigateByName(group.routeName);
   };
 
   const handleNavClick = async (group: TopNavGroup) => {
@@ -94,7 +107,7 @@
     if (e.key === 'Escape') closeMenu();
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
       e.preventDefault();
-      router.push({ name: 'AssistantHome', query: { search: '1' } });
+      openGlobalSearch();
     }
   };
 
@@ -166,7 +179,7 @@
             <button
               type="button"
               class="zy-mobile-nav__group"
-              @click="handleNavClick(group)"
+              @click="handleMobileGroupClick(group)"
             >
               {{ group.label }}
             </button>
@@ -188,7 +201,7 @@
         <button
           type="button"
           class="zy-topnav__search"
-          @click="router.push({ name: 'AssistantHome', query: { search: '1' } })"
+          @click="openGlobalSearch"
         >
           <icon-search />
           <span>搜索课程、资源、知识点…</span>

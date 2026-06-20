@@ -11,7 +11,7 @@ const ASSISTANT: AppRouteRecordRaw = {
     requiresAuth: true,
     icon: 'icon-apps',
     order: 1.5,
-    roles: ['student'],
+    roles: ['student', 'teacher'],
   },
   children: [
     {
@@ -21,7 +21,7 @@ const ASSISTANT: AppRouteRecordRaw = {
       meta: {
         locale: '伴学大厅',
         requiresAuth: true,
-        roles: ['student'],
+        roles: ['student', 'teacher'],
       },
     },
     {
