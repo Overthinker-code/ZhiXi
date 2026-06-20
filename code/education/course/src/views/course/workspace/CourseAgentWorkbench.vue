@@ -406,6 +406,7 @@
     if (incomingPackageContext.value && selectedAgent.value?.launch === 'chat') return '带核验上下文执行';
     if (incomingResourceContext.value && selectedAgent.value?.launch === 'chat') return '带着这份资料提问';
     if (selectedAgent.value?.launch === 'resource') return '生成学习资料';
+    if (shouldLaunchGraphChat()) return '打开 AI 伴学';
     if (selectedAgent.value?.launch === 'graph') return '进入课程图谱';
     return '开始对话执行';
   });
@@ -413,6 +414,7 @@
   const launchTarget = computed(() => {
     if (incomingPackageContext.value && incomingPrompt.value) return incomingForceAgent.value || 'retrieval_agent';
     if (selectedAgent.value?.launch === 'resource') return '资料生成器';
+    if (shouldLaunchGraphChat()) return 'AI 伴学对话';
     if (selectedAgent.value?.launch === 'graph') return '课程知识图谱';
     return normalizeForceAgent(selectedAgent.value?.task?.forceAgent) || 'tutor_agent';
   });
@@ -544,7 +546,10 @@
       'knowledge-map-package-audit': '图谱核验',
       'knowledge-map-audit': '图谱回炉',
       'knowledge-map': '课程图谱',
+      'knowledge-path': '图谱路径',
       'course-agent': 'AI智能体',
+      'course-agent-graph': '图谱智能体',
+      'course-agent-package-audit': '智能体核验',
       resource: '课程资料',
     };
     return map[source] || source || '课程入口';
@@ -608,6 +613,16 @@
 
   function shouldLaunchPackageChat(agent = selectedAgent.value) {
     return Boolean(incomingPackageContext.value && incomingPrompt.value && agent?.launch === 'graph');
+  }
+
+  function shouldLaunchGraphChat(agent = selectedAgent.value) {
+    return Boolean(
+      agent?.launch === 'graph' &&
+        (incomingPrompt.value ||
+          incomingNodeContext.value ||
+          incomingSource.value === 'knowledge-map' ||
+          incomingSource.value === 'knowledge-path')
+    );
   }
 
   function packagePromptLines() {
@@ -736,14 +751,14 @@
   function launchAgent(agent = selectedAgent.value) {
     if (!course.value || !agent) return;
     selectAgent(agent.key);
-    if (shouldLaunchPackageChat(agent)) {
+    if (shouldLaunchPackageChat(agent) || shouldLaunchGraphChat(agent)) {
       router.push({
         name: 'TutorChat',
         query: {
           prompt: buildTutorPrompt(agent),
           forceAgent: incomingForceAgent.value || normalizeForceAgent(agent.task?.forceAgent) || 'retrieval_agent',
           courseId: course.value.id,
-          source: 'course-agent-package-audit',
+          source: shouldLaunchPackageChat(agent) ? 'course-agent-package-audit' : 'course-agent-graph',
           task: agent.key,
           ...contextQueryPayload(),
         },

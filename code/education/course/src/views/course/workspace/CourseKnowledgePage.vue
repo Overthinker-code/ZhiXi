@@ -31,8 +31,10 @@
     reviewed?: boolean;
     practice?: boolean;
     resource?: boolean;
+    pending?: ClosureActionKey;
     updatedAt?: string;
   };
+  type ClosureActionKey = 'reviewed' | 'practice' | 'resource';
 
   const route = useRoute();
   const router = useRouter();
@@ -604,6 +606,119 @@
       active: Boolean(selectedNodeStatus.value.resource),
     },
   ]);
+  const closureActionMeta: Record<ClosureActionKey, { label: string; short: string; desc: string }> = {
+    reviewed: {
+      label: '读证据',
+      short: '证据',
+      desc: '回到课堂笔记确认定义、条件、边界和例题依据。',
+    },
+    practice: {
+      label: '做检查',
+      short: '检查',
+      desc: '生成分层检查题，完成后记录错因并回写图谱。',
+    },
+    resource: {
+      label: '补资料',
+      short: '资料',
+      desc: '生成讲义、导图、练习和阅读清单，补齐节点资料。',
+    },
+  };
+  const nodeClosureStats = computed(() => {
+    const map = activeMap.value;
+    if (!map) {
+      return {
+        total: 0,
+        reviewed: 0,
+        practice: 0,
+        resource: 0,
+        complete: 0,
+        progress: 0,
+      };
+    }
+    const summary = map.nodes.reduce(
+      (acc, node) => {
+        const status = nodeStatuses.value[`${map.type}:${node.id}`] || {};
+        const doneCount =
+          Number(Boolean(status.reviewed)) +
+          Number(Boolean(status.practice)) +
+          Number(Boolean(status.resource));
+        acc.reviewed += Number(Boolean(status.reviewed));
+        acc.practice += Number(Boolean(status.practice));
+        acc.resource += Number(Boolean(status.resource));
+        acc.complete += Number(doneCount === 3);
+        return acc;
+      },
+      {
+        total: map.nodes.length,
+        reviewed: 0,
+        practice: 0,
+        resource: 0,
+        complete: 0,
+      }
+    );
+    return {
+      ...summary,
+      progress: Math.round(
+        ((summary.reviewed + summary.practice + summary.resource) /
+          Math.max(summary.total * 3, 1)) *
+          100
+      ),
+    };
+  });
+  const selectedNodeClosure = computed(() => {
+    const status = selectedNodeStatus.value;
+    const actions = (Object.keys(closureActionMeta) as ClosureActionKey[]).map((key) => ({
+      key,
+      ...closureActionMeta[key],
+      done: Boolean(status[key]),
+      pending: status.pending === key && !status[key],
+    }));
+    const done = actions.filter((item) => item.done).length;
+    return {
+      actions,
+      done,
+      total: actions.length,
+      progress: Math.round((done / Math.max(actions.length, 1)) * 100),
+      missing: actions.filter((item) => !item.done),
+    };
+  });
+  const nodeClosureQueue = computed(() => {
+    const map = activeMap.value;
+    if (!map || !course.value) return [];
+    const actionOrder: ClosureActionKey[] = ['reviewed', 'practice', 'resource'];
+    return map.nodes
+      .map((node) => {
+        const status = nodeStatuses.value[`${map.type}:${node.id}`] || {};
+        const missingKey =
+          actionOrder.find((key) => !status[key]) || null;
+        const doneCount = actionOrder.filter((key) => status[key]).length;
+        const mastery = node.mastery ?? course.value!.progress;
+        const relationCount = map.links.filter(
+          (link) => link.source === node.id || link.target === node.id
+        ).length;
+        return {
+          node,
+          missingKey,
+          doneCount,
+          pendingKey: status.pending || '',
+          mastery,
+          relationCount,
+          priority:
+            Number(Boolean(missingKey)) * 100 +
+            (100 - mastery) +
+            relationCount * 2 +
+            (node.weight < 4 ? 8 : 0),
+        };
+      })
+      .filter((item) => item.missingKey)
+      .sort((a, b) => b.priority - a.priority)
+      .slice(0, 5)
+      .map((item) => ({
+        ...item,
+        actionKey: item.missingKey as ClosureActionKey,
+        action: closureActionMeta[item.missingKey as ClosureActionKey],
+      }));
+  });
   const selectedNodePopoverStyle = computed(() => {
     const node = selectedNode.value;
     if (!node) return {};
@@ -636,11 +751,35 @@
       packageId: packageId || 'local-preview',
       source,
       sourceLabel: source === 'resource-generation' ? '资源生成中心' : '课程图谱入口',
+      nodeId: queryText(route.query.nodeId),
+      nodeLabel: queryText(route.query.nodeLabel),
+      mapType: queryText(route.query.mapType) as CourseKnowledgeMapType,
+      resourceId: queryText(route.query.resourceId),
     };
   });
   const packageTarget = computed<PackageMatch | null>(() => {
     const context = packageContext.value;
     if (!context) return null;
+    if (context.nodeId) {
+      const exactMap = context.mapType
+        ? maps.value.find((map) => map.type === context.mapType)
+        : null;
+      const candidates = exactMap ? [exactMap] : maps.value;
+      const exact = candidates
+        .flatMap((map) => map.nodes.map((node) => ({ map, node })))
+        .find(({ node }) => node.id === context.nodeId);
+      if (exact) return { ...exact, score: 99 };
+    }
+    if (context.nodeLabel) {
+      const labelKey = normalizeMatchText(context.nodeLabel);
+      const exact = maps.value
+        .flatMap((map) => map.nodes.map((node) => ({ map, node })))
+        .find(({ map, node }) => {
+          const mapMatches = context.mapType ? map.type === context.mapType : true;
+          return mapMatches && normalizeMatchText(node.label) === labelKey;
+        });
+      if (exact) return { ...exact, score: 88 };
+    }
     const topicKey = normalizeMatchText(context.topic);
     let best: PackageMatch | null = null;
     maps.value.forEach((map: CourseKnowledgeMap) => {
@@ -1001,6 +1140,73 @@
     Message.success(`「${selectedNode.value.label}」学习状态已更新`);
   }
 
+  function markNodeStatus(node: CourseKnowledgeNode, key: ClosureActionKey, value = true) {
+    const map = activeMap.value;
+    if (!map) return;
+    const statusKey = `${map.type}:${node.id}`;
+    const current = nodeStatuses.value[statusKey] || {};
+    nodeStatuses.value = {
+      ...nodeStatuses.value,
+      [statusKey]: {
+        ...current,
+        [key]: value,
+        pending: current.pending === key ? undefined : current.pending,
+        updatedAt: new Date().toISOString(),
+      },
+    };
+    persistSelectedNode();
+    persistNodeStatuses();
+  }
+
+  function setPendingNodeAction(node: CourseKnowledgeNode, key: ClosureActionKey) {
+    const map = activeMap.value;
+    if (!map) return;
+    const statusKey = `${map.type}:${node.id}`;
+    const current = nodeStatuses.value[statusKey] || {};
+    nodeStatuses.value = {
+      ...nodeStatuses.value,
+      [statusKey]: {
+        ...current,
+        pending: key,
+        updatedAt: new Date().toISOString(),
+      },
+    };
+    persistSelectedNode();
+    persistNodeStatuses();
+  }
+
+  function runClosureAction(key: ClosureActionKey, node = selectedNode.value) {
+    if (!node) return;
+    if (selectedNode.value?.id !== node.id) {
+      selectNode(node);
+    }
+    const status = nodeStatuses.value[nodeStudyStatusKey(node)] || {};
+    if (status.pending === key && !status[key]) {
+      markNodeStatus(node, key, true);
+      Message.success(`「${node.label}」${closureActionMeta[key].label}已确认完成`);
+      return;
+    }
+    setPendingNodeAction(node, key);
+    if (key === 'reviewed') {
+      goCourseContent();
+      return;
+    }
+    if (key === 'practice') {
+      askGraphAgent(`围绕「${node.label}」生成分层检查题、判分标准和错因回写模板`);
+      return;
+    }
+    goResourceGenerator();
+  }
+
+  function continueClosureQueue() {
+    const next = nodeClosureQueue.value[0];
+    if (!next?.missingKey) {
+      Message.success('当前图谱节点闭环已完成，可以切换其他图谱继续检查');
+      return;
+    }
+    runClosureAction(next.missingKey as ClosureActionKey, next.node);
+  }
+
   function selectSearchMatch(node: CourseKnowledgeNode) {
     selectNode(node);
     centerNodeInCanvas(node, 0.48);
@@ -1109,6 +1315,8 @@
         upstreamSource: context?.source,
         packageId: context?.packageId,
         nodeId: target?.id,
+        nodeLabel: target?.label,
+        mapType: packageTarget.value?.map.type || activeMap.value?.type,
         audit: auditSummary || '图谱节点已完成基础匹配，继续复核资料包的证据、关系、练习和误区覆盖。',
       },
     });
@@ -1576,6 +1784,115 @@
         </aside>
 
         <div class="graph-work-area">
+          <section v-if="selectedNode" class="mobile-node-summary" aria-label="当前节点快捷操作">
+            <div class="mobile-node-summary__head">
+              <span>{{ nodeTypeLabel(selectedNode.type) }} · 掌握 {{ selectedNodeMastery }}%</span>
+              <strong>{{ selectedNode.label }}</strong>
+              <p>{{ selectedNode.detail || activeMap.description }}</p>
+            </div>
+            <div class="mobile-node-summary__metrics">
+              <em>{{ selectedNodeEvidence.length }} 证据</em>
+              <em>{{ selectedNodeResources.length }} 资源</em>
+              <em>{{ selectedLinks.length }} 关系</em>
+            </div>
+            <div class="mobile-node-summary__actions">
+              <button type="button" @click="askGraphAgent('解释当前节点的定义、前后置关系和课堂证据')">AI解释</button>
+              <button type="button" @click="goResourceGenerator">生成资料</button>
+              <button type="button" @click="downloadNodeStudyPack">学习包</button>
+            </div>
+          </section>
+
+          <section class="mobile-path-strip" aria-label="移动端图谱路径推演">
+            <div class="mobile-path-strip__head">
+              <span>三段路径</span>
+              <button type="button" @click="generatePathResources">生成路径资料</button>
+            </div>
+            <div class="mobile-path-strip__steps">
+              <button
+                v-for="item in graphPathSteps"
+                :key="`mobile-path-${item.key}-${item.nodeId}`"
+                type="button"
+                :class="{ active: item.nodeId === selectedNode?.id }"
+                @click="selectPathStep(item.nodeId)"
+              >
+                <span>{{ item.phase }}</span>
+                <strong>{{ item.title }}</strong>
+                <small>{{ item.relation }} · {{ item.mastery }}%</small>
+              </button>
+            </div>
+          </section>
+
+          <section class="closure-command-center" aria-label="图谱学习闭环控制台">
+            <div class="closure-command-head">
+              <div>
+                <span>LEARNING LOOP</span>
+                <strong>图谱学习闭环控制台</strong>
+                <p>
+                  把每个节点推进到“读证据、做检查、补资料”三步闭环，避免图谱只停留在展示层。
+                </p>
+              </div>
+              <button type="button" @click="continueClosureQueue">继续下一步</button>
+            </div>
+            <div class="closure-progress-row">
+              <div class="closure-progress-card">
+                <span>当前图谱进度</span>
+                <strong>{{ nodeClosureStats.progress }}%</strong>
+                <div class="closure-progress-track">
+                  <i :style="{ width: `${nodeClosureStats.progress}%` }"></i>
+                </div>
+                <small>{{ nodeClosureStats.complete }}/{{ nodeClosureStats.total }} 节点已完成三步闭环</small>
+              </div>
+              <div class="closure-stat-grid">
+                <article>
+                  <span>读证据</span>
+                  <b>{{ nodeClosureStats.reviewed }}</b>
+                </article>
+                <article>
+                  <span>做检查</span>
+                  <b>{{ nodeClosureStats.practice }}</b>
+                </article>
+                <article>
+                  <span>补资料</span>
+                  <b>{{ nodeClosureStats.resource }}</b>
+                </article>
+              </div>
+              <div class="selected-closure-card">
+                <span>当前节点</span>
+                <strong>{{ selectedNode?.label || activeMap.title }}</strong>
+                <div class="selected-closure-actions">
+                  <button
+                    v-for="item in selectedNodeClosure.actions"
+                    :key="item.key"
+                    type="button"
+                    :class="{ done: item.done, pending: item.pending }"
+                    @click="runClosureAction(item.key)"
+                  >
+                    {{ item.done ? '已完成' : item.pending ? '确认完成' : item.short }}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div class="closure-queue-list">
+              <button
+                v-for="item in nodeClosureQueue"
+                :key="`${item.node.id}-${item.missingKey}`"
+                type="button"
+                :class="{ active: item.node.id === selectedNode?.id, pending: item.pendingKey === item.missingKey }"
+                @click="runClosureAction(item.actionKey, item.node)"
+              >
+                <span>{{ item.pendingKey === item.missingKey ? '待确认' : item.action.label }}</span>
+                <strong>{{ item.node.label }}</strong>
+                <small>
+                  掌握 {{ item.mastery }}% · 已完成 {{ item.doneCount }}/3 ·
+                  {{ item.pendingKey === item.missingKey ? '再次点击可确认完成' : item.action.desc }}
+                </small>
+              </button>
+              <div v-if="!nodeClosureQueue.length" class="closure-queue-empty">
+                当前图谱已完成闭环，可切换到其他图谱或下载路径包。
+              </div>
+            </div>
+          </section>
+
           <div class="graph-filter-row">
             <div class="relation-filter">
               <button
@@ -4353,6 +4670,266 @@
     cursor: pointer;
   }
 
+  .closure-command-center {
+    display: grid;
+    gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid #e5edf8;
+    background:
+      linear-gradient(135deg, rgba(250, 252, 255, 0.98), rgba(245, 250, 255, 0.94)),
+      radial-gradient(circle at 100% 0, rgba(42, 132, 116, 0.12), transparent 30%);
+  }
+
+  .closure-command-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+
+    > div {
+      min-width: 0;
+    }
+
+    span {
+      display: block;
+      color: #1f8a7a;
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: 0.14em;
+    }
+
+    strong {
+      display: block;
+      margin-top: 4px;
+      color: #14203a;
+      font-size: 17px;
+      font-weight: 900;
+    }
+
+    p {
+      margin: 4px 0 0;
+      color: #66758d;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    button {
+      flex: 0 0 auto;
+      height: 38px;
+      padding: 0 15px;
+      border: 0;
+      border-radius: 13px;
+      color: #fff;
+      background: #178b78;
+      box-shadow: 0 10px 20px rgba(23, 139, 120, 0.18);
+      font-size: 12px;
+      font-weight: 900;
+      cursor: pointer;
+    }
+  }
+
+  .closure-progress-row {
+    display: grid;
+    grid-template-columns: minmax(220px, 0.8fr) minmax(260px, 0.8fr) minmax(260px, 1fr);
+    gap: 10px;
+    align-items: stretch;
+  }
+
+  .closure-progress-card,
+  .selected-closure-card,
+  .closure-stat-grid article {
+    min-width: 0;
+    border: 1px solid #dde9f4;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: 0 10px 24px rgba(33, 48, 75, 0.05);
+  }
+
+  .closure-progress-card {
+    display: grid;
+    gap: 7px;
+    padding: 12px;
+
+    span,
+    small {
+      color: #718098;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    strong {
+      color: #14203a;
+      font-size: 24px;
+      line-height: 1;
+    }
+  }
+
+  .closure-progress-track {
+    height: 7px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #e8eef6;
+
+    i {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #178b78, #4f7df3);
+    }
+  }
+
+  .closure-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+
+    article {
+      display: grid;
+      align-content: center;
+      gap: 5px;
+      padding: 12px;
+      text-align: center;
+    }
+
+    span {
+      color: #718098;
+      font-size: 10px;
+      font-weight: 900;
+    }
+
+    b {
+      color: #1f8a7a;
+      font-size: 22px;
+    }
+  }
+
+  .selected-closure-card {
+    display: grid;
+    gap: 9px;
+    padding: 12px;
+
+    span {
+      color: #718098;
+      font-size: 10px;
+      font-weight: 900;
+    }
+
+    strong {
+      overflow: hidden;
+      color: #14203a;
+      font-size: 15px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .selected-closure-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
+
+    button {
+      height: 32px;
+      border: 1px solid #dfe8f4;
+      border-radius: 11px;
+      color: #4b5d78;
+      background: #fff;
+      font-size: 11px;
+      font-weight: 900;
+      cursor: pointer;
+
+      &.pending {
+        border-color: #ffd7a3;
+        color: #bd671d;
+        background: #fff8ef;
+      }
+
+      &.done {
+        border-color: #bfe8d1;
+        color: #247b51;
+        background: #f2fff7;
+      }
+    }
+  }
+
+  .closure-queue-list {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+
+    button,
+    .closure-queue-empty {
+      min-width: 0;
+      min-height: 86px;
+      padding: 11px;
+      border: 1px solid #dfe8f4;
+      border-radius: 15px;
+      background: rgba(255, 255, 255, 0.9);
+      text-align: left;
+    }
+
+    button {
+      display: grid;
+      gap: 5px;
+      cursor: pointer;
+
+      &:hover,
+      &.active {
+        border-color: #bcd2ff;
+        background: #f4f8ff;
+      }
+
+      &.pending {
+        border-color: #ffd7a3;
+        background: #fff8ef;
+      }
+    }
+
+    span,
+    strong,
+    small {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    span {
+      color: #1f8a7a;
+      font-size: 10px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    strong {
+      color: #14203a;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    small {
+      display: -webkit-box;
+      color: #718098;
+      font-size: 10px;
+      line-height: 1.45;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+    }
+  }
+
+  .closure-queue-empty {
+    display: grid;
+    place-items: center;
+    color: #607089;
+    font-size: 12px;
+    font-weight: 800;
+    text-align: center;
+  }
+
+  .mobile-node-summary,
+  .mobile-path-strip {
+    display: none;
+  }
+
   .graph-search-results {
     display: grid;
     grid-template-columns: 150px repeat(6, minmax(0, 1fr));
@@ -5321,9 +5898,22 @@
     .path-stats {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+
+    .closure-progress-row,
+    .closure-queue-list {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
   }
 
   @media (max-width: 640px) {
+    .graph-work-area {
+      order: -1;
+    }
+
+    .map-catalog {
+      order: 2;
+    }
+
     .graph-workbench-grid .graph-tabs {
       grid-template-columns: 1fr;
     }
@@ -5350,6 +5940,167 @@
 
     .recommend-start {
       min-height: 40px;
+    }
+
+    .closure-command-head {
+      align-items: stretch;
+      flex-direction: column;
+
+      button {
+        width: 100%;
+      }
+    }
+
+    .closure-progress-row,
+    .closure-stat-grid,
+    .selected-closure-actions,
+    .closure-queue-list {
+      grid-template-columns: 1fr;
+    }
+
+    .mobile-node-summary,
+    .mobile-path-strip {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      border-bottom: 1px solid #e7edf7;
+      background: #fff;
+    }
+
+    .mobile-node-summary {
+      border-top: 1px solid #e7edf7;
+    }
+
+    .mobile-node-summary__head {
+      display: grid;
+      gap: 5px;
+
+      span {
+        color: #2f68df;
+        font-size: 11px;
+        font-weight: 900;
+      }
+
+      strong {
+        color: #14203a;
+        font-size: 18px;
+        line-height: 1.25;
+      }
+
+      p {
+        display: -webkit-box;
+        margin: 0;
+        overflow: hidden;
+        color: #66758d;
+        font-size: 12px;
+        line-height: 1.55;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+      }
+    }
+
+    .mobile-node-summary__metrics,
+    .mobile-node-summary__actions,
+    .mobile-path-strip__steps {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 7px;
+    }
+
+    .mobile-node-summary__metrics em {
+      min-width: 0;
+      padding: 7px 8px;
+      border-radius: 11px;
+      color: #607089;
+      background: #f5f8fc;
+      font-size: 11px;
+      font-style: normal;
+      font-weight: 900;
+      text-align: center;
+    }
+
+    .mobile-node-summary__actions button,
+    .mobile-path-strip__head button,
+    .mobile-path-strip__steps button {
+      border: 1px solid #dfe8f4;
+      border-radius: 12px;
+      background: #fff;
+      cursor: pointer;
+    }
+
+    .mobile-node-summary__actions button {
+      height: 36px;
+      color: #2f68df;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .mobile-path-strip__head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+
+      span {
+        color: #14203a;
+        font-size: 14px;
+        font-weight: 900;
+      }
+
+      button {
+        height: 34px;
+        padding: 0 12px;
+        color: #fff;
+        background: #178b78;
+        font-size: 12px;
+        font-weight: 900;
+      }
+    }
+
+    .mobile-path-strip__steps button {
+      min-width: 0;
+      display: grid;
+      gap: 3px;
+      padding: 9px;
+      text-align: left;
+
+      &.active {
+        border-color: #bcd2ff;
+        background: #f4f8ff;
+      }
+
+      span,
+      strong,
+      small {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      span {
+        color: #2f68df;
+        font-size: 10px;
+        font-weight: 900;
+      }
+
+      strong {
+        color: #14203a;
+        font-size: 12px;
+      }
+
+      small {
+        color: #718098;
+        font-size: 10px;
+      }
+    }
+
+    .node-canvas-popover {
+      left: 12px !important;
+      right: 12px;
+      top: auto !important;
+      bottom: 12px;
+      transform: none;
     }
 
     .path-inspector-panel {

@@ -992,6 +992,7 @@
   }
 
   const incomingRouteContext = computed(() => ({
+    source: queryText(route.query.source),
     nodeId: queryText(route.query.nodeId),
     nodeLabel: queryText(route.query.nodeLabel),
     mapType: queryText(route.query.mapType),
@@ -1000,7 +1001,7 @@
     resourceChapter: queryText(route.query.resourceChapter),
     resourceType: queryText(route.query.resourceType),
     packageId: queryText(route.query.packageId),
-    upstreamSource: queryText(route.query.upstreamSource) || queryText(route.query.source),
+    upstreamSource: queryText(route.query.upstreamSource),
   }));
 
   function compactQuery(payload: Record<string, string | number | undefined>) {
@@ -1129,6 +1130,7 @@
       resourceTitle: routeContext.resourceTitle,
       resourceChapter: routeContext.resourceChapter,
       resourceType: routeContext.resourceType,
+      source: routeContext.source,
       upstreamSource: routeContext.upstreamSource,
       routeName: String(route.name || ''),
     });
@@ -1209,6 +1211,7 @@
       'knowledge-map': '课程图谱',
       'knowledge-path': '图谱学习路径',
       'course-agent': '课程 Agent',
+      'course-agent-graph': '图谱智能体',
       'course-workspace': '课程资源中心',
       'resource-generation': '资源生成中心',
       'course-agent-package-audit': '智能体核验',
@@ -1431,8 +1434,8 @@
           node_label: incomingRouteContext.value.nodeLabel || undefined,
           map_type: incomingRouteContext.value.mapType || undefined,
           source:
+            incomingRouteContext.value.source ||
             incomingRouteContext.value.upstreamSource ||
-            queryText(route.query.source) ||
             undefined,
           subject: form.subject,
           topic: form.topic || weakPoints.value[0] || '课程重点',
