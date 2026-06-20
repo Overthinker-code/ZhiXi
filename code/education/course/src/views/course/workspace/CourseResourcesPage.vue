@@ -184,6 +184,37 @@
     };
   }
 
+  type RouteQueryPayload = Record<string, string | number | undefined>;
+
+  function compactRouteQuery(payload: RouteQueryPayload) {
+    return Object.fromEntries(
+      Object.entries(payload).filter(([, value]) => value !== undefined && String(value).trim())
+    ) as Record<string, string | number>;
+  }
+
+  function resourceGraphNodeId(item: CourseResourceItem) {
+    const index = resourceIndex(item);
+    return index >= 0 && index < 6 ? `resource-${index}` : undefined;
+  }
+
+  function resourceRouteQuery(item: CourseResourceItem, extra: RouteQueryPayload = {}) {
+    const plan = resourcePlan(item);
+    const graphLabel = item.title.replace(course.value?.shortTitle || '', '') || item.title;
+    const focusTopic = plan.concept?.title || plan.lesson?.title || item.title;
+    return compactRouteQuery({
+      resourceId: item.id,
+      resourceTitle: item.title,
+      resourceChapter: item.chapter,
+      resourceType: item.type,
+      topic: focusTopic,
+      nodeId: resourceGraphNodeId(item),
+      nodeLabel: graphLabel,
+      mapType: 'problem',
+      source: 'resource',
+      ...extra,
+    });
+  }
+
   function buildResourceMarkdown(item: CourseResourceItem) {
     const plan = resourcePlan(item);
     const { concept } = plan;
@@ -240,11 +271,7 @@
       courseWorkspaceLocation(course.value.id, 'agent', {
         task: 'reader',
         prompt: `当前课程是《${course.value.title}》。我想围绕资料《${item.title}》提问，请先告诉我可以从哪些角度阅读这份资料。`,
-        resourceId: item.id,
-        resourceTitle: item.title,
-        resourceChapter: item.chapter,
-        resourceType: item.type,
-        source: 'resource',
+        ...resourceRouteQuery(item),
       })
     );
   }
@@ -284,6 +311,39 @@
   function openKnowledgeMap() {
     if (!course.value) return;
     router.push(courseWorkspaceLocation(course.value.id, 'knowledge'));
+  }
+
+  function locateResourceInGraph(item: CourseResourceItem) {
+    if (!course.value) return;
+    router.push(
+      courseWorkspaceLocation(
+        course.value.id,
+        'knowledge',
+        resourceRouteQuery(item, { source: 'resource' })
+      )
+    );
+  }
+
+  function generateResourceMaterials(item: CourseResourceItem) {
+    if (!course.value) return;
+    if (!hasAiTrialCredit()) return;
+    const plan = resourcePlan(item);
+    const graphNodes = plan.graphNodes.join(' / ');
+    router.push({
+      name: 'StudentCourseResourceGenerator',
+      params: { courseId: course.value.id },
+      query: resourceRouteQuery(item, {
+        subject: course.value.title,
+        topic: plan.concept?.title || item.title,
+        goal: [
+          `围绕资料《${item.title}》生成配套讲义、练习、思维导图、阅读清单和质量核查清单。`,
+          `章节：${item.chapter}。`,
+          graphNodes ? `图谱节点：${graphNodes}。` : '',
+          '生成内容必须能直接服务课前预习、课堂复盘和错因追练。',
+        ].filter(Boolean).join(''),
+        entry: 'resource-card',
+      }),
+    });
   }
 
   function downloadResourceBrief(item: CourseResourceItem) {
@@ -664,8 +724,14 @@
           <button type="button" @click="downloadResourceBrief(item)">
             <icon-download /> 学习包
           </button>
+          <button type="button" @click="locateResourceInGraph(item)">
+            <icon-mind-mapping /> 图谱定位
+          </button>
           <button type="button" @click="askAboutResource(item)">
             <icon-robot /> 围绕资料提问
+          </button>
+          <button type="button" @click="generateResourceMaterials(item)">
+            <icon-bulb /> 生成配套
           </button>
         </div>
       </article>
@@ -1503,6 +1569,8 @@
   }
 
   .resource-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 6px;
     margin-top: 12px;
 
@@ -1512,7 +1580,7 @@
       align-items: center;
       justify-content: center;
       gap: 4px;
-      flex: 1;
+      min-width: 0;
       border: 1px solid #e0e5ee;
       border-radius: 8px;
       color: #687389;
@@ -1521,6 +1589,7 @@
       cursor: pointer;
     }
 
+    button:nth-child(2),
     button:last-child {
       border-color: #dce2ff;
       color: #5367f8;

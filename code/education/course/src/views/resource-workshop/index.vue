@@ -266,7 +266,7 @@
                 <p>{{ packageResult.goal }}</p>
               </div>
               <a-tag color="arcoblue"
-                >{{ packageResult.resources.length }} 类资源</a-tag
+                >{{ packageResources.length }} 类资源</a-tag
               >
             </div>
             <div class="package-actions">
@@ -328,25 +328,25 @@
                 </button>
               </div>
               <div
-                v-if="downloadablePackage.quality_notes?.length || downloadablePackage.agent_trace?.length"
+                v-if="downloadableQualityNotes.length || downloadableAgentTrace.length"
                 class="artifact-audit-panel"
               >
-                <section v-if="downloadablePackage.quality_notes?.length">
+                <section v-if="downloadableQualityNotes.length">
                   <strong>质量审查</strong>
                   <ul>
                     <li
-                      v-for="item in downloadablePackage.quality_notes"
+                      v-for="item in downloadableQualityNotes"
                       :key="item"
                     >
                       {{ item }}
                     </li>
                   </ul>
                 </section>
-                <section v-if="downloadablePackage.agent_trace?.length">
+                <section v-if="downloadableAgentTrace.length">
                   <strong>生成链路</strong>
                   <ol>
                     <li
-                      v-for="item in downloadablePackage.agent_trace"
+                      v-for="item in downloadableAgentTrace"
                       :key="item"
                     >
                       {{ item }}
@@ -356,7 +356,7 @@
               </div>
               <div class="artifact-grid">
                 <article
-                  v-for="artifact in downloadablePackage.artifacts"
+                  v-for="artifact in downloadableArtifacts"
                   :key="artifact.file_name"
                   class="artifact-card"
                 >
@@ -397,7 +397,7 @@
             </div>
             <div class="resource-grid">
               <article
-                v-for="(item, index) in packageResult.resources"
+                v-for="(item, index) in packageResources"
                 :key="item.title"
                 class="resource-card zy-flip-in"
                 :style="{ animationDelay: `${index * 0.08}s` }"
@@ -838,8 +838,13 @@
     ];
   });
 
+  const packageResources = computed(() => {
+    const result = packageResult.value;
+    if (!result || !Array.isArray(result.resources)) return [];
+    return result.resources;
+  });
   const pathNodes = computed(() =>
-    (packageResult.value?.resources || []).map((item: ResourceItem) => ({
+    packageResources.value.map((item: ResourceItem) => ({
       title: resourceTypeLabel(item.type),
       minutes: item.estimated_minutes,
     }))
@@ -869,14 +874,14 @@
   ];
   const packageStats = computed(() => {
     if (!packageResult.value) return [];
-    const totalMinutes = packageResult.value.resources.reduce(
+    const totalMinutes = packageResources.value.reduce(
       (sum, item) => sum + (Number(item.estimated_minutes) || 0),
       0
     );
     return [
       {
         label: '资源数量',
-        value: `${packageResult.value.resources.length} 项`,
+        value: `${packageResources.value.length} 项`,
       },
       { label: '预计学习时长', value: `${totalMinutes} 分钟` },
       {
@@ -887,20 +892,35 @@
   });
   const videoScriptResource = computed(
     () =>
-      packageResult.value?.resources.find(
+      packageResources.value.find(
         (item) => item.type === 'video_script'
       ) || null
   );
+  const downloadableArtifacts = computed(() => {
+    const pkg = downloadablePackage.value;
+    if (!pkg || !Array.isArray(pkg.artifacts)) return [];
+    return pkg.artifacts;
+  });
+  const downloadableQualityNotes = computed(() => {
+    const pkg = downloadablePackage.value;
+    if (!pkg || !Array.isArray(pkg.quality_notes)) return [];
+    return pkg.quality_notes;
+  });
+  const downloadableAgentTrace = computed(() => {
+    const pkg = downloadablePackage.value;
+    if (!pkg || !Array.isArray(pkg.agent_trace)) return [];
+    return pkg.agent_trace;
+  });
   const artifactStats = computed(() => {
     if (!downloadablePackage.value) return [];
-    const totalSize = downloadablePackage.value.artifacts.reduce(
+    const totalSize = downloadableArtifacts.value.reduce(
       (sum, item) => sum + item.file_size,
       0
     );
     return [
       {
         label: '真实文件',
-        value: `${downloadablePackage.value.artifacts.length} 个`,
+        value: `${downloadableArtifacts.value.length} 个`,
       },
       { label: '下载体积', value: formatFileSize(totalSize) },
       {
@@ -912,7 +932,7 @@
   });
   const checklistArtifact = computed(
     () =>
-      downloadablePackage.value?.artifacts.find(
+      downloadableArtifacts.value.find(
         (item) => item.kind === 'quality_checklist'
       ) || null
   );
@@ -965,14 +985,50 @@
     };
     return [...(map[artifact.kind] || []), ...shared];
   }
+
+  function queryText(value: unknown) {
+    if (Array.isArray(value)) return String(value[0] || '').trim();
+    return typeof value === 'string' ? value.trim() : '';
+  }
+
+  const incomingRouteContext = computed(() => ({
+    nodeId: queryText(route.query.nodeId),
+    nodeLabel: queryText(route.query.nodeLabel),
+    mapType: queryText(route.query.mapType),
+    resourceId: queryText(route.query.resourceId),
+    resourceTitle: queryText(route.query.resourceTitle),
+    resourceChapter: queryText(route.query.resourceChapter),
+    resourceType: queryText(route.query.resourceType),
+    packageId: queryText(route.query.packageId),
+    upstreamSource: queryText(route.query.upstreamSource) || queryText(route.query.source),
+  }));
+
+  function compactQuery(payload: Record<string, string | number | undefined>) {
+    return Object.fromEntries(
+      Object.entries(payload).filter(([, value]) => value !== undefined && String(value).trim())
+    ) as Record<string, string | number>;
+  }
+
+  function contextRouteQuery(extra: Record<string, string | number | undefined> = {}) {
+    return compactQuery({
+      ...incomingRouteContext.value,
+      ...extra,
+    });
+  }
+
   const incomingSeedSummary = computed(() => {
-    const topic = String(route.query.topic || '').trim();
-    const goal = String(route.query.goal || '').trim();
-    const source = String(route.query.source || '').trim();
-    if (!topic && !goal && !source) return '';
+    const topic = queryText(route.query.topic);
+    const goal = queryText(route.query.goal);
+    const source = queryText(route.query.source);
+    const { nodeLabel, resourceTitle, resourceChapter } = incomingRouteContext.value;
+    if (!topic && !goal && !source && !nodeLabel && !resourceTitle) return '';
     const segments = [];
     if (source) segments.push(`来自 ${sourceLabel(source)}`);
     if (topic) segments.push(`主题：${topic}`);
+    if (nodeLabel) segments.push(`图谱节点：${nodeLabel}`);
+    if (resourceTitle) {
+      segments.push(`资料：${resourceTitle}${resourceChapter ? `（${resourceChapter}）` : ''}`);
+    }
     if (goal) segments.push(`目标：${goal}`);
     return segments.join(' / ');
   });
@@ -1055,15 +1111,25 @@
   }
 
   function hydrateFormsFromRoute() {
-    const seedMode = String(route.query.mode || '').trim();
-    const seedSubject = String(route.query.subject || '').trim();
-    const seedTopic = String(route.query.topic || '').trim();
-    const seedGoal = String(route.query.goal || '').trim();
+    const routeContext = incomingRouteContext.value;
+    const seedMode = queryText(route.query.mode);
+    const seedSubject = queryText(route.query.subject);
+    const seedTopic =
+      queryText(route.query.topic) || routeContext.nodeLabel || routeContext.resourceTitle;
+    const seedGoal = queryText(route.query.goal);
     const signature = JSON.stringify({
       seedMode,
       seedSubject,
       seedTopic,
       seedGoal,
+      nodeId: routeContext.nodeId,
+      nodeLabel: routeContext.nodeLabel,
+      mapType: routeContext.mapType,
+      resourceId: routeContext.resourceId,
+      resourceTitle: routeContext.resourceTitle,
+      resourceChapter: routeContext.resourceChapter,
+      resourceType: routeContext.resourceType,
+      upstreamSource: routeContext.upstreamSource,
       routeName: String(route.name || ''),
     });
     if (signature === lastSeedSignature.value) return;
@@ -1094,6 +1160,14 @@
     }
     if (seedGoal) {
       form.goal = seedGoal;
+    } else if (routeContext.resourceTitle) {
+      form.goal = [
+        `围绕资料《${routeContext.resourceTitle}》生成讲义、练习、思维导图和质量核查清单。`,
+        routeContext.resourceChapter ? `章节：${routeContext.resourceChapter}。` : '',
+        routeContext.nodeLabel ? `同步校准图谱节点：${routeContext.nodeLabel}。` : '',
+      ].filter(Boolean).join('');
+    } else if (routeContext.nodeLabel) {
+      form.goal = `围绕课程图谱节点“${routeContext.nodeLabel}”生成可复习、可练习、可回图谱核验的学习资料。`;
     } else if (activeCourse.value && !form.goal) {
       form.goal = `结合${activeCourse.value.shortTitle}的课堂笔记、课程图谱和薄弱点生成可执行学习资源。`;
     }
@@ -1133,7 +1207,12 @@
     const map: Record<string, string> = {
       'classroom-notes': '课堂笔记',
       'knowledge-map': '课程图谱',
+      'knowledge-path': '图谱学习路径',
       'course-agent': '课程 Agent',
+      'course-workspace': '课程资源中心',
+      'resource-generation': '资源生成中心',
+      'course-agent-package-audit': '智能体核验',
+      resource: '课程资料',
     };
     return map[source] || source;
   }
@@ -1178,11 +1257,17 @@
       router.push({
         name: 'StudentCourseKnowledge',
         params: { courseId: activeCourse.value.id },
-        query: {
+        query: contextRouteQuery({
           topic: downloadablePackage.value?.topic || form.topic,
           source: 'resource-generation',
-          packageId: downloadablePackage.value?.package_id,
-        },
+          packageId: downloadablePackage.value?.package_id || incomingRouteContext.value.packageId,
+          nodeLabel:
+            incomingRouteContext.value.nodeLabel ||
+            incomingRouteContext.value.resourceTitle ||
+            downloadablePackage.value?.topic ||
+            form.topic,
+          mapType: incomingRouteContext.value.mapType || (incomingRouteContext.value.resourceId ? 'problem' : 'knowledge'),
+        }),
       });
       return;
     }
@@ -1196,7 +1281,7 @@
     const courseId = activeCourse.value?.id || '';
     router.push({
       path: '/tutor',
-      query: {
+      query: contextRouteQuery({
         subject: form.subject,
         topic,
         source: 'resource-generation',
@@ -1211,7 +1296,7 @@
         ]
           .filter(Boolean)
           .join('\n'),
-      },
+      }),
     });
   }
 
@@ -1242,7 +1327,7 @@
       ),
       '',
       '资源清单：',
-      ...packageResult.value.resources.flatMap((item, index) => [
+      ...packageResources.value.flatMap((item, index) => [
         `${index + 1}. ${resourceTypeLabel(item.type)}｜${item.title}`,
         `   用时：${item.estimated_minutes} 分钟`,
         `   描述：${item.description}`,

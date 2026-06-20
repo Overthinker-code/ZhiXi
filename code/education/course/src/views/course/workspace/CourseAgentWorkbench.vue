@@ -295,24 +295,75 @@
   const incomingPackageId = computed(() => routeQueryText(route.query.packageId));
   const incomingUpstreamSource = computed(() => routeQueryText(route.query.upstreamSource));
   const incomingNodeId = computed(() => routeQueryText(route.query.nodeId));
+  const incomingNodeLabel = computed(() => routeQueryText(route.query.nodeLabel) || incomingTopic.value);
+  const incomingMapType = computed(() => routeQueryText(route.query.mapType));
   const incomingAudit = computed(() => routeQueryText(route.query.audit));
   const incomingForceAgent = computed(() => normalizeForceAgent(routeQueryText(route.query.forceAgent)));
   const incomingResourceId = computed(() => routeQueryText(route.query.resourceId));
+  const incomingResourceTitle = computed(() => routeQueryText(route.query.resourceTitle));
+  const incomingResourceChapter = computed(() => routeQueryText(route.query.resourceChapter));
+  const incomingResourceType = computed(() => routeQueryText(route.query.resourceType));
   const incomingResource = computed(() =>
     course.value && incomingResourceId.value
       ? resolveCourseResourceReference(course.value.id, incomingResourceId.value)
       : null
   );
-  const incomingPackageContext = computed(() => {
-    if (!incomingPackageId.value && !incomingTopic.value && !incomingAudit.value) return null;
-    const source = incomingSource.value || 'course-agent';
+  const incomingNodeContext = computed(() => {
+    if (!incomingNodeId.value && !incomingNodeLabel.value && !incomingMapType.value) return null;
     return {
-      topic: incomingTopic.value || incomingResource.value?.title || selectedAgent.value?.title || '课程资源包',
+      nodeId: incomingNodeId.value,
+      nodeLabel: incomingNodeLabel.value || incomingTopic.value || '课程图谱节点',
+      mapType: incomingMapType.value || 'knowledge',
+      source: incomingSource.value || 'knowledge-map',
+    };
+  });
+  const incomingResourceContext = computed(() => {
+    if (incomingResource.value) {
+      return {
+        resourceId: incomingResource.value.resourceId,
+        title: incomingResource.value.title,
+        chapter: incomingResource.value.chapter,
+        type: incomingResource.value.type,
+        fileId: incomingResource.value.file_id,
+        sizeLabel: incomingResource.value.sizeLabel,
+        downloads: incomingResource.value.downloads,
+        evidence: incomingResource.value.evidence,
+        prompts: incomingResource.value.prompts,
+        resolved: true,
+      };
+    }
+    if (!incomingResourceId.value && !incomingResourceTitle.value && !incomingResourceChapter.value) return null;
+    return {
+      resourceId: incomingResourceId.value,
+      title: incomingResourceTitle.value || incomingResourceId.value || '课程资料',
+      chapter: incomingResourceChapter.value || '待匹配章节',
+      type: incomingResourceType.value || '资料',
+      fileId: incomingResourceId.value || 'query-resource',
+      sizeLabel: '待解析',
+      downloads: 0,
+      evidence: [] as string[],
+      prompts: [] as string[],
+      resolved: false,
+    };
+  });
+  const incomingPackageContext = computed(() => {
+    const packageSources = new Set([
+      'resource-generation',
+      'knowledge-map-package-audit',
+      'knowledge-map-audit',
+      'course-agent-package-audit',
+    ]);
+    const source = incomingSource.value || 'course-agent';
+    if (!incomingPackageId.value && !incomingAudit.value && !packageSources.has(source)) return null;
+    return {
+      topic: incomingTopic.value || incomingResourceContext.value?.title || incomingNodeContext.value?.nodeLabel || selectedAgent.value?.title || '课程资源包',
       packageId: incomingPackageId.value || 'local-package',
       source,
       sourceLabel: sourceLabel(source),
       upstreamSource: incomingUpstreamSource.value,
       nodeId: incomingNodeId.value,
+      nodeLabel: incomingNodeLabel.value,
+      mapType: incomingMapType.value,
       audit: incomingAudit.value,
     };
   });
@@ -353,7 +404,7 @@
   const launchLabel = computed(() => {
     if (incomingPackageContext.value && incomingPrompt.value) return '执行图谱核验';
     if (incomingPackageContext.value && selectedAgent.value?.launch === 'chat') return '带核验上下文执行';
-    if (incomingResource.value && selectedAgent.value?.launch === 'chat') return '带着这份资料提问';
+    if (incomingResourceContext.value && selectedAgent.value?.launch === 'chat') return '带着这份资料提问';
     if (selectedAgent.value?.launch === 'resource') return '生成学习资料';
     if (selectedAgent.value?.launch === 'graph') return '进入课程图谱';
     return '开始对话执行';
@@ -385,12 +436,21 @@
         value: concepts,
         detail: `会限制在 ${selectedAgent.value.title} 的能力边界内执行`,
       },
-      ...(incomingResource.value
+      ...(incomingNodeContext.value
+        ? [
+            {
+              label: '图谱节点上下文',
+              value: incomingNodeContext.value.nodeLabel,
+              detail: `${incomingNodeContext.value.mapType} · ${incomingNodeContext.value.nodeId || '按标题定位'}`,
+            },
+          ]
+        : []),
+      ...(incomingResourceContext.value
         ? [
             {
               label: '当前引用资料',
-              value: incomingResource.value.title,
-              detail: `${incomingResource.value.chapter} · ${incomingResource.value.type} · ${incomingResource.value.file_id}`,
+              value: incomingResourceContext.value.title,
+              detail: `${incomingResourceContext.value.chapter} · ${incomingResourceContext.value.type} · ${incomingResourceContext.value.fileId}`,
             },
           ]
         : []),
@@ -414,7 +474,7 @@
         ? [
             {
               label: incomingSource.value === 'resource' ? '资料指令' : '外部任务',
-              value: incomingResource.value?.title || incomingResourceId.value || incomingSource.value || '来自课程入口',
+              value: incomingResourceContext.value?.title || incomingResourceId.value || incomingSource.value || '来自课程入口',
               detail: incomingPrompt.value,
             },
           ]
@@ -454,14 +514,14 @@
     },
     {
       label: '资料引用',
-      detail: incomingResource.value
-        ? `已带入《${incomingResource.value.title}》的章节、类型和知识点线索`
+      detail: incomingResourceContext.value
+        ? `已带入《${incomingResourceContext.value.title}》的章节、类型和知识点线索`
         : '未从资料卡进入，将使用课程整体上下文',
-      ready: Boolean(incomingResource.value || course.value),
+      ready: Boolean(incomingResourceContext.value || course.value),
     },
     {
       label: '依据要求',
-      detail: incomingResource.value
+      detail: incomingResourceContext.value
         ? '回答需说明依据；证据不足时必须明确标注'
         : '回答需限定在当前课程范围内',
       ready: true,
@@ -500,8 +560,50 @@
       packageSource: context.source,
       upstreamSource: context.upstreamSource || context.source,
       nodeId: context.nodeId,
+      nodeLabel: context.nodeLabel,
+      mapType: context.mapType,
       audit: context.audit,
     };
+  }
+
+  function compactQuery(payload: Record<string, string | number | undefined>) {
+    return Object.fromEntries(
+      Object.entries(payload).filter(([, value]) => value !== undefined && String(value).trim())
+    ) as Record<string, string | number>;
+  }
+
+  function nodeQueryPayload() {
+    const context = incomingNodeContext.value;
+    if (!context) return {};
+    return {
+      nodeId: context.nodeId,
+      nodeLabel: context.nodeLabel,
+      mapType: context.mapType,
+      topic: context.nodeLabel,
+      upstreamSource: incomingUpstreamSource.value || context.source,
+    };
+  }
+
+  function resourceQueryPayload() {
+    const context = incomingResourceContext.value;
+    if (!context) return {};
+    return {
+      resourceId: context.resourceId,
+      resourceTitle: context.title,
+      resourceChapter: context.chapter,
+      resourceType: context.type,
+      topic: incomingTopic.value || context.title,
+      upstreamSource: incomingUpstreamSource.value || incomingSource.value || 'resource',
+    };
+  }
+
+  function contextQueryPayload(extra: Record<string, string | number | undefined> = {}) {
+    return compactQuery({
+      ...packageQueryPayload(),
+      ...nodeQueryPayload(),
+      ...resourceQueryPayload(),
+      ...extra,
+    });
   }
 
   function shouldLaunchPackageChat(agent = selectedAgent.value) {
@@ -517,8 +619,21 @@
       `资源包来源：${context.sourceLabel}`,
       context.upstreamSource ? `上游来源：${sourceLabel(context.upstreamSource)}` : '',
       context.nodeId ? `图谱节点ID：${context.nodeId}` : '',
+      context.nodeLabel ? `图谱节点：${context.nodeLabel}` : '',
+      context.mapType ? `图谱类型：${context.mapType}` : '',
       context.audit ? `核验摘要：${context.audit}` : '',
       '执行时必须优先保持资源包、图谱节点、课堂证据和后续产物的一致性；如果证据不足，需要明确指出缺口并给出回炉生成建议。',
+    ].filter(Boolean);
+  }
+
+  function nodePromptLines() {
+    const context = incomingNodeContext.value;
+    if (!context) return [];
+    return [
+      `图谱节点：${context.nodeLabel}`,
+      context.nodeId ? `节点ID：${context.nodeId}` : '',
+      `图谱类型：${context.mapType}`,
+      '回答和产物必须回指这个节点，并说明它与课程章节、资料和练习的关系。',
     ].filter(Boolean);
   }
 
@@ -537,8 +652,9 @@
   function buildTutorPrompt(agent = selectedAgent.value) {
     if (!course.value || !agent) return '';
     const taskPrompt = agent.task?.prompt || agent.desc;
-    const reference = incomingResource.value;
+    const reference = incomingResourceContext.value;
     const packageLines = packagePromptLines();
+    const nodeLines = nodePromptLines();
     return [
       `当前课程：${course.value.title}`,
       `课程简介：${course.value.description}`,
@@ -547,14 +663,15 @@
       `智能体能力：${agent.desc}`,
       incomingPrompt.value ? `入口传入任务：${incomingPrompt.value}` : '',
       ...packageLines,
+      ...nodeLines,
       reference
         ? [
             `当前引用资料：${reference.title}`,
             `资料ID：${reference.resourceId}`,
-            `资料文件标识：${reference.file_id}`,
+            `资料文件标识：${reference.fileId}`,
             `资料章节：${reference.chapter}`,
             `资料类型：${reference.type}`,
-            `可用证据线索：${reference.evidence.join('；')}`,
+            reference.evidence.length ? `可用证据线索：${reference.evidence.join('；')}` : '当前资料仅由入口参数提供，引用证据不足时必须主动说明。',
             '回答开头请确认将围绕这份资料回答；结尾必须列出“依据”和“证据不足之处”。',
           ].join('\n')
         : incomingResourceId.value
@@ -568,46 +685,51 @@
   function openKnowledgeCenter() {
     if (!course.value) return;
     router.push(
-      courseWorkspaceLocation(course.value.id, 'knowledge', {
-        ...(incomingPackageContext.value
-          ? {
-              topic: incomingPackageContext.value.topic,
-              packageId: incomingPackageContext.value.packageId,
-              source: incomingPackageContext.value.upstreamSource || incomingPackageContext.value.source,
-            }
-          : {}),
-      })
+      courseWorkspaceLocation(
+        course.value.id,
+        'knowledge',
+        contextQueryPayload({
+          source:
+            incomingPackageContext.value?.upstreamSource ||
+            incomingNodeContext.value?.source ||
+            incomingSource.value ||
+            'course-agent',
+          topic:
+            incomingPackageContext.value?.topic ||
+            incomingNodeContext.value?.nodeLabel ||
+            incomingResourceContext.value?.title,
+        })
+      )
     );
   }
 
   function openResourceGenerator(agent = selectedAgent.value) {
     if (!course.value || !agent) return;
     const normalizedDesc = agent.desc.replace(/[。.!！?？]+$/u, '');
+    const topic =
+      incomingPackageContext.value?.topic ||
+      incomingNodeContext.value?.nodeLabel ||
+      incomingResourceContext.value?.title ||
+      incomingResourceContext.value?.resourceId ||
+      agent.title;
     router.push({
       name: 'StudentCourseResourceGenerator',
       params: { courseId: course.value.id },
-      query: {
+      query: contextQueryPayload({
         subject: course.value.title,
-        topic: incomingPackageContext.value?.topic || incomingResource.value?.title || incomingResourceId.value || agent.title,
+        topic,
         goal: [
           normalizedDesc,
           incomingPrompt.value || '请结合当前课程章节、课堂笔记、知识图谱和学习进度生成可下载资料。',
+          incomingNodeContext.value ? `图谱节点：${incomingNodeContext.value.nodeLabel}` : '',
+          incomingResourceContext.value ? `引用资料：${incomingResourceContext.value.title}` : '',
           incomingPackageContext.value?.audit
             ? `图谱核验摘要：${incomingPackageContext.value.audit}`
             : '',
         ].filter(Boolean).join('。'),
         source: incomingPackageContext.value ? 'course-agent-package-audit' : 'course-agent',
         task: agent.key,
-        ...packageQueryPayload(),
-        ...(incomingResource.value
-          ? {
-              resourceId: incomingResource.value.resourceId,
-              resourceTitle: incomingResource.value.title,
-              resourceChapter: incomingResource.value.chapter,
-              resourceType: incomingResource.value.type,
-            }
-          : {}),
-      },
+      }),
     });
   }
 
@@ -623,7 +745,7 @@
           courseId: course.value.id,
           source: 'course-agent-package-audit',
           task: agent.key,
-          ...packageQueryPayload(),
+          ...contextQueryPayload(),
         },
       });
       return;
@@ -644,15 +766,7 @@
         courseId: course.value.id,
         source: incomingPackageContext.value ? 'course-agent-package-audit' : 'course-agent',
         task: agent.key,
-        ...packageQueryPayload(),
-        ...(incomingResource.value
-          ? {
-              resourceId: incomingResource.value.resourceId,
-              resourceTitle: incomingResource.value.title,
-              resourceChapter: incomingResource.value.chapter,
-              resourceType: incomingResource.value.type,
-            }
-          : {}),
+        ...contextQueryPayload(),
       },
     });
   }
@@ -667,8 +781,11 @@
       incomingPackageContext.value
         ? `图谱核验包：${incomingPackageContext.value.topic}（${incomingPackageContext.value.packageId} / ${incomingPackageContext.value.sourceLabel}）`
         : '',
-      incomingResource.value
-        ? `引用资料：${incomingResource.value.title}（${incomingResource.value.chapter} / ${incomingResource.value.type}）`
+      incomingNodeContext.value
+        ? `图谱节点：${incomingNodeContext.value.nodeLabel}（${incomingNodeContext.value.mapType} / ${incomingNodeContext.value.nodeId || '按标题定位'}）`
+        : '',
+      incomingResourceContext.value
+        ? `引用资料：${incomingResourceContext.value.title}（${incomingResourceContext.value.chapter} / ${incomingResourceContext.value.type}）`
         : '',
       `预计交付：${agent.outputs.join('、')}`,
     ].filter(Boolean).join('\n');
@@ -902,28 +1019,28 @@
             </div>
           </section>
 
-          <section v-if="incomingResource" class="reference-package">
+          <section v-if="incomingResourceContext" class="reference-package">
             <div class="panel-heading">
               <strong>当前引用资料</strong>
-              <span>课程内置线索</span>
+              <span>{{ incomingResourceContext.resolved ? '课程内置线索' : '入口传入线索' }}</span>
             </div>
             <div class="reference-card">
-              <span class="reference-type">{{ incomingResource.type }}</span>
-              <h3>{{ incomingResource.title }}</h3>
-              <p>{{ incomingResource.chapter }} · {{ incomingResource.sizeLabel }} · {{ incomingResource.downloads }} 次使用</p>
+              <span class="reference-type">{{ incomingResourceContext.type }}</span>
+              <h3>{{ incomingResourceContext.title }}</h3>
+              <p>{{ incomingResourceContext.chapter }} · {{ incomingResourceContext.sizeLabel }} · {{ incomingResourceContext.downloads }} 次使用</p>
               <div class="reference-id">
                 <span>文件标识</span>
-                <strong>{{ incomingResource.file_id }}</strong>
+                <strong>{{ incomingResourceContext.fileId }}</strong>
               </div>
-              <div class="reference-evidence">
-                <span v-for="item in incomingResource.evidence" :key="item">
+              <div v-if="incomingResourceContext.evidence.length" class="reference-evidence">
+                <span v-for="item in incomingResourceContext.evidence" :key="item">
                   {{ item }}
                 </span>
               </div>
             </div>
-            <div class="reference-prompts">
+            <div v-if="incomingResourceContext.prompts.length" class="reference-prompts">
               <button
-                v-for="prompt in incomingResource.prompts"
+                v-for="prompt in incomingResourceContext.prompts"
                 :key="prompt"
                 type="button"
                 @click="router.replace({ query: { ...route.query, prompt } })"
