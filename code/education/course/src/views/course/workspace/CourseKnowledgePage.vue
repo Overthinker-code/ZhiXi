@@ -21,6 +21,12 @@
   } from '@/data/courseWorkspace';
   import { courseWorkspaceLocation } from '@/composables/useCourseRouteContext';
 
+  type PackageMatch = {
+    map: CourseKnowledgeMap;
+    node: CourseKnowledgeNode;
+    score: number;
+  };
+
   const route = useRoute();
   const router = useRouter();
   const keyword = ref('');
@@ -322,9 +328,137 @@
   const actionBadgeCount = computed(() =>
     structureBranches.value.reduce((sum, item) => sum + item.resourceBadges.length, 0)
   );
+  const packageContext = computed(() => {
+    const topic = queryText(route.query.topic);
+    const packageId = queryText(route.query.packageId);
+    const source = queryText(route.query.source);
+    if (!topic && !packageId && source !== 'resource-generation') return null;
+    return {
+      topic: topic || selectedNode.value?.label || activeMap.value?.title || '课程资源包',
+      packageId: packageId || 'local-preview',
+      source,
+      sourceLabel: source === 'resource-generation' ? '资源生成中心' : '课程图谱入口',
+    };
+  });
+  const packageTarget = computed<PackageMatch | null>(() => {
+    const context = packageContext.value;
+    if (!context) return null;
+    const topicKey = normalizeMatchText(context.topic);
+    let best: PackageMatch | null = null;
+    maps.value.forEach((map: CourseKnowledgeMap) => {
+      map.nodes.forEach((node) => {
+        const labelKey = normalizeMatchText(node.label);
+        const nodeText = normalizeMatchText(
+          [
+            node.label,
+            node.detail,
+            node.evidence?.join(' '),
+            node.resources?.join(' '),
+            node.checks?.join(' '),
+            node.activities?.join(' '),
+            node.outcomes?.join(' '),
+            node.misconceptions?.join(' '),
+            node.recommendedAction,
+          ]
+            .filter(Boolean)
+            .join(' ')
+        );
+        let score = 0;
+        if (labelKey && topicKey && labelKey === topicKey) score += 9;
+        if (labelKey && topicKey && (labelKey.includes(topicKey) || topicKey.includes(labelKey))) score += 5;
+        if (nodeText && topicKey && nodeText.includes(topicKey)) score += 3;
+        score += Math.min(node.evidence?.length || 0, 3) * 0.35;
+        score += Math.min(node.resources?.length || 0, 3) * 0.3;
+        if (!best || score > best.score) best = { map, node, score };
+      });
+    });
+    return best;
+  });
+  const packageConfidence = computed(() => {
+    const score = packageTarget.value?.score || 0;
+    if (score >= 8) return '高';
+    if (score >= 4) return '中';
+    return '待确认';
+  });
+  const packageVerificationCards = computed(() => {
+    const targetNode = packageTarget.value?.node || selectedNode.value;
+    const targetMap = packageTarget.value?.map || activeMap.value;
+    if (!packageContext.value || !targetNode || !targetMap) return [];
+    const evidenceCount = targetNode.evidence?.length || 0;
+    const resourceCount = targetNode.resources?.length || 0;
+    const checkCount = targetNode.checks?.length || 0;
+    const neighborCount =
+      targetMap.links.filter(
+        (link: CourseKnowledgeMap['links'][number]) =>
+          link.source === targetNode.id || link.target === targetNode.id
+      ).length || 0;
+    return [
+      {
+        key: 'node',
+        label: '节点定位',
+        value: targetNode.label,
+        desc: `${targetMap.title} · 匹配置信度 ${packageConfidence.value}`,
+        state: packageConfidence.value === '待确认' ? 'warning' : 'ready',
+      },
+      {
+        key: 'evidence',
+        label: '课堂证据',
+        value: `${evidenceCount} 条`,
+        desc: evidenceCount ? targetNode.evidence?.[0] || '已绑定课堂证据' : '需要补充课堂片段或笔记依据',
+        state: evidenceCount >= 2 ? 'ready' : 'warning',
+      },
+      {
+        key: 'resources',
+        label: '资源支撑',
+        value: `${resourceCount} 项`,
+        desc: resourceCount ? targetNode.resources?.[0] || '已连接资料资源' : '建议重新生成讲义、练习和导图',
+        state: resourceCount >= 2 ? 'ready' : 'warning',
+      },
+      {
+        key: 'checks',
+        label: '检查闭环',
+        value: `${checkCount || neighborCount} 个`,
+        desc: checkCount
+          ? targetNode.checks?.[0] || '已配置检查题'
+          : `可沿 ${neighborCount} 条相邻关系生成分层自测`,
+        state: checkCount ? 'ready' : 'warning',
+      },
+    ];
+  });
+  const packageAuditSteps = computed(() => {
+    const targetNode = packageTarget.value?.node || selectedNode.value;
+    if (!packageContext.value || !targetNode) return [];
+    return [
+      {
+        step: '01',
+        title: '锁定知识节点',
+        desc: `资源包主题「${packageContext.value.topic}」已指向「${targetNode.label}」。`,
+        state: packageConfidence.value === '待确认' ? 'warning' : 'ready',
+      },
+      {
+        step: '02',
+        title: '核对课堂依据',
+        desc: selectedNodeEvidence.value[0] || targetNode.detail || '需要回到课堂笔记补齐定义、边界和例题。',
+        state: (targetNode.evidence?.length || 0) >= 2 ? 'ready' : 'warning',
+      },
+      {
+        step: '03',
+        title: '验证资料产物',
+        desc: targetNode.resources?.[0] || '检查生成包是否包含讲义、练习、导图和阅读清单。',
+        state: (targetNode.resources?.length || 0) >= 2 ? 'ready' : 'warning',
+      },
+      {
+        step: '04',
+        title: '生成个性化下一步',
+        desc: targetNode.recommendedAction || '把薄弱点、检查题和相邻路径同步给 AI 伴学。',
+        state: 'ready',
+      },
+    ];
+  });
 
   function nodeClass(node: CourseKnowledgeNode) {
     const selected = selectedNode.value;
+    const packageNode = packageTarget.value?.node;
     const shouldDim = Boolean(
       selected && selected.weight < 4 && node.id !== selected.id && !selectedNeighborIds.value.has(node.id)
     );
@@ -337,6 +471,7 @@
         dimmed: shouldDim,
         weak: (node.mastery ?? course.value?.progress ?? 0) < 60,
         stable: (node.mastery ?? course.value?.progress ?? 0) >= 80,
+        'package-target': packageContext.value && packageNode?.id === node.id,
       },
     ];
   }
@@ -437,6 +572,91 @@
     }
   }
 
+  function queryText(value: unknown) {
+    if (Array.isArray(value)) return String(value[0] || '').trim();
+    return typeof value === 'string' ? value.trim() : '';
+  }
+
+  function normalizeMatchText(value: string) {
+    return value.toLowerCase().replace(/\s+/g, '').replace(/[「」《》、，。；：:：\-_/|()[\]{}]/g, '');
+  }
+
+  function packageAuditContextLines() {
+    const context = packageContext.value;
+    if (!context) return [];
+    const target = packageTarget.value;
+    return [
+      `资源包主题：${context.topic}`,
+      `资源包编号：${context.packageId}`,
+      `资源包来源：${context.sourceLabel}`,
+      target ? `匹配节点：${target.node.label}（${target.map.title}，置信度 ${packageConfidence.value}）` : '',
+      packageVerificationCards.value.length
+        ? `核验项：${packageVerificationCards.value
+            .map((item) => `${item.label}${item.value}，${item.state === 'ready' ? '已具备依据' : '需复核'}`)
+            .join('；')}`
+        : '',
+    ].filter(Boolean);
+  }
+
+  function focusPackageNode() {
+    const target = packageTarget.value;
+    if (!target) {
+      Message.warning('当前资源包还没有匹配到图谱节点，请换关键词或回炉生成时补充主题');
+      return;
+    }
+    activeType.value = target.map.type;
+    activeRelation.value = '全部';
+    keyword.value = '';
+    selectedNodeId.value = target.node.id;
+    Message.success(`已定位到「${target.node.label}」`);
+  }
+
+  function askPackageAudit() {
+    const context = packageContext.value;
+    if (!context) return;
+    askGraphAgent(
+      `核验资源包「${context.topic}」是否覆盖当前节点的定义、边界、关系、练习和资料证据，并列出需要回炉生成的具体项`
+    );
+  }
+
+  function generatePackageChecks() {
+    const context = packageContext.value;
+    if (!context) return;
+    askGraphAgent(
+      `基于资源包「${context.topic}」和当前节点生成 8 道分层核验题，标注每道题对应的证据、关系和常见误区`
+    );
+  }
+
+  function goPackageBackfillGenerator() {
+    if (!course.value) return;
+    const context = packageContext.value;
+    const target = packageTarget.value?.node || selectedNode.value;
+    const auditItems = packageVerificationCards.value.filter((item) => item.state !== 'ready');
+    const auditSummary = (auditItems.length ? auditItems : packageVerificationCards.value)
+      .map((item) => `${item.label}:${item.desc}`)
+      .join('；');
+    router.push({
+      name: 'StudentCourseResourceGenerator',
+      params: { courseId: course.value.id },
+      query: {
+        subject: course.value.title,
+        topic: context?.topic || target?.label || activeMap.value?.title,
+        goal: [
+          `围绕${target?.label || context?.topic || '当前知识点'}重新生成可核验资料包。`,
+          `必须补齐课堂证据、图谱关系、检查题、误区纠正和回炉说明。`,
+          context?.packageId ? `原资源包编号：${context.packageId}` : '',
+        ]
+          .filter(Boolean)
+          .join(''),
+        source: 'knowledge-map-audit',
+        upstreamSource: context?.source,
+        packageId: context?.packageId,
+        nodeId: target?.id,
+        audit: auditSummary || '图谱节点已完成基础匹配，继续复核资料包的证据、关系、练习和误区覆盖。',
+      },
+    });
+  }
+
   function changeZoom(delta: number) {
     canvasZoom.value = Math.min(1.58, Math.max(0.78, Number((canvasZoom.value + delta).toFixed(2))));
   }
@@ -475,16 +695,21 @@
   function askGraphAgent(action: string) {
     if (!course.value || !activeMap.value) return;
     const node = selectedNode.value;
+    const packageLines = packageAuditContextLines();
     router.push(
       courseWorkspaceLocation(course.value.id, 'agent', {
         task: 'graph',
         forceAgent: 'graph_agent',
+        source: packageContext.value ? 'knowledge-map-package-audit' : 'knowledge-map',
+        topic: packageContext.value?.topic || node?.label || activeMap.value.title,
+        packageId: packageContext.value?.packageId,
         prompt: [
           `当前课程：${course.value.title}`,
           `当前图谱：${activeMap.value.title}`,
           node ? `当前节点：${node.label}（${node.type}，掌握度 ${selectedNodeMastery.value}%）` : '',
           node?.detail ? `节点说明：${node.detail}` : '',
           selectedNodeEvidence.value.length ? `证据资料：${selectedNodeEvidence.value.join('；')}` : '',
+          ...packageLines,
           `操作目标：${action}`,
           '请基于当前课程章节、任务、能力目标、资料证据和薄弱点，输出可执行的学习路径，并说明每一步的依据。',
         ].filter(Boolean).join('\n'),
@@ -504,7 +729,10 @@
         goal: node
           ? `围绕${node.label}生成带证据清单、误区纠正、检查题和学习路径的个性化资料。`
           : `围绕${activeMap.value.title}生成课程图谱配套资料。`,
-        source: 'knowledge-map',
+        source: packageContext.value ? 'knowledge-map-package-audit' : 'knowledge-map',
+        upstreamSource: packageContext.value?.source,
+        packageId: packageContext.value?.packageId,
+        nodeId: node?.id,
       },
     });
   }
@@ -545,6 +773,9 @@
       `节点：${pack.nodeLabel}`,
       `类型：${pack.nodeType}`,
       `掌握度：${pack.mastery}%`,
+      packageContext.value
+        ? `资源包：${packageContext.value.topic}（${packageContext.value.packageId} / ${packageContext.value.sourceLabel}）`
+        : '',
       '',
       '## 学习目标',
       `- ${pack.objective}`,
@@ -568,6 +799,16 @@
       '',
       '## AI 追问提示',
       ...pack.prompts.map((item, index) => `${index + 1}. ${item}`),
+      ...(packageContext.value
+        ? [
+            '',
+            '## 资源包核验',
+            ...packageVerificationCards.value.map(
+              (item, index) =>
+                `${index + 1}. ${item.label}：${item.value} - ${item.desc}（${item.state === 'ready' ? '通过' : '需复核'}）`
+            ),
+          ]
+        : []),
       '',
       '## 完成标准',
       '- [ ] 已能复述节点定义、适用条件和边界。',
@@ -598,6 +839,18 @@
       selectedNodeId.value = map.nodes[0]?.id || 'course-root';
     }
   });
+
+  watch(
+    packageTarget,
+    (target) => {
+      if (!packageContext.value || !target) return;
+      if (activeType.value !== target.map.type) {
+        activeType.value = target.map.type;
+      }
+      selectedNodeId.value = target.node.id;
+    },
+    { immediate: true }
+  );
 
   watch([visibleNodes, visibleLinks], ([nodes]) => {
     if (!nodes.length) return;
@@ -631,6 +884,33 @@
           </button>
         </div>
       </header>
+
+      <section v-if="packageContext" class="package-audit-banner">
+        <div class="package-audit-title">
+          <span>RESOURCE PACKAGE AUDIT</span>
+          <strong>{{ packageContext.topic }}</strong>
+          <p>
+            {{ packageContext.sourceLabel }} · {{ packageContext.packageId }} ·
+            {{ packageTarget ? `已匹配 ${packageTarget.node.label}` : '等待人工定位节点' }}
+          </p>
+        </div>
+        <div class="package-audit-cards">
+          <article
+            v-for="item in packageVerificationCards"
+            :key="item.key"
+            :class="`state-${item.state}`"
+          >
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+            <p>{{ item.desc }}</p>
+          </article>
+        </div>
+        <div class="package-audit-actions">
+          <button type="button" @click="focusPackageNode">定位节点</button>
+          <button type="button" @click="askPackageAudit">AI 核验</button>
+          <button type="button" @click="goPackageBackfillGenerator">回炉生成</button>
+        </div>
+      </section>
 
       <div class="graph-workbench-grid">
         <aside class="map-catalog">
@@ -895,6 +1175,14 @@
                         {{ node.mastery ?? course.progress }}%
                       </text>
                     </g>
+                    <g
+                      v-if="packageContext && packageTarget?.node.id === node.id"
+                      class="node-package-badge"
+                      :transform="`translate(${nodeBoxWidth(node) - 25} ${nodeBoxHeight(node) + 6})`"
+                    >
+                      <rect x="-30" y="-11" width="60" height="22" rx="11" />
+                      <text x="0" y="4" text-anchor="middle">资源包</text>
+                    </g>
                     <circle
                       v-if="node.weight < 4"
                       cx="17"
@@ -944,6 +1232,34 @@
             </section>
 
             <aside class="map-insights">
+              <section v-if="packageContext" class="package-insight-panel">
+                <div class="package-insight-head">
+                  <div>
+                    <strong>资源包核验</strong>
+                    <span>{{ packageContext.packageId }}</span>
+                  </div>
+                  <button type="button" @click="askPackageAudit">生成报告</button>
+                </div>
+                <div class="package-audit-timeline">
+                  <article
+                    v-for="item in packageAuditSteps"
+                    :key="item.step"
+                    :class="`state-${item.state}`"
+                  >
+                    <span>{{ item.step }}</span>
+                    <div>
+                      <b>{{ item.title }}</b>
+                      <p>{{ item.desc }}</p>
+                    </div>
+                  </article>
+                </div>
+                <div class="package-insight-actions">
+                  <button type="button" @click="focusPackageNode">查看匹配节点</button>
+                  <button type="button" @click="generatePackageChecks">生成核验题</button>
+                  <button type="button" @click="goPackageBackfillGenerator">带问题回炉</button>
+                </div>
+              </section>
+
               <section class="node-detail-section">
                 <div class="node-detail-head">
                   <div>
@@ -1126,6 +1442,7 @@
   }
 
   .graph-topbar,
+  .package-audit-banner,
   .graph-filter-row,
   .graph-stage,
   .guided-path {
@@ -1240,6 +1557,142 @@
     color: #fff;
     background: #4468f2;
     box-shadow: 0 10px 18px rgba(68, 104, 242, 0.18);
+  }
+
+  .package-audit-banner {
+    display: grid;
+    grid-template-columns: minmax(220px, 0.32fr) minmax(0, 1fr) 104px;
+    gap: 14px;
+    align-items: stretch;
+    margin: -4px 0 16px;
+    padding: 16px;
+    border: 1px solid #dce7ff;
+    border-radius: 22px;
+    background:
+      linear-gradient(135deg, rgba(244, 248, 255, 0.96), rgba(255, 255, 255, 0.98)),
+      radial-gradient(circle at 0 0, rgba(67, 111, 245, 0.14), transparent 34%);
+    box-shadow: 0 16px 36px rgba(45, 73, 160, 0.09);
+  }
+
+  .package-audit-title {
+    min-width: 0;
+    display: grid;
+    align-content: center;
+    gap: 5px;
+
+    span {
+      color: #5878f5;
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: 0.13em;
+    }
+
+    strong {
+      overflow: hidden;
+      color: #16213a;
+      font-size: 20px;
+      line-height: 1.25;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    p {
+      margin: 0;
+      overflow: hidden;
+      color: #6f7d93;
+      font-size: 12px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .package-audit-cards {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 9px;
+  }
+
+  .package-audit-cards article {
+    min-width: 0;
+    padding: 10px 11px;
+    border: 1px solid #e5ecf8;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.86);
+
+    span,
+    strong,
+    p {
+      display: block;
+      min-width: 0;
+    }
+
+    span {
+      color: #8190a7;
+      font-size: 10px;
+      font-weight: 900;
+    }
+
+    strong {
+      margin-top: 4px;
+      overflow: hidden;
+      color: #24304a;
+      font-size: 15px;
+      line-height: 1.2;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    p {
+      display: -webkit-box;
+      margin: 5px 0 0;
+      overflow: hidden;
+      color: #728097;
+      font-size: 10px;
+      line-height: 1.45;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+    }
+
+    &.state-ready {
+      border-color: #ccefd9;
+      background: #f4fff8;
+
+      strong {
+        color: #237c4c;
+      }
+    }
+
+    &.state-warning {
+      border-color: #ffe1b8;
+      background: #fff8ef;
+
+      strong {
+        color: #cf731e;
+      }
+    }
+  }
+
+  .package-audit-actions {
+    display: grid;
+    gap: 8px;
+    align-content: center;
+
+    button {
+      height: 32px;
+      border: 1px solid #d6e2ff;
+      border-radius: 11px;
+      color: #2f68df;
+      background: #fff;
+      font-size: 11px;
+      font-weight: 900;
+      cursor: pointer;
+
+      &:hover {
+        color: #fff;
+        background: #4468f2;
+      }
+    }
   }
 
   .graph-tabs {
@@ -1564,12 +2017,33 @@
       stroke-width: 3;
     }
 
+    &.package-target .node-body {
+      stroke: #7d5cf2;
+      stroke-width: 3.6;
+    }
+
     &.related:not(.selected) {
       opacity: 0.92;
     }
 
     &.dimmed {
       opacity: 0.38;
+    }
+  }
+
+  .node-package-badge {
+    pointer-events: none;
+
+    rect {
+      fill: #f3efff;
+      stroke: #cbbdff;
+      stroke-width: 1.2;
+    }
+
+    text {
+      fill: #6e50d8;
+      font-size: 10px;
+      font-weight: 900;
     }
   }
 
@@ -1862,6 +2336,131 @@
         color: #2f68df;
         background: #f0f5ff;
       }
+    }
+  }
+
+  .package-insight-panel {
+    padding: 12px;
+    border: 1px solid #dce7ff !important;
+    border-radius: 16px;
+    background:
+      linear-gradient(135deg, rgba(241, 246, 255, 0.96), rgba(255, 255, 255, 0.96)),
+      radial-gradient(circle at 100% 0, rgba(118, 96, 216, 0.12), transparent 28%);
+  }
+
+  .package-insight-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+
+    div {
+      min-width: 0;
+    }
+
+    strong {
+      margin: 0 !important;
+      color: #24304a !important;
+    }
+
+    span {
+      display: block;
+      margin-top: 3px;
+      overflow: hidden;
+      color: #7c889b;
+      font-size: 10px;
+      font-weight: 800;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    button {
+      width: auto !important;
+      min-height: 30px !important;
+      margin: 0 !important;
+      padding: 0 10px !important;
+      border-color: #cfe0ff !important;
+      color: #2f68df !important;
+      background: #fff !important;
+      font-size: 10px !important;
+      font-weight: 900;
+    }
+  }
+
+  .package-audit-timeline {
+    position: relative;
+    display: grid;
+    gap: 9px;
+
+    &::before {
+      position: absolute;
+      top: 14px;
+      bottom: 14px;
+      left: 13px;
+      width: 2px;
+      border-radius: 999px;
+      background: #dce6fb;
+      content: '';
+    }
+
+    article {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: 28px minmax(0, 1fr);
+      gap: 9px;
+    }
+
+    span {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border: 1px solid #cfe0ff;
+      border-radius: 50%;
+      color: #2f68df;
+      background: #fff;
+      font-size: 9px;
+      font-weight: 900;
+    }
+
+    b {
+      display: block;
+      color: #26334d;
+      font-size: 12px;
+    }
+
+    p {
+      display: -webkit-box;
+      margin-top: 3px !important;
+      overflow: hidden;
+      color: #738096 !important;
+      font-size: 11px !important;
+      line-height: 1.55 !important;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+    }
+
+    .state-warning span {
+      border-color: #ffd6a1;
+      color: #d46f1d;
+      background: #fff8ef;
+    }
+  }
+
+  .package-insight-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
+    margin-top: 10px;
+
+    button {
+      min-height: 32px !important;
+      margin: 0 !important;
+      padding: 0 7px !important;
+      font-size: 10px !important;
+      font-weight: 900;
     }
   }
 
@@ -3021,6 +3620,14 @@
     .graph-command-deck {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+
+    .package-audit-banner {
+      grid-template-columns: 1fr;
+    }
+
+    .package-audit-actions {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
   }
 
   @media (max-width: 980px) {
@@ -3039,6 +3646,10 @@
     .graph-work-area .graph-canvas-head {
       flex-direction: column;
     }
+
+    .package-audit-cards {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
   }
 
   @media (max-width: 640px) {
@@ -3051,6 +3662,12 @@
     }
 
     .graph-command-deck {
+      grid-template-columns: 1fr;
+    }
+
+    .package-audit-cards,
+    .package-audit-actions,
+    .package-insight-actions {
       grid-template-columns: 1fr;
     }
 
