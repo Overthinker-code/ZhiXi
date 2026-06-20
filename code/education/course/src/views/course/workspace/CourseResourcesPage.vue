@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { computed, ref } from 'vue';
+  import { computed, onMounted, ref } from 'vue';
   import { Message, Modal } from '@arco-design/web-vue';
   import { useRoute, useRouter } from 'vue-router';
   import {
@@ -18,11 +18,19 @@
     type CourseResourceItem,
   } from '@/data/courseWorkspace';
   import { courseWorkspaceLocation } from '@/composables/useCourseRouteContext';
+  import {
+    fetchRecentGeneratedPackages,
+    type RecentGeneratedPackage,
+    type ResourceKind,
+  } from '@/api/resource-generation';
+  import { getToken } from '@/utils/auth';
 
   const route = useRoute();
   const router = useRouter();
   const query = ref('');
   const activeType = ref<'全部' | CourseResourceItem['type']>('全部');
+  const recentPackages = ref<RecentGeneratedPackage[]>([]);
+  const loadingRecentPackages = ref(false);
   const aiTrialLimit = 3;
   const aiTrialStorageKey = 'zhixi-course-resource-ai-trial-v1';
   type AiTrialUsage = Record<string, number>;
@@ -36,15 +44,6 @@
     }
   }
 
-  function writeAiTrialUsage(value: AiTrialUsage) {
-    if (typeof window === 'undefined') return;
-    try {
-      window.localStorage.setItem(aiTrialStorageKey, JSON.stringify(value));
-    } catch {
-      Message.warning('浏览器暂时无法保存本地额度记录');
-    }
-  }
-
   const aiTrialUsage = ref<AiTrialUsage>(readAiTrialUsage());
   const course = computed(() =>
     getClassroomCourse(String(route.params.courseId || ''))
@@ -52,8 +51,27 @@
   const resources = computed(() =>
     course.value ? buildCourseResources(course.value) : []
   );
+  const generatedPackagesForCourse = computed(() => {
+    const activeCourse = course.value;
+    if (!activeCourse) return [] as RecentGeneratedPackage[];
+    return recentPackages.value.filter((pkg) => {
+      if (pkg.course_id) return pkg.course_id === activeCourse.id;
+      return [activeCourse.title, activeCourse.shortTitle].includes(pkg.subject);
+    });
+  });
+  const generatedArtifactCount = computed(() =>
+    generatedPackagesForCourse.value.reduce(
+      (sum, item) => sum + item.artifacts.length,
+      0
+    )
+  );
   const aiTrialUsed = computed(() =>
-    course.value ? aiTrialUsage.value[course.value.id] || 0 : 0
+    course.value
+      ? Math.max(
+          aiTrialUsage.value[course.value.id] || 0,
+          generatedPackagesForCourse.value.length
+        )
+      : 0
   );
   const aiTrialRemaining = computed(() =>
     Math.max(aiTrialLimit - aiTrialUsed.value, 0)
@@ -103,8 +121,8 @@
   const aiGenerationValue = computed(() => [
     {
       label: '生成内容',
-      value: '讲义 + 练习 + 知识卡',
-      desc: '一次生成可覆盖高频课前、课中和课后资料',
+      value: '讲义 + 练习 + 导图',
+      desc: '生成成功后写入课程资料页和图谱核验入口',
     },
     {
       label: '课程绑定',
@@ -240,27 +258,17 @@
     });
   }
 
-  function consumeAiTrialCredit(actionLabel: string) {
-    if (!course.value) return false;
+  function hasAiTrialCredit() {
     if (aiTrialRemaining.value <= 0) {
       showUpgradePrompt();
       return false;
     }
-    const nextUsage = {
-      ...aiTrialUsage.value,
-      [course.value.id]: aiTrialUsed.value + 1,
-    };
-    aiTrialUsage.value = nextUsage;
-    writeAiTrialUsage(nextUsage);
-    Message.success(
-      `${actionLabel}已占用 1 次本地试用额度，剩余 ${aiTrialRemaining.value} 次`
-    );
     return true;
   }
 
   function openGenerator(actionLabel = 'AI 生成课程资源') {
     if (!course.value) return;
-    if (!consumeAiTrialCredit(actionLabel)) return;
+    if (!hasAiTrialCredit()) return;
     router.push({
       name: 'StudentCourseResourceGenerator',
       params: { courseId: course.value.id },
@@ -268,6 +276,7 @@
         subject: course.value.title,
         topic: course.value.chapters[0]?.title || course.value.title,
         source: 'course-workspace',
+        entry: actionLabel,
       },
     });
   }
@@ -290,6 +299,105 @@
     URL.revokeObjectURL(url);
     Message.success('学习资源包已生成');
   }
+
+  function generatedPackageLabel(pkg: RecentGeneratedPackage) {
+    const date = new Date(pkg.generated_at);
+    if (Number.isNaN(date.getTime())) return '刚刚生成';
+    return date.toLocaleString('zh-CN', {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+
+  function formatFileSize(size: number) {
+    if (!Number.isFinite(size) || size <= 0) return '0 KB';
+    if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
+    return `${(size / 1024 / 1024).toFixed(1)} MB`;
+  }
+
+  function artifactKindLabel(kind?: ResourceKind) {
+    const map: Record<ResourceKind, string> = {
+      lecture_markdown: '讲义',
+      lecture_pdf: '讲义 PDF',
+      practice_markdown: '练习',
+      practice_pdf: '练习 PDF',
+      mind_map: '思维导图',
+      reading_list: '阅读清单',
+      case_project: '案例项目',
+      video_script: '数字人脚本',
+      quality_checklist: '审查清单',
+    };
+    return kind ? map[kind] || kind : '资料';
+  }
+
+  function generatedPackageDownloadUrl(
+    pkg: RecentGeneratedPackage,
+    artifact: RecentGeneratedPackage['artifacts'][number]
+  ) {
+    const token = getToken();
+    const url = new URL(
+      artifact.download_url ||
+        `/api/v1/resource-generation/artifacts/${pkg.package_id}/${artifact.file_name}`,
+      window.location.origin
+    );
+    if (token) url.searchParams.set('token', token);
+    return url.toString();
+  }
+
+  function downloadGeneratedArtifact(
+    pkg: RecentGeneratedPackage,
+    artifact = pkg.artifacts[0]
+  ) {
+    if (!artifact) {
+      Message.warning('这个资源包还没有可下载文件');
+      return;
+    }
+    window.open(
+      generatedPackageDownloadUrl(pkg, artifact),
+      '_blank',
+      'noopener,noreferrer'
+    );
+  }
+
+  function askAboutGeneratedPackage(pkg: RecentGeneratedPackage) {
+    if (!course.value) return;
+    router.push(
+      courseWorkspaceLocation(course.value.id, 'agent', {
+        task: 'reader',
+        prompt: `当前课程是《${course.value.title}》。请围绕最近生成的资源包「${pkg.topic}」做资料复核：先列出已生成文件，再指出适合预习、练习、图谱核验和 AI 追问的使用顺序。`,
+        packageId: pkg.package_id,
+        topic: pkg.topic,
+        source: 'resource-generation',
+      })
+    );
+  }
+
+  function auditGeneratedPackageInGraph(pkg: RecentGeneratedPackage) {
+    if (!course.value) return;
+    router.push(
+      courseWorkspaceLocation(course.value.id, 'knowledge', {
+        topic: pkg.topic,
+        packageId: pkg.package_id,
+        source: 'resource-generation',
+      })
+    );
+  }
+
+  async function loadRecentPackages() {
+    if (!course.value) return;
+    loadingRecentPackages.value = true;
+    try {
+      recentPackages.value = await fetchRecentGeneratedPackages(course.value.id);
+    } catch {
+      Message.warning('生成历史暂不可用，已保留课程内置资料');
+    } finally {
+      loadingRecentPackages.value = false;
+    }
+  }
+
+  onMounted(loadRecentPackages);
 </script>
 
 <template>
@@ -327,9 +435,9 @@
           <i :style="{ width: `${aiTrialPercent}%` }" />
         </div>
         <small
-          >本地额度 {{ aiTrialUsed }}/{{
+          >已生成 {{ aiTrialUsed }}/{{
             aiTrialLimit
-          }}，仅在当前浏览器记录。</small
+          }}，生成成功后计入本地历史。</small
         >
       </div>
       <div class="ai-credit-panel__value">
@@ -342,7 +450,7 @@
       <div class="ai-credit-panel__actions">
         <button type="button" @click="openGenerator('课程资源生成')">
           <icon-robot />
-          {{ aiTrialRemaining ? '用 1 次额度生成' : '查看升级提示' }}
+          {{ aiTrialRemaining ? '进入生成工坊' : '查看升级提示' }}
         </button>
         <button type="button" @click="showUpgradePrompt">升级后批量生成</button>
       </div>
@@ -352,7 +460,8 @@
       <article>
         <span class="overview-icon"><icon-storage /></span>
         <div
-          ><small>资料总数</small><strong>{{ resources.length }}</strong></div
+          ><small>资料总数</small
+          ><strong>{{ resources.length + generatedArtifactCount }}</strong></div
         >
       </article>
       <article>
@@ -364,7 +473,10 @@
       </article>
       <article>
         <span class="overview-icon"><icon-download /></span>
-        <div><small>本周新增</small><strong>6</strong></div>
+        <div
+          ><small>AI 生成包</small
+          ><strong>{{ generatedPackagesForCourse.length }}</strong></div
+        >
       </article>
       <article>
         <span class="overview-icon"><icon-check-circle /></span>
@@ -395,7 +507,7 @@
             aiTrialRemaining ? '生成图谱资源' : '升级生成资源'
           }}</strong>
           <small>{{
-            aiTrialRemaining ? '消耗 1 次试用额度' : '额度用完，查看升级提示'
+            aiTrialRemaining ? '生成成功后回流资料页' : '额度用完，查看升级提示'
           }}</small>
         </button>
         <button
@@ -419,6 +531,85 @@
           <small>{{ item.desc }}</small>
         </div>
       </article>
+    </section>
+
+    <section class="generated-package-panel" aria-label="最近生成资源包">
+      <div class="generated-package-head">
+        <div>
+          <span>GENERATED ASSETS</span>
+          <h2>最近生成资源包</h2>
+          <p
+            >真实生成的讲义、练习、导图和审查清单会沉淀到这里，并可回到图谱核验。</p
+          >
+        </div>
+        <button type="button" :disabled="loadingRecentPackages" @click="loadRecentPackages">
+          {{ loadingRecentPackages ? '同步中...' : '刷新生成记录' }}
+        </button>
+      </div>
+
+      <div v-if="generatedPackagesForCourse.length" class="generated-package-grid">
+        <article
+          v-for="pkg in generatedPackagesForCourse.slice(0, 4)"
+          :key="pkg.package_id"
+          class="generated-package-card"
+        >
+          <div class="generated-package-top">
+            <span>AI 生成包</span>
+            <small>{{ generatedPackageLabel(pkg) }}</small>
+          </div>
+          <h3>{{ pkg.topic }}</h3>
+          <p>{{ pkg.subject }} · {{ pkg.package_id }}</p>
+          <div class="generated-package-stats">
+            <article>
+              <strong>{{ pkg.artifacts.length }}</strong>
+              <span>文件</span>
+            </article>
+            <article>
+              <strong>{{
+                formatFileSize(
+                  pkg.artifacts.reduce((sum, artifact) => sum + artifact.file_size, 0)
+                )
+              }}</strong>
+              <span>总大小</span>
+            </article>
+            <article>
+              <strong>闭环</strong>
+              <span>资料 + 图谱</span>
+            </article>
+          </div>
+          <div class="generated-artifact-list">
+            <button
+              v-for="artifact in pkg.artifacts.slice(0, 4)"
+              :key="`${pkg.package_id}-${artifact.file_name}`"
+              type="button"
+              @click="downloadGeneratedArtifact(pkg, artifact)"
+            >
+              <span>{{ artifactKindLabel(artifact.kind) }}</span>
+              <b>{{ artifact.title || artifact.file_name }}</b>
+              <small>{{ formatFileSize(artifact.file_size) }}</small>
+            </button>
+          </div>
+          <div class="generated-package-actions">
+            <button type="button" @click="downloadGeneratedArtifact(pkg)">
+              <icon-download /> 下载首个文件
+            </button>
+            <button type="button" @click="askAboutGeneratedPackage(pkg)">
+              <icon-robot /> 资料复核
+            </button>
+            <button type="button" @click="auditGeneratedPackageInGraph(pkg)">
+              <icon-mind-mapping /> 图谱核验
+            </button>
+          </div>
+        </article>
+      </div>
+      <div v-else class="generated-package-empty">
+        <span><icon-storage /></span>
+        <div>
+          <strong>还没有生成资源包回流</strong>
+          <p>从课程图谱、课堂笔记或本页进入生成工坊，生成成功后会自动出现在这里。</p>
+        </div>
+        <button type="button" @click="openGenerator('课程资料回流生成')">现在生成</button>
+      </div>
     </section>
 
     <div class="resource-toolbar">
@@ -761,6 +952,280 @@
     }
   }
 
+  .generated-package-panel {
+    margin-top: 12px;
+    padding: 16px;
+    border: 1px solid #dde8ef;
+    border-radius: 12px;
+    background:
+      linear-gradient(135deg, rgba(46, 125, 106, 0.08), transparent 36%),
+      linear-gradient(180deg, #fff, #f8fbff);
+    box-shadow: 0 10px 28px rgba(36, 55, 84, 0.05);
+  }
+
+  .generated-package-head {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 12px;
+
+    span {
+      color: #2e7d6a;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+    }
+
+    h2 {
+      margin: 5px 0 4px;
+      color: #25324b;
+      font-size: 18px;
+    }
+
+    p {
+      margin: 0;
+      color: #7f899b;
+      font-size: 11px;
+      line-height: 1.65;
+    }
+
+    > button {
+      height: 32px;
+      padding: 0 11px;
+      border: 1px solid #dbe2f0;
+      border-radius: 9px;
+      color: #60708b;
+      background: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+
+      &:disabled {
+        cursor: wait;
+        opacity: 0.68;
+      }
+    }
+  }
+
+  .generated-package-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .generated-package-card {
+    min-width: 0;
+    padding: 14px;
+    border: 1px solid #e1e8f1;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.92);
+  }
+
+  .generated-package-top,
+  .generated-package-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .generated-package-top {
+    span {
+      padding: 3px 7px;
+      border-radius: 999px;
+      color: #2e7d6a;
+      background: #eaf8f2;
+      font-size: 9px;
+      font-weight: 800;
+    }
+
+    small {
+      color: #98a1b1;
+      font-size: 9px;
+    }
+  }
+
+  .generated-package-card h3 {
+    margin: 11px 0 5px;
+    overflow: hidden;
+    color: #27344c;
+    font-size: 15px;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .generated-package-card > p {
+    margin: 0;
+    overflow: hidden;
+    color: #7f8a9d;
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .generated-package-stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+
+    article {
+      min-width: 0;
+      padding: 9px;
+      border: 1px solid #edf1f6;
+      border-radius: 9px;
+      background: #f8fafc;
+    }
+
+    strong,
+    span {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    strong {
+      color: #25324b;
+      font-size: 13px;
+    }
+
+    span {
+      margin-top: 3px;
+      color: #8a95a8;
+      font-size: 9px;
+    }
+  }
+
+  .generated-artifact-list {
+    display: grid;
+    gap: 7px;
+    margin-top: 12px;
+
+    button {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: 64px minmax(0, 1fr) 48px;
+      gap: 8px;
+      align-items: center;
+      min-height: 34px;
+      padding: 7px 9px;
+      border: 1px solid #edf1f6;
+      border-radius: 9px;
+      color: #61708a;
+      background: #fbfcff;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    span,
+    b,
+    small {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    span {
+      color: #5367f8;
+      font-size: 9px;
+      font-weight: 800;
+    }
+
+    b {
+      color: #334059;
+      font-size: 10px;
+    }
+
+    small {
+      color: #98a1b1;
+      font-size: 9px;
+      text-align: right;
+    }
+  }
+
+  .generated-package-actions {
+    margin-top: 12px;
+
+    button {
+      min-width: 0;
+      height: 30px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      flex: 1;
+      padding: 0 8px;
+      border: 1px solid #e0e5ee;
+      border-radius: 8px;
+      color: #687389;
+      background: #fafbfc;
+      font-size: 9px;
+      cursor: pointer;
+
+      &:last-child {
+        border-color: #dce2ff;
+        color: #5367f8;
+        background: #f5f7ff;
+      }
+    }
+  }
+
+  .generated-package-empty {
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+    padding: 14px;
+    border: 1px dashed #d7e1ef;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.72);
+
+    > span {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      border-radius: 12px;
+      color: #2e7d6a;
+      background: #eaf8f2;
+      place-items: center;
+    }
+
+    strong,
+    p {
+      display: block;
+      min-width: 0;
+    }
+
+    strong {
+      color: #27344c;
+      font-size: 13px;
+    }
+
+    p {
+      margin: 4px 0 0;
+      color: #7f899b;
+      font-size: 11px;
+      line-height: 1.6;
+    }
+
+    button {
+      height: 32px;
+      padding: 0 12px;
+      border: 0;
+      border-radius: 9px;
+      color: #fff;
+      background: #2e7d6a;
+      font-size: 10px;
+      font-weight: 800;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+  }
+
   .resource-flow {
     margin-top: 12px;
     display: grid;
@@ -1064,7 +1529,8 @@
   }
 
   @media (max-width: 1080px) {
-    .resource-grid {
+    .resource-grid,
+    .generated-package-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
@@ -1072,19 +1538,41 @@
   @media (max-width: 720px) {
     .resource-heading,
     .resource-toolbar,
-    .resource-flow {
+    .resource-flow,
+    .generated-package-head {
       align-items: flex-start;
       flex-direction: column;
     }
 
     .resource-overview,
     .resource-grid,
+    .generated-package-grid,
+    .generated-package-empty,
     .resource-flow,
     .ai-credit-panel,
     .ai-credit-panel__value,
     .quality-strip,
     .flow-steps {
       grid-template-columns: 1fr;
+    }
+
+    .generated-package-head > button,
+    .generated-package-empty button {
+      width: 100%;
+    }
+
+    .generated-package-actions {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .generated-artifact-list button {
+      grid-template-columns: 56px minmax(0, 1fr);
+
+      small {
+        grid-column: 2;
+        text-align: left;
+      }
     }
   }
 </style>

@@ -625,6 +625,7 @@
   } from '@/api/resource-workshop';
   import {
     generateResourcePackage as generateDownloadableResourcePackage,
+    rememberGeneratedPackage,
     type GeneratedResourceArtifact,
     type ResourceGenerationResponse,
     type ResourceKind,
@@ -1353,6 +1354,7 @@
       }
       if (artifactResult.status === 'fulfilled') {
         downloadablePackage.value = artifactResult.value;
+        rememberGeneratedPackage(artifactResult.value, activeCourse.value?.id);
       }
       if (previewResult.status === 'rejected' && artifactResult.status === 'rejected') {
         throw previewResult.reason || artifactResult.reason;

@@ -195,7 +195,9 @@ class ResourceGenerationService:
             artifacts=artifacts,
         )
 
-    def list_recent_packages(self, limit: int = 12) -> list[dict[str, object]]:
+    def list_recent_packages(
+        self, limit: int = 12, course_id: str | None = None
+    ) -> list[dict[str, object]]:
         self.output_root.mkdir(parents=True, exist_ok=True)
         packages: list[dict[str, object]] = []
         for folder in sorted(
@@ -213,16 +215,23 @@ class ResourceGenerationService:
                     payload = {}
             if not payload:
                 payload = self._infer_manifest_from_artifacts(folder)
+            package_course_id = str(payload.get("course_id") or "")
+            if course_id and package_course_id and package_course_id != course_id:
+                continue
             packages.append(
                 {
                     "package_id": folder.name,
+                    "course_id": package_course_id,
                     "subject": payload.get("subject") or "",
                     "topic": payload.get("topic") or folder.name,
                     "generated_at": payload.get("generated_at")
                     or datetime.fromtimestamp(folder.stat().st_mtime).isoformat(),
                     "artifacts": [
                         {
+                            "kind": self._artifact_kind_from_name(item.name),
+                            "title": item.stem.replace("-", " ").replace("_", " "),
                             "file_name": item.name,
+                            "download_url": f"/api/v1/resource-generation/artifacts/{folder.name}/{item.name}",
                             "file_size": item.stat().st_size,
                         }
                         for item in artifacts
@@ -231,6 +240,23 @@ class ResourceGenerationService:
                 }
             )
         return packages
+
+    @staticmethod
+    def _artifact_kind_from_name(file_name: str) -> str:
+        name = file_name.lower()
+        if "practice" in name:
+            return "practice_pdf" if name.endswith(".pdf") else "practice_markdown"
+        if "mind" in name:
+            return "mind_map"
+        if "reading" in name:
+            return "reading_list"
+        if "case" in name:
+            return "case_project"
+        if "video" in name or "script" in name:
+            return "video_script"
+        if "quality" in name or "check" in name:
+            return "quality_checklist"
+        return "lecture_pdf" if name.endswith(".pdf") else "lecture_markdown"
 
     @staticmethod
     def _infer_manifest_from_artifacts(folder: Path) -> dict[str, object]:
@@ -360,6 +386,7 @@ class ResourceGenerationService:
     ) -> None:
         manifest = {
             "package_id": package_id,
+            "course_id": str(request.course_id) if request.course_id else "",
             "subject": request.subject,
             "topic": request.topic,
             "generated_at": datetime.utcnow().isoformat(),

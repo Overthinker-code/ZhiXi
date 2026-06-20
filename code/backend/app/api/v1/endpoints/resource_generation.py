@@ -55,9 +55,14 @@ def generate_resource_package(
 def list_recent_generated_packages(
     *,
     current_user: CurrentUser,
+    course_id: str | None = Query(default=None),
 ) -> Any:
     _ = current_user
-    return {"packages": resource_generation_service.list_recent_packages()}
+    return {
+        "packages": resource_generation_service.list_recent_packages(
+            course_id=course_id
+        )
+    }
 
 
 @router.get("/artifacts/{package_id}/{file_name}")
