@@ -1,7 +1,11 @@
 <script setup lang="ts">
   import { computed, ref } from 'vue';
   import { useSettingStore } from '@/store/setting';
-  import { normalizeCitationScope, stripInlineCitationMarkers } from '@/utils/citationDisplay';
+  import {
+    isCitationHintScope,
+    normalizeCitationScope,
+    stripInlineCitationMarkers,
+  } from '@/utils/citationDisplay';
   import { renderMarkdown, stripMarkdownCodeToolbar } from '@/utils/markdown';
 
   type CitationItem = {
@@ -20,6 +24,7 @@
 
   const props = defineProps<{
     citations?: CitationItem[];
+    citationHints?: CitationItem[];
     confidence?: string;
     groundingMode?: string;
     metrics?: Record<string, any>;
@@ -99,7 +104,7 @@
   };
   const normalizedCitations = computed(() => {
     const seen = new Set<string>();
-    return (props.citations || [])
+    return [...(props.citations || []), ...(props.citationHints || [])]
       .map((item, index) => {
         const source = item.file_name || item.source || `来源 ${item.citation_id || index + 1}`;
         const chunk = item.chunk_id ? `片段 ${item.chunk_id}` : '';
@@ -114,9 +119,7 @@
           sourceLabel,
           locator: locator || '',
           scope: scopeLabel(item),
-          isHint: ['resource_hint', 'route_context', 'route_file_hint'].includes(
-            normalizeCitationScope(item.context_scope)
-          ),
+          isHint: isCitationHintScope(item.context_scope),
           snippet,
           reason,
           score: normalizeScore(item),
@@ -134,6 +137,18 @@
       });
   });
   const hasCitations = computed(() => normalizedCitations.value.length > 0);
+  const realCitations = computed(() =>
+    normalizedCitations.value.filter((item) => !item.isHint)
+  );
+  const contextHints = computed(() =>
+    normalizedCitations.value.filter((item) => item.isHint)
+  );
+  const hasOnlyHints = computed(
+    () => contextHints.value.length > 0 && !realCitations.value.length
+  );
+  const hasMixedEvidence = computed(
+    () => contextHints.value.length > 0 && realCitations.value.length > 0
+  );
   const compactSources = computed(() => {
     const grouped = new Map<string, any>();
     normalizedCitations.value.forEach((item) => {
@@ -148,6 +163,7 @@
           displayIds: String(item.citation_id),
           score: item.score,
           fileId: item.file_id,
+          isHint: item.isHint,
           evidenceCount: 1,
           sourceKey: item.file_id || item.sourceLabel,
         });
@@ -156,11 +172,14 @@
       if (!current.ids.includes(item.citation_id)) current.ids.push(item.citation_id);
       if (!current.locator && item.locator) current.locator = item.locator;
       if (!current.fileId && item.file_id) current.fileId = item.file_id;
+      current.isHint = current.isHint && item.isHint;
       current.evidenceCount += 1;
       current.score = Math.max(current.score || 0, item.score || 0);
       current.displayIds = current.ids.join(', ');
     });
     return [...grouped.values()].sort((a, b) => {
+      if (!a.isHint && b.isHint) return -1;
+      if (a.isHint && !b.isHint) return 1;
       if (a.scope === '当前文件' && b.scope !== '当前文件') return -1;
       if (b.scope === '当前文件' && a.scope !== '当前文件') return 1;
       return (b.score || 0) - (a.score || 0);
@@ -171,7 +190,7 @@
     Math.max(0, compactSources.value.length - visibleSourceChips.value.length)
   );
   const currentFileCitationCount = computed(
-    () => normalizedCitations.value.filter((item) => item.scope === '当前文件').length
+    () => realCitations.value.filter((item) => item.scope === '当前文件').length
   );
 
   const confidenceLabel = (value?: string) => {
@@ -191,12 +210,48 @@
 
   const detailSummary = computed(() => {
     if (!normalizedCitations.value.length) return '';
+    if (hasOnlyHints.value) {
+      return `${contextHints.value.length} 条定位线索 / 非原文片段`;
+    }
     const current = currentFileCitationCount.value
       ? `当前文件 ${currentFileCitationCount.value} 条`
       : '';
-    const sourceCount = `${compactSources.value.length} 个来源`;
-    const evidenceCount = `${normalizedCitations.value.length} 条片段`;
-    return [current, sourceCount, evidenceCount].filter(Boolean).join(' / ');
+    const realSourceCount = new Set(
+      realCitations.value.map((item) => `${item.scope || '资料'}-${item.sourceLabel}`)
+    ).size;
+    const sourceCount = `${realSourceCount} 个真实来源`;
+    const evidenceCount = `${realCitations.value.length} 条原文片段`;
+    const hintCount = contextHints.value.length
+      ? `${contextHints.value.length} 条入口线索另列`
+      : '';
+    return [current, sourceCount, evidenceCount, hintCount].filter(Boolean).join(' / ');
+  });
+
+  const stripLabel = computed(() => {
+    if (!normalizedCitations.value.length) return '未检索到可展示来源';
+    if (hasOnlyHints.value) {
+      const hasFileHint = contextHints.value.some(
+        (item) => normalizeCitationScope(item.context_scope) === 'route_file_hint'
+      );
+      return hasFileHint ? '仅文件线索' : '仅入口线索';
+    }
+    if (hasMixedEvidence.value) return `真实引用 ${realCitations.value.length} 条 + 线索`;
+    return `真实引用 ${realCitations.value.length} 条`;
+  });
+
+  const detailTitle = computed(() =>
+    hasOnlyHints.value ? '入口线索' : '引用依据'
+  );
+
+  const detailModeLabel = computed(() => {
+    if (hasOnlyHints.value) return '后端检索 0 条 · 非原文 · 需复核';
+    if (hasMixedEvidence.value) return '真实引用优先';
+    return groundingLabel(props.groundingMode);
+  });
+
+  const toggleLabel = computed(() => {
+    if (expanded.value) return '收起';
+    return hasOnlyHints.value ? '展开线索' : '展开依据';
   });
 
   const renderCitation = (value?: string) =>
@@ -214,7 +269,7 @@
   >
     <div class="citation-strip" aria-label="回答引用来源">
       <span v-if="normalizedCitations.length" class="citation-strip__label">
-        来源
+        {{ stripLabel }}
       </span>
       <span v-else class="citation-strip__label citation-strip__label--empty">
         未检索到可展示来源
@@ -224,15 +279,20 @@
         :key="`${source.scope}-${source.sourceLabel}`"
         type="button"
         class="source-chip"
-        :class="{ 'source-chip--hint': source.scope === '入口线索' || source.scope === '入口上下文' || source.scope === '文件线索' }"
+        :class="{ 'source-chip--hint': source.isHint }"
         :aria-expanded="expanded"
-        :title="`${source.scope || '资料'} · ${source.sourceLabel}${source.locator ? ` · ${source.locator}` : ''}${source.fileId ? ` · file ${source.fileId}` : ''}`"
+        :title="`${source.scope || '资料'} · ${source.sourceLabel}${source.isHint ? ' · 非原文 · 需复核' : ''}${source.locator ? ` · ${source.locator}` : ''}${source.fileId ? ` · file ${source.fileId}` : ''}`"
         @click="expanded = true"
       >
         <span class="source-chip__index">{{ source.displayIds }}</span>
         <strong>{{ source.sourceLabel }}</strong>
         <span class="source-chip__scope">
-          {{ source.scope || '资料' }} · {{ evidenceLabel(source.evidenceCount) }}
+          <template v-if="source.isHint">
+            {{ source.scope || '线索' }} · 非原文 · 需复核
+          </template>
+          <template v-else>
+            {{ source.scope || '资料' }} · {{ evidenceLabel(source.evidenceCount) }}
+          </template>
         </span>
       </button>
       <button
@@ -251,10 +311,16 @@
         :aria-expanded="expanded"
         @click="expanded = !expanded"
       >
-        {{ expanded ? '收起' : '展开依据' }}
+        {{ toggleLabel }}
       </button>
       <span v-if="currentFileCitationCount" class="current-file-pill">
         当前文件 {{ currentFileCitationCount }}
+      </span>
+      <span v-if="hasOnlyHints" class="context-hint-pill">
+        线索非原文
+      </span>
+      <span v-else-if="hasMixedEvidence" class="context-hint-pill context-hint-pill--soft">
+        含入口线索
       </span>
       <span
         v-if="showDiagnostics && metrics?.agent_hops"
@@ -275,8 +341,8 @@
 
     <div v-if="expanded && normalizedCitations.length" class="citation-detail-list">
       <div class="citation-summary">
-        <strong>引用依据</strong>
-        <span>{{ groundingLabel(groundingMode) }}</span>
+        <strong>{{ detailTitle }}</strong>
+        <span>{{ detailModeLabel }}</span>
         <span>{{ confidenceLabel(confidence) }}</span>
         <span>{{ detailSummary }}</span>
       </div>
@@ -294,7 +360,7 @@
             <span v-if="item.scope">{{ item.scope }}</span>
           </div>
           <div v-if="item.isHint" class="citation-warning">
-            此项是定位线索或文件预览，不是后端检索到的完整原文片段。
+            此项是定位线索或文件预览，未作为 RAG 原文检索，不是后端检索到的完整原文片段。
           </div>
           <div class="citation-meta">
             <small v-if="item.locator">{{ item.locator }}</small>
@@ -412,6 +478,7 @@
 
     .source-chip__scope {
       color: #b45309;
+      font-weight: 760;
     }
   }
 
@@ -475,11 +542,31 @@
     box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.18);
   }
 
+  .context-hint-pill {
+    display: inline-flex;
+    align-items: center;
+    height: 1.28rem;
+    padding: 0 0.48rem;
+    border-radius: 999px;
+    background: #fff7ed;
+    color: #9a571d;
+    font-size: 0.66rem;
+    font-weight: 760;
+    box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.24);
+  }
+
+  .context-hint-pill--soft {
+    background: #fffbeb;
+    color: #a16207;
+  }
+
   .citation-detail-list {
     display: flex;
     flex-direction: column;
     gap: 0;
-    max-width: min(720px, 100%);
+    width: min(720px, calc(100vw - 56px));
+    max-width: none;
+    box-sizing: border-box;
     max-height: 22rem;
     margin-top: 0.34rem;
     overflow: auto;
@@ -489,17 +576,27 @@
   }
 
   @media (max-width: 640px) {
+    .citation-area {
+      margin-left: 0;
+    }
+
     .citation-strip {
       align-items: flex-start;
     }
 
     .source-chip {
       max-width: 100%;
+      min-height: 1.6rem;
     }
 
     .citation-detail-list {
-      max-height: min(15rem, 48vh);
+      width: calc(100vw - 48px);
+      max-height: min(18rem, 52vh);
       border-radius: 10px;
+    }
+
+    .citation-meta small {
+      max-width: min(100%, 14rem);
     }
   }
 

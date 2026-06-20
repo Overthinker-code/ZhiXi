@@ -172,6 +172,7 @@ const useChatStore = defineStore(
         grounding_mode: '',
         suggestions: [],
         metrics: {},
+        citation_hints: [],
         ...message,
       });
     };
@@ -212,6 +213,7 @@ const useChatStore = defineStore(
      * @param {Record<string, any>=} metrics
      * @param {Array<any>=} agentPhases
      * @param {Array<any>=} reasoningActions
+     * @param {Array<any>=} citationHints
      */
     const updateLastMessage = (
       content,
@@ -227,7 +229,8 @@ const useChatStore = defineStore(
       groundingMode = '',
       metrics = {},
       agentPhases = [],
-      reasoningActions = undefined
+      reasoningActions = undefined,
+      citationHints = undefined
     ) => {
       const key = activeConvKey();
       const msgs = _messagesMap.value[key];
@@ -246,6 +249,9 @@ const useChatStore = defineStore(
           pending_action_id: pendingActionId,
           suggestions,
           citations,
+          ...(citationHints !== undefined
+            ? { citation_hints: citationHints }
+            : {}),
           confidence,
           grounding_mode: groundingMode,
           metrics,

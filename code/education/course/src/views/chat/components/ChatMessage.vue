@@ -450,6 +450,7 @@
       <CitationArea
         v-if="message.role === 'assistant'"
         :citations="message.citations || []"
+        :citation-hints="message.citation_hints || []"
         :confidence="message.confidence"
         :grounding-mode="message.grounding_mode"
         :metrics="message.metrics || {}"

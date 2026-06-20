@@ -57,5 +57,10 @@ export const normalizeCitationScope = (value: unknown) => {
   return raw;
 };
 
+export const isCitationHintScope = (value: unknown) =>
+  ['resource_hint', 'route_context', 'route_file_hint'].includes(
+    normalizeCitationScope(value)
+  );
+
 export const isRagBindableReference = (file?: Record<string, any> | null) =>
   Boolean(file?.file_id && file?.rag_bindable !== false && !file?.is_virtual);

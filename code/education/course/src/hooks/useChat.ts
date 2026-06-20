@@ -504,10 +504,18 @@ export function useChat() {
     return [];
   });
 
-  function citationsWithRouteFallback(raw: unknown) {
+  function citationPayloadWithRouteFallback(raw: unknown) {
     const normalized = normalizeCitationItems(raw);
-    if (normalized.length) return normalized;
-    return routeContextCitations.value;
+    if (normalized.length) {
+      return {
+        citations: normalized,
+        citationHints: [],
+      };
+    }
+    return {
+      citations: [],
+      citationHints: routeContextCitations.value,
+    };
   }
 
   /**
@@ -538,6 +546,9 @@ export function useChat() {
             ...messageHandler.formatMessage('assistant', content, reasoning),
             timestamp: item.created_at,
             citations: normalizeCitationItems(item.citations),
+            citation_hints: normalizeCitationItems(
+              item.citation_hints || item.citationHints || []
+            ),
             confidence: item.confidence || '',
             grounding_mode: item.grounding_mode || '',
             suggestions: normalizeSuggestionList(item.suggestions || []),
@@ -831,6 +842,7 @@ export function useChat() {
         let requiresConfirmation = false;
         let pendingActionId = '';
         let citations: any[] = [];
+        let citationHints: any[] = [];
         let confidence = '';
         let groundingMode = '';
         let metrics: Record<string, any> = {};
@@ -856,7 +868,8 @@ export function useChat() {
             groundingMode,
             metrics,
             streamFinished ? [...agentPhases] : [],
-            [...reasoningActions]
+            [...reasoningActions],
+            citationHints
           );
         };
 
@@ -928,7 +941,11 @@ export function useChat() {
             } else if (event.type === 'suggestions') {
               suggestions = normalizeSuggestionList(event.data || []);
             } else if (event.type === 'citations') {
-              citations = citationsWithRouteFallback(event.citations || event.data || []);
+              const citationPayload = citationPayloadWithRouteFallback(
+                event.citations || event.data || []
+              );
+              citations = citationPayload.citations;
+              citationHints = citationPayload.citationHints;
               confidence = String(event.confidence || confidence || '');
               groundingMode = String(event.grounding_mode || groundingMode || '');
               if (event.metrics) metrics = event.metrics || metrics;
@@ -938,7 +955,11 @@ export function useChat() {
               answer = event.content || answer;
               requiresConfirmation = Boolean(event.requires_confirmation);
               pendingActionId = event.pending_action_id || '';
-              citations = citationsWithRouteFallback(event.citations || []);
+              const citationPayload = citationPayloadWithRouteFallback(
+                event.citations || []
+              );
+              citations = citationPayload.citations;
+              citationHints = citationPayload.citationHints;
               confidence = String(event.confidence || '');
               groundingMode = String(event.grounding_mode || '');
               metrics = event.metrics || {};
@@ -969,6 +990,9 @@ export function useChat() {
         const { content, reasoning } = parseAssistantResponse(
           response.response || ''
         );
+        const citationPayload = citationPayloadWithRouteFallback(
+          response.citations || []
+        );
         chatStore.updateLastMessage(
           content,
           reasoning,
@@ -978,10 +1002,13 @@ export function useChat() {
           false,
           '',
           normalizeSuggestionList(response.suggestions || []),
-          citationsWithRouteFallback(response.citations || []),
+          citationPayload.citations,
           response.confidence || '',
           response.grounding_mode || '',
-          response.metrics || {}
+          response.metrics || {},
+          [],
+          undefined,
+          citationPayload.citationHints
         );
         roundSucceeded = true;
       }
@@ -1123,6 +1150,9 @@ export function useChat() {
       const { content, reasoning } = parseAssistantResponse(
         response.response || ''
       );
+      const citationPayload = citationPayloadWithRouteFallback(
+        response.citations || []
+      );
       chatStore.updateLastMessage(
         content,
         reasoning,
@@ -1132,10 +1162,13 @@ export function useChat() {
         false,
         '',
         normalizeSuggestionList(response.suggestions || []),
-        citationsWithRouteFallback(response.citations || []),
+        citationPayload.citations,
         response.confidence || '',
         response.grounding_mode || '',
-        response.metrics || {}
+        response.metrics || {},
+        [],
+        undefined,
+        citationPayload.citationHints
       );
     } catch (error) {
       chatStore.updateLastMessage(
