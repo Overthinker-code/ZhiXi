@@ -1,8 +1,10 @@
 <script setup lang="ts">
   import { computed, ref, watch } from 'vue';
+  import { Message } from '@arco-design/web-vue';
   import { useRoute, useRouter } from 'vue-router';
   import {
     IconBulb,
+    IconDownload,
     IconFile,
     IconMindMapping,
     IconRobot,
@@ -189,6 +191,41 @@
         metric: `${selectedLinks.value.length} 条关系`,
       },
     ];
+  });
+  const nodeStudyPack = computed(() => {
+    const node = selectedNode.value;
+    const map = activeMap.value;
+    if (!node || !map || !course.value) return null;
+    const neighbors = selectedNeighbors.value.slice(0, 4).map((item) => ({
+      relation: item.link.relation,
+      label: item.neighbor.label,
+      mastery: item.neighbor.mastery ?? course.value?.progress ?? 0,
+      strength: item.link.strength || 72,
+    }));
+    return {
+      title: `${course.value.shortTitle}-${node.label}节点学习包`,
+      courseTitle: course.value.title,
+      mapTitle: map.title,
+      nodeLabel: node.label,
+      nodeType: nodeTypeLabel(node.type),
+      mastery: selectedNodeMastery.value,
+      objective: node.recommendedAction || '沿图谱完成证据复盘、关系理解和针对性练习。',
+      evidence: selectedNodeEvidence.value.length
+        ? selectedNodeEvidence.value
+        : [node.detail || map.description],
+      resources: selectedNodeResources.value.length
+        ? selectedNodeResources.value
+        : [`${node.label} 课堂讲义`, `${node.label} 自测题`, `${node.label} 复习卡片`],
+      checks: selectedNodeChecks.value.length
+        ? selectedNodeChecks.value
+        : [`能否解释 ${node.label} 的定义、条件和边界？`, `能否把 ${node.label} 应用到新题目？`],
+      neighbors,
+      prompts: [
+        `请解释「${node.label}」与相邻节点的前后置关系，并给出学习顺序。`,
+        `围绕「${node.label}」生成 5 道检查题，标注考查的证据和误区。`,
+        `把「${node.label}」整理成一页课堂笔记，包含定义、边界、例题和错因。`,
+      ],
+    };
   });
   const selectedNodeHealth = computed(() => {
     const mastery = selectedNodeMastery.value;
@@ -491,6 +528,68 @@
       return;
     }
     askGraphAgent('解释当前节点、相邻节点和学习路径，并给出下一步可执行动作');
+  }
+
+  function safeFilename(value: string) {
+    return value.replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, '').slice(0, 80);
+  }
+
+  function nodeStudyPackMarkdown() {
+    const pack = nodeStudyPack.value;
+    if (!pack) return '';
+    return [
+      `# ${pack.title}`,
+      '',
+      `课程：${pack.courseTitle}`,
+      `图谱：${pack.mapTitle}`,
+      `节点：${pack.nodeLabel}`,
+      `类型：${pack.nodeType}`,
+      `掌握度：${pack.mastery}%`,
+      '',
+      '## 学习目标',
+      `- ${pack.objective}`,
+      '',
+      '## 证据矩阵',
+      ...pack.evidence.map((item, index) => `${index + 1}. ${item}`),
+      '',
+      '## 相邻关系',
+      ...(pack.neighbors.length
+        ? pack.neighbors.map(
+            (item, index) =>
+              `${index + 1}. ${item.relation}：${item.label}（掌握度 ${item.mastery}% / 关系强度 ${item.strength}%）`
+          )
+        : ['1. 暂无相邻节点，需要先补充图谱关系。']),
+      '',
+      '## 配套资源',
+      ...pack.resources.map((item) => `- ${item}`),
+      '',
+      '## 检查题',
+      ...pack.checks.map((item, index) => `${index + 1}. ${item}`),
+      '',
+      '## AI 追问提示',
+      ...pack.prompts.map((item, index) => `${index + 1}. ${item}`),
+      '',
+      '## 完成标准',
+      '- [ ] 已能复述节点定义、适用条件和边界。',
+      '- [ ] 已用至少一条课堂证据支撑理解。',
+      '- [ ] 已完成检查题并记录错因。',
+      '- [ ] 已把错因或资料需求同步到 AI 伴学或资源生成中心。',
+    ].join('\n');
+  }
+
+  function downloadNodeStudyPack() {
+    const pack = nodeStudyPack.value;
+    if (!pack) return;
+    const blob = new Blob([`${nodeStudyPackMarkdown()}\n`], {
+      type: 'text/markdown;charset=utf-8',
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${safeFilename(pack.title)}.md`;
+    link.click();
+    URL.revokeObjectURL(url);
+    Message.success('节点学习包已生成');
   }
 
   watch(activeMap, (map) => {
@@ -838,6 +937,7 @@
                 <div class="graph-quick-actions">
                   <button type="button" @click="askGraphAgent('沿当前节点展开前置和后置知识路径')">展开路径</button>
                   <button type="button" @click="askGraphAgent('解释当前节点连接的资料、任务和能力证据')">AI 解读</button>
+                  <button type="button" @click="downloadNodeStudyPack">节点学习包</button>
                   <button type="button" @click="goResourceGenerator">生成资料</button>
                 </div>
               </div>
@@ -892,6 +992,36 @@
                       <b>{{ item.title }}</b>
                       <p>{{ item.desc }}</p>
                     </div>
+                  </article>
+                </div>
+              </section>
+
+              <section v-if="nodeStudyPack" class="study-pack-panel">
+                <div class="study-pack-head">
+                  <div>
+                    <strong>节点学习包</strong>
+                    <span>{{ nodeStudyPack.nodeType }} · {{ nodeStudyPack.mastery }}%</span>
+                  </div>
+                  <button type="button" @click="downloadNodeStudyPack">
+                    <icon-download /> 下载
+                  </button>
+                </div>
+                <p>{{ nodeStudyPack.objective }}</p>
+                <div class="study-pack-grid">
+                  <article>
+                    <span>证据</span>
+                    <b>{{ nodeStudyPack.evidence.length }}</b>
+                    <small>{{ nodeStudyPack.evidence[0] }}</small>
+                  </article>
+                  <article>
+                    <span>资源</span>
+                    <b>{{ nodeStudyPack.resources.length }}</b>
+                    <small>{{ nodeStudyPack.resources[0] }}</small>
+                  </article>
+                  <article>
+                    <span>检查</span>
+                    <b>{{ nodeStudyPack.checks.length }}</b>
+                    <small>{{ nodeStudyPack.checks[0] }}</small>
                   </article>
                 </div>
               </section>
@@ -951,6 +1081,7 @@
                 <strong>AI 动作</strong>
                 <button type="button" @click="askGraphAgent('解释当前节点和先修关系')">解释当前节点</button>
                 <button type="button" @click="askGraphAgent('基于当前节点生成一组自测题')">生成图谱自测</button>
+                <button type="button" @click="downloadNodeStudyPack">下载节点学习包</button>
                 <button type="button" @click="goResourceGenerator">生成配套资料</button>
               </section>
             </aside>
@@ -1926,6 +2057,106 @@
       border-color: #ffd6a1;
       color: #d46f1d;
       background: #fff4e6;
+    }
+  }
+
+  .study-pack-panel {
+    display: grid;
+    gap: 10px;
+    border-color: #d8e5ff !important;
+    background:
+      linear-gradient(135deg, rgba(47, 104, 223, 0.08), rgba(37, 116, 77, 0.05)),
+      #ffffff !important;
+
+    > p {
+      margin: 0;
+      color: #5e6b81;
+      font-size: 11px;
+      line-height: 1.65;
+    }
+  }
+
+  .study-pack-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+
+    > div {
+      min-width: 0;
+      display: grid;
+      gap: 3px;
+    }
+
+    strong,
+    span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    span {
+      color: #6c7890;
+      font-size: 10px;
+      font-weight: 800;
+    }
+
+    button {
+      width: auto !important;
+      height: 30px !important;
+      flex: 0 0 auto;
+      display: inline-flex !important;
+      align-items: center;
+      gap: 5px;
+      padding: 0 10px !important;
+      border-color: #cfe0ff !important;
+      color: #2f68df !important;
+      background: #f4f7ff !important;
+      font-size: 10px !important;
+    }
+  }
+
+  .study-pack-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
+
+    article {
+      min-width: 0;
+      padding: 9px;
+      border: 1px solid rgba(207, 224, 255, 0.86);
+      border-radius: 11px;
+      background: rgba(255, 255, 255, 0.78);
+    }
+
+    span,
+    b,
+    small {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    span {
+      color: #7c879b;
+      font-size: 9px;
+      font-weight: 900;
+    }
+
+    b {
+      margin-top: 3px;
+      color: #24324a;
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    small {
+      margin-top: 5px;
+      color: #6b778e;
+      font-size: 9px;
     }
   }
 
