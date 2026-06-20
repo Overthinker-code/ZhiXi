@@ -18,6 +18,11 @@
       <span class="course-badge">当前课程</span>
       <strong>{{ currentCourse?.title || '课程学习' }}</strong>
       <span class="course-meta">{{ currentLessonLabel }}</span>
+      <div v-if="routeLearningContext" class="task-context-strip">
+        <span>{{ routeLearningContext.sourceLabel }}</span>
+        <b>{{ routeLearningContext.focus }}</b>
+        <small v-if="routeLearningContext.goal">{{ routeLearningContext.goal }}</small>
+      </div>
     </div>
 
     <div ref="messagePanel" class="message-panel" @scroll="handlePanelScroll">
@@ -69,6 +74,17 @@
                   displayAssistantContent(item),
                   Boolean(item.loading)
                 )
+              "
+            />
+            <CitationArea
+              class="quick-citation-area"
+              :citations="item.citations || []"
+              :citation-hints="item.citation_hints || []"
+              :confidence="item.confidence"
+              :grounding-mode="item.grounding_mode"
+              :metrics="item.metrics || {}"
+              :show-empty-state="
+                item.loading === false && Boolean((item.content || '').trim())
               "
             />
           </template>
@@ -195,10 +211,16 @@
 </template>
 
 <script setup lang="ts">
-  import { createAssistantChatStream, uploadThreadFile } from '@/api/rag';
+  import {
+    createAssistantChatStream,
+    normalizeCitationItems,
+    uploadThreadFile,
+    type CitationItem,
+  } from '@/api/rag';
   import { Message } from '@arco-design/web-vue';
   import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
   import { useRoute } from 'vue-router';
+  import CitationArea from '@/views/chat/components/CitationArea.vue';
   import { renderMarkdown, stripMarkdownCodeToolbar } from '@/utils/markdown';
   import humanizeAgentReasoning from '@/utils/humanizeAgentReasoning';
   import { appendThoughtToReasoning } from '@/utils/thoughtToNarrative';
@@ -213,6 +235,11 @@
     reasoning: string;
     loading?: boolean;
     showReasoning?: boolean;
+    citations?: CitationItem[];
+    citation_hints?: CitationItem[];
+    confidence?: string;
+    grounding_mode?: string;
+    metrics?: Record<string, any>;
   }
 
   const route = useRoute();
@@ -239,15 +266,116 @@
   const currentLessonLabel = computed(
     () => currentLesson.value?.label || '课程知识答疑与练习辅导'
   );
+  const queryText = (value: unknown) =>
+    typeof value === 'string' ? value.trim() : '';
+  const sourceLabel = (source: string) => {
+    const map: Record<string, string> = {
+      'knowledge-map': '课程图谱',
+      'knowledge-map-audit': '图谱核验',
+      'knowledge-map-package-audit': '资源包图谱核验',
+      'knowledge-path': '学习路径',
+      'resource-generation': '资源生成中心',
+      'course-agent': 'AI 智能体',
+      'course-agent-graph': '图谱智能体',
+      'course-agent-package-audit': '资源包智能体',
+    };
+    return map[source] || source || '课程入口';
+  };
+  const routeLearningContext = computed(() => {
+    const source = queryText(route.query.source);
+    const topic = queryText(route.query.topic);
+    const nodeLabel = queryText(route.query.nodeLabel);
+    const goal = queryText(route.query.goal);
+    const resourceTitle = queryText(route.query.resourceTitle);
+    const resourceChapter = queryText(route.query.resourceChapter);
+    const packageId = queryText(route.query.packageId);
+    const packageTopic = queryText(route.query.packageTopic);
+    const mapType = queryText(route.query.mapType);
+    const focus =
+      nodeLabel || topic || resourceTitle || packageTopic || packageId || '';
+    if (!source && !focus && !goal && !resourceChapter && !mapType) {
+      return null;
+    }
+    const label = sourceLabel(source);
+    const promptLines = [
+      `当前浮窗来自：${label}`,
+      focus ? `当前任务对象：${focus}` : '',
+      goal ? `当前任务目标：${goal}` : '',
+      resourceChapter ? `资料章节：${resourceChapter}` : '',
+      mapType ? `图谱类型：${mapType}` : '',
+      packageId ? `资源包编号：${packageId}` : '',
+      '这些是页面路由带入的学习任务线索；除非后端返回真实引用片段，否则只能作为定位线索。',
+    ].filter(Boolean);
+    return {
+      source,
+      sourceLabel: label,
+      focus,
+      goal,
+      prompt: promptLines.join('\n'),
+      chip:
+        nodeLabel
+          ? `解释图谱节点：${nodeLabel}`
+          : packageId || packageTopic
+            ? '核验这份资源包'
+            : resourceTitle
+              ? `复核资料：${resourceTitle}`
+              : topic
+                ? `围绕${topic}生成检查题`
+                : '基于当前任务继续',
+    };
+  });
+  const quickCitationHints = computed<CitationItem[]>(() =>
+    normalizeCitationItems([
+      {
+        citation_id: 1,
+        source:
+          routeLearningContext.value?.focus ||
+          currentCourse.value?.title ||
+          '当前课程',
+        file_name:
+          routeLearningContext.value?.focus ||
+          currentCourse.value?.title ||
+          '当前课程',
+        context_scope: 'route_context',
+        locator:
+          routeLearningContext.value?.sourceLabel || currentLessonLabel.value,
+        snippet: [
+          `课程入口：${currentCourse.value?.title || '当前课程'}`,
+          `当前课节：${currentLessonLabel.value}`,
+          routeLearningContext.value?.prompt || '',
+          '这是课堂浮窗带入的课程上下文线索；若没有后端返回原文片段，应作为定位依据而非真实引用。',
+        ].filter(Boolean).join('\n'),
+        reason: '对话入口来自课堂浮窗，用于保持课程与课节指向；该线索不是已检索原文。',
+        relevance_score: 0.62,
+      },
+    ])
+  );
+  const citationPayloadWithQuickFallback = (raw: unknown) => {
+    const citations = normalizeCitationItems(raw);
+    if (citations.length) {
+      return {
+        citations,
+        citationHints: [],
+      };
+    }
+    return {
+      citations: [],
+      citationHints: quickCitationHints.value,
+    };
+  };
   const defaultSystemPrompt = computed(() => {
     const title = currentCourse.value?.title || '当前课程';
     const lesson = currentLesson.value?.label || '当前学习内容';
-    return `你是《${title}》的课堂助教，当前课节为“${lesson}”。请以教师口吻清晰讲解，优先使用本课程知识与资料，不得混入其他课程内容。`;
+    return [
+      `你是《${title}》的课堂助教，当前课节为“${lesson}”。请以教师口吻清晰讲解，优先使用本课程知识与资料，不得混入其他课程内容。`,
+      routeLearningContext.value?.prompt || '',
+    ].filter(Boolean).join('\n');
   });
   const defaultChips = computed(() => {
     const points = currentCourse.value?.concepts.flatMap((item) => item.points) || [];
     return [
-      points[0] ? `解释${points[0]}` : '讲解当前知识点',
+      routeLearningContext.value?.chip ||
+        (points[0] ? `解释${points[0]}` : '讲解当前知识点'),
       '讲解这道题',
       '总结本章要点',
       '复习薄弱知识点',
@@ -499,6 +627,11 @@
       reasoning: '',
       loading: true,
       showReasoning: true,
+      citations: [],
+      citation_hints: [],
+      confidence: '',
+      grounding_mode: '',
+      metrics: {},
     });
   };
 
@@ -651,8 +784,41 @@
             }
           } else if (event.type === 'suggestions') {
             suggestions.value = normalizeSuggestionList(event.data || []);
+          } else if (event.type === 'citations') {
+            const citationPayload = citationPayloadWithQuickFallback(
+              event.citations || event.data || []
+            );
+            msg.citations = citationPayload.citations;
+            msg.citation_hints = citationPayload.citationHints;
+            msg.confidence = String(event.confidence || msg.confidence || '');
+            msg.grounding_mode = String(
+              event.grounding_mode || msg.grounding_mode || ''
+            );
+            if (event.metrics) msg.metrics = event.metrics || msg.metrics || {};
           } else if (event.type === 'final') {
             msg.content = sanitizeStreamingContent(event.content || answer || '');
+            const hasFinalCitations = Object.prototype.hasOwnProperty.call(
+              event,
+              'citations'
+            );
+            const alreadyHasCitationState = Boolean(
+              msg.citations?.length || msg.citation_hints?.length
+            );
+            if (hasFinalCitations || !alreadyHasCitationState) {
+              const citationPayload = citationPayloadWithQuickFallback(
+                hasFinalCitations ? event.citations : []
+              );
+              msg.citations = citationPayload.citations;
+              msg.citation_hints = citationPayload.citationHints;
+            }
+            msg.confidence = String(event.confidence || msg.confidence || '');
+            msg.grounding_mode = String(
+              event.grounding_mode || msg.grounding_mode || ''
+            );
+            msg.metrics = event.metrics || msg.metrics || {};
+            suggestions.value = normalizeSuggestionList(
+              event.suggestions || suggestions.value || []
+            );
           } else if (event.type === 'error') {
             streamError = event.content || '生成失败';
           }
@@ -818,6 +984,45 @@
     color: #64748b;
   }
 
+  .task-context-strip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    margin-top: 9px;
+    padding: 7px 9px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, rgba(238, 242, 255, 0.92), rgba(240, 253, 250, 0.72));
+    border: 1px solid rgba(99, 102, 241, 0.12);
+    color: #334155;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+
+    span {
+      flex: 0 0 auto;
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: #fff;
+      color: #4f46e5;
+      font-weight: 760;
+    }
+
+    b {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-weight: 780;
+    }
+
+    small {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: #64748b;
+    }
+  }
+
   .message-panel {
     flex: 1;
     min-height: 0;
@@ -944,6 +1149,20 @@
     font-size: 13px;
     line-height: 1.4;
   }
+
+  .quick-citation-area {
+    margin-top: 8px;
+    white-space: normal;
+  }
+
+  :deep(.quick-citation-area .citation-strip) {
+    gap: 6px;
+  }
+
+  :deep(.quick-citation-area .citation-detail-list) {
+    width: min(520px, calc(100vw - 56px));
+  }
+
   .suggestions {
     display: flex;
     flex-wrap: wrap;

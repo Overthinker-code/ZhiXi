@@ -70,12 +70,19 @@
 
   const visible = ref(false);
   const quickChatRef = ref<any>(null);
-  const PANEL_MIN_WIDTH = 420;
-  const PANEL_MIN_HEIGHT = 560;
+  const PANEL_MIN_WIDTH = 320;
+  const PANEL_MIN_HEIGHT = 480;
   const PANEL_MAX_WIDTH = 760;
   const PANEL_MAX_HEIGHT = 900;
+  const panelViewportMaxWidth = () =>
+    Math.max(PANEL_MIN_WIDTH, Math.min(PANEL_MAX_WIDTH, window.innerWidth - 20));
+  const panelViewportMaxHeight = () =>
+    Math.max(PANEL_MIN_HEIGHT, Math.min(PANEL_MAX_HEIGHT, window.innerHeight - 76));
   const robotPos = ref({ x: window.innerWidth - 100, y: window.innerHeight - 120 });
-  const panelSize = ref({ width: 520, height: 760 });
+  const panelSize = ref({
+    width: Math.min(520, panelViewportMaxWidth()),
+    height: Math.min(760, panelViewportMaxHeight()),
+  });
   const panelPos = ref({
     x: window.innerWidth - panelSize.value.width - 24,
     y: 110,
@@ -94,12 +101,50 @@
     startHeight: 0,
   });
 
+  const fitFloatingUiToViewport = () => {
+    const maxWidth = panelViewportMaxWidth();
+    const maxHeight = panelViewportMaxHeight();
+    panelSize.value = {
+      width:
+        window.innerWidth < 720
+          ? maxWidth
+          : Math.min(Math.max(panelSize.value.width, PANEL_MIN_WIDTH), maxWidth),
+      height: Math.min(Math.max(panelSize.value.height, PANEL_MIN_HEIGHT), maxHeight),
+    };
+    panelPos.value = {
+      x: Math.max(8, Math.min(window.innerWidth - panelSize.value.width - 8, panelPos.value.x)),
+      y: Math.max(72, Math.min(window.innerHeight - panelSize.value.height - 8, panelPos.value.y)),
+    };
+    robotPos.value = {
+      x: Math.max(8, Math.min(window.innerWidth - 88, robotPos.value.x)),
+      y: Math.max(72, Math.min(window.innerHeight - 88, robotPos.value.y)),
+    };
+  };
+  const preparePanelForOpen = () => {
+    panelSize.value = {
+      width:
+        window.innerWidth >= 720
+          ? Math.min(520, panelViewportMaxWidth())
+          : panelViewportMaxWidth(),
+      height:
+        window.innerHeight >= 760
+          ? Math.min(760, panelViewportMaxHeight())
+          : panelViewportMaxHeight(),
+    };
+    panelPos.value = {
+      x: window.innerWidth >= 720 ? window.innerWidth - panelSize.value.width - 24 : 8,
+      y: window.innerHeight >= 760 ? 110 : 72,
+    };
+    fitFloatingUiToViewport();
+  };
+
   const handleClick = () => {
     const onCourse =
       route.name === 'Monitor' ||
       route.name === 'CourseContent' ||
       route.path.startsWith('/course/');
     if (onCourse) {
+      preparePanelForOpen();
       visible.value = true;
       return;
     }
@@ -148,13 +193,13 @@
       if (resizeState.value.mode === 'right' || resizeState.value.mode === 'bottom-right') {
         width = Math.min(
           Math.max(PANEL_MIN_WIDTH, resizeState.value.startWidth + deltaX),
-          Math.min(PANEL_MAX_WIDTH, window.innerWidth - panelPos.value.x - 8)
+          Math.min(panelViewportMaxWidth(), window.innerWidth - panelPos.value.x - 8)
         );
       }
       if (resizeState.value.mode === 'bottom' || resizeState.value.mode === 'bottom-right') {
         height = Math.min(
           Math.max(PANEL_MIN_HEIGHT, resizeState.value.startHeight + deltaY),
-          Math.min(PANEL_MAX_HEIGHT, window.innerHeight - panelPos.value.y - 8)
+          Math.min(panelViewportMaxHeight(), window.innerHeight - panelPos.value.y - 8)
         );
       }
       panelSize.value = { width, height };
@@ -190,12 +235,15 @@
     resizeState.value.mode = null;
   };
   onMounted(() => {
+    fitFloatingUiToViewport();
     window.addEventListener('mousemove', onDragMove);
     window.addEventListener('mouseup', onDragEnd);
+    window.addEventListener('resize', fitFloatingUiToViewport);
   });
   onUnmounted(() => {
     window.removeEventListener('mousemove', onDragMove);
     window.removeEventListener('mouseup', onDragEnd);
+    window.removeEventListener('resize', fitFloatingUiToViewport);
   });
 </script>
 
@@ -252,6 +300,19 @@
     box-shadow: 0 20px 40px rgba(15, 23, 42, 0.25);
     border: 1px solid rgba(99, 102, 241, 0.18);
     background: linear-gradient(180deg, #eef2ff 0%, #e0e7ff 55%, #f8fafc 100%);
+  }
+
+  @media (min-width: 720px) {
+    .float-ai-panel {
+      min-width: 500px;
+    }
+  }
+
+  @media (max-width: 719px) {
+    .float-ai-panel {
+      max-width: calc(100vw - 20px);
+      min-width: min(320px, calc(100vw - 20px));
+    }
   }
 
   .panel-header {
