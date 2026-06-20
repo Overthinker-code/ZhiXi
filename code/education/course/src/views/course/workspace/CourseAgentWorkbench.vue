@@ -1139,6 +1139,24 @@
           </section>
         </aside>
       </div>
+
+      <teleport to="body">
+        <section class="mobile-agent-dock" aria-label="当前智能体快捷启动">
+          <span class="agent-icon">
+            <component :is="selectedAgent?.icon" />
+          </span>
+          <div class="mobile-agent-dock__copy">
+            <strong>{{ selectedAgent?.title }}</strong>
+            <small>{{ launchTarget }} · {{ selectedAgent?.estimate }}</small>
+          </div>
+          <button type="button" class="primary" @click="launchAgent()">
+            <icon-play-arrow-fill /> 启动
+          </button>
+          <button type="button" @click="openResourceGenerator()">
+            <icon-storage /> 资料
+          </button>
+        </section>
+      </teleport>
     </div>
   </section>
 </template>
@@ -2222,6 +2240,10 @@
     }
   }
 
+  .mobile-agent-dock {
+    display: none;
+  }
+
   @media (max-width: 1180px) {
     .hub-overview {
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2238,7 +2260,7 @@
 
   @media (max-width: 760px) {
     .hub-shell {
-      padding: 14px;
+      padding: 14px 14px 96px;
       border-radius: 22px;
     }
 
@@ -2270,7 +2292,89 @@
     }
 
     .hub-layout {
+      display: flex;
+      flex-direction: column;
       padding: 12px;
+    }
+
+    .agent-panel {
+      display: flex;
+      flex-direction: column;
+      order: -1;
+    }
+
+    .reference-package {
+      order: -3;
+    }
+
+    .selected-agent {
+      order: -2;
+    }
+
+    .context-package {
+      order: -1;
+    }
+
+    .mobile-agent-dock {
+      position: fixed;
+      z-index: 30;
+      right: 12px;
+      bottom: 12px;
+      left: 12px;
+      display: grid;
+      grid-template-columns: 38px minmax(0, 1fr) auto auto;
+      gap: 8px;
+      align-items: center;
+      padding: 10px;
+      border: 1px solid rgba(210, 219, 242, 0.94);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.96);
+      box-shadow: 0 18px 48px rgba(35, 48, 95, 0.18);
+      backdrop-filter: blur(16px);
+    }
+
+    .mobile-agent-dock__copy {
+      min-width: 0;
+
+      strong,
+      small {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      strong {
+        color: #1f2a44;
+        font-size: 13px;
+      }
+
+      small {
+        margin-top: 2px;
+        color: #7d879a;
+        font-size: 11px;
+      }
+    }
+
+    .mobile-agent-dock button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      min-width: 54px;
+      height: 40px;
+      border: 1px solid #dfe6f5;
+      border-radius: 12px;
+      color: #334155;
+      background: #fff;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .mobile-agent-dock button.primary {
+      border-color: transparent;
+      color: #fff;
+      background: #5367f8;
     }
   }
 </style>

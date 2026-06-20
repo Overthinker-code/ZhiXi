@@ -316,7 +316,7 @@
                 <button type="button" @click="openKnowledgeGraph">
                   进入课程图谱核验
                 </button>
-                <button type="button" @click="openAiReview">
+                <button type="button" @click="() => openAiReview()">
                   进入 AI 批改追练
                 </button>
                 <button
@@ -374,9 +374,17 @@
                       {{ badge }}
                     </i>
                   </div>
-                  <button type="button" @click="downloadArtifact(artifact)">
-                    下载文件
-                  </button>
+                  <div class="artifact-card__actions">
+                    <button type="button" @click="openArtifactPreview(artifact)">
+                      预览摘要
+                    </button>
+                    <button type="button" class="primary" @click="openAiReview(artifact)">
+                      AI 复核
+                    </button>
+                    <button type="button" @click="downloadArtifact(artifact)">
+                      下载文件
+                    </button>
+                  </div>
                 </article>
               </div>
             </div>
@@ -604,6 +612,35 @@
       </aside>
     </section>
 
+    <teleport to="body">
+      <section
+        v-if="previewedArtifact"
+        class="artifact-preview-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="生成文件预览"
+      >
+        <button class="artifact-preview-modal__backdrop" type="button" @click="closeArtifactPreview" />
+        <article class="artifact-preview-modal__panel">
+          <header>
+            <span>{{ artifactKindLabel(previewedArtifact.kind) }}</span>
+            <strong>{{ previewedArtifact.title }}</strong>
+            <small>{{ previewedArtifact.file_name }} · {{ formatFileSize(previewedArtifact.file_size) }}</small>
+          </header>
+          <div
+            class="artifact-preview-modal__body"
+            v-html="renderMarkdown(previewedArtifact.preview || '暂无可用预览。')"
+          />
+          <footer>
+            <button type="button" @click="closeArtifactPreview">关闭</button>
+            <button type="button" @click="downloadArtifact(previewedArtifact)">下载文件</button>
+            <button type="button" class="primary" @click="openAiReview(previewedArtifact)">
+              让 AI 复核这个文件
+            </button>
+          </footer>
+        </article>
+      </section>
+    </teleport>
   </div>
 </template>
 
@@ -652,6 +689,7 @@
   const report = ref<LearningReport | null>(null);
   const packageResult = ref<ResourcePackageResponse | null>(null);
   const downloadablePackage = ref<ResourceGenerationResponse | null>(null);
+  const previewedArtifact = ref<GeneratedResourceArtifact | null>(null);
   const gradeResult = ref<Awaited<
     ReturnType<typeof gradeResourceExercise>
   > | null>(null);
@@ -1280,6 +1318,14 @@
     }
   }
 
+  function openArtifactPreview(artifact: GeneratedResourceArtifact) {
+    previewedArtifact.value = artifact;
+  }
+
+  function closeArtifactPreview() {
+    previewedArtifact.value = null;
+  }
+
   function openKnowledgeGraph() {
     if (activeCourse.value) {
       router.push({
@@ -1302,13 +1348,14 @@
     Message.info('请先从具体课程进入资源生成，再回到课程图谱核验');
   }
 
-  function openAiReview() {
+  function openAiReview(targetArtifact?: GeneratedResourceArtifact) {
     const topic =
       downloadablePackage.value?.topic || packageResult.value?.topic || form.topic;
     const packageId = downloadablePackage.value?.package_id;
     const courseId = activeCourse.value?.id || '';
-    const artifact = primaryReviewArtifact.value;
+    const artifact = targetArtifact || primaryReviewArtifact.value;
     const artifactFileId = artifact && packageId ? `${packageId}/${artifact.file_name}` : '';
+    closeArtifactPreview();
     router.push({
       path: '/tutor',
       query: contextRouteQuery({
@@ -1331,6 +1378,7 @@
         prompt: [
           `请对「${topic || form.subject || '当前课程'}」学习资源包做 AI 复核。`,
           packageId ? `资源包编号：${packageId}` : '',
+          artifact ? `当前优先复核文件：${artifact.title}（${artifact.file_name}，${artifactKindLabel(artifact.kind)}）` : '',
           artifactReviewList.value ? `生成文件清单：\n${artifactReviewList.value}` : '',
           artifactPreviewSummary.value ? `文件预览摘要：\n${artifactPreviewSummary.value}` : '',
           form.subject ? `课程/学科：${form.subject}` : '',
@@ -2002,9 +2050,9 @@
 
   .workbench-grid {
     display: grid;
-    grid-template-columns: minmax(260px, 0.78fr) minmax(520px, 1.75fr) minmax(
-        280px,
-        0.92fr
+    grid-template-columns: minmax(230px, 0.72fr) minmax(420px, 1.6fr) minmax(
+        230px,
+        0.78fr
       );
     gap: 14px;
     align-items: start;
@@ -2568,16 +2616,110 @@
     border-radius: 999px;
   }
 
-  .artifact-card button {
+  .artifact-card__actions {
+    display: flex;
+    grid-column: 1 / -1;
+    gap: 7px;
+    flex-wrap: wrap;
+  }
+
+  .artifact-card__actions button,
+  .artifact-preview-modal__panel footer button {
     height: 30px;
     padding: 0 10px;
-    border: 0;
+    border: 1px solid #dfe6f5;
     border-radius: 7px;
-    color: #fff;
-    background: #5367f8;
+    color: #334155;
+    background: #fff;
     font-size: 11px;
+    font-weight: 700;
     cursor: pointer;
     white-space: nowrap;
+  }
+
+  .artifact-card__actions button.primary,
+  .artifact-preview-modal__panel footer button.primary {
+    border-color: transparent;
+    color: #fff;
+    background: #5367f8;
+  }
+
+  .artifact-preview-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1200;
+    display: grid;
+    padding: 24px;
+    place-items: center;
+  }
+
+  .artifact-preview-modal__backdrop {
+    position: absolute;
+    inset: 0;
+    border: 0;
+    background: rgba(15, 23, 42, 0.42);
+  }
+
+  .artifact-preview-modal__panel {
+    position: relative;
+    z-index: 1;
+    width: min(720px, 100%);
+    max-height: min(76vh, 720px);
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    overflow: hidden;
+    border: 1px solid #dfe6f5;
+    border-radius: 18px;
+    background: #fff;
+    box-shadow: 0 30px 90px rgba(15, 23, 42, 0.28);
+  }
+
+  .artifact-preview-modal__panel header {
+    padding: 18px 20px 14px;
+    border-bottom: 1px solid #edf1f8;
+    background: linear-gradient(180deg, #f8fbff 0%, #fff 100%);
+  }
+
+  .artifact-preview-modal__panel header span,
+  .artifact-preview-modal__panel header strong,
+  .artifact-preview-modal__panel header small {
+    display: block;
+  }
+
+  .artifact-preview-modal__panel header span {
+    color: #5368e9;
+    font-size: 11px;
+    font-weight: 800;
+  }
+
+  .artifact-preview-modal__panel header strong {
+    margin-top: 5px;
+    color: #1f2a44;
+    font-size: 18px;
+  }
+
+  .artifact-preview-modal__panel header small {
+    margin-top: 5px;
+    color: #7b879a;
+    font-size: 12px;
+    word-break: break-all;
+  }
+
+  .artifact-preview-modal__panel footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 16px;
+    border-top: 1px solid #edf1f8;
+    background: #fbfcff;
+  }
+
+  .artifact-preview-modal__body {
+    overflow: auto;
+    padding: 18px 20px;
+    color: #334155;
+    font-size: 13px;
+    line-height: 1.75;
   }
 
   .result-stats {
@@ -3061,5 +3203,23 @@
       grid-column: 1 / -1;
     }
 
-}
+    .artifact-preview-modal {
+      padding: 12px;
+    }
+
+    .artifact-preview-modal__panel {
+      max-height: 84vh;
+      border-radius: 14px;
+    }
+
+    .artifact-preview-modal__panel footer {
+      display: grid;
+      grid-template-columns: 1fr;
+    }
+
+    .artifact-preview-modal__panel footer button {
+      width: 100%;
+      height: 38px;
+    }
+  }
 </style>

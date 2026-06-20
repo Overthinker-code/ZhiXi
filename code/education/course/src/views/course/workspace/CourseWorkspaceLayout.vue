@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+  import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
   import { useRoute, useRouter } from 'vue-router';
   import {
     IconArrowLeft,
@@ -26,6 +26,7 @@
   const course = computed(() => getClassroomCourse(courseId.value));
   const workspaceData = ref<CourseWorkspaceData | null>(null);
   const localCompletedLessonIds = ref<string[]>([]);
+  const navRef = ref<HTMLElement | null>(null);
 
   const navItems = [
     { key: 'home', label: '课程首页', desc: '概览与动态', icon: IconHome },
@@ -108,6 +109,16 @@
     router.push(courseWorkspaceLocation(courseId.value, section));
   }
 
+  async function scrollActiveNavIntoView() {
+    await nextTick();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const nav = navRef.value;
+    const active = navRef.value?.querySelector<HTMLButtonElement>('button.active');
+    if (!nav || !active) return;
+    const targetLeft = active.offsetLeft - (nav.clientWidth - active.offsetWidth) / 2;
+    nav.scrollTo({ left: Math.max(0, targetLeft), behavior: 'auto' });
+  }
+
   watch(
     courseId,
     async (id) => {
@@ -123,9 +134,14 @@
     { immediate: true }
   );
 
+  watch(activeSection, () => {
+    scrollActiveNavIntoView();
+  });
+
   onMounted(() => {
     window.addEventListener('storage', handleStorageUpdated);
     window.addEventListener('zhixi-classroom-learning-updated', handleLearningStateUpdated);
+    scrollActiveNavIntoView();
   });
 
   onUnmounted(() => {
@@ -156,7 +172,7 @@
         </div>
       </section>
 
-      <nav class="workspace-nav" aria-label="课程导航">
+      <nav ref="navRef" class="workspace-nav" aria-label="课程导航">
         <button
           v-for="item in navItems"
           :key="item.key"
