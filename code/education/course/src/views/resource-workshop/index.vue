@@ -1236,20 +1236,22 @@
     return `${(size / 1024 / 1024).toFixed(1)} MB`;
   }
 
-  function artifactDownloadUrl(artifact: GeneratedResourceArtifact) {
+  async function downloadArtifact(artifact: GeneratedResourceArtifact) {
     const token = getToken();
-    const baseURL =
-      axios.defaults.baseURL || import.meta.env.VITE_API_BASE_URL || window.location.origin;
-    const baseOrigin = /^https?:\/\//.test(baseURL)
-      ? new URL(baseURL).origin
-      : window.location.origin;
-    const url = new URL(artifact.download_url, baseOrigin);
-    if (token) url.searchParams.set('token', token);
-    return url.toString();
-  }
-
-  function downloadArtifact(artifact: GeneratedResourceArtifact) {
-    window.open(artifactDownloadUrl(artifact), '_blank', 'noopener,noreferrer');
+    try {
+      const response = await axios.get(artifact.download_url, {
+        responseType: 'blob',
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      const blobUrl = URL.createObjectURL(response.data);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = artifact.file_name;
+      link.click();
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      Message.warning('资源文件暂时无法下载，请稍后重试。');
+    }
   }
 
   function openKnowledgeGraph() {
@@ -1424,6 +1426,14 @@
         }),
         generateDownloadableResourcePackage({
           course_id: activeCourse.value?.id,
+          resource_id: incomingRouteContext.value.resourceId || undefined,
+          node_id: incomingRouteContext.value.nodeId || undefined,
+          node_label: incomingRouteContext.value.nodeLabel || undefined,
+          map_type: incomingRouteContext.value.mapType || undefined,
+          source:
+            incomingRouteContext.value.upstreamSource ||
+            queryText(route.query.source) ||
+            undefined,
           subject: form.subject,
           topic: form.topic || weakPoints.value[0] || '课程重点',
           learning_goal: form.goal || '生成可下载的个性化课程资源包',

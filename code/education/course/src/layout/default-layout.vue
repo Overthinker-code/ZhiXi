@@ -121,6 +121,7 @@
     () =>
       route.path.startsWith('/assistant') ||
       route.path.startsWith('/tutor') ||
+      route.name === 'StudentCourseResources' ||
       route.name === 'StudentCourseAgent'
   );
 

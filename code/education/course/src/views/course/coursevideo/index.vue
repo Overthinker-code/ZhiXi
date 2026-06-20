@@ -1238,15 +1238,18 @@ function exportNotesDoc() {
   Message.success('Word 版课堂笔记已下载');
 }
 
-function artifactUrl(artifact: GeneratedResourceArtifact) {
+async function downloadGeneratedArtifact(artifact: GeneratedResourceArtifact) {
   const token = getToken();
-  const baseURL = axios.defaults.baseURL || import.meta.env.VITE_API_BASE_URL || window.location.origin;
-  const baseOrigin = /^https?:\/\//.test(baseURL)
-    ? new URL(baseURL).origin
-    : window.location.origin;
-  const url = new URL(artifact.download_url, baseOrigin);
-  if (token) url.searchParams.set('token', token);
-  return url.toString();
+  const response = await axios.get(artifact.download_url, {
+    responseType: 'blob',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
+  const blobUrl = URL.createObjectURL(response.data);
+  const link = document.createElement('a');
+  link.href = blobUrl;
+  link.download = artifact.file_name;
+  link.click();
+  URL.revokeObjectURL(blobUrl);
 }
 
 async function generateNotesPdfArtifact() {
@@ -1269,9 +1272,9 @@ async function generateNotesPdfArtifact() {
       Message.warning('资源已生成，但未返回 PDF 文件');
       return;
     }
-    window.open(artifactUrl(pdf), '_blank', 'noopener,noreferrer');
+    await downloadGeneratedArtifact(pdf);
     recordLearningAction('generate');
-    Message.success('PDF 讲义已生成，正在打开下载链接');
+    Message.success('PDF 讲义已生成，正在下载');
   } catch (error) {
     Message.error('PDF 生成失败，请检查后端资源生成服务');
   } finally {

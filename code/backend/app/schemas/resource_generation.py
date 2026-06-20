@@ -22,6 +22,11 @@ ResourceKind = Literal[
 
 class ResourceGenerationRequest(BaseModel):
     course_id: UUID | None = None
+    resource_id: str | None = Field(default=None, max_length=120)
+    node_id: str | None = Field(default=None, max_length=120)
+    node_label: str | None = Field(default=None, max_length=120)
+    map_type: str | None = Field(default=None, max_length=40)
+    source: str | None = Field(default=None, max_length=80)
     subject: str = Field(..., min_length=1, max_length=80)
     topic: str = Field(..., min_length=1, max_length=120)
     learning_goal: str | None = Field(default=None, max_length=240)
@@ -35,7 +40,6 @@ class GeneratedResourceArtifact(BaseModel):
     kind: ResourceKind
     title: str
     file_name: str
-    file_path: str
     download_url: str
     content_type: str
     file_size: int
@@ -44,6 +48,12 @@ class GeneratedResourceArtifact(BaseModel):
 
 class ResourceGenerationResponse(BaseModel):
     package_id: str
+    course_id: UUID | None = None
+    resource_id: str | None = None
+    node_id: str | None = None
+    node_label: str | None = None
+    map_type: str | None = None
+    source: str | None = None
     subject: str
     topic: str
     generated_at: datetime

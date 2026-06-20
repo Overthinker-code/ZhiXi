@@ -13,6 +13,11 @@ export type ResourceKind =
 
 export interface ResourceGenerationRequest {
   course_id?: string;
+  resource_id?: string;
+  node_id?: string;
+  node_label?: string;
+  map_type?: string;
+  source?: string;
   subject: string;
   topic: string;
   learning_goal?: string;
@@ -26,7 +31,6 @@ export interface GeneratedResourceArtifact {
   kind: ResourceKind;
   title: string;
   file_name: string;
-  file_path: string;
   download_url: string;
   content_type: string;
   file_size: number;
@@ -36,6 +40,11 @@ export interface GeneratedResourceArtifact {
 export interface ResourceGenerationResponse {
   package_id: string;
   course_id?: string;
+  resource_id?: string;
+  node_id?: string;
+  node_label?: string;
+  map_type?: string;
+  source?: string;
   subject: string;
   topic: string;
   generated_at: string;
@@ -48,6 +57,11 @@ export interface ResourceGenerationResponse {
 export interface RecentGeneratedPackage {
   package_id: string;
   course_id?: string;
+  resource_id?: string;
+  node_id?: string;
+  node_label?: string;
+  map_type?: string;
+  source?: string;
   subject: string;
   topic: string;
   generated_at: string;
@@ -70,6 +84,11 @@ function normalizePackageList(value: unknown): RecentGeneratedPackage[] {
     .map((item: any) => ({
       package_id: String(item?.package_id || '').trim(),
       course_id: item?.course_id ? String(item.course_id) : undefined,
+      resource_id: item?.resource_id ? String(item.resource_id) : undefined,
+      node_id: item?.node_id ? String(item.node_id) : undefined,
+      node_label: item?.node_label ? String(item.node_label) : undefined,
+      map_type: item?.map_type ? String(item.map_type) : undefined,
+      source: item?.source ? String(item.source) : undefined,
       subject: String(item?.subject || '').trim(),
       topic: String(item?.topic || '').trim(),
       generated_at: String(item?.generated_at || '').trim(),
@@ -113,6 +132,11 @@ export function rememberGeneratedPackage(
   const nextPackage: RecentGeneratedPackage = {
     package_id: pkg.package_id,
     course_id: courseId || pkg.course_id,
+    resource_id: pkg.resource_id,
+    node_id: pkg.node_id,
+    node_label: pkg.node_label,
+    map_type: pkg.map_type,
+    source: pkg.source,
     subject: pkg.subject,
     topic: pkg.topic,
     generated_at: pkg.generated_at,

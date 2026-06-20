@@ -158,6 +158,12 @@ class ResourceGenerationService:
 
         return ResourceGenerationResponse(
             package_id=package_id,
+            course_id=request.course_id,
+            resource_id=request.resource_id,
+            node_id=request.node_id,
+            node_label=request.node_label,
+            map_type=request.map_type,
+            source=request.source,
             subject=request.subject,
             topic=request.topic,
             generated_at=datetime.utcnow(),
@@ -204,7 +210,7 @@ class ResourceGenerationService:
             [item for item in self.output_root.iterdir() if item.is_dir()],
             key=lambda item: item.stat().st_mtime,
             reverse=True,
-        )[:limit]:
+        ):
             artifacts = sorted(folder.iterdir(), key=lambda item: item.name)
             manifest = next((item for item in artifacts if item.suffix == ".json" and item.name == "manifest.json"), None)
             payload: dict[str, object] = {}
@@ -222,6 +228,11 @@ class ResourceGenerationService:
                 {
                     "package_id": folder.name,
                     "course_id": package_course_id,
+                    "resource_id": payload.get("resource_id") or "",
+                    "node_id": payload.get("node_id") or "",
+                    "node_label": payload.get("node_label") or "",
+                    "map_type": payload.get("map_type") or "",
+                    "source": payload.get("source") or "",
                     "subject": payload.get("subject") or "",
                     "topic": payload.get("topic") or folder.name,
                     "generated_at": payload.get("generated_at")
@@ -239,6 +250,8 @@ class ResourceGenerationService:
                     ],
                 }
             )
+            if len(packages) >= limit:
+                break
         return packages
 
     @staticmethod
@@ -369,7 +382,6 @@ class ResourceGenerationService:
             kind=kind,
             title=title,
             file_name=safe_name,
-            file_path=str(path),
             download_url=f"/api/v1/resource-generation/artifacts/{target_dir.name}/{safe_name}",
             content_type=content_type,
             file_size=stat.st_size,
@@ -387,6 +399,11 @@ class ResourceGenerationService:
         manifest = {
             "package_id": package_id,
             "course_id": str(request.course_id) if request.course_id else "",
+            "resource_id": request.resource_id or "",
+            "node_id": request.node_id or "",
+            "node_label": request.node_label or "",
+            "map_type": request.map_type or "",
+            "source": request.source or "",
             "subject": request.subject,
             "topic": request.topic,
             "generated_at": datetime.utcnow().isoformat(),

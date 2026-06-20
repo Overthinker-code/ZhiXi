@@ -24,6 +24,7 @@
     type ResourceKind,
   } from '@/api/resource-generation';
   import { getToken } from '@/utils/auth';
+  import axios from 'axios';
 
   const route = useRoute();
   const router = useRouter();
@@ -31,6 +32,7 @@
   const activeType = ref<'全部' | CourseResourceItem['type']>('全部');
   const recentPackages = ref<RecentGeneratedPackage[]>([]);
   const loadingRecentPackages = ref(false);
+  const activeMissionResourceId = ref('');
   const aiTrialLimit = 3;
   const aiTrialStorageKey = 'zhixi-course-resource-ai-trial-v1';
   type AiTrialUsage = Record<string, number>;
@@ -135,6 +137,38 @@
       desc: '减少重复整理，把时间留给讲评和追问',
     },
   ]);
+  const resourceCoverageStats = computed(() => {
+    const graphNodeTotal = resources.value.reduce(
+      (sum, item) => sum + resourcePlan(item).graphNodes.length,
+      0
+    );
+    const taskTotal = resources.value.reduce(
+      (sum, item) => sum + resourcePlan(item).tasks.length,
+      0
+    );
+    return [
+      {
+        label: '可执行资料',
+        value: `${resources.value.length} 份`,
+        desc: '含章节、类型、版本和学习任务',
+      },
+      {
+        label: '图谱节点线索',
+        value: `${graphNodeTotal} 个`,
+        desc: '每份资料可回跳到课程图谱核验',
+      },
+      {
+        label: '待完成动作',
+        value: `${taskTotal} 项`,
+        desc: '阅读、练习、追问和复盘连成闭环',
+      },
+      {
+        label: '生成回流',
+        value: `${generatedPackagesForCourse.value.length} 包`,
+        desc: '保留下载、复核和图谱校验入口',
+      },
+    ];
+  });
 
   function resourceIndex(item: CourseResourceItem) {
     return Math.max(
@@ -182,6 +216,131 @@
         `把 ${item.chapter} 整理成 20 分钟复习路径，并给出检查题。`,
       ],
     };
+  }
+
+  function resourceLearningStatus(item: CourseResourceItem) {
+    const lesson = relatedLesson(item);
+    if (lesson?.status === 'done') return '已完成课节复盘';
+    if (item.type.includes('练习') || item.type.includes('作业')) return '建议优先追练';
+    if (item.downloads < 40) return '低频资料待补齐';
+    return '本周复习推荐';
+  }
+
+  function resourceMissionScore(item: CourseResourceItem) {
+    const lesson = relatedLesson(item);
+    const concept = relatedConcept(item);
+    return (
+      (lesson?.status === 'done' ? 8 : 24) +
+      (concept?.misconceptions?.length || 0) * 5 +
+      (item.type.includes('练习') ? 10 : 0) +
+      Math.max(0, 80 - item.downloads) / 10
+    );
+  }
+
+  const recommendedResource = computed(() => {
+    const candidates = visibleResources.value.length
+      ? visibleResources.value
+      : resources.value;
+    return [...candidates].sort(
+      (a, b) => resourceMissionScore(b) - resourceMissionScore(a)
+    )[0];
+  });
+
+  const activeMissionResource = computed(() => {
+    const active = resources.value.find(
+      (item) => item.id === activeMissionResourceId.value
+    );
+    return active || recommendedResource.value;
+  });
+
+  const activeMissionPlan = computed(() =>
+    activeMissionResource.value
+      ? resourcePlan(activeMissionResource.value)
+      : undefined
+  );
+
+  const missionReasons = computed(() => {
+    const item = activeMissionResource.value;
+    const plan = activeMissionPlan.value;
+    if (!item || !plan) return [];
+    const concept = plan.concept;
+    return [
+      resourceLearningStatus(item),
+      concept?.misconceptions?.[0]
+        ? `需要澄清：${concept.misconceptions[0]}`
+        : `重点补齐：${plan.graphNodes[0]}`,
+      `已绑定 ${plan.graphNodes.length} 个图谱节点`,
+    ];
+  });
+
+  const missionSteps = computed(() => {
+    const item = activeMissionResource.value;
+    const plan = activeMissionPlan.value;
+    if (!item || !plan) return [];
+    return [
+      {
+        key: 'read',
+        title: '阅读定位',
+        desc: plan.tasks[0],
+        action: '生成学习包',
+        handler: () => downloadResourceBrief(item),
+      },
+      {
+        key: 'practice',
+        title: '配套练习',
+        desc: plan.tasks[2] || '完成自测题并记录错因。',
+        action: aiTrialRemaining.value ? '生成追练包' : '查看额度',
+        handler: () => generateResourceMaterials(item),
+      },
+      {
+        key: 'ask',
+        title: 'AI 追问',
+        desc: plan.prompts[0],
+        action: '打开资料助手',
+        handler: () => askAboutResource(item),
+      },
+      {
+        key: 'graph',
+        title: '图谱核验',
+        desc: `回到课程图谱确认 ${plan.graphNodes.slice(0, 2).join('、')} 的关系。`,
+        action: '定位图谱',
+        handler: () => locateResourceInGraph(item),
+      },
+    ];
+  });
+
+  const materialReviewPreview = computed(() => {
+    const item = activeMissionResource.value;
+    const plan = activeMissionPlan.value;
+    if (!item || !plan) return [];
+    return [
+      {
+        title: '讲义结构',
+        value: `${item.chapter} / ${plan.concept?.title || plan.lesson?.title || item.title}`,
+        desc: '先讲定义边界，再放课堂证据和误区订正。',
+      },
+      {
+        title: '练习设计',
+        value: `${plan.tasks.length} 项任务`,
+        desc: '阅读标注、自测、错因追问和二次复盘都有明确交付。',
+      },
+      {
+        title: '图谱回流',
+        value: plan.graphNodes.slice(0, 3).join(' / '),
+        desc: '生成后可携带资源 ID、节点 ID 和主题回到图谱核验。',
+      },
+      {
+        title: '文件审查',
+        value: 'Markdown / PDF / 导图',
+        desc: '下载包内置质量清单，便于检查排版、证据和下一步行动。',
+      },
+    ];
+  });
+
+  function activateResourceMission(item: CourseResourceItem) {
+    activeMissionResourceId.value = item.id;
+    const board = document.querySelector('.resource-mission-board');
+    board?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   type RouteQueryPayload = Record<string, string | number | undefined>;
@@ -278,9 +437,10 @@
 
   function showUpgradePrompt() {
     Modal.info({
-      title: '升级后继续生成课程资源',
-      content:
-        '当前课程的本地试用额度已用完。升级后适合批量生成讲义、练习、知识卡和图谱节点资源，并保留更多生成历史。',
+      title: aiTrialRemaining.value ? '专业版批量生成能力' : '升级后继续生成课程资源',
+      content: aiTrialRemaining.value
+        ? '当前仍可继续使用本地试用生成。专业版适合批量生成整章讲义、分层练习、图谱节点资源和班级级生成历史。'
+        : '当前课程的本地试用额度已用完。升级后适合批量生成讲义、练习、知识卡和图谱节点资源，并保留更多生成历史。',
       okText: '知道了',
     });
   }
@@ -392,21 +552,7 @@
     return kind ? map[kind] || kind : '资料';
   }
 
-  function generatedPackageDownloadUrl(
-    pkg: RecentGeneratedPackage,
-    artifact: RecentGeneratedPackage['artifacts'][number]
-  ) {
-    const token = getToken();
-    const url = new URL(
-      artifact.download_url ||
-        `/api/v1/resource-generation/artifacts/${pkg.package_id}/${artifact.file_name}`,
-      window.location.origin
-    );
-    if (token) url.searchParams.set('token', token);
-    return url.toString();
-  }
-
-  function downloadGeneratedArtifact(
+  async function downloadGeneratedArtifact(
     pkg: RecentGeneratedPackage,
     artifact = pkg.artifacts[0]
   ) {
@@ -414,11 +560,24 @@
       Message.warning('这个资源包还没有可下载文件');
       return;
     }
-    window.open(
-      generatedPackageDownloadUrl(pkg, artifact),
-      '_blank',
-      'noopener,noreferrer'
-    );
+    const token = getToken();
+    const url =
+      artifact.download_url ||
+      `/api/v1/resource-generation/artifacts/${pkg.package_id}/${artifact.file_name}`;
+    try {
+      const response = await axios.get(url, {
+        responseType: 'blob',
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      const blobUrl = URL.createObjectURL(response.data);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = artifact.file_name;
+      link.click();
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      Message.warning('资源文件暂时无法下载，请稍后重试或先进入资料复核。');
+    }
   }
 
   function askAboutGeneratedPackage(pkg: RecentGeneratedPackage) {
@@ -428,6 +587,10 @@
         task: 'reader',
         prompt: `当前课程是《${course.value.title}》。请围绕最近生成的资源包「${pkg.topic}」做资料复核：先列出已生成文件，再指出适合预习、练习、图谱核验和 AI 追问的使用顺序。`,
         packageId: pkg.package_id,
+        nodeId: pkg.node_id,
+        nodeLabel: pkg.node_label,
+        mapType: pkg.map_type,
+        resourceId: pkg.resource_id,
         topic: pkg.topic,
         source: 'resource-generation',
       })
@@ -440,6 +603,10 @@
       courseWorkspaceLocation(course.value.id, 'knowledge', {
         topic: pkg.topic,
         packageId: pkg.package_id,
+        nodeId: pkg.node_id,
+        nodeLabel: pkg.node_label,
+        mapType: pkg.map_type,
+        resourceId: pkg.resource_id,
         source: 'resource-generation',
       })
     );
@@ -451,7 +618,7 @@
     try {
       recentPackages.value = await fetchRecentGeneratedPackages(course.value.id);
     } catch {
-      Message.warning('生成历史暂不可用，已保留课程内置资料');
+      Message.warning('生成记录暂不可用，已显示课程内置资料。');
     } finally {
       loadingRecentPackages.value = false;
     }
@@ -516,6 +683,84 @@
       </div>
     </section>
 
+    <section
+      v-if="activeMissionResource && activeMissionPlan"
+      class="resource-mission-board"
+      aria-label="今日个性化学习闭环"
+    >
+      <div class="mission-brief">
+        <span class="mission-brief__eyebrow">PERSONAL STUDY LOOP</span>
+        <div class="mission-brief__title">
+          <div>
+            <h2>今日个性化学习闭环</h2>
+            <p
+              >根据当前筛选、课节进度和资料图谱关系，优先完成一份能产生真实交付的学习资料。</p
+            >
+          </div>
+          <strong>{{ resourceLearningStatus(activeMissionResource) }}</strong>
+        </div>
+        <div class="mission-resource-card">
+          <div>
+            <small>推荐资料</small>
+            <h3>{{ activeMissionResource.title }}</h3>
+            <p>{{ activeMissionResource.chapter }} · {{ activeMissionResource.type }}</p>
+          </div>
+          <button type="button" @click="generateResourceMaterials(activeMissionResource)">
+            <icon-robot />
+            {{ aiTrialRemaining ? '生成配套资料' : '查看生成额度' }}
+          </button>
+        </div>
+        <div class="mission-reasons">
+          <span v-for="reason in missionReasons" :key="reason">{{ reason }}</span>
+        </div>
+        <div class="mission-stats">
+          <article v-for="item in resourceCoverageStats" :key="item.label">
+            <strong>{{ item.value }}</strong>
+            <span>{{ item.label }}</span>
+            <small>{{ item.desc }}</small>
+          </article>
+        </div>
+      </div>
+
+      <div class="mission-workflow">
+        <div class="mission-workflow__head">
+          <div>
+            <span>4-STEP EXECUTION</span>
+            <h3>读资料、做练习、问 AI、回图谱</h3>
+          </div>
+          <button type="button" @click="downloadResourceBrief(activeMissionResource)">
+            <icon-download />
+            下载学习包
+          </button>
+        </div>
+        <div class="mission-steps">
+          <article v-for="(step, index) in missionSteps" :key="step.key">
+            <b>{{ String(index + 1).padStart(2, '0') }}</b>
+            <div>
+              <strong>{{ step.title }}</strong>
+              <p>{{ step.desc }}</p>
+            </div>
+            <button type="button" @click="step.handler()">{{ step.action }}</button>
+          </article>
+        </div>
+      </div>
+
+      <div class="material-review-preview">
+        <div class="material-review-preview__head">
+          <span>MATERIAL REVIEW</span>
+          <h3>资料审查预览</h3>
+          <p>生成或下载前先确认目标、内容结构、图谱回流和文件形态。</p>
+        </div>
+        <div class="review-preview-grid">
+          <article v-for="item in materialReviewPreview" :key="item.title">
+            <span>{{ item.title }}</span>
+            <strong>{{ item.value }}</strong>
+            <small>{{ item.desc }}</small>
+          </article>
+        </div>
+      </div>
+    </section>
+
     <div class="resource-overview">
       <article>
         <span class="overview-icon"><icon-storage /></span>
@@ -541,7 +786,7 @@
       <article>
         <span class="overview-icon"><icon-check-circle /></span>
         <div
-          ><small>图谱绑定</small
+          ><small>已学章节</small
           ><strong>{{ completedChapterCount }}</strong></div
         >
       </article>
@@ -618,7 +863,12 @@
             <small>{{ generatedPackageLabel(pkg) }}</small>
           </div>
           <h3>{{ pkg.topic }}</h3>
-          <p>{{ pkg.subject }} · {{ pkg.package_id }}</p>
+          <p>{{ pkg.subject }} · {{ pkg.node_label || pkg.resource_id || pkg.package_id }}</p>
+          <div class="generated-trust-tags">
+            <span>本地生成</span>
+            <span>质量清单</span>
+            <span>{{ pkg.node_id ? '图谱已绑定' : '待图谱核验' }}</span>
+          </div>
           <div class="generated-package-stats">
             <article>
               <strong>{{ pkg.artifacts.length }}</strong>
@@ -666,7 +916,7 @@
         <span><icon-storage /></span>
         <div>
           <strong>还没有生成资源包回流</strong>
-          <p>从课程图谱、课堂笔记或本页进入生成工坊，生成成功后会自动出现在这里。</p>
+          <p>建议先围绕“{{ activeMissionResource?.title || course.title }}”生成第一份讲义、练习和图谱核验包。</p>
         </div>
         <button type="button" @click="openGenerator('课程资料回流生成')">现在生成</button>
       </div>
@@ -720,7 +970,15 @@
           <span>{{ item.size }}</span>
           <span>{{ item.downloads }} 次使用</span>
         </div>
+        <div class="resource-trust-row">
+          <span>课程组审核</span>
+          <span>v{{ resourceIndex(item) + 1 }}.{{ item.downloads % 10 }}</span>
+          <span>{{ resourceLearningStatus(item) }}</span>
+        </div>
         <div class="resource-actions">
+          <button type="button" class="primary" @click="activateResourceMission(item)">
+            <icon-check-circle /> 开始闭环
+          </button>
           <button type="button" @click="downloadResourceBrief(item)">
             <icon-download /> 学习包
           </button>
@@ -930,6 +1188,347 @@
     }
   }
 
+  .resource-mission-board {
+    display: grid;
+    grid-template-columns: minmax(260px, 0.88fr) minmax(320px, 1.18fr) minmax(240px, 0.72fr);
+    gap: 12px;
+    margin-bottom: 12px;
+    padding: 16px;
+    border: 1px solid #dbe6f2;
+    border-radius: 14px;
+    background:
+      linear-gradient(135deg, rgba(83, 103, 248, 0.08), transparent 32%),
+      linear-gradient(180deg, #fff, #f8fbff);
+    box-shadow: 0 16px 34px rgba(30, 49, 84, 0.07);
+  }
+
+  .mission-brief,
+  .mission-workflow,
+  .material-review-preview {
+    min-width: 0;
+  }
+
+  .mission-brief__eyebrow,
+  .mission-workflow__head span,
+  .material-review-preview__head span {
+    color: #5367f8;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+  }
+
+  .mission-brief__title {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-top: 5px;
+
+    h2 {
+      margin: 0 0 6px;
+      color: #1f2b45;
+      font-size: 20px;
+    }
+
+    p {
+      margin: 0;
+      color: #7f8a9d;
+      font-size: 11px;
+      line-height: 1.65;
+    }
+
+    strong {
+      flex: 0 0 auto;
+      padding: 5px 8px;
+      border-radius: 999px;
+      color: #2e7d6a;
+      background: #eaf8f2;
+      font-size: 10px;
+    }
+  }
+
+  .mission-resource-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+    margin-top: 14px;
+    padding: 12px;
+    border: 1px solid #e1e7f1;
+    border-radius: 12px;
+    background: #fff;
+
+    small,
+    h3,
+    p {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    small {
+      color: #8a95a8;
+      font-size: 10px;
+    }
+
+    h3 {
+      margin: 4px 0;
+      color: #24314a;
+      font-size: 15px;
+    }
+
+    p {
+      margin: 0;
+      color: #718096;
+      font-size: 10px;
+    }
+
+    button {
+      height: 32px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 0 11px;
+      border: 0;
+      border-radius: 9px;
+      color: #fff;
+      background: #5367f8;
+      font-size: 10px;
+      font-weight: 800;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+  }
+
+  .mission-reasons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+
+    span {
+      max-width: 100%;
+      padding: 5px 8px;
+      overflow: hidden;
+      border-radius: 999px;
+      color: #50617f;
+      background: #f2f5fb;
+      font-size: 10px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .mission-stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+
+    article {
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid #edf1f6;
+      border-radius: 10px;
+      background: #fbfcff;
+    }
+
+    strong,
+    span,
+    small {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    strong {
+      color: #24314a;
+      font-size: 15px;
+    }
+
+    span {
+      margin-top: 4px;
+      color: #5367f8;
+      font-size: 10px;
+      font-weight: 800;
+    }
+
+    small {
+      margin-top: 4px;
+      color: #8a95a8;
+      font-size: 9px;
+    }
+  }
+
+  .mission-workflow {
+    padding: 13px;
+    border: 1px solid #e1e8f1;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.78);
+  }
+
+  .mission-workflow__head {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    justify-content: space-between;
+
+    h3 {
+      margin: 5px 0 0;
+      color: #24314a;
+      font-size: 16px;
+    }
+
+    button {
+      height: 30px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 0 10px;
+      border: 1px solid #dce2ff;
+      border-radius: 9px;
+      color: #5367f8;
+      background: #f5f7ff;
+      font-size: 10px;
+      font-weight: 800;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+  }
+
+  .mission-steps {
+    display: grid;
+    gap: 8px;
+    margin-top: 12px;
+
+    article {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr) auto;
+      gap: 9px;
+      align-items: center;
+      padding: 10px;
+      border: 1px solid #edf1f6;
+      border-radius: 10px;
+      background: #fff;
+    }
+
+    b {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      border-radius: 9px;
+      color: #fff;
+      background: #2e7d6a;
+      font-size: 10px;
+      place-items: center;
+    }
+
+    strong,
+    p {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    strong {
+      color: #25324b;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    p {
+      display: -webkit-box;
+      margin: 3px 0 0;
+      color: #7f899b;
+      font-size: 10px;
+      line-height: 1.45;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+    }
+
+    button {
+      height: 28px;
+      padding: 0 9px;
+      border: 1px solid #dbe2f0;
+      border-radius: 8px;
+      color: #60708b;
+      background: #fafbfc;
+      font-size: 9px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+  }
+
+  .material-review-preview {
+    padding: 13px;
+    border: 1px solid #e1e8f1;
+    border-radius: 12px;
+    background: #fff;
+  }
+
+  .material-review-preview__head {
+    h3 {
+      margin: 5px 0 5px;
+      color: #24314a;
+      font-size: 16px;
+    }
+
+    p {
+      margin: 0;
+      color: #7f899b;
+      font-size: 10px;
+      line-height: 1.6;
+    }
+  }
+
+  .review-preview-grid {
+    display: grid;
+    gap: 8px;
+    margin-top: 12px;
+
+    article {
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid #edf1f6;
+      border-radius: 10px;
+      background: #f8fafc;
+    }
+
+    span,
+    strong,
+    small {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    span {
+      color: #5367f8;
+      font-size: 9px;
+      font-weight: 800;
+    }
+
+    strong {
+      margin-top: 4px;
+      color: #25324b;
+      font-size: 11px;
+    }
+
+    small {
+      margin-top: 4px;
+      color: #8a95a8;
+      font-size: 9px;
+    }
+  }
+
   .resource-overview {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1129,6 +1728,27 @@
     font-size: 10px;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .generated-trust-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 9px;
+
+    span {
+      padding: 4px 7px;
+      border-radius: 999px;
+      color: #50617f;
+      background: #f2f5fb;
+      font-size: 9px;
+      font-weight: 700;
+    }
+
+    span:first-child {
+      color: #2e7d6a;
+      background: #eaf8f2;
+    }
   }
 
   .generated-package-stats {
@@ -1568,6 +2188,25 @@
     border-top: 1px solid #edf0f5;
   }
 
+  .resource-trust-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 10px;
+
+    span {
+      max-width: 100%;
+      padding: 4px 7px;
+      overflow: hidden;
+      border-radius: 999px;
+      color: #61708a;
+      background: #f2f5fb;
+      font-size: 9px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
   .resource-actions {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1589,7 +2228,15 @@
       cursor: pointer;
     }
 
-    button:nth-child(2),
+    button.primary {
+      grid-column: 1 / -1;
+      border-color: transparent;
+      color: #fff;
+      background: #5367f8;
+      font-weight: 800;
+    }
+
+    button:nth-child(3),
     button:last-child {
       border-color: #dce2ff;
       color: #5367f8;
@@ -1599,8 +2246,13 @@
 
   @media (max-width: 1080px) {
     .resource-grid,
-    .generated-package-grid {
+    .generated-package-grid,
+    .resource-mission-board {
       grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .material-review-preview {
+      grid-column: 1 / -1;
     }
   }
 
@@ -1618,6 +2270,7 @@
     .generated-package-grid,
     .generated-package-empty,
     .resource-flow,
+    .resource-mission-board,
     .ai-credit-panel,
     .ai-credit-panel__value,
     .quality-strip,
@@ -1633,6 +2286,25 @@
     .generated-package-actions {
       align-items: stretch;
       flex-direction: column;
+    }
+
+    .mission-brief__title,
+    .mission-workflow__head,
+    .mission-resource-card,
+    .mission-steps article {
+      grid-template-columns: 1fr;
+    }
+
+    .mission-brief__title,
+    .mission-workflow__head {
+      flex-direction: column;
+    }
+
+    .mission-resource-card button,
+    .mission-workflow__head button,
+    .mission-steps button {
+      width: 100%;
+      justify-content: center;
     }
 
     .generated-artifact-list button {
