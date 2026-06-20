@@ -7,7 +7,12 @@ import {
 } from 'vue';
 import { Message } from '@arco-design/web-vue';
 import { renderMarkdown, stripMarkdownCodeToolbar } from '@/utils/markdown';
-import { askSelectionQuery } from '@/api/rag';
+import {
+  askSelectionQuery,
+  normalizeCitationItems,
+  type ChatMetrics,
+  type CitationItem,
+} from '@/api/rag';
 import { useSettingStore } from '@/store/setting';
 
 const promptTemplates = [
@@ -67,6 +72,11 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
   const surroundingContext = ref('');
   const isLoadingResponse = ref(false);
   const aiResponse = ref('');
+  const responseCitations = ref<CitationItem[]>([]);
+  const responseCitationHints = ref<CitationItem[]>([]);
+  const responseConfidence = ref('');
+  const responseGroundingMode = ref('');
+  const responseMetrics = ref<ChatMetrics | undefined>();
   const localSelectionThreadId = ref(`selection-notes-${Date.now()}`);
   const lastSelectionViewportRect = ref<ViewportRect | null>(null);
   const answerPanelBounds = ref<AnswerPanelBounds | null>(null);
@@ -90,8 +100,52 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
     (raw || '')
       .replace(/<think>[\s\S]*?<\/think>/gi, '')
       .replace(/<analysis>[\s\S]*?<\/analysis>/gi, '')
+      .replace(/<hr\s*\/?>/gi, '\n')
       .replace(/<\/?final>/gi, '')
+      .split(/\r?\n/)
+      .filter((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return true;
+        if (/^([-*_=])\1{2,}$/.test(trimmed)) return false;
+        if (/^[＿_—─━―－﹘﹣]{3,}$/.test(trimmed)) return false;
+        if (/^(?:\|\s*:?-{3,}:?\s*)+\|?$/.test(trimmed)) return false;
+        return true;
+      })
+      .join('\n')
+      .replace(/(?:^|\s)(?:[-*_=\u2014\u2015\u2500\u2501\uFF3F]){3,}(?=\s|$)/g, ' ')
+      .replace(/\|\s*:?-{3,}:?\s*(?=\|)/g, '| ')
+      .replace(/\n{3,}/g, '\n\n')
       .trim();
+
+  function resetEvidence() {
+    responseCitations.value = [];
+    responseCitationHints.value = [];
+    responseConfidence.value = '';
+    responseGroundingMode.value = '';
+    responseMetrics.value = undefined;
+  }
+
+  function buildSelectionFallbackHint(templateLabel: string): CitationItem[] {
+    const context =
+      surroundingContext.value || getContextSource() || selectedText.value;
+    const snippet = context
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 180);
+    return [
+      {
+        citation_id: 1,
+        source: '课堂划词上下文',
+        file_name: '课堂划词上下文',
+        context_scope: 'route_context',
+        locator: templateLabel,
+        snippet:
+          snippet ||
+          '本次回答仅基于当前划词和页面上下文，未找到可定位的课程原文片段。',
+        reason: '仅用于提示本次回答的页面入口和划词范围，不代表可核验原文。',
+      },
+    ];
+  }
 
   const showAnswerPanel = computed(
     () => isLoadingResponse.value || Boolean(aiResponse.value)
@@ -197,6 +251,38 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
     answerPanelBounds.value = { left, top, width: panelW, height };
   }
 
+  function applyMenuPosition(
+    rect: Pick<ViewportRect, 'top' | 'left' | 'right' | 'bottom' | 'height'>
+  ) {
+    const pad = 8;
+    const menuW = 280;
+    const menuH = 200;
+    const maxTop = Math.max(pad, window.innerHeight - menuH - pad);
+    const anchorIsVisible =
+      rect.bottom >= pad && rect.top <= window.innerHeight - pad;
+    const anchorTop = anchorIsVisible
+      ? rect.top
+      : Math.min(Math.max(rect.top, pad), maxTop);
+    const anchorBottom = anchorIsVisible
+      ? rect.bottom
+      : Math.min(
+          anchorTop + Math.max(16, Math.min(rect.height || 18, 32)),
+          window.innerHeight - pad
+        );
+    let left = rect.left;
+    let top = anchorBottom + 6;
+    if (left + menuW > window.innerWidth - pad) {
+      left = window.innerWidth - menuW - pad;
+    }
+    if (left < pad) left = pad;
+    if (top + menuH > window.innerHeight - pad) {
+      top = anchorTop - menuH - 6;
+    }
+    top = Math.max(pad, Math.min(top, maxTop));
+    contextMenuStyle.left = `${left}px`;
+    contextMenuStyle.top = `${top}px`;
+  }
+
   function positionMenuNearSelection(range: Range) {
     const rect = range.getBoundingClientRect();
     if (!rect.width && !rect.height) return false;
@@ -208,20 +294,7 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
       width: rect.width,
       height: rect.height,
     };
-    const pad = 8;
-    const menuW = 280;
-    const menuH = 200;
-    let left = rect.left;
-    let top = rect.bottom + 6;
-    if (left + menuW > window.innerWidth - pad) {
-      left = window.innerWidth - menuW - pad;
-    }
-    if (left < pad) left = pad;
-    if (top + menuH > window.innerHeight - pad) {
-      top = Math.max(pad, rect.top - menuH - 6);
-    }
-    contextMenuStyle.left = `${left}px`;
-    contextMenuStyle.top = `${top}px`;
+    applyMenuPosition(rect);
     return true;
   }
 
@@ -262,20 +335,7 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
   }
 
   function positionMenuNearRect(rect: ViewportRect) {
-    const pad = 8;
-    const menuW = 280;
-    const menuH = 200;
-    let left = rect.left;
-    let top = rect.bottom + 6;
-    if (left + menuW > window.innerWidth - pad) {
-      left = window.innerWidth - menuW - pad;
-    }
-    if (left < pad) left = pad;
-    if (top + menuH > window.innerHeight - pad) {
-      top = Math.max(pad, rect.top - menuH - 6);
-    }
-    contextMenuStyle.left = `${left}px`;
-    contextMenuStyle.top = `${top}px`;
+    applyMenuPosition(rect);
   }
 
   function openMenuForText(
@@ -366,6 +426,7 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
     stopTypewriter();
     typewriterLen.value = 0;
     aiResponse.value = '';
+    resetEvidence();
     answerPanelSession.value += 1;
     syncBoundsFromSelection();
     isLoadingResponse.value = true;
@@ -396,6 +457,20 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
       if (disposed || seq !== requestSeq || controller.signal.aborted) return;
       if (response?.response) {
         const cleanAnswer = sanitizeSelectionAnswer(response.response);
+        const citations = normalizeCitationItems(response.citations);
+        const citationHints = normalizeCitationItems(response.citation_hints);
+        responseCitations.value = citations;
+        responseCitationHints.value =
+          citations.length || citationHints.length
+            ? citationHints
+            : buildSelectionFallbackHint(template.label);
+        responseConfidence.value = String(
+          response.confidence || (citations.length ? 'medium' : 'low')
+        );
+        responseGroundingMode.value = String(
+          response.grounding_mode || (citations.length ? 'rag' : 'general')
+        );
+        responseMetrics.value = response.metrics;
         aiResponse.value = cleanAnswer;
         startTypewriter();
       } else {
@@ -427,6 +502,7 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
     stopTypewriter();
     typewriterLen.value = 0;
     aiResponse.value = '';
+    resetEvidence();
     isLoadingResponse.value = false;
     lastSelectionViewportRect.value = null;
     answerPanelBounds.value = null;
@@ -479,6 +555,11 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
     selectedText,
     isLoadingResponse,
     aiResponse,
+    responseCitations,
+    responseCitationHints,
+    responseConfidence,
+    responseGroundingMode,
+    responseMetrics,
     showAnswerPanel,
     answerPanelBounds,
     answerPanelSession,

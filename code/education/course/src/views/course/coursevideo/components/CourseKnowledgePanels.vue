@@ -113,6 +113,11 @@
       :html="renderedResponse"
       :loading="isLoadingResponse"
       :typing="isTypingAnswer"
+      :citations="responseCitations"
+      :citation-hints="responseCitationHints"
+      :confidence="responseConfidence"
+      :grounding-mode="responseGroundingMode"
+      :metrics="responseMetrics"
       @close="clearAi"
     />
   </div>
@@ -172,6 +177,11 @@
     answerPanelSession,
     isTypingAnswer,
     renderedResponse,
+    responseCitations,
+    responseCitationHints,
+    responseConfidence,
+    responseGroundingMode,
+    responseMetrics,
     bridgeLine,
     handleTextSelection,
     sendAIQuery,

@@ -69,7 +69,7 @@
     return `${text.slice(0, 6)}…${text.slice(-4)}`;
   };
 
-  const evidenceLabel = (count: number) => `${count} 段证据`;
+  const evidenceLabel = (count: number) => `${count} 段原文`;
 
   const scopeLabel = (item: CitationItem) => {
     const raw = normalizeCitationScope(item.context_scope);
@@ -228,7 +228,7 @@
   });
 
   const stripLabel = computed(() => {
-    if (!normalizedCitations.value.length) return '未检索到可展示来源';
+    if (!normalizedCitations.value.length) return '未找到可展示来源';
     if (hasOnlyHints.value) {
       const hasFileHint = contextHints.value.some(
         (item) => normalizeCitationScope(item.context_scope) === 'route_file_hint'
@@ -244,7 +244,7 @@
   );
 
   const detailModeLabel = computed(() => {
-    if (hasOnlyHints.value) return '后端检索 0 条 · 非原文 · 需复核';
+    if (hasOnlyHints.value) return '未找到可核验原文 · 非原文 · 需复核';
     if (hasMixedEvidence.value) return '真实引用优先';
     return groundingLabel(props.groundingMode);
   });
@@ -272,7 +272,7 @@
         {{ stripLabel }}
       </span>
       <span v-else class="citation-strip__label citation-strip__label--empty">
-        未检索到可展示来源
+        未找到可展示来源
       </span>
       <button
         v-for="source in visibleSourceChips"
@@ -360,12 +360,12 @@
             <span v-if="item.scope">{{ item.scope }}</span>
           </div>
           <div v-if="item.isHint" class="citation-warning">
-            此项是定位线索或文件预览，未作为 RAG 原文检索，不是后端检索到的完整原文片段。
+            此项来自当前页面、入口或文件预览，仅用于定位问题范围，不是可核验原文片段。
           </div>
           <div class="citation-meta">
             <small v-if="item.locator">{{ item.locator }}</small>
-            <small v-if="item.chunk_id">chunk {{ item.chunk_id }}</small>
-            <small v-if="item.file_id">file {{ shortId(item.file_id) }}</small>
+            <small v-if="showDiagnostics && item.chunk_id">chunk {{ item.chunk_id }}</small>
+            <small v-if="showDiagnostics && item.file_id">file {{ shortId(item.file_id) }}</small>
             <small v-if="item.score">相关度 {{ item.score.toFixed(2) }}</small>
           </div>
           <!-- eslint-disable-next-line vue/no-v-html -->

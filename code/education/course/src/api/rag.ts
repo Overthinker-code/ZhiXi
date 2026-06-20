@@ -30,6 +30,7 @@ export interface ChatRecord {
   response: string;
   created_at: string;
   citations?: CitationItem[];
+  citation_hints?: CitationItem[];
   confidence?: 'high' | 'medium' | 'low' | string;
   grounding_mode?: 'rag' | 'general' | 'tool' | 'mixed' | string;
   suggestions?: string[];
@@ -445,6 +446,7 @@ export interface ChatStreamEvent {
   requires_confirmation?: boolean;
   pending_action_id?: string;
   citations?: CitationItem[];
+  citation_hints?: CitationItem[];
   confidence?: 'high' | 'medium' | 'low' | string;
   grounding_mode?: 'rag' | 'general' | 'tool' | 'mixed' | string;
   suggestions?: unknown[];
@@ -455,6 +457,9 @@ function normalizeChatRecord(raw: any): ChatRecord {
   return {
     ...raw,
     citations: normalizeCitationItems(raw?.citations),
+    citation_hints: normalizeCitationItems(
+      raw?.citation_hints || raw?.citationHints
+    ),
     suggestions: normalizeSuggestionList(raw?.suggestions || []),
   } as ChatRecord;
 }

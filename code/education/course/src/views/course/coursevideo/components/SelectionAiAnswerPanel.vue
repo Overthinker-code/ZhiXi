@@ -25,6 +25,16 @@
           v-html="html"
         />
         <span v-if="typing" class="tw-caret">▍</span>
+        <CitationArea
+          v-if="html && !typing"
+          class="selection-citation-area"
+          :citations="citations"
+          :citation-hints="citationHints"
+          :confidence="confidence"
+          :grounding-mode="groundingMode"
+          :metrics="metrics"
+          :show-empty-state="true"
+        />
       </template>
     </div>
     <span
@@ -44,6 +54,8 @@
 
 <script setup lang="ts">
   import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+  import type { ChatMetrics, CitationItem } from '@/api/rag';
+  import CitationArea from '@/views/chat/components/CitationArea.vue';
 
   type Bounds = { left: number; top: number; width: number; height: number };
 
@@ -54,6 +66,11 @@
     html: string;
     loading: boolean;
     typing: boolean;
+    citations?: CitationItem[];
+    citationHints?: CitationItem[];
+    confidence?: string;
+    groundingMode?: string;
+    metrics?: ChatMetrics;
   }>();
 
   defineEmits<{ close: [] }>();
@@ -369,6 +386,45 @@
     animation: blink 1s step-end infinite;
     margin-left: 2px;
     align-self: flex-start;
+  }
+
+  .selection-citation-area {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(226, 232, 240, 0.24);
+  }
+
+  :deep(.citation-strip) {
+    gap: 6px;
+  }
+
+  :deep(.citation-strip__label) {
+    color: rgba(226, 232, 240, 0.82);
+  }
+
+  :deep(.source-chip),
+  :deep(.source-toggle),
+  :deep(.meta-pill),
+  :deep(.current-file-pill),
+  :deep(.context-hint-pill) {
+    max-width: 100%;
+    min-height: 24px;
+    font-size: 11px;
+  }
+
+  :deep(.source-chip strong) {
+    font-size: 11px;
+  }
+
+  :deep(.source-chip__scope) {
+    font-size: 10px;
+  }
+
+  :deep(.citation-detail-list) {
+    width: 100%;
+    max-height: min(260px, 44vh);
+    border-color: rgba(226, 232, 240, 0.42);
+    background: rgba(255, 255, 255, 0.94);
   }
 
   @keyframes blink {

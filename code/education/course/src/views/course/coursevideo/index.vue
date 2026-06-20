@@ -574,6 +574,11 @@
       :html="renderedResponse"
       :loading="isLoadingResponse"
       :typing="isTypingAnswer"
+      :citations="responseCitations"
+      :citation-hints="responseCitationHints"
+      :confidence="responseConfidence"
+      :grounding-mode="responseGroundingMode"
+      :metrics="responseMetrics"
       @close="clearAnswerPanel"
     />
   </ZyPageShell>
@@ -965,6 +970,11 @@ const {
   answerPanelSession,
   isTypingAnswer,
   renderedResponse,
+  responseCitations,
+  responseCitationHints,
+  responseConfidence,
+  responseGroundingMode,
+  responseMetrics,
   bridgeLine,
   handleTextSelection,
   openMenuForText,
