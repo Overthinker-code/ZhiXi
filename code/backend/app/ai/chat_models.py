@@ -36,6 +36,8 @@ class State(TypedDict):
     current_thread_id: str
     current_file_id: str | None
     current_file_name: str
+    route_context: dict[str, Any]
+    context_refs: dict[str, Any]
     image_context: str
     tool_mode: str
     user_memory_context: str
@@ -95,6 +97,8 @@ class ChatRequest(BaseModel):
     prior_turns: list[dict[str, str]] | None = None
     current_file_id: str | None = None
     file_name: str | None = None
+    route_context: dict[str, Any] | None = None
+    context_refs: dict[str, Any] | None = None
     image_base64_list: list[str] | None = None
     tool_mode: Literal[
         "chat",

@@ -303,6 +303,16 @@
   const incomingResourceTitle = computed(() => routeQueryText(route.query.resourceTitle));
   const incomingResourceChapter = computed(() => routeQueryText(route.query.resourceChapter));
   const incomingResourceType = computed(() => routeQueryText(route.query.resourceType));
+  const incomingFileId = computed(
+    () =>
+      routeQueryText(route.query.currentFileId) ||
+      routeQueryText(route.query.fileId) ||
+      routeQueryText(route.query.current_file_id)
+  );
+  const incomingFileName = computed(() => routeQueryText(route.query.fileName));
+  const incomingArtifactKind = computed(() => routeQueryText(route.query.artifactKind));
+  const incomingArtifactList = computed(() => routeQueryText(route.query.artifactList));
+  const incomingArtifactPreview = computed(() => routeQueryText(route.query.artifactPreview));
   const incomingResource = computed(() =>
     course.value && incomingResourceId.value
       ? resolveCourseResourceReference(course.value.id, incomingResourceId.value)
@@ -602,11 +612,24 @@
     };
   }
 
+  function fileQueryPayload() {
+    if (!incomingFileId.value && !incomingFileName.value && !incomingArtifactList.value) return {};
+    return {
+      currentFileId: incomingFileId.value,
+      fileId: incomingFileId.value,
+      fileName: incomingFileName.value,
+      artifactKind: incomingArtifactKind.value,
+      artifactList: incomingArtifactList.value,
+      artifactPreview: incomingArtifactPreview.value,
+    };
+  }
+
   function contextQueryPayload(extra: Record<string, string | number | undefined> = {}) {
     return compactQuery({
       ...packageQueryPayload(),
       ...nodeQueryPayload(),
       ...resourceQueryPayload(),
+      ...fileQueryPayload(),
       ...extra,
     });
   }

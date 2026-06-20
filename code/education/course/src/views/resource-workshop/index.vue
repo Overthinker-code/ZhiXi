@@ -936,6 +936,29 @@
         (item) => item.kind === 'quality_checklist'
       ) || null
   );
+  const primaryReviewArtifact = computed(
+    () =>
+      checklistArtifact.value ||
+      downloadableArtifacts.value.find((item) => item.kind === 'lecture_markdown') ||
+      downloadableArtifacts.value.find((item) => item.kind === 'practice_markdown') ||
+      downloadableArtifacts.value[0] ||
+      null
+  );
+  const artifactReviewList = computed(() =>
+    downloadableArtifacts.value
+      .slice(0, 6)
+      .map(
+        (artifact, index) =>
+          `${index + 1}. ${artifactKindLabel(artifact.kind)}：${artifact.title}（${artifact.file_name}，${formatFileSize(artifact.file_size)}）`
+      )
+      .join('\n')
+  );
+  const artifactPreviewSummary = computed(() =>
+    downloadableArtifacts.value
+      .slice(0, 4)
+      .map((artifact) => `${artifact.title}：${artifact.preview || '暂无预览'}`)
+      .join('\n')
+  );
   const artifactClosureCards = computed(() => {
     if (!downloadablePackage.value) return [];
     return [
@@ -1284,6 +1307,8 @@
       downloadablePackage.value?.topic || packageResult.value?.topic || form.topic;
     const packageId = downloadablePackage.value?.package_id;
     const courseId = activeCourse.value?.id || '';
+    const artifact = primaryReviewArtifact.value;
+    const artifactFileId = artifact && packageId ? `${packageId}/${artifact.file_name}` : '';
     router.push({
       path: '/tutor',
       query: contextRouteQuery({
@@ -1291,13 +1316,25 @@
         topic,
         source: 'resource-generation',
         packageId,
+        packageTopic: topic,
+        packageSource: downloadablePackage.value?.source || incomingRouteContext.value.source || 'resource-generation',
+        resourceTitle: artifact?.title || topic,
+        resourceType: artifact?.kind,
+        currentFileId: artifactFileId,
+        fileId: artifactFileId,
+        fileName: artifact?.file_name,
+        artifactKind: artifact?.kind,
+        artifactList: artifactReviewList.value,
+        artifactPreview: artifactPreviewSummary.value,
         ...(courseId ? { courseId } : {}),
         intent: 'exercise-review',
         prompt: [
           `请对「${topic || form.subject || '当前课程'}」学习资源包做 AI 复核。`,
           packageId ? `资源包编号：${packageId}` : '',
+          artifactReviewList.value ? `生成文件清单：\n${artifactReviewList.value}` : '',
+          artifactPreviewSummary.value ? `文件预览摘要：\n${artifactPreviewSummary.value}` : '',
           form.subject ? `课程/学科：${form.subject}` : '',
-          '请检查讲义、练习、导图、阅读材料是否围绕课程目标和薄弱点，指出证据不足、重复或需要回炉生成的部分，并给出下一步个性化学习建议。',
+          '请先说明当前复核依据是文件预览、路由文件线索还是完整原文；如果没有原文片段，不要声称已经完整读取文件。再检查讲义、练习、导图、阅读材料是否围绕课程目标和薄弱点，指出证据不足、重复或需要回炉生成的部分，并给出下一步个性化学习建议。',
         ]
           .filter(Boolean)
           .join('\n'),

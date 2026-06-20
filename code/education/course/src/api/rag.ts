@@ -358,6 +358,7 @@ export function createAssistantChat(
         topK?: number;
         currentFileId?: string;
         fileName?: string;
+        routeContext?: Record<string, any>;
         imageBase64List?: string[];
         toolMode?:
           | 'chat'
@@ -392,6 +393,8 @@ export function createAssistantChat(
         file_id: normalized.currentFileId,
         file_name: normalized.fileName,
         filename: normalized.fileName,
+        route_context: normalized.routeContext,
+        context_refs: normalized.routeContext,
         image_base64_list: normalized.imageBase64List,
         tool_mode: normalized.toolMode || 'chat',
         force_agent: normalized.forceAgent,
@@ -532,6 +535,7 @@ export interface ChatAdvancedOptions {
   courseModule?: string;
   currentFileId?: string;
   fileName?: string;
+  routeContext?: Record<string, any>;
   imageBase64List?: string[];
   toolMode?:
     | 'chat'
@@ -678,6 +682,8 @@ export function createAssistantChatStream(
     file_id: normalized.currentFileId,
     file_name: normalized.fileName,
     filename: normalized.fileName,
+    route_context: normalized.routeContext,
+    context_refs: normalized.routeContext,
     image_base64_list: normalized.imageBase64List,
     tool_mode: normalized.toolMode || 'chat',
     force_agent: normalized.forceAgent,
@@ -710,6 +716,8 @@ export function askSelectionQuery(
         file_id: normalized.currentFileId,
         file_name: normalized.fileName,
         filename: normalized.fileName,
+        route_context: normalized.routeContext,
+        context_refs: normalized.routeContext,
         image_base64_list: normalized.imageBase64List,
         tool_mode: normalized.toolMode || 'chat',
         force_agent: normalized.forceAgent,

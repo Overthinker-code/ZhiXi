@@ -2205,6 +2205,7 @@ def _build_metrics(
     cache_hit: bool,
     rag_hit_count: int,
     tool_calls_count: int,
+    route_context: dict[str, Any] | None = None,
     ttft_ms: int | None = None,
     latency_ms: int | None = None,
 ) -> dict[str, Any]:
@@ -2221,6 +2222,7 @@ def _build_metrics(
         "rag_hit_count": rag_hit_count,
         "tool_calls_count": tool_calls_count,
         "route_trace": route_trace,
+        "route_context": route_context or {},
     }
 
 
@@ -2275,6 +2277,8 @@ def _initial_state(
             "current_thread_id": str(request.thread_id),
             "current_file_id": request.current_file_id,
             "current_file_name": request.file_name or "",
+            "route_context": request.route_context or {},
+            "context_refs": request.context_refs or request.route_context or {},
             "image_context": image_context,
             "tool_mode": request.tool_mode,
             "user_memory_context": memory_context,
@@ -2387,6 +2391,7 @@ def chat_service(request: ChatRequest) -> ChatResponse:
             cache_hit=False,
             rag_hit_count=len(result.get("rag_results") or []),
             tool_calls_count=len(tool_calls),
+            route_context=request.route_context or request.context_refs,
             ttft_ms=latency_ms,
             latency_ms=latency_ms,
         ),
@@ -2702,6 +2707,7 @@ def stream_chat_events(request: ChatRequest):
                 cache_hit=False,
                 rag_hit_count=len(final_state.get("rag_results") or []),
                 tool_calls_count=len(tool_calls),
+                route_context=final_state.get("route_context") or final_state.get("context_refs"),
                 ttft_ms=ttft_ms,
                 latency_ms=latency_ms,
             ),

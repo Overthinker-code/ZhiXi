@@ -232,6 +232,40 @@ export function useChat() {
       resourceId: typeof route.query.resourceId === 'string' ? route.query.resourceId : '',
     };
   });
+  const routeContextPayload = computed(() => {
+    const directFile = routeDirectFileReference.value;
+    const courseId = routeCourseId.value;
+    const value = (key: string) =>
+      typeof route.query[key] === 'string' ? String(route.query[key]) : '';
+    const payload = {
+      courseId,
+      course_id: courseId,
+      source: value('source') || 'course',
+      upstreamSource: value('upstreamSource'),
+      task: value('task'),
+      intent: value('intent'),
+      resourceId: value('resourceId'),
+      resourceTitle: value('resourceTitle'),
+      resourceChapter: value('resourceChapter'),
+      resourceType: value('resourceType'),
+      packageId: value('packageId'),
+      packageTopic: value('packageTopic') || value('topic'),
+      packageSource: value('packageSource'),
+      nodeId: value('nodeId'),
+      nodeLabel: value('nodeLabel'),
+      mapType: value('mapType'),
+      topic: value('topic'),
+      artifactKind: value('artifactKind'),
+      artifactList: value('artifactList'),
+      artifactPreview: value('artifactPreview'),
+      fileId: directFile?.file_id || value('fileId') || value('currentFileId'),
+      currentFileId: directFile?.file_id || value('currentFileId') || value('fileId'),
+      fileName: directFile?.file_name || value('fileName'),
+    };
+    return Object.fromEntries(
+      Object.entries(payload).filter(([, item]) => String(item || '').trim())
+    );
+  });
   const routeCoursePrompt = computed(() => {
     const courseTitle =
       routeCourse.value?.title ||
@@ -260,6 +294,13 @@ export function useChat() {
       typeof route.query.packageSource === 'string' ? route.query.packageSource : '';
     const audit =
       typeof route.query.audit === 'string' ? route.query.audit : '';
+    const directFile = routeDirectFileReference.value;
+    const artifactKind =
+      typeof route.query.artifactKind === 'string' ? route.query.artifactKind : '';
+    const artifactList =
+      typeof route.query.artifactList === 'string' ? route.query.artifactList : '';
+    const artifactPreview =
+      typeof route.query.artifactPreview === 'string' ? route.query.artifactPreview : '';
     const nodeId =
       typeof route.query.nodeId === 'string' ? route.query.nodeId : '';
     const nodeLabel =
@@ -274,6 +315,9 @@ export function useChat() {
       !packageId &&
       !packageTopic &&
       !audit &&
+      !directFile &&
+      !artifactList &&
+      !artifactPreview &&
       !nodeId &&
       !nodeLabel &&
       !mapType
@@ -327,6 +371,17 @@ export function useChat() {
             '这些是资源包元信息；除非已挂载具体文件 ID，否则不得声称已经检索到资源包原文。',
           ].filter(Boolean).join('\n')
         : '',
+      directFile || artifactList || artifactPreview
+        ? [
+            '当前还带入了生成资源包文件线索：',
+            directFile?.file_name ? `当前文件：${directFile.file_name}` : '',
+            directFile?.file_id ? `文件线索ID：${directFile.file_id}` : '',
+            artifactKind ? `文件类型：${artifactKind}` : '',
+            artifactList ? `资源包文件清单：\n${artifactList}` : '',
+            artifactPreview ? `文件预览摘要：\n${artifactPreview}` : '',
+            '这些信息来自生成包路由和文件预览；除非后端返回了真实检索片段或用户上传文件，否则只能说“基于预览/线索复核”，不得声称已经完整读取原文。',
+          ].filter(Boolean).join('\n')
+        : '',
       `入口来源：${source}。`,
       `回答必须限定在${courseShortTitle}上下文；如证据不足，应明确说明，不得混入其他课程资料。`,
     ]
@@ -362,6 +417,13 @@ export function useChat() {
       typeof route.query.resourceChapter === 'string' ? route.query.resourceChapter : '';
     const routeResourceType =
       typeof route.query.resourceType === 'string' ? route.query.resourceType : '';
+    const directFile = routeDirectFileReference.value;
+    const artifactKind =
+      typeof route.query.artifactKind === 'string' ? route.query.artifactKind : '';
+    const artifactList =
+      typeof route.query.artifactList === 'string' ? route.query.artifactList : '';
+    const artifactPreview =
+      typeof route.query.artifactPreview === 'string' ? route.query.artifactPreview : '';
 
     if (reference) {
       return normalizeCitationItems([
@@ -380,6 +442,28 @@ export function useChat() {
           ].join('\n'),
           reason: `对话入口来自 ${source}，已绑定课程资料线索 resourceId=${reference.resourceId}；该线索不会作为已检索文件发送。`,
           relevance_score: 0.72,
+        },
+      ]);
+    }
+
+    if (directFile || artifactList || artifactPreview) {
+      return normalizeCitationItems([
+        {
+          citation_id: 1,
+          source: directFile?.file_name || packageTopic || `${courseTitle} 生成包文件线索`,
+          file_name: directFile?.file_name || packageTopic || `${courseShortTitle} 生成包文件线索`,
+          context_scope: 'route_file_hint',
+          locator: directFile?.file_id || (packageId ? `资源包：${packageId}` : ''),
+          snippet: [
+            directFile?.file_name ? `当前文件线索：${directFile.file_name}` : '',
+            directFile?.file_id ? `文件线索ID：${directFile.file_id}` : '',
+            artifactKind ? `文件类型：${artifactKind}` : '',
+            artifactList ? `生成包文件清单：\n${artifactList}` : '',
+            artifactPreview ? `预览摘要：\n${artifactPreview}` : '',
+            '这是生成包文件线索或预览，不等同于后端检索到的完整原文；回答必须说明证据边界。',
+          ].filter(Boolean).join('\n'),
+          reason: `对话入口来自 ${source}，用于保持生成包文件指向；该线索不是已检索原文。`,
+          relevance_score: 0.69,
         },
       ]);
     }
@@ -725,6 +809,7 @@ export function useChat() {
           undefined,
         forceCache: Boolean(settingStore.settings.forceCache),
         debugMode: Boolean(settingStore.settings.debugMode),
+        routeContext: routeContextPayload.value,
       };
 
       const bindableMountedFile = isRagBindableReference(mountedFile)

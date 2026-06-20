@@ -166,6 +166,8 @@ class ChatStreamRequest(BaseModel):
     course_module: str | None = None
     current_file_id: str | None = None
     file_name: str | None = None
+    route_context: dict[str, Any] | None = None
+    context_refs: dict[str, Any] | None = None
     image_base64_list: list[str] | None = None
     tool_mode: str = "chat"
     force_agent: AgentName | None = None
@@ -437,6 +439,8 @@ def stream_chat(
                 prior_turns=prior_turns or None,
                 current_file_id=request.current_file_id,
                 file_name=request.file_name,
+                route_context=request.route_context,
+                context_refs=request.context_refs,
                 image_base64_list=request.image_base64_list,
                 tool_mode=_normalize_tool_mode(request.tool_mode),
                 force_agent=request.force_agent,
@@ -536,6 +540,8 @@ def selection_query(
             prior_turns=prior_turns or None,
             current_file_id=request.current_file_id,
             file_name=request.file_name,
+            route_context=request.route_context,
+            context_refs=request.context_refs,
             image_base64_list=request.image_base64_list,
             tool_mode=_normalize_tool_mode(request.tool_mode),
             force_agent=request.force_agent,

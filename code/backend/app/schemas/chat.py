@@ -19,6 +19,8 @@ class ChatBase(BaseModel):
     tool_mode: Optional[str] = "chat"
     current_file_id: Optional[str] = None
     file_name: Optional[str] = None
+    route_context: Optional[Dict[str, Any]] = None
+    context_refs: Optional[Dict[str, Any]] = None
     force_agent: Optional[str] = None
     force_cache: Optional[bool] = False
     debug_mode: Optional[bool] = False

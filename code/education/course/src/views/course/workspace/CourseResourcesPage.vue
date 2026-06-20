@@ -537,6 +537,16 @@
     return `${(size / 1024 / 1024).toFixed(1)} MB`;
   }
 
+  type GeneratedPackageArtifact = RecentGeneratedPackage['artifacts'][number];
+
+  function generatedArtifactFileId(
+    pkg: RecentGeneratedPackage,
+    artifact?: GeneratedPackageArtifact
+  ) {
+    if (!artifact?.file_name) return '';
+    return `${pkg.package_id}/${artifact.file_name}`;
+  }
+
   function artifactKindLabel(kind?: ResourceKind) {
     const map: Record<ResourceKind, string> = {
       lecture_markdown: '讲义',
@@ -582,15 +592,45 @@
 
   function askAboutGeneratedPackage(pkg: RecentGeneratedPackage) {
     if (!course.value) return;
+    const firstArtifact = pkg.artifacts[0];
+    const artifactFileId = generatedArtifactFileId(pkg, firstArtifact);
+    const artifactTitle = firstArtifact?.title || firstArtifact?.file_name || '';
+    const artifactList = pkg.artifacts
+      .slice(0, 6)
+      .map((artifact, index) => `${index + 1}. ${artifact.title || artifact.file_name}（${artifact.file_name}）`)
+      .join('\n');
+    const artifactPreview = pkg.artifacts
+      .slice(0, 4)
+      .map((artifact) => `${artifact.title || artifact.file_name}：${artifact.preview || '暂无预览'}`)
+      .join('\n');
     router.push(
       courseWorkspaceLocation(course.value.id, 'agent', {
         task: 'reader',
-        prompt: `当前课程是《${course.value.title}》。请围绕最近生成的资源包「${pkg.topic}」做资料复核：先列出已生成文件，再指出适合预习、练习、图谱核验和 AI 追问的使用顺序。`,
+        prompt: [
+          `当前课程是《${course.value.title}》。请围绕最近生成的资源包「${pkg.topic}」做资料复核。`,
+          artifactList ? `已生成文件清单：\n${artifactList}` : '',
+          firstArtifact
+            ? `当前优先复核文件：${artifactTitle}，文件标识：${artifactFileId}。`
+            : '',
+          '请先说明你能看到的是资源包与文件线索还是完整原文；如果没有原文片段，不要假装已经读完文件。然后指出预习、练习、图谱核验和 AI 追问的使用顺序。',
+        ]
+          .filter(Boolean)
+          .join('\n'),
         packageId: pkg.package_id,
+        packageTopic: pkg.topic,
+        packageSource: pkg.source || 'resource-generation',
         nodeId: pkg.node_id,
         nodeLabel: pkg.node_label,
         mapType: pkg.map_type,
         resourceId: pkg.resource_id,
+        resourceTitle: artifactTitle || pkg.topic,
+        resourceType: firstArtifact?.kind,
+        currentFileId: artifactFileId,
+        fileId: artifactFileId,
+        fileName: firstArtifact?.file_name,
+        artifactKind: firstArtifact?.kind,
+        artifactList,
+        artifactPreview,
         topic: pkg.topic,
         source: 'resource-generation',
       })
@@ -680,6 +720,36 @@
           {{ aiTrialRemaining ? '进入生成工坊' : '查看升级提示' }}
         </button>
         <button type="button" @click="showUpgradePrompt">升级后批量生成</button>
+      </div>
+    </section>
+
+    <section
+      v-if="activeMissionResource"
+      class="mobile-resource-action-strip"
+      aria-label="移动端资料闭环快捷操作"
+    >
+      <div>
+        <span>当前资料</span>
+        <strong>{{ activeMissionResource.title }}</strong>
+        <small>{{ activeMissionResource.chapter }} · {{ resourceLearningStatus(activeMissionResource) }}</small>
+      </div>
+      <div>
+        <button type="button" @click="downloadResourceBrief(activeMissionResource)">
+          <icon-download />
+          学习包
+        </button>
+        <button type="button" @click="locateResourceInGraph(activeMissionResource)">
+          <icon-mind-mapping />
+          图谱
+        </button>
+        <button type="button" @click="askAboutResource(activeMissionResource)">
+          <icon-robot />
+          提问
+        </button>
+        <button type="button" @click="generateResourceMaterials(activeMissionResource)">
+          <icon-bulb />
+          生成
+        </button>
       </div>
     </section>
 
@@ -1186,6 +1256,10 @@
       color: #fff;
       background: #2e7d6a;
     }
+  }
+
+  .mobile-resource-action-strip {
+    display: none;
   }
 
   .resource-mission-board {
@@ -2286,6 +2360,71 @@
     .generated-package-actions {
       align-items: stretch;
       flex-direction: column;
+    }
+
+    .mobile-resource-action-strip {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 12px;
+      padding: 12px;
+      border: 1px solid #dbe6f2;
+      border-radius: 12px;
+      background: #fff;
+      box-shadow: 0 10px 24px rgba(30, 49, 84, 0.06);
+
+      > div:first-child {
+        display: grid;
+        gap: 3px;
+        min-width: 0;
+      }
+
+      span,
+      strong,
+      small {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      span {
+        color: #2e7d6a;
+        font-size: 10px;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+      }
+
+      strong {
+        color: #21304a;
+        font-size: 15px;
+      }
+
+      small {
+        color: #7e8a9f;
+        font-size: 11px;
+      }
+
+      > div:last-child {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 7px;
+      }
+
+      button {
+        min-width: 0;
+        height: 36px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        border: 1px solid #dbe2f0;
+        border-radius: 10px;
+        color: #5367f8;
+        background: #f7f9ff;
+        font-size: 11px;
+        font-weight: 900;
+        cursor: pointer;
+      }
     }
 
     .mission-brief__title,

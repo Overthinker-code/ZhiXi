@@ -80,6 +80,9 @@
     if (raw === 'resource_hint') {
       return '入口线索';
     }
+    if (raw === 'route_file_hint') {
+      return '文件线索';
+    }
     if (raw === 'course') {
       return '课程上下文';
     }
@@ -111,6 +114,9 @@
           sourceLabel,
           locator: locator || '',
           scope: scopeLabel(item),
+          isHint: ['resource_hint', 'route_context', 'route_file_hint'].includes(
+            normalizeCitationScope(item.context_scope)
+          ),
           snippet,
           reason,
           score: normalizeScore(item),
@@ -218,6 +224,7 @@
         :key="`${source.scope}-${source.sourceLabel}`"
         type="button"
         class="source-chip"
+        :class="{ 'source-chip--hint': source.scope === '入口线索' || source.scope === '入口上下文' || source.scope === '文件线索' }"
         :aria-expanded="expanded"
         :title="`${source.scope || '资料'} · ${source.sourceLabel}${source.locator ? ` · ${source.locator}` : ''}${source.fileId ? ` · file ${source.fileId}` : ''}`"
         @click="expanded = true"
@@ -278,12 +285,16 @@
         :key="`${item.citation_id}-${item.source}-${item.chunk_id}`"
         :id="`citation-${item.citation_id}`"
         class="citation-detail"
+        :class="{ 'citation-detail--hint': item.isHint }"
       >
         <span class="citation-detail__index">{{ item.citation_id }}</span>
         <div class="citation-detail__body">
           <div class="citation-detail__head">
             <strong>{{ item.sourceLabel }}</strong>
             <span v-if="item.scope">{{ item.scope }}</span>
+          </div>
+          <div v-if="item.isHint" class="citation-warning">
+            此项是定位线索或文件预览，不是后端检索到的完整原文片段。
           </div>
           <div class="citation-meta">
             <small v-if="item.locator">{{ item.locator }}</small>
@@ -386,6 +397,21 @@
       background: #eef2ff;
       color: #334155;
       box-shadow: inset 0 0 0 1px rgba(199, 210, 254, 0.9);
+    }
+  }
+
+  .source-chip--hint {
+    background: #fff7ed;
+    box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.28);
+
+    .source-chip__index {
+      color: #9a571d;
+      background: #fffaf0;
+      box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.28);
+    }
+
+    .source-chip__scope {
+      color: #b45309;
     }
   }
 
@@ -512,6 +538,22 @@
     & + .citation-detail {
       border-top: 1px solid rgba(226, 232, 240, 0.72);
     }
+  }
+
+  .citation-detail--hint {
+    background: #fffaf3;
+  }
+
+  .citation-warning {
+    margin: 0.12rem 0 0.28rem;
+    padding: 0.28rem 0.42rem;
+    border-radius: 8px;
+    color: #9a571d;
+    background: rgba(255, 247, 237, 0.9);
+    font-size: 0.68rem;
+    font-weight: 650;
+    line-height: 1.45;
+    box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.22);
   }
 
   .citation-detail__index {
