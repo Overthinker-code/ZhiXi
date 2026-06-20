@@ -21,6 +21,7 @@ import {
   resumeChatAction,
   generateChatTitle,
   uploadThreadFile,
+  normalizeCitationItems,
   type ReasoningActionItem,
 } from '@/api/rag';
 import { getClassroomCourse } from '@/data/classroomCourses';
@@ -315,7 +316,7 @@ export function useChat() {
           historyMessages.push({
             ...messageHandler.formatMessage('assistant', content, reasoning),
             timestamp: item.created_at,
-            citations: item.citations || [],
+            citations: normalizeCitationItems(item.citations),
             confidence: item.confidence || '',
             grounding_mode: item.grounding_mode || '',
             suggestions: normalizeSuggestionList(item.suggestions || []),
@@ -701,12 +702,18 @@ export function useChat() {
               pushStreamUpdate();
             } else if (event.type === 'suggestions') {
               suggestions = normalizeSuggestionList(event.data || []);
+            } else if (event.type === 'citations') {
+              citations = normalizeCitationItems(event.citations || event.data || []);
+              confidence = String(event.confidence || confidence || '');
+              groundingMode = String(event.grounding_mode || groundingMode || '');
+              if (event.metrics) metrics = event.metrics || metrics;
+              pushStreamUpdate();
             } else if (event.type === 'final') {
               streamFinished = true;
               answer = event.content || answer;
               requiresConfirmation = Boolean(event.requires_confirmation);
               pendingActionId = event.pending_action_id || '';
-              citations = Array.isArray(event.citations) ? event.citations : [];
+              citations = normalizeCitationItems(event.citations || []);
               confidence = String(event.confidence || '');
               groundingMode = String(event.grounding_mode || '');
               metrics = event.metrics || {};
@@ -746,7 +753,7 @@ export function useChat() {
           false,
           '',
           normalizeSuggestionList(response.suggestions || []),
-          response.citations || [],
+          normalizeCitationItems(response.citations || []),
           response.confidence || '',
           response.grounding_mode || '',
           response.metrics || {}
@@ -889,7 +896,7 @@ export function useChat() {
         false,
         '',
         normalizeSuggestionList(response.suggestions || []),
-        response.citations || [],
+        normalizeCitationItems(response.citations || []),
         response.confidence || '',
         response.grounding_mode || '',
         response.metrics || {}

@@ -81,6 +81,144 @@ export interface CitationItem {
   relevance_score?: number;
 }
 
+const firstText = (...values: unknown[]) => {
+  for (const value of values) {
+    if (value === undefined || value === null) continue;
+    const text = String(value).trim();
+    if (text) return text;
+  }
+  return '';
+};
+
+const normalizeCitationScope = (value: unknown, hasFileId: boolean) => {
+  const raw = String(value || '').toLowerCase();
+  if (
+    [
+      'uploaded_document',
+      'current_file',
+      'thread_file',
+      'mounted_file',
+      'personal',
+      'document',
+    ].includes(raw)
+  ) {
+    return 'uploaded_document';
+  }
+  if (
+    [
+      'knowledge_base',
+      'course',
+      'course_library',
+      'system',
+      'resource',
+    ].includes(raw)
+  ) {
+    return 'knowledge_base';
+  }
+  return hasFileId ? 'uploaded_document' : raw;
+};
+
+const normalizeCitationText = (value: unknown) => {
+  const raw = firstText(value);
+  if (!raw) return '';
+  const withoutBlockSeparators = raw
+    .replace(/<hr\s*\/?>/gi, '\n')
+    .split(/\r?\n/)
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return true;
+      if (/^([-*_=])\1{2,}$/.test(trimmed)) return false;
+      if (/^[＿_—─━―－﹘﹣]{3,}$/.test(trimmed)) return false;
+      if (/^(?:\|\s*:?-{3,}:?\s*)+\|?$/.test(trimmed)) return false;
+      return true;
+    })
+    .join('\n');
+  return normalizeDisplayText(withoutBlockSeparators)
+    .replace(/(?:^|\s)(?:[-*_=\u2014\u2015\u2500\u2501\uFF3F]){3,}(?=\s|$)/g, ' ')
+    .replace(/\|\s*:?-{3,}:?\s*(?=\|)/g, '| ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+};
+
+export function normalizeCitationItems(raw: unknown): CitationItem[] {
+  const list = Array.isArray(raw) ? raw : [];
+  const seen = new Set<string>();
+
+  return list
+    .map((entry, index) => {
+      const item = (entry || {}) as Record<string, any>;
+      const fileId = firstText(
+        item.file_id,
+        item.fileId,
+        item.document_id,
+        item.documentId,
+        item.doc_id,
+        item.docId
+      );
+      const fileName = firstText(
+        item.file_name,
+        item.fileName,
+        item.filename,
+        item.name,
+        item.title
+      );
+      const source = firstText(
+        fileName,
+        item.source,
+        item.path,
+        item.document,
+        fileId,
+        `来源 ${index + 1}`
+      );
+      const chunkId =
+        item.chunk_id ??
+        item.chunkId ??
+        item.segment_id ??
+        item.segmentId ??
+        item.chunk ??
+        '';
+      const locator = firstText(
+        item.locator,
+        item.location,
+        item.page ? `第 ${item.page} 页` : '',
+        item.section,
+        chunkId ? `片段 ${chunkId}` : ''
+      );
+      const snippet = normalizeCitationText(
+        firstText(item.snippet, item.text, item.content, item.quote, item.excerpt)
+      );
+      const reason = normalizeCitationText(
+        firstText(item.reason, item.match_reason, item.rationale, item.why)
+      );
+      const citationId = Number(item.citation_id ?? item.citationId ?? index + 1);
+      const score = Number(item.relevance_score ?? item.score ?? 0);
+      const normalized: CitationItem = {
+        citation_id: Number.isFinite(citationId) && citationId > 0 ? citationId : index + 1,
+        source,
+        file_id: fileId || undefined,
+        file_name: fileName || source,
+        chunk_id: chunkId || undefined,
+        context_scope: normalizeCitationScope(item.context_scope ?? item.scope, Boolean(fileId)),
+        locator: locator || undefined,
+        snippet: snippet || '该证据片段未返回可展示文本，请结合文件定位继续核验。',
+        reason: reason || undefined,
+        relevance_score: Number.isFinite(score) && score > 0 ? score : undefined,
+        score: Number.isFinite(score) && score > 0 ? score : undefined,
+      };
+      return normalized;
+    })
+    .filter((item) => {
+      const key = [
+        item.file_id || item.source,
+        item.chunk_id || item.locator || '',
+        item.snippet.slice(0, 80),
+      ].join('|');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return Boolean(item.source || item.snippet);
+    });
+}
+
 export interface ChatMetrics {
   ttft_ms?: number;
   latency_ms?: number;
@@ -278,7 +416,9 @@ export function createAssistantChat(
         top_p: normalized.topP,
         top_k: normalized.topK,
         current_file_id: normalized.currentFileId,
+        file_id: normalized.currentFileId,
         file_name: normalized.fileName,
+        filename: normalized.fileName,
         image_base64_list: normalized.imageBase64List,
         tool_mode: normalized.toolMode || 'chat',
         force_agent: normalized.forceAgent,
@@ -307,6 +447,7 @@ export interface ChatStreamEvent {
     | 'reasoning_token'
     | 'reasoning_action'
     | 'token'
+    | 'citations'
     | 'final'
     | 'error'
     | 'suggestions';
@@ -337,6 +478,7 @@ export interface ChatStreamEvent {
 function normalizeChatRecord(raw: any): ChatRecord {
   return {
     ...raw,
+    citations: normalizeCitationItems(raw?.citations),
     suggestions: normalizeSuggestionList(raw?.suggestions || []),
   } as ChatRecord;
 }
@@ -560,7 +702,9 @@ export function createAssistantChatStream(
     video_time: normalized.videoTime,
     course_module: normalized.courseModule,
     current_file_id: normalized.currentFileId,
+    file_id: normalized.currentFileId,
     file_name: normalized.fileName,
+    filename: normalized.fileName,
     image_base64_list: normalized.imageBase64List,
     tool_mode: normalized.toolMode || 'chat',
     force_agent: normalized.forceAgent,
@@ -590,7 +734,9 @@ export function askSelectionQuery(
         video_time: normalized.videoTime,
         course_module: normalized.courseModule,
         current_file_id: normalized.currentFileId,
+        file_id: normalized.currentFileId,
         file_name: normalized.fileName,
+        filename: normalized.fileName,
         image_base64_list: normalized.imageBase64List,
         tool_mode: normalized.toolMode || 'chat',
         force_agent: normalized.forceAgent,
