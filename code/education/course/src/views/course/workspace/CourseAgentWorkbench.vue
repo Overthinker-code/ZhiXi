@@ -264,12 +264,31 @@
   );
   const incomingPrompt = computed(() => routeQueryText(route.query.prompt));
   const incomingSource = computed(() => routeQueryText(route.query.source));
+  const incomingTopic = computed(() => routeQueryText(route.query.topic));
+  const incomingPackageId = computed(() => routeQueryText(route.query.packageId));
+  const incomingUpstreamSource = computed(() => routeQueryText(route.query.upstreamSource));
+  const incomingNodeId = computed(() => routeQueryText(route.query.nodeId));
+  const incomingAudit = computed(() => routeQueryText(route.query.audit));
+  const incomingForceAgent = computed(() => routeQueryText(route.query.forceAgent));
   const incomingResourceId = computed(() => routeQueryText(route.query.resourceId));
   const incomingResource = computed(() =>
     course.value && incomingResourceId.value
       ? resolveCourseResourceReference(course.value.id, incomingResourceId.value)
       : null
   );
+  const incomingPackageContext = computed(() => {
+    if (!incomingPackageId.value && !incomingTopic.value && !incomingAudit.value) return null;
+    const source = incomingSource.value || 'course-agent';
+    return {
+      topic: incomingTopic.value || incomingResource.value?.title || selectedAgent.value?.title || '课程资源包',
+      packageId: incomingPackageId.value || 'local-package',
+      source,
+      sourceLabel: sourceLabel(source),
+      upstreamSource: incomingUpstreamSource.value,
+      nodeId: incomingNodeId.value,
+      audit: incomingAudit.value,
+    };
+  });
 
   const activeChapter = computed(() => {
     if (!course.value) return null;
@@ -305,6 +324,8 @@
   ]);
 
   const launchLabel = computed(() => {
+    if (incomingPackageContext.value && incomingPrompt.value) return '执行图谱核验';
+    if (incomingPackageContext.value && selectedAgent.value?.launch === 'chat') return '带核验上下文执行';
     if (incomingResource.value && selectedAgent.value?.launch === 'chat') return '带着这份资料提问';
     if (selectedAgent.value?.launch === 'resource') return '生成学习资料';
     if (selectedAgent.value?.launch === 'graph') return '进入课程图谱';
@@ -312,6 +333,7 @@
   });
 
   const launchTarget = computed(() => {
+    if (incomingPackageContext.value && incomingPrompt.value) return incomingForceAgent.value || 'graph_agent';
     if (selectedAgent.value?.launch === 'resource') return '资料生成器';
     if (selectedAgent.value?.launch === 'graph') return '课程知识图谱';
     return selectedAgent.value?.task?.forceAgent || 'tutor_agent';
@@ -344,6 +366,22 @@
               detail: `${incomingResource.value.chapter} · ${incomingResource.value.type} · ${incomingResource.value.file_id}`,
             },
           ]
+        : []),
+      ...(incomingPackageContext.value
+        ? [
+            {
+              label: '图谱核验包',
+              value: incomingPackageContext.value.topic,
+              detail: `${incomingPackageContext.value.sourceLabel} · ${incomingPackageContext.value.packageId}`,
+            },
+            incomingPackageContext.value.audit
+              ? {
+                  label: '核验摘要',
+                  value: incomingPackageContext.value.nodeId || '已绑定图谱节点',
+                  detail: incomingPackageContext.value.audit,
+                }
+              : null,
+          ].filter(Boolean) as Array<{ label: string; value: string; detail: string }>
         : []),
       ...(incomingPrompt.value
         ? [
@@ -381,6 +419,13 @@
       ready: Boolean(selectedAgent.value?.task),
     },
     {
+      label: '图谱核验',
+      detail: incomingPackageContext.value
+        ? `已接入 ${incomingPackageContext.value.packageId}，主题 ${incomingPackageContext.value.topic}`
+        : '未带入图谱核验包，将按课程整体上下文执行',
+      ready: Boolean(incomingPackageContext.value || course.value),
+    },
+    {
       label: '资料引用',
       detail: incomingResource.value
         ? `已带入《${incomingResource.value.title}》的章节、类型和知识点线索`
@@ -406,6 +451,50 @@
     return key === 'map' ? 'graph' : key;
   }
 
+  function sourceLabel(source: string) {
+    const map: Record<string, string> = {
+      'resource-generation': '资源生成中心',
+      'knowledge-map-package-audit': '图谱核验',
+      'knowledge-map-audit': '图谱回炉',
+      'knowledge-map': '课程图谱',
+      'course-agent': 'AI智能体',
+      resource: '课程资料',
+    };
+    return map[source] || source || '课程入口';
+  }
+
+  function packageQueryPayload() {
+    const context = incomingPackageContext.value;
+    if (!context) return {};
+    return {
+      topic: context.topic,
+      packageId: context.packageId,
+      packageTopic: context.topic,
+      packageSource: context.source,
+      upstreamSource: context.upstreamSource || context.source,
+      nodeId: context.nodeId,
+      audit: context.audit,
+    };
+  }
+
+  function shouldLaunchPackageChat(agent = selectedAgent.value) {
+    return Boolean(incomingPackageContext.value && incomingPrompt.value && agent?.launch === 'graph');
+  }
+
+  function packagePromptLines() {
+    const context = incomingPackageContext.value;
+    if (!context) return [];
+    return [
+      `图谱核验主题：${context.topic}`,
+      `资源包编号：${context.packageId}`,
+      `资源包来源：${context.sourceLabel}`,
+      context.upstreamSource ? `上游来源：${sourceLabel(context.upstreamSource)}` : '',
+      context.nodeId ? `图谱节点ID：${context.nodeId}` : '',
+      context.audit ? `核验摘要：${context.audit}` : '',
+      '执行时必须优先保持资源包、图谱节点、课堂证据和后续产物的一致性；如果证据不足，需要明确指出缺口并给出回炉生成建议。',
+    ].filter(Boolean);
+  }
+
   function selectAgent(key: string) {
     selectedAgentKey.value = key;
     router.replace({ query: { ...route.query, task: key } });
@@ -422,6 +511,7 @@
     if (!course.value || !agent) return '';
     const taskPrompt = agent.task?.prompt || agent.desc;
     const reference = incomingResource.value;
+    const packageLines = packagePromptLines();
     return [
       `当前课程：${course.value.title}`,
       `课程简介：${course.value.description}`,
@@ -429,6 +519,7 @@
       `当前智能体：${agent.title}`,
       `智能体能力：${agent.desc}`,
       incomingPrompt.value ? `入口传入任务：${incomingPrompt.value}` : '',
+      ...packageLines,
       reference
         ? [
             `当前引用资料：${reference.title}`,
@@ -449,7 +540,17 @@
 
   function openKnowledgeCenter() {
     if (!course.value) return;
-    router.push(courseWorkspaceLocation(course.value.id, 'knowledge'));
+    router.push(
+      courseWorkspaceLocation(course.value.id, 'knowledge', {
+        ...(incomingPackageContext.value
+          ? {
+              topic: incomingPackageContext.value.topic,
+              packageId: incomingPackageContext.value.packageId,
+              source: incomingPackageContext.value.upstreamSource || incomingPackageContext.value.source,
+            }
+          : {}),
+      })
+    );
   }
 
   function openResourceGenerator(agent = selectedAgent.value) {
@@ -460,10 +561,17 @@
       params: { courseId: course.value.id },
       query: {
         subject: course.value.title,
-        topic: incomingResource.value?.title || incomingResourceId.value || agent.title,
-        goal: `${normalizedDesc}。${incomingPrompt.value || '请结合当前课程章节、课堂笔记、知识图谱和学习进度生成可下载资料。'}`,
-        source: 'course-agent',
+        topic: incomingPackageContext.value?.topic || incomingResource.value?.title || incomingResourceId.value || agent.title,
+        goal: [
+          normalizedDesc,
+          incomingPrompt.value || '请结合当前课程章节、课堂笔记、知识图谱和学习进度生成可下载资料。',
+          incomingPackageContext.value?.audit
+            ? `图谱核验摘要：${incomingPackageContext.value.audit}`
+            : '',
+        ].filter(Boolean).join('。'),
+        source: incomingPackageContext.value ? 'course-agent-package-audit' : 'course-agent',
         task: agent.key,
+        ...packageQueryPayload(),
         ...(incomingResource.value
           ? {
               resourceId: incomingResource.value.resourceId,
@@ -479,6 +587,20 @@
   function launchAgent(agent = selectedAgent.value) {
     if (!course.value || !agent) return;
     selectAgent(agent.key);
+    if (shouldLaunchPackageChat(agent)) {
+      router.push({
+        name: 'TutorChat',
+        query: {
+          prompt: buildTutorPrompt(agent),
+          forceAgent: incomingForceAgent.value || agent.task?.forceAgent || 'graph_agent',
+          courseId: course.value.id,
+          source: 'course-agent-package-audit',
+          task: agent.key,
+          ...packageQueryPayload(),
+        },
+      });
+      return;
+    }
     if (agent.launch === 'resource') {
       openResourceGenerator(agent);
       return;
@@ -491,10 +613,11 @@
       name: 'TutorChat',
       query: {
         prompt: buildTutorPrompt(agent),
-        forceAgent: agent.task?.forceAgent || 'tutor_agent',
+        forceAgent: incomingForceAgent.value || agent.task?.forceAgent || 'tutor_agent',
         courseId: course.value.id,
-        source: 'course-agent',
+        source: incomingPackageContext.value ? 'course-agent-package-audit' : 'course-agent',
         task: agent.key,
+        ...packageQueryPayload(),
         ...(incomingResource.value
           ? {
               resourceId: incomingResource.value.resourceId,
@@ -514,6 +637,9 @@
       `启动入口：${launchTarget.value}`,
       `输入上下文：${inputContextCards.value.map((item) => `${item.label}-${item.value}`).join('；')}`,
       incomingPrompt.value ? `入口任务：${incomingPrompt.value}` : '',
+      incomingPackageContext.value
+        ? `图谱核验包：${incomingPackageContext.value.topic}（${incomingPackageContext.value.packageId} / ${incomingPackageContext.value.sourceLabel}）`
+        : '',
       incomingResource.value
         ? `引用资料：${incomingResource.value.title}（${incomingResource.value.chapter} / ${incomingResource.value.type}）`
         : '',
@@ -720,6 +846,32 @@
                 <strong>{{ item.value }}</strong>
                 <p>{{ item.detail }}</p>
               </article>
+            </div>
+          </section>
+
+          <section v-if="incomingPackageContext" class="package-audit-package">
+            <div class="panel-heading">
+              <strong>图谱核验包</strong>
+              <span>{{ incomingPackageContext.sourceLabel }}</span>
+            </div>
+            <div class="package-audit-card">
+              <span>资源包编号</span>
+              <strong>{{ incomingPackageContext.packageId }}</strong>
+              <p>{{ incomingPackageContext.topic }}</p>
+              <div class="package-audit-meta">
+                <em v-if="incomingPackageContext.nodeId">节点 {{ incomingPackageContext.nodeId }}</em>
+                <em v-if="incomingPackageContext.upstreamSource">
+                  上游 {{ sourceLabel(incomingPackageContext.upstreamSource) }}
+                </em>
+              </div>
+            </div>
+            <div v-if="incomingPackageContext.audit" class="package-audit-summary">
+              {{ incomingPackageContext.audit }}
+            </div>
+            <div class="package-audit-actions">
+              <button type="button" @click="launchAgent()">执行核验对话</button>
+              <button type="button" @click="openResourceGenerator()">带问题生成资料</button>
+              <button type="button" @click="openKnowledgeCenter">回到图谱核验</button>
             </div>
           </section>
 
@@ -1306,6 +1458,7 @@
   .course-context,
   .agent-flow,
   .context-package,
+  .package-audit-package,
   .reference-package,
   .deliverable-preview,
   .preflight-checks {
@@ -1507,6 +1660,117 @@
     background:
       linear-gradient(135deg, rgba(237, 246, 255, 0.96), #fff 58%),
       #fff !important;
+  }
+
+  .package-audit-package {
+    border-color: #dce6ff !important;
+    background:
+      linear-gradient(135deg, rgba(241, 246, 255, 0.98), rgba(255, 255, 255, 0.96) 58%),
+      radial-gradient(circle at 100% 0, rgba(92, 111, 207, 0.12), transparent 32%) !important;
+  }
+
+  .package-audit-card {
+    padding: 14px;
+    border: 1px solid #d8e4fb;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.82);
+
+    span,
+    strong,
+    p {
+      display: block;
+      min-width: 0;
+    }
+
+    span {
+      color: #5878f5;
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: 0.08em;
+    }
+
+    strong {
+      margin-top: 6px;
+      overflow: hidden;
+      color: #172033;
+      font-size: 13px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    p {
+      margin: 8px 0 0;
+      color: #2b3854;
+      font-size: 16px;
+      font-weight: 900;
+      line-height: 1.35;
+    }
+  }
+
+  .package-audit-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    margin-top: 11px;
+
+    em {
+      max-width: 100%;
+      overflow: hidden;
+      padding: 5px 8px;
+      border-radius: 999px;
+      color: #2f68df;
+      background: #eef4ff;
+      font-size: 10px;
+      font-style: normal;
+      font-weight: 800;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .package-audit-summary {
+    display: -webkit-box;
+    margin-top: 10px;
+    padding: 11px 12px;
+    overflow: hidden;
+    border: 1px dashed #cad8f5;
+    border-radius: 13px;
+    color: #5f6e85;
+    background: rgba(255, 255, 255, 0.72);
+    font-size: 12px;
+    line-height: 1.6;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 4;
+  }
+
+  .package-audit-actions {
+    display: grid;
+    gap: 8px;
+    margin-top: 10px;
+
+    button {
+      min-height: 34px;
+      border: 1px solid #d7e3fb;
+      border-radius: 11px;
+      color: #30425f;
+      background: #fff;
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+
+      &:hover {
+        border-color: #bfd2ff;
+        color: #2f68df;
+        background: #f4f8ff;
+      }
+
+      &:first-child {
+        border-color: transparent;
+        color: #fff;
+        background: #4f6df5;
+        box-shadow: 0 9px 18px rgba(79, 109, 245, 0.18);
+      }
+    }
   }
 
   .reference-card {

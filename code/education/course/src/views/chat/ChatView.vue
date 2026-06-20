@@ -175,6 +175,25 @@
   const routeResourceId = computed(() =>
     typeof route.query.resourceId === 'string' ? route.query.resourceId : ''
   );
+  const routeDirectFileReference = computed(() => {
+    const fileId =
+      (typeof route.query.current_file_id === 'string' ? route.query.current_file_id : '') ||
+      (typeof route.query.currentFileId === 'string' ? route.query.currentFileId : '') ||
+      (typeof route.query.fileId === 'string' ? route.query.fileId : '');
+    if (!fileId) return null;
+    const fileName =
+      (typeof route.query.fileName === 'string' ? route.query.fileName : '') ||
+      (typeof route.query.resourceTitle === 'string' ? route.query.resourceTitle : '') ||
+      fileId;
+    return {
+      file_id: fileId,
+      file_name: fileName,
+      name: fileName,
+      size: 0,
+      scope: 'system' as const,
+      created: '',
+    };
+  });
   const routeResourceReference = computed(() =>
     resolveCourseResourceReference(routeCourseId.value, routeResourceId.value)
   );
@@ -311,8 +330,14 @@
 
   function syncRouteResourceMount() {
     const reference = routeResourceReference.value;
-    if (!reference) return;
-    chatStore.setMountedFile(chatStore.currentConversationId, reference);
+    const directFile = routeDirectFileReference.value;
+    if (reference) {
+      chatStore.setMountedFile(chatStore.currentConversationId, reference);
+      return;
+    }
+    if (directFile) {
+      chatStore.setMountedFile(chatStore.currentConversationId, directFile);
+    }
   }
 
   function clearMountedFile() {
@@ -420,7 +445,7 @@
     syncRouteResourceMount();
   });
 
-  watch([routeResourceId, routeCourseId, () => chatStore.currentConversationId], () => {
+  watch([routeResourceId, routeCourseId, routeDirectFileReference, () => chatStore.currentConversationId], () => {
     syncRouteResourceMount();
   });
 </script>

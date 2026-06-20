@@ -1191,14 +1191,25 @@
   function openAiReview() {
     const topic =
       downloadablePackage.value?.topic || packageResult.value?.topic || form.topic;
+    const packageId = downloadablePackage.value?.package_id;
+    const courseId = activeCourse.value?.id || '';
     router.push({
       path: '/tutor',
       query: {
         subject: form.subject,
         topic,
         source: 'resource-generation',
-        packageId: downloadablePackage.value?.package_id,
+        packageId,
+        ...(courseId ? { courseId } : {}),
         intent: 'exercise-review',
+        prompt: [
+          `请对「${topic || form.subject || '当前课程'}」学习资源包做 AI 复核。`,
+          packageId ? `资源包编号：${packageId}` : '',
+          form.subject ? `课程/学科：${form.subject}` : '',
+          '请检查讲义、练习、导图、阅读材料是否围绕课程目标和薄弱点，指出证据不足、重复或需要回炉生成的部分，并给出下一步个性化学习建议。',
+        ]
+          .filter(Boolean)
+          .join('\n'),
       },
     });
   }

@@ -209,6 +209,24 @@ export function useChat() {
     if (!routeCourseId.value || !resourceId) return null;
     return resolveCourseResourceReference(routeCourseId.value, resourceId);
   });
+  const routeDirectFileReference = computed(() => {
+    const fileId =
+      (typeof route.query.current_file_id === 'string' ? route.query.current_file_id : '') ||
+      (typeof route.query.currentFileId === 'string' ? route.query.currentFileId : '') ||
+      (typeof route.query.fileId === 'string' ? route.query.fileId : '');
+    if (!fileId) return null;
+    const fileName =
+      (typeof route.query.fileName === 'string' ? route.query.fileName : '') ||
+      (typeof route.query.resourceTitle === 'string' ? route.query.resourceTitle : '') ||
+      fileId;
+    return {
+      file_id: fileId,
+      file_name: fileName,
+      name: fileName,
+      scope: 'system',
+      resourceId: typeof route.query.resourceId === 'string' ? route.query.resourceId : '',
+    };
+  });
   const routeCoursePrompt = computed(() => {
     if (!routeCourse.value) return '';
     const resourceId =
@@ -221,6 +239,15 @@ export function useChat() {
       typeof route.query.resourceType === 'string' ? route.query.resourceType : '';
     const source =
       typeof route.query.source === 'string' ? route.query.source : 'course';
+    const packageId =
+      typeof route.query.packageId === 'string' ? route.query.packageId : '';
+    const packageTopic =
+      (typeof route.query.packageTopic === 'string' ? route.query.packageTopic : '') ||
+      (typeof route.query.topic === 'string' ? route.query.topic : '');
+    const packageSource =
+      typeof route.query.packageSource === 'string' ? route.query.packageSource : '';
+    const audit =
+      typeof route.query.audit === 'string' ? route.query.audit : '';
     const reference = routeResourceReference.value;
     return [
       `当前对话属于课程《${routeCourse.value.title}》（course_id=${routeCourse.value.id}）。`,
@@ -244,6 +271,16 @@ export function useChat() {
               '当前只获得资料线索，若没有原文证据，必须说明证据不足。',
             ].filter(Boolean).join('\n')
           : '',
+      packageId || packageTopic || audit
+        ? [
+            '当前还带入了课程资源包核验上下文：',
+            packageTopic ? `资源包主题：${packageTopic}` : '',
+            packageId ? `资源包编号：${packageId}` : '',
+            packageSource ? `资源包来源：${packageSource}` : '',
+            audit ? `图谱核验摘要：${audit}` : '',
+            '这些是资源包元信息；除非已挂载具体文件 ID，否则不得声称已经检索到资源包原文。',
+          ].filter(Boolean).join('\n')
+        : '',
       `入口来源：${source}。`,
       '回答必须限定在当前课程上下文；如证据不足，应明确说明，不得混入其他课程资料。',
     ]
@@ -376,6 +413,7 @@ export function useChat() {
       userCountBeforeSend === 0 && isGenericThreadTitle(existingTitle);
     let mountedFile = chatStore.getMountedFile(threadIdForTitle);
     const routeMountedFile = routeResourceReference.value;
+    const directRouteFile = routeDirectFileReference.value;
     if (
       routeMountedFile &&
       (!mountedFile?.file_id ||
@@ -384,6 +422,10 @@ export function useChat() {
     ) {
       mountedFile = routeMountedFile;
       chatStore.setMountedFile(threadIdForTitle, routeMountedFile);
+    }
+    if (directRouteFile && (!mountedFile?.file_id || mountedFile.scope === 'system')) {
+      mountedFile = directRouteFile;
+      chatStore.setMountedFile(threadIdForTitle, directRouteFile);
     }
     const imageFiles = (messageContent.files || []).filter((f: any) =>
       String(f?.type || '').startsWith('image')
