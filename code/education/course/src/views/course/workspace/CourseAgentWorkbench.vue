@@ -31,7 +31,7 @@
   const course = computed(() => getClassroomCourse(String(route.params.courseId || '')));
   const activeCategory = ref<AgentCategory>('全部智能体');
   const keyword = ref('');
-  const selectedAgentKey = ref(String(route.query.task || 'resource'));
+  const selectedAgentKey = ref(normalizeAgentKey(route.query.task || 'resource'));
   const favoriteKeys = ref(new Set<string>(['resource', 'practice', 'reader']));
 
   const categoryTabs: AgentCategory[] = ['全部智能体', '自学中心', '效率工具', '学习助手', '资料科研'];
@@ -261,6 +261,19 @@
       filteredAgents.value[0] ||
       agentCatalog.value[0]
   );
+  const incomingPrompt = computed(() => routeQueryText(route.query.prompt));
+  const incomingSource = computed(() => routeQueryText(route.query.source));
+  const incomingResourceId = computed(() => routeQueryText(route.query.resourceId));
+
+  const activeChapter = computed(() => {
+    if (!course.value) return null;
+    const pendingChapter = course.value.chapters.find((chapter) =>
+      chapter.lessons.some((lesson) => lesson.status === 'pending')
+    );
+    return pendingChapter || course.value.chapters[course.value.chapters.length - 1] || null;
+  });
+
+  const activeConcepts = computed(() => course.value?.concepts.slice(0, 3) || []);
 
   const favoriteAgents = computed(() =>
     agentCatalog.value.filter((agent) => favoriteKeys.value.has(agent.key))
@@ -291,6 +304,78 @@
     return '开始对话执行';
   });
 
+  const launchTarget = computed(() => {
+    if (selectedAgent.value?.launch === 'resource') return '资料生成器';
+    if (selectedAgent.value?.launch === 'graph') return '课程知识图谱';
+    return selectedAgent.value?.task?.forceAgent || 'tutor_agent';
+  });
+
+  const inputContextCards = computed(() => {
+    if (!course.value || !selectedAgent.value) return [];
+    const concepts = activeConcepts.value.map((concept) => concept.title).join('、') || '课程核心概念';
+    return [
+      {
+        label: '课程画像',
+        value: course.value.shortTitle,
+        detail: `${course.value.progress}% 进度 · ${course.value.learned}/${course.value.total} 节已学`,
+      },
+      {
+        label: '当前章节',
+        value: activeChapter.value?.title || '课程总览',
+        detail: '优先结合未完成章节与近期学习任务',
+      },
+      {
+        label: '知识焦点',
+        value: concepts,
+        detail: `会限制在 ${selectedAgent.value.title} 的能力边界内执行`,
+      },
+      ...(incomingPrompt.value
+        ? [
+            {
+              label: incomingSource.value === 'resource' ? '资料指令' : '外部任务',
+              value: incomingResourceId.value || incomingSource.value || '来自课程入口',
+              detail: incomingPrompt.value,
+            },
+          ]
+        : []),
+    ];
+  });
+
+  const deliverablePreview = computed(() =>
+    (selectedAgent.value?.outputs || []).map((output, index) => ({
+      title: output,
+      detail: `${index + 1}. 结合课程证据生成，可继续复制、下载或进入下一步任务。`,
+    }))
+  );
+
+  const preflightChecks = computed(() => [
+    {
+      label: '课程数据',
+      detail: course.value ? `${course.value.chapters.length} 个章节已接入` : '等待课程数据',
+      ready: Boolean(course.value),
+    },
+    {
+      label: '执行入口',
+      detail: `将启动到 ${launchTarget.value}`,
+      ready: Boolean(selectedAgent.value),
+    },
+    {
+      label: '上下文约束',
+      detail: incomingPrompt.value || selectedAgent.value?.task?.prompt || '使用智能体默认任务说明',
+      ready: Boolean(selectedAgent.value?.task),
+    },
+  ]);
+
+  function routeQueryText(value: unknown) {
+    if (Array.isArray(value)) return String(value[0] || '');
+    return typeof value === 'string' ? value : '';
+  }
+
+  function normalizeAgentKey(value: unknown) {
+    const key = routeQueryText(value) || 'resource';
+    return key === 'map' ? 'graph' : key;
+  }
+
   function selectAgent(key: string) {
     selectedAgentKey.value = key;
     router.replace({ query: { ...route.query, task: key } });
@@ -312,9 +397,32 @@
       `学习进度：${course.value.progress}%（${course.value.learned}/${course.value.total} 节）`,
       `当前智能体：${agent.title}`,
       `智能体能力：${agent.desc}`,
+      incomingPrompt.value ? `入口传入任务：${incomingPrompt.value}` : '',
+      incomingResourceId.value ? `关联资料ID：${incomingResourceId.value}` : '',
       taskPrompt,
       '请先确认我的学习状态，再给出可执行的下一步，并且只围绕当前课程内容展开。',
-    ].join('\n');
+    ].filter(Boolean).join('\n');
+  }
+
+  function openKnowledgeCenter() {
+    if (!course.value) return;
+    router.push(courseWorkspaceLocation(course.value.id, 'knowledge'));
+  }
+
+  function openResourceGenerator(agent = selectedAgent.value) {
+    if (!course.value || !agent) return;
+    const normalizedDesc = agent.desc.replace(/[。.!！?？]+$/u, '');
+    router.push({
+      name: 'StudentCourseResourceGenerator',
+      params: { courseId: course.value.id },
+      query: {
+        subject: course.value.title,
+        topic: incomingResourceId.value || agent.title,
+        goal: `${normalizedDesc}。${incomingPrompt.value || '请结合当前课程章节、课堂笔记、知识图谱和学习进度生成可下载资料。'}`,
+        source: 'course-agent',
+        task: agent.key,
+      },
+    });
   }
 
   function launchAgent(agent = selectedAgent.value) {
@@ -340,32 +448,25 @@
     });
   }
 
-  function openResourceGenerator(agent = selectedAgent.value) {
-    if (!course.value || !agent) return;
-    const normalizedDesc = agent.desc.replace(/[。.!！?？]+$/u, '');
-    router.push({
-      name: 'StudentCourseResourceGenerator',
-      params: { courseId: course.value.id },
-      query: {
-        subject: course.value.title,
-        topic: agent.title,
-        goal: `${normalizedDesc}。请结合当前课程章节、课堂笔记、知识图谱和学习进度生成可下载资料。`,
-        source: 'course-agent',
-        task: agent.key,
-      },
-    });
-  }
-
-  function openKnowledgeCenter() {
-    if (!course.value) return;
-    router.push(courseWorkspaceLocation(course.value.id, 'knowledge'));
-  }
-
   function copyAgent(agent = selectedAgent.value) {
     if (!agent) return;
-    navigator.clipboard?.writeText(`${agent.title}：${agent.desc}`).catch(() => null);
-    Message.success('已复制智能体说明');
+    const brief = [
+      `${agent.title}：${agent.desc}`,
+      `启动入口：${launchTarget.value}`,
+      `输入上下文：${inputContextCards.value.map((item) => `${item.label}-${item.value}`).join('；')}`,
+      incomingPrompt.value ? `入口任务：${incomingPrompt.value}` : '',
+      `预计交付：${agent.outputs.join('、')}`,
+    ].filter(Boolean).join('\n');
+    navigator.clipboard?.writeText(brief).catch(() => null);
+    Message.success('已复制启动简报');
   }
+
+  watch(
+    () => route.query.task,
+    (task) => {
+      selectedAgentKey.value = normalizeAgentKey(task || 'resource');
+    }
+  );
 
   watch([activeCategory, keyword], () => {
     const agents = filteredAgents.value;
@@ -519,6 +620,20 @@
               <strong>{{ selectedAgent?.accuracy }}%</strong>
               <i :style="{ width: `${selectedAgent?.accuracy || 0}%` }"></i>
             </div>
+            <div class="app-runtime">
+              <div>
+                <span>启动入口</span>
+                <strong>{{ launchTarget }}</strong>
+              </div>
+              <div>
+                <span>预计耗时</span>
+                <strong>{{ selectedAgent?.estimate }}</strong>
+              </div>
+              <div>
+                <span>本周调用</span>
+                <strong>{{ selectedAgent?.usage }}</strong>
+              </div>
+            </div>
             <div class="selected-actions">
               <button type="button" class="primary" @click="launchAgent()">
                 <icon-robot /> {{ launchLabel }}
@@ -530,6 +645,49 @@
                 <icon-mind-mapping /> 课程图谱
               </button>
             </div>
+          </section>
+
+          <section class="context-package">
+            <div class="panel-heading">
+              <strong>输入上下文</strong>
+              <span>启动时带入</span>
+            </div>
+            <div class="context-stack">
+              <article v-for="item in inputContextCards" :key="item.label">
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+                <p>{{ item.detail }}</p>
+              </article>
+            </div>
+          </section>
+
+          <section class="deliverable-preview">
+            <div class="panel-heading">
+              <strong>交付物预览</strong>
+              <span>{{ deliverablePreview.length }} 项</span>
+            </div>
+            <div class="deliverable-grid">
+              <article v-for="item in deliverablePreview" :key="item.title">
+                <strong>{{ item.title }}</strong>
+                <p>{{ item.detail }}</p>
+              </article>
+            </div>
+          </section>
+
+          <section class="preflight-checks">
+            <div class="panel-heading">
+              <strong>启动前检查</strong>
+              <span>已就绪</span>
+            </div>
+            <ul>
+              <li v-for="item in preflightChecks" :key="item.label" :class="{ ready: item.ready }">
+                <span>{{ item.ready ? '通过' : '待补' }}</span>
+                <div>
+                  <strong>{{ item.label }}</strong>
+                  <p>{{ item.detail }}</p>
+                </div>
+              </li>
+            </ul>
           </section>
 
           <section class="agent-flow">
@@ -1053,7 +1211,10 @@
 
   .selected-agent,
   .course-context,
-  .agent-flow {
+  .agent-flow,
+  .context-package,
+  .deliverable-preview,
+  .preflight-checks {
     padding: 16px;
   }
 
@@ -1120,6 +1281,41 @@
     }
   }
 
+  .app-runtime {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 14px;
+
+    div {
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid #e6edf7;
+      border-radius: 12px;
+      background: #f8fbff;
+    }
+
+    span,
+    strong {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    span {
+      color: #7d899c;
+      font-size: 11px;
+    }
+
+    strong {
+      margin-top: 5px;
+      color: #172033;
+      font-size: 13px;
+    }
+  }
+
   .selected-actions {
     display: grid;
     gap: 9px;
@@ -1142,6 +1338,157 @@
         background: #4468f2;
         box-shadow: 0 10px 20px rgba(68, 104, 242, 0.18);
       }
+    }
+  }
+
+  .panel-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+
+    strong {
+      color: #172033;
+      font-size: 15px;
+    }
+
+    span {
+      flex-shrink: 0;
+      padding: 3px 8px;
+      border-radius: 999px;
+      color: #2f68df;
+      background: #eef4ff;
+      font-size: 11px;
+      font-weight: 800;
+    }
+  }
+
+  .context-stack {
+    display: grid;
+    gap: 9px;
+
+    article {
+      min-width: 0;
+      padding: 12px;
+      border: 1px solid #e8eef7;
+      border-radius: 13px;
+      background:
+        linear-gradient(135deg, rgba(239, 246, 255, 0.86), rgba(255, 255, 255, 0.94)),
+        #fff;
+    }
+
+    span,
+    strong,
+    p {
+      display: block;
+      min-width: 0;
+    }
+
+    span {
+      color: #6f7b8f;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    strong {
+      margin-top: 5px;
+      overflow: hidden;
+      color: #172033;
+      font-size: 14px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    p {
+      margin: 6px 0 0;
+      color: #68758a;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+  }
+
+  .deliverable-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px;
+
+    article {
+      min-width: 0;
+      min-height: 104px;
+      padding: 12px;
+      border: 1px solid #e4efe9;
+      border-radius: 13px;
+      background: #f7fcf9;
+    }
+
+    strong {
+      display: block;
+      color: #206a49;
+      font-size: 13px;
+    }
+
+    p {
+      margin: 8px 0 0;
+      color: #667789;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+  }
+
+  .preflight-checks {
+    ul {
+      display: grid;
+      gap: 9px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    li {
+      display: grid;
+      grid-template-columns: 42px minmax(0, 1fr);
+      gap: 10px;
+      align-items: start;
+      padding: 11px;
+      border: 1px solid #edf0f5;
+      border-radius: 13px;
+      background: #fbfcff;
+    }
+
+    li > span {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 24px;
+      border-radius: 999px;
+      color: #8a5a12;
+      background: #fff7e8;
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    li.ready > span {
+      color: #1f7a4d;
+      background: #eaf8f0;
+    }
+
+    strong,
+    p {
+      display: block;
+      min-width: 0;
+    }
+
+    strong {
+      color: #172033;
+      font-size: 13px;
+    }
+
+    p {
+      margin: 5px 0 0;
+      color: #68758a;
+      font-size: 12px;
+      line-height: 1.55;
     }
   }
 

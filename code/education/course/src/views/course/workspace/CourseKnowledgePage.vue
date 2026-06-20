@@ -477,7 +477,7 @@
     const node = selectedNode.value;
     router.push(
       courseWorkspaceLocation(course.value.id, 'agent', {
-        task: 'map',
+        task: 'graph',
         forceAgent: 'graph_agent',
         prompt: [
           `当前课程：${course.value.title}`,

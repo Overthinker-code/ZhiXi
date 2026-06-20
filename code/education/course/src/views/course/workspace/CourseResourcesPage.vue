@@ -155,6 +155,7 @@
     if (!course.value) return;
     router.push(
       courseWorkspaceLocation(course.value.id, 'agent', {
+        task: 'reader',
         prompt: `当前课程是《${course.value.title}》。我想围绕资料《${item.title}》提问，请先告诉我可以从哪些角度阅读这份资料。`,
         resourceId: item.id,
         source: 'resource',
