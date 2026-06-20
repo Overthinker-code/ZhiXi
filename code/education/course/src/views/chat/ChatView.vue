@@ -1,5 +1,6 @@
 <script setup lang="ts">
-  import { computed, h, onMounted, ref, resolveComponent } from 'vue';
+  import { computed, h, onMounted, ref, resolveComponent, watch } from 'vue';
+  import { useRoute } from 'vue-router';
   import { Message } from '@arco-design/web-vue';
   import type { TableColumnData, TableData } from '@arco-design/web-vue/es/table/interface';
   import { useUserStore } from '@/store';
@@ -11,6 +12,7 @@
     type ReferenceFile,
     type ReferenceScopeFilter,
   } from '@/api/rag';
+  import { resolveCourseResourceReference } from '@/utils/courseResourceReference';
   import LegacyAssistantPanel from './LegacyAssistantPanel.vue';
   import ReferenceFileUploadDialog from './components/ReferenceFileUploadDialog.vue';
 
@@ -34,6 +36,7 @@
 
   const userStore = useUserStore();
   const chatStore = useChatStore();
+  const route = useRoute();
   const isAdmin = computed(() => userStore.role === 'teacher');
   const drawerVisible = computed({
     get: () => Boolean(activeDrawer.value),
@@ -164,6 +167,16 @@
   const latestFiles = computed(() => files.value.slice(0, 6));
   const mountedFile = computed(() =>
     chatStore.getMountedFile(chatStore.currentConversationId)
+  );
+  const routeCourseId = computed(() => {
+    const value = route.query.courseId || route.params.courseId;
+    return typeof value === 'string' ? value : '';
+  });
+  const routeResourceId = computed(() =>
+    typeof route.query.resourceId === 'string' ? route.query.resourceId : ''
+  );
+  const routeResourceReference = computed(() =>
+    resolveCourseResourceReference(routeCourseId.value, routeResourceId.value)
   );
 
   const masteryRings = computed(() => {
@@ -296,6 +309,12 @@
     Message.success(`已将《${record.name}》设为本对话引用文件`);
   }
 
+  function syncRouteResourceMount() {
+    const reference = routeResourceReference.value;
+    if (!reference) return;
+    chatStore.setMountedFile(chatStore.currentConversationId, reference);
+  }
+
   function clearMountedFile() {
     chatStore.setMountedFile(chatStore.currentConversationId, null);
     Message.success('已取消本对话引用文件');
@@ -398,6 +417,11 @@
   onMounted(() => {
     void loadLearningReport(false);
     void loadReferenceFiles();
+    syncRouteResourceMount();
+  });
+
+  watch([routeResourceId, routeCourseId, () => chatStore.currentConversationId], () => {
+    syncRouteResourceMount();
   });
 </script>
 
@@ -429,6 +453,16 @@
             </span>
             <span class="context-stat__hint">{{ stat.sub }}</span>
           </button>
+        </div>
+        <div v-if="mountedFile" class="active-reference-strip">
+          <div>
+            <span>{{ mountedFile.scope === 'system' ? '课程库引用' : '本对话引用' }}</span>
+            <strong>{{ mountedFile.file_name || mountedFile.name }}</strong>
+          </div>
+          <p v-if="mountedFile.chapter || mountedFile.type">
+            {{ mountedFile.chapter || '课程资料' }} · {{ mountedFile.type || getScopeLabel(mountedFile.scope) }}
+          </p>
+          <button type="button" @click="openDrawer('resources')">查看引用</button>
         </div>
       </section>
 
@@ -704,6 +738,71 @@
     white-space: nowrap;
   }
 
+  .active-reference-strip {
+    min-width: 280px;
+    max-width: 390px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 12px;
+    align-items: center;
+    padding: 9px 11px;
+    border: 1px solid #d9e7fb;
+    border-radius: 12px;
+    background:
+      linear-gradient(135deg, #f2f8ff, #fff 68%),
+      #fff;
+
+    div,
+    p {
+      min-width: 0;
+    }
+
+    span,
+    strong {
+      display: block;
+      min-width: 0;
+    }
+
+    span {
+      color: #2f68df;
+      font-size: 10px;
+      font-weight: 900;
+    }
+
+    strong {
+      margin-top: 2px;
+      overflow: hidden;
+      color: #1b2a44;
+      font-size: 12px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    p {
+      grid-column: 1 / -1;
+      margin: -2px 0 0;
+      overflow: hidden;
+      color: #66758e;
+      font-size: 11px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    button {
+      grid-row: 1 / span 2;
+      grid-column: 2;
+      height: 30px;
+      padding: 0 10px;
+      border: 1px solid #bfd4ff;
+      border-radius: 9px;
+      color: #2f68df;
+      background: #fff;
+      font-size: 11px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+  }
+
   .chat-stage {
     min-width: 0;
     min-height: calc(100vh - 153px);
@@ -961,6 +1060,12 @@
     .context-stats {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .active-reference-strip {
+      width: 100%;
+      min-width: 0;
+      max-width: none;
     }
 
     .context-stat {

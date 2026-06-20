@@ -22,6 +22,7 @@
   import { getClassroomCourse } from '@/data/classroomCourses';
   import { courseAgentTasks } from '@/data/courseWorkspace';
   import { courseWorkspaceLocation } from '@/composables/useCourseRouteContext';
+  import { resolveCourseResourceReference } from '@/utils/courseResourceReference';
 
   type AgentCategory = '全部智能体' | '自学中心' | '效率工具' | '学习助手' | '资料科研';
   type AgentLaunchMode = 'chat' | 'resource' | 'graph';
@@ -264,6 +265,11 @@
   const incomingPrompt = computed(() => routeQueryText(route.query.prompt));
   const incomingSource = computed(() => routeQueryText(route.query.source));
   const incomingResourceId = computed(() => routeQueryText(route.query.resourceId));
+  const incomingResource = computed(() =>
+    course.value && incomingResourceId.value
+      ? resolveCourseResourceReference(course.value.id, incomingResourceId.value)
+      : null
+  );
 
   const activeChapter = computed(() => {
     if (!course.value) return null;
@@ -299,6 +305,7 @@
   ]);
 
   const launchLabel = computed(() => {
+    if (incomingResource.value && selectedAgent.value?.launch === 'chat') return '带着这份资料提问';
     if (selectedAgent.value?.launch === 'resource') return '生成学习资料';
     if (selectedAgent.value?.launch === 'graph') return '进入课程图谱';
     return '开始对话执行';
@@ -329,11 +336,20 @@
         value: concepts,
         detail: `会限制在 ${selectedAgent.value.title} 的能力边界内执行`,
       },
+      ...(incomingResource.value
+        ? [
+            {
+              label: '当前引用资料',
+              value: incomingResource.value.title,
+              detail: `${incomingResource.value.chapter} · ${incomingResource.value.type} · ${incomingResource.value.file_id}`,
+            },
+          ]
+        : []),
       ...(incomingPrompt.value
         ? [
             {
               label: incomingSource.value === 'resource' ? '资料指令' : '外部任务',
-              value: incomingResourceId.value || incomingSource.value || '来自课程入口',
+              value: incomingResource.value?.title || incomingResourceId.value || incomingSource.value || '来自课程入口',
               detail: incomingPrompt.value,
             },
           ]
@@ -364,6 +380,20 @@
       detail: incomingPrompt.value || selectedAgent.value?.task?.prompt || '使用智能体默认任务说明',
       ready: Boolean(selectedAgent.value?.task),
     },
+    {
+      label: '资料引用',
+      detail: incomingResource.value
+        ? `已带入《${incomingResource.value.title}》的章节、类型和知识点线索`
+        : '未从资料卡进入，将使用课程整体上下文',
+      ready: Boolean(incomingResource.value || course.value),
+    },
+    {
+      label: '依据要求',
+      detail: incomingResource.value
+        ? '回答需说明依据；证据不足时必须明确标注'
+        : '回答需限定在当前课程范围内',
+      ready: true,
+    },
   ]);
 
   function routeQueryText(value: unknown) {
@@ -391,6 +421,7 @@
   function buildTutorPrompt(agent = selectedAgent.value) {
     if (!course.value || !agent) return '';
     const taskPrompt = agent.task?.prompt || agent.desc;
+    const reference = incomingResource.value;
     return [
       `当前课程：${course.value.title}`,
       `课程简介：${course.value.description}`,
@@ -398,7 +429,19 @@
       `当前智能体：${agent.title}`,
       `智能体能力：${agent.desc}`,
       incomingPrompt.value ? `入口传入任务：${incomingPrompt.value}` : '',
-      incomingResourceId.value ? `关联资料ID：${incomingResourceId.value}` : '',
+      reference
+        ? [
+            `当前引用资料：${reference.title}`,
+            `资料ID：${reference.resourceId}`,
+            `资料文件标识：${reference.file_id}`,
+            `资料章节：${reference.chapter}`,
+            `资料类型：${reference.type}`,
+            `可用证据线索：${reference.evidence.join('；')}`,
+            '回答开头请确认将围绕这份资料回答；结尾必须列出“依据”和“证据不足之处”。',
+          ].join('\n')
+        : incomingResourceId.value
+          ? `关联资料ID：${incomingResourceId.value}。当前只获得资料线索，证据不足时必须说明。`
+          : '',
       taskPrompt,
       '请先确认我的学习状态，再给出可执行的下一步，并且只围绕当前课程内容展开。',
     ].filter(Boolean).join('\n');
@@ -417,10 +460,18 @@
       params: { courseId: course.value.id },
       query: {
         subject: course.value.title,
-        topic: incomingResourceId.value || agent.title,
+        topic: incomingResource.value?.title || incomingResourceId.value || agent.title,
         goal: `${normalizedDesc}。${incomingPrompt.value || '请结合当前课程章节、课堂笔记、知识图谱和学习进度生成可下载资料。'}`,
         source: 'course-agent',
         task: agent.key,
+        ...(incomingResource.value
+          ? {
+              resourceId: incomingResource.value.resourceId,
+              resourceTitle: incomingResource.value.title,
+              resourceChapter: incomingResource.value.chapter,
+              resourceType: incomingResource.value.type,
+            }
+          : {}),
       },
     });
   }
@@ -444,6 +495,14 @@
         courseId: course.value.id,
         source: 'course-agent',
         task: agent.key,
+        ...(incomingResource.value
+          ? {
+              resourceId: incomingResource.value.resourceId,
+              resourceTitle: incomingResource.value.title,
+              resourceChapter: incomingResource.value.chapter,
+              resourceType: incomingResource.value.type,
+            }
+          : {}),
       },
     });
   }
@@ -455,6 +514,9 @@
       `启动入口：${launchTarget.value}`,
       `输入上下文：${inputContextCards.value.map((item) => `${item.label}-${item.value}`).join('；')}`,
       incomingPrompt.value ? `入口任务：${incomingPrompt.value}` : '',
+      incomingResource.value
+        ? `引用资料：${incomingResource.value.title}（${incomingResource.value.chapter} / ${incomingResource.value.type}）`
+        : '',
       `预计交付：${agent.outputs.join('、')}`,
     ].filter(Boolean).join('\n');
     navigator.clipboard?.writeText(brief).catch(() => null);
@@ -658,6 +720,37 @@
                 <strong>{{ item.value }}</strong>
                 <p>{{ item.detail }}</p>
               </article>
+            </div>
+          </section>
+
+          <section v-if="incomingResource" class="reference-package">
+            <div class="panel-heading">
+              <strong>当前引用资料</strong>
+              <span>课程内置线索</span>
+            </div>
+            <div class="reference-card">
+              <span class="reference-type">{{ incomingResource.type }}</span>
+              <h3>{{ incomingResource.title }}</h3>
+              <p>{{ incomingResource.chapter }} · {{ incomingResource.sizeLabel }} · {{ incomingResource.downloads }} 次使用</p>
+              <div class="reference-id">
+                <span>文件标识</span>
+                <strong>{{ incomingResource.file_id }}</strong>
+              </div>
+              <div class="reference-evidence">
+                <span v-for="item in incomingResource.evidence" :key="item">
+                  {{ item }}
+                </span>
+              </div>
+            </div>
+            <div class="reference-prompts">
+              <button
+                v-for="prompt in incomingResource.prompts"
+                :key="prompt"
+                type="button"
+                @click="router.replace({ query: { ...route.query, prompt } })"
+              >
+                {{ prompt }}
+              </button>
             </div>
           </section>
 
@@ -1213,6 +1306,7 @@
   .course-context,
   .agent-flow,
   .context-package,
+  .reference-package,
   .deliverable-preview,
   .preflight-checks {
     padding: 16px;
@@ -1405,6 +1499,117 @@
       color: #68758a;
       font-size: 12px;
       line-height: 1.55;
+    }
+  }
+
+  .reference-package {
+    border-color: #d6e4f8 !important;
+    background:
+      linear-gradient(135deg, rgba(237, 246, 255, 0.96), #fff 58%),
+      #fff !important;
+  }
+
+  .reference-card {
+    position: relative;
+    padding: 14px;
+    border: 1px solid #d9e7fb;
+    border-radius: 16px;
+    background: #fbfdff;
+
+    h3 {
+      margin: 9px 0 7px;
+      color: #14223b;
+      font-size: 16px;
+      line-height: 1.35;
+    }
+
+    p {
+      margin: 0;
+      color: #65758d;
+      font-size: 12px;
+    }
+  }
+
+  .reference-type {
+    display: inline-flex;
+    align-items: center;
+    height: 24px;
+    padding: 0 9px;
+    border-radius: 999px;
+    color: #1d5fd7;
+    background: #eaf2ff;
+    font-size: 11px;
+    font-weight: 900;
+  }
+
+  .reference-id {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
+    margin-top: 12px;
+    padding: 9px 10px;
+    border-radius: 11px;
+    background: #eef5ff;
+
+    span {
+      color: #55708f;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    strong {
+      min-width: 0;
+      overflow: hidden;
+      color: #1f3b6d;
+      font-size: 11px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .reference-evidence {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    margin-top: 12px;
+
+    span {
+      max-width: 100%;
+      padding: 5px 8px;
+      overflow: hidden;
+      border: 1px solid #dbe7f7;
+      border-radius: 999px;
+      color: #4a607c;
+      background: #fff;
+      font-size: 11px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .reference-prompts {
+    display: grid;
+    gap: 7px;
+    margin-top: 10px;
+
+    button {
+      min-height: 34px;
+      padding: 7px 10px;
+      border: 1px solid #d7e5fa;
+      border-radius: 11px;
+      color: #24456f;
+      background: #fff;
+      font-size: 12px;
+      line-height: 1.35;
+      text-align: left;
+      cursor: pointer;
+
+      &:hover {
+        border-color: #9ec0ff;
+        color: #1d5fd7;
+        background: #f5f9ff;
+      }
     }
   }
 

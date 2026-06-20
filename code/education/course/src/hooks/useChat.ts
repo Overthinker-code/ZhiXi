@@ -24,6 +24,7 @@ import {
   type ReasoningActionItem,
 } from '@/api/rag';
 import { getClassroomCourse } from '@/data/classroomCourses';
+import { resolveCourseResourceReference } from '@/utils/courseResourceReference';
 
 /**
  * Parse raw assistant response that may contain <think>/<analysis>/<final> XML tags.
@@ -202,16 +203,47 @@ export function useChat() {
     return typeof value === 'string' ? value : '';
   });
   const routeCourse = computed(() => getClassroomCourse(routeCourseId.value));
+  const routeResourceReference = computed(() => {
+    const resourceId =
+      typeof route.query.resourceId === 'string' ? route.query.resourceId : '';
+    if (!routeCourseId.value || !resourceId) return null;
+    return resolveCourseResourceReference(routeCourseId.value, resourceId);
+  });
   const routeCoursePrompt = computed(() => {
     if (!routeCourse.value) return '';
     const resourceId =
       typeof route.query.resourceId === 'string' ? route.query.resourceId : '';
+    const routeResourceTitle =
+      typeof route.query.resourceTitle === 'string' ? route.query.resourceTitle : '';
+    const routeResourceChapter =
+      typeof route.query.resourceChapter === 'string' ? route.query.resourceChapter : '';
+    const routeResourceType =
+      typeof route.query.resourceType === 'string' ? route.query.resourceType : '';
     const source =
       typeof route.query.source === 'string' ? route.query.source : 'course';
+    const reference = routeResourceReference.value;
     return [
       `当前对话属于课程《${routeCourse.value.title}》（course_id=${routeCourse.value.id}）。`,
       `课程进度为 ${routeCourse.value.progress}%，课程类型为${routeCourse.value.type}。`,
-      resourceId ? `当前关联资料 ID：${resourceId}。` : '',
+      reference
+        ? [
+            `当前引用资料：${reference.title}`,
+            `资料ID：${reference.resourceId}`,
+            `资料文件标识：${reference.file_id}`,
+            `章节：${reference.chapter}`,
+            `类型：${reference.type}`,
+            `证据线索：${reference.evidence.join('；')}`,
+            '回答时必须优先围绕这份资料；证据不足时要明确说明，并在结尾列出依据。',
+          ].join('\n')
+        : resourceId
+          ? [
+              `当前关联资料 ID：${resourceId}。`,
+              routeResourceTitle ? `资料标题：${routeResourceTitle}` : '',
+              routeResourceChapter ? `章节：${routeResourceChapter}` : '',
+              routeResourceType ? `类型：${routeResourceType}` : '',
+              '当前只获得资料线索，若没有原文证据，必须说明证据不足。',
+            ].filter(Boolean).join('\n')
+          : '',
       `入口来源：${source}。`,
       '回答必须限定在当前课程上下文；如证据不足，应明确说明，不得混入其他课程资料。',
     ]
@@ -343,6 +375,16 @@ export function useChat() {
     const needTitleSync =
       userCountBeforeSend === 0 && isGenericThreadTitle(existingTitle);
     let mountedFile = chatStore.getMountedFile(threadIdForTitle);
+    const routeMountedFile = routeResourceReference.value;
+    if (
+      routeMountedFile &&
+      (!mountedFile?.file_id ||
+        mountedFile.resourceId === routeMountedFile.resourceId ||
+        mountedFile.scope === 'system')
+    ) {
+      mountedFile = routeMountedFile;
+      chatStore.setMountedFile(threadIdForTitle, routeMountedFile);
+    }
     const imageFiles = (messageContent.files || []).filter((f: any) =>
       String(f?.type || '').startsWith('image')
     );
