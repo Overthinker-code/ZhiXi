@@ -97,9 +97,142 @@
         return neighbor ? { link, neighbor } : null;
       })
       .filter(Boolean) as Array<{
-        link: CourseKnowledgeMap['links'][number];
-        neighbor: CourseKnowledgeNode;
+          link: CourseKnowledgeMap['links'][number];
+          neighbor: CourseKnowledgeNode;
       }>;
+  });
+  const graphPathSteps = computed(() => {
+    const map = activeMap.value;
+    const node = selectedNode.value;
+    if (!map || !node || !course.value) return [];
+    const findNode = (id: string) => map.nodes.find((item) => item.id === id);
+    const incoming = visibleLinks.value
+      .filter((link) => link.target === node.id)
+      .map((link) => ({ link, node: findNode(link.source) }))
+      .filter((item): item is { link: CourseKnowledgeMap['links'][number]; node: CourseKnowledgeNode } => Boolean(item.node))
+      .sort((a, b) => {
+        const relationWeight = (link: CourseKnowledgeMap['links'][number]) =>
+          link.relation === '前后置关系' ? 3 : link.relation === '父子关系' ? 2 : 1;
+        return relationWeight(b.link) - relationWeight(a.link) || (b.link.strength || 0) - (a.link.strength || 0);
+      });
+    const outgoing = visibleLinks.value
+      .filter((link) => link.source === node.id)
+      .map((link) => ({ link, node: findNode(link.target) }))
+      .filter((item): item is { link: CourseKnowledgeMap['links'][number]; node: CourseKnowledgeNode } => Boolean(item.node))
+      .sort((a, b) => {
+        const relationWeight = (link: CourseKnowledgeMap['links'][number]) =>
+          link.relation === '前后置关系' ? 3 : link.relation === '任务驱动' ? 2 : 1;
+        return relationWeight(b.link) - relationWeight(a.link) || (b.link.strength || 0) - (a.link.strength || 0);
+      });
+    const weakestRelated = [...incoming, ...outgoing].sort(
+      (a, b) => (a.node.mastery ?? course.value!.progress) - (b.node.mastery ?? course.value!.progress)
+    )[0];
+    const selectedEvidence = node.evidence?.[0] || node.detail || map.description;
+    const selectedResource = node.resources?.[0] || `${node.label} 节点讲义`;
+    const selectedCheck = node.checks?.[0] || `能否说明「${node.label}」的定义、条件和边界？`;
+    const steps = [
+      incoming[0]
+        ? {
+            key: 'before',
+            phase: '前置',
+            title: incoming[0].node.label,
+            relation: incoming[0].link.relation,
+            strength: incoming[0].link.strength || 72,
+            mastery: incoming[0].node.mastery ?? course.value.progress,
+            desc: `先确认「${incoming[0].node.label}」与当前节点的${incoming[0].link.relation}，避免直接跳到结论。`,
+            evidence: incoming[0].node.evidence?.[0] || incoming[0].node.detail || '需要补齐前置节点课堂证据。',
+            resource: incoming[0].node.resources?.[0] || `${incoming[0].node.label} 前置讲义`,
+            check: incoming[0].node.checks?.[0] || `能否解释「${incoming[0].node.label}」如何支撑当前节点？`,
+            nodeId: incoming[0].node.id,
+          }
+        : {
+            key: 'before',
+            phase: '前置',
+            title: '课程总览',
+            relation: '父子关系',
+            strength: 68,
+            mastery: course.value.progress,
+            desc: '从课程总览确认当前节点在课程主线中的位置。',
+            evidence: `${course.value.shortTitle} 总览结构`,
+            resource: `${course.value.shortTitle} 章节脉络`,
+            check: '能否说明当前节点属于哪条课程主线？',
+            nodeId: node.id,
+          },
+      {
+        key: 'current',
+        phase: '当前',
+        title: node.label,
+        relation: nodeTypeLabel(node.type),
+        strength: Math.round(
+          selectedLinks.value.reduce((sum, item) => sum + (item.strength || 72), 0) /
+            Math.max(selectedLinks.value.length, 1)
+        ),
+        mastery: selectedNodeMastery.value,
+        desc: node.recommendedAction || '围绕当前节点完成定义、边界、例题和错因复盘。',
+        evidence: selectedEvidence,
+        resource: selectedResource,
+        check: selectedCheck,
+        nodeId: node.id,
+      },
+      outgoing[0]
+        ? {
+            key: 'after',
+            phase: '后续',
+            title: outgoing[0].node.label,
+            relation: outgoing[0].link.relation,
+            strength: outgoing[0].link.strength || 72,
+            mastery: outgoing[0].node.mastery ?? course.value.progress,
+            desc: `掌握当前节点后，沿${outgoing[0].link.relation}进入「${outgoing[0].node.label}」。`,
+            evidence: outgoing[0].node.evidence?.[0] || outgoing[0].node.detail || '需要补齐后续节点课堂证据。',
+            resource: outgoing[0].node.resources?.[0] || `${outgoing[0].node.label} 拓展练习`,
+            check: outgoing[0].node.checks?.[0] || `能否把「${node.label}」迁移到「${outgoing[0].node.label}」？`,
+            nodeId: outgoing[0].node.id,
+          }
+        : weakestRelated
+          ? {
+              key: 'after',
+              phase: '补强',
+              title: weakestRelated.node.label,
+              relation: weakestRelated.link.relation,
+              strength: weakestRelated.link.strength || 72,
+              mastery: weakestRelated.node.mastery ?? course.value.progress,
+              desc: `当前没有明确后继，建议先补强相邻薄弱点「${weakestRelated.node.label}」。`,
+              evidence: weakestRelated.node.evidence?.[0] || weakestRelated.node.detail || '需要补充相邻节点证据。',
+              resource: weakestRelated.node.resources?.[0] || `${weakestRelated.node.label} 补强练习`,
+              check: weakestRelated.node.checks?.[0] || `能否说清「${weakestRelated.node.label}」与当前节点的关系？`,
+              nodeId: weakestRelated.node.id,
+            }
+          : {
+              key: 'after',
+              phase: '后续',
+              title: '生成迁移任务',
+              relation: '任务驱动',
+              strength: 64,
+              mastery: selectedNodeMastery.value,
+              desc: '当前节点暂无后续关系，建议生成迁移题来补齐图谱边。',
+              evidence: selectedEvidence,
+              resource: `${node.label} 迁移练习`,
+              check: `能否用「${node.label}」解决一个新场景问题？`,
+              nodeId: node.id,
+            },
+    ];
+    return steps;
+  });
+  const pathCoverageStats = computed(() => {
+    const steps = graphPathSteps.value;
+    const evidenceReady = steps.filter((item) => item.evidence && !item.evidence.includes('需要补')).length;
+    const averageMastery = Math.round(
+      steps.reduce((sum, item) => sum + item.mastery, 0) / Math.max(steps.length, 1)
+    );
+    const averageStrength = Math.round(
+      steps.reduce((sum, item) => sum + item.strength, 0) / Math.max(steps.length, 1)
+    );
+    return [
+      { label: '路径阶段', value: `${steps.length}` },
+      { label: '证据覆盖', value: `${evidenceReady}/${steps.length}` },
+      { label: '平均掌握', value: `${averageMastery}%` },
+      { label: '关系强度', value: `${averageStrength}%` },
+    ];
   });
   const selectedNodeMastery = computed(() => selectedNode.value?.mastery ?? course.value?.progress ?? 0);
   const selectedNodeEvidence = computed(() => selectedNode.value?.evidence?.slice(0, 5) || []);
@@ -699,7 +832,7 @@
     router.push(
       courseWorkspaceLocation(course.value.id, 'agent', {
         task: 'graph',
-        forceAgent: 'graph_agent',
+        forceAgent: 'retrieval_agent',
         source: packageContext.value ? 'knowledge-map-package-audit' : 'knowledge-map',
         topic: packageContext.value?.topic || node?.label || activeMap.value.title,
         packageId: packageContext.value?.packageId,
@@ -756,6 +889,50 @@
       return;
     }
     askGraphAgent('解释当前节点、相邻节点和学习路径，并给出下一步可执行动作');
+  }
+
+  function selectPathStep(nodeId: string) {
+    const node = activeMap.value?.nodes.find((item) => item.id === nodeId);
+    if (!node) return;
+    selectNode(node);
+  }
+
+  function askPathTutor() {
+    const node = selectedNode.value;
+    if (!node) return;
+    const pathLines = graphPathSteps.value.map(
+      (item, index) =>
+        `${index + 1}. ${item.phase}：${item.title}（${item.relation}，掌握度 ${item.mastery}%，证据：${item.evidence}，检查：${item.check}）`
+    );
+    askGraphAgent(
+      [
+        `沿当前节点「${node.label}」解释前置、当前、后续学习路径。`,
+        '请把每个阶段拆成：先看什么证据、补什么资料、做哪道检查题、完成后如何判断通过。',
+        `路径阶段：${pathLines.join('；')}`,
+      ].join('\n')
+    );
+  }
+
+  function generatePathResources() {
+    if (!course.value || !selectedNode.value) return;
+    router.push({
+      name: 'StudentCourseResourceGenerator',
+      params: { courseId: course.value.id },
+      query: {
+        subject: course.value.title,
+        topic: `${selectedNode.value.label}学习路径`,
+        goal: [
+          `基于课程图谱节点「${selectedNode.value.label}」生成前置-当前-后续三段式学习包。`,
+          `必须包含每段的课堂证据、资料讲义、检查题、误区提醒和通过标准。`,
+          `路径阶段：${graphPathSteps.value
+            .map((item) => `${item.phase}:${item.title}/${item.relation}/${item.mastery}%`)
+            .join('；')}`,
+        ].join(''),
+        source: 'knowledge-path',
+        nodeId: selectedNode.value.id,
+        path: graphPathSteps.value.map((item) => `${item.phase}:${item.title}`).join('>'),
+      },
+    });
   }
 
   function safeFilename(value: string) {
@@ -816,6 +993,51 @@
       '- [ ] 已完成检查题并记录错因。',
       '- [ ] 已把错因或资料需求同步到 AI 伴学或资源生成中心。',
     ].join('\n');
+  }
+
+  function graphPathMarkdown() {
+    if (!course.value || !selectedNode.value) return '';
+    return [
+      `# ${course.value.shortTitle}-${selectedNode.value.label}图谱学习路径`,
+      '',
+      `课程：${course.value.title}`,
+      `图谱：${activeMap.value?.title || ''}`,
+      `节点：${selectedNode.value.label}`,
+      `掌握度：${selectedNodeMastery.value}%`,
+      '',
+      '## 路径概览',
+      ...pathCoverageStats.value.map((item) => `- ${item.label}：${item.value}`),
+      '',
+      '## 分阶段学习动作',
+      ...graphPathSteps.value.flatMap((item, index) => [
+        `### ${index + 1}. ${item.phase}：${item.title}`,
+        `- 关系：${item.relation} / 强度 ${item.strength}% / 掌握度 ${item.mastery}%`,
+        `- 目标：${item.desc}`,
+        `- 证据：${item.evidence}`,
+        `- 资料：${item.resource}`,
+        `- 检查：${item.check}`,
+        '',
+      ]),
+      '## 闭环要求',
+      '- [ ] 已按顺序完成每个阶段的证据阅读。',
+      '- [ ] 已为薄弱阶段生成或补齐资料。',
+      '- [ ] 已完成每个阶段的检查题并记录错因。',
+      '- [ ] 已把仍未掌握的节点回到图谱继续追踪。',
+    ].join('\n');
+  }
+
+  function downloadGraphPathPack() {
+    if (!course.value || !selectedNode.value) return;
+    const blob = new Blob([`${graphPathMarkdown()}\n`], {
+      type: 'text/markdown;charset=utf-8',
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${safeFilename(`${course.value.shortTitle}-${selectedNode.value.label}图谱学习路径`)}.md`;
+    link.click();
+    URL.revokeObjectURL(url);
+    Message.success('图谱学习路径已下载');
   }
 
   function downloadNodeStudyPack() {
@@ -1010,6 +1232,58 @@
               </button>
             </article>
           </div>
+
+          <section class="path-inspector-panel" aria-label="图谱学习路径推演">
+            <div class="path-inspector-head">
+              <div>
+                <span>PATH REASONING</span>
+                <strong>{{ selectedNode?.label || activeMap.title }} 学习路径推演</strong>
+                <p>把当前知识点拆成前置确认、当前攻克、后续迁移三段，并绑定证据、资料和检查题。</p>
+              </div>
+              <div class="path-stats">
+                <article v-for="item in pathCoverageStats" :key="item.label">
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </article>
+              </div>
+            </div>
+
+            <div class="path-step-grid">
+              <article
+                v-for="(item, index) in graphPathSteps"
+                :key="`${item.key}-${item.nodeId}-${index}`"
+                class="path-step-card"
+                :class="[`path-step-card--${item.key}`, { active: item.nodeId === selectedNode?.id }]"
+              >
+                <button type="button" class="path-step-node" @click="selectPathStep(item.nodeId)">
+                  <span>{{ item.phase }}</span>
+                  <strong>{{ item.title }}</strong>
+                  <small>{{ item.relation }} · {{ item.strength }}%</small>
+                </button>
+                <div class="path-step-body">
+                  <p>{{ item.desc }}</p>
+                  <div class="path-step-meta">
+                    <span>掌握 {{ item.mastery }}%</span>
+                    <span>{{ item.resource }}</span>
+                  </div>
+                  <div class="path-step-evidence">
+                    <b>证据</b>
+                    <span>{{ item.evidence }}</span>
+                  </div>
+                  <div class="path-step-check">
+                    <b>检查</b>
+                    <span>{{ item.check }}</span>
+                  </div>
+                </div>
+              </article>
+            </div>
+
+            <div class="path-inspector-actions">
+              <button type="button" @click="askPathTutor">AI 解释路径</button>
+              <button type="button" @click="generatePathResources">生成路径资料</button>
+              <button type="button" @click="downloadGraphPathPack">下载路径包</button>
+            </div>
+          </section>
 
           <main class="graph-stage">
             <section class="graph-canvas-panel">
@@ -1310,6 +1584,25 @@
                     </div>
                   </article>
                 </div>
+              </section>
+
+              <section class="path-decision-panel">
+                <div class="path-decision-head">
+                  <strong>路径推演</strong>
+                  <button type="button" @click="generatePathResources">生成资料</button>
+                </div>
+                <button
+                  v-for="item in graphPathSteps"
+                  :key="`decision-${item.key}-${item.nodeId}`"
+                  type="button"
+                  class="path-decision-item"
+                  :class="{ active: item.nodeId === selectedNode?.id }"
+                  @click="selectPathStep(item.nodeId)"
+                >
+                  <span>{{ item.phase }}</span>
+                  <b>{{ item.title }}</b>
+                  <em>{{ item.relation }} · 掌握 {{ item.mastery }}%</em>
+                </button>
               </section>
 
               <section v-if="nodeStudyPack" class="study-pack-panel">
@@ -2659,6 +2952,83 @@
     }
   }
 
+  .path-decision-panel {
+    display: grid;
+    gap: 8px;
+  }
+
+  .path-decision-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+
+    strong {
+      margin-bottom: 0;
+    }
+
+    button {
+      width: auto;
+      min-height: 28px;
+      margin: 0;
+      padding: 0 10px;
+      border-color: #cfe0ff;
+      color: #2f68df;
+      background: #fff;
+      font-size: 10px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+  }
+
+  .path-decision-item {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 5px 8px;
+    align-items: center;
+    padding: 9px 10px;
+    text-align: left;
+
+    &.active {
+      border-color: #b9c9ff;
+      background: #f4f7ff;
+    }
+
+    span {
+      grid-row: span 2;
+      width: 36px;
+      height: 36px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      color: #2c7a62;
+      background: #eef9f4;
+      font-size: 10px;
+      font-weight: 900;
+    }
+
+    b,
+    em {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    b {
+      color: #24304a;
+      font-size: 12px;
+    }
+
+    em {
+      color: #7b879b;
+      font-size: 10px;
+      font-style: normal;
+      font-weight: 800;
+    }
+  }
+
   .study-pack-panel {
     display: grid;
     gap: 10px;
@@ -3374,6 +3744,276 @@
     cursor: pointer;
   }
 
+  .path-inspector-panel {
+    padding: 16px;
+    border-bottom: 1px solid #e5edf8;
+    background:
+      linear-gradient(180deg, #f8fbff 0%, #f3f8ff 100%),
+      radial-gradient(circle at 8% 4%, rgba(44, 142, 111, 0.12), transparent 26%),
+      radial-gradient(circle at 94% 6%, rgba(224, 144, 59, 0.1), transparent 24%);
+  }
+
+  .path-inspector-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(360px, 0.46fr);
+    gap: 14px;
+    align-items: stretch;
+    margin-bottom: 12px;
+
+    > div:first-child {
+      min-width: 0;
+      padding: 15px;
+      border: 1px solid #e3ebf6;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.9);
+    }
+
+    span,
+    strong,
+    p {
+      display: block;
+      min-width: 0;
+    }
+
+    span {
+      color: #2c7a62;
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: 0.13em;
+    }
+
+    strong {
+      margin-top: 5px;
+      overflow: hidden;
+      color: #15203a;
+      font-size: 19px;
+      line-height: 1.28;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    p {
+      display: -webkit-box;
+      margin: 8px 0 0;
+      overflow: hidden;
+      color: #64728a;
+      font-size: 12px;
+      line-height: 1.65;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+    }
+  }
+
+  .path-stats {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+
+    article {
+      min-width: 0;
+      display: grid;
+      align-content: center;
+      gap: 5px;
+      padding: 12px 10px;
+      border: 1px solid #e4ebf6;
+      border-radius: 15px;
+      background: rgba(255, 255, 255, 0.9);
+    }
+
+    span {
+      overflow: hidden;
+      color: #7d8aa1;
+      font-size: 10px;
+      font-weight: 900;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    strong {
+      color: #1f2b45;
+      font-size: 17px;
+      line-height: 1.1;
+      white-space: nowrap;
+    }
+  }
+
+  .path-step-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .path-step-card {
+    min-width: 0;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow: hidden;
+    border: 1px solid #e1e9f5;
+    border-radius: 16px;
+    background: #fff;
+    box-shadow: 0 12px 28px rgba(36, 53, 92, 0.06);
+
+    &.active {
+      border-color: #b7c8ff;
+      box-shadow: 0 16px 30px rgba(66, 104, 214, 0.12);
+    }
+  }
+
+  .path-step-card--before .path-step-node {
+    background: #f3fbf6;
+  }
+
+  .path-step-card--current .path-step-node {
+    background: #f5f7ff;
+  }
+
+  .path-step-card--after .path-step-node {
+    background: #fff8ef;
+  }
+
+  .path-step-node {
+    width: 100%;
+    min-height: 82px;
+    display: grid;
+    gap: 4px;
+    align-content: center;
+    justify-items: start;
+    margin: 0;
+    padding: 14px;
+    border: 0;
+    border-radius: 0;
+    color: #17213a;
+    cursor: pointer;
+    text-align: left;
+
+    span,
+    strong,
+    small {
+      display: block;
+      max-width: 100%;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    span {
+      color: #62728d;
+      font-size: 10px;
+      font-weight: 900;
+    }
+
+    strong {
+      color: #17213a;
+      font-size: 15px;
+      line-height: 1.3;
+    }
+
+    small {
+      color: #6d7b92;
+      font-size: 11px;
+      font-weight: 800;
+    }
+  }
+
+  .path-step-body {
+    min-width: 0;
+    display: grid;
+    gap: 10px;
+    padding: 13px 14px 14px;
+
+    p {
+      display: -webkit-box;
+      margin: 0;
+      overflow: hidden;
+      color: #5e6c83;
+      font-size: 12px;
+      line-height: 1.6;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+    }
+  }
+
+  .path-step-meta {
+    display: grid;
+    grid-template-columns: 76px minmax(0, 1fr);
+    gap: 7px;
+
+    span {
+      min-width: 0;
+      overflow: hidden;
+      padding: 6px 8px;
+      border-radius: 10px;
+      color: #52617b;
+      background: #f6f8fc;
+      font-size: 10px;
+      font-weight: 900;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .path-step-evidence,
+  .path-step-check {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 36px minmax(0, 1fr);
+    gap: 8px;
+    align-items: start;
+    padding: 9px;
+    border: 1px solid #eef2f8;
+    border-radius: 12px;
+    background: #fbfcff;
+
+    b {
+      color: #2c7a62;
+      font-size: 10px;
+      font-weight: 900;
+    }
+
+    span {
+      display: -webkit-box;
+      overflow: hidden;
+      color: #627086;
+      font-size: 11px;
+      line-height: 1.55;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+    }
+  }
+
+  .path-step-check b {
+    color: #c27026;
+  }
+
+  .path-inspector-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 9px;
+    justify-content: flex-end;
+    margin-top: 12px;
+
+    button {
+      min-height: 34px;
+      padding: 0 14px;
+      border: 1px solid #dce6f6;
+      border-radius: 11px;
+      color: #394761;
+      background: rgba(255, 255, 255, 0.94);
+      font-size: 12px;
+      font-weight: 900;
+      cursor: pointer;
+
+      &:first-child {
+        border-color: #3f67e7;
+        color: #fff;
+        background: #4f6df5;
+        box-shadow: 0 10px 18px rgba(79, 109, 245, 0.18);
+      }
+    }
+  }
+
   .graph-work-area .relation-filter button {
     display: inline-flex;
     align-items: center;
@@ -3621,6 +4261,11 @@
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
+    .path-inspector-head,
+    .path-step-grid {
+      grid-template-columns: 1fr;
+    }
+
     .package-audit-banner {
       grid-template-columns: 1fr;
     }
@@ -3650,6 +4295,14 @@
     .package-audit-cards {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+
+    .path-inspector-head {
+      grid-template-columns: 1fr;
+    }
+
+    .path-stats {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
   }
 
   @media (max-width: 640px) {
@@ -3663,6 +4316,27 @@
 
     .graph-command-deck {
       grid-template-columns: 1fr;
+    }
+
+    .path-inspector-panel {
+      padding: 12px;
+    }
+
+    .path-inspector-head strong {
+      white-space: normal;
+    }
+
+    .path-stats,
+    .path-step-meta {
+      grid-template-columns: 1fr;
+    }
+
+    .path-inspector-actions {
+      justify-content: stretch;
+
+      button {
+        flex: 1 1 100%;
+      }
     }
 
     .package-audit-cards,

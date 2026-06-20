@@ -43,6 +43,33 @@
     学习助手: '面向答疑、陪练和作业反馈',
     资料科研: '面向资料检索、阅读和研究问题',
   };
+  const supportedForceAgents = new Set([
+    'code_tutor',
+    'knowledge_mentor',
+    'planner',
+    'analyst',
+    'doc_researcher',
+    'quiz_master',
+    'profile_agent',
+    'retrieval_agent',
+    'web_research_agent',
+    'tutor_agent',
+    'grading_agent',
+    'safety_review_agent',
+    'supervisor',
+  ]);
+  const legacyForceAgentMap: Record<string, string> = {
+    graph_agent: 'retrieval_agent',
+    research_agent: 'web_research_agent',
+    vision_agent: 'tutor_agent',
+    formula_agent: 'knowledge_mentor',
+  };
+
+  function normalizeForceAgent(value?: string) {
+    if (!value) return '';
+    const mapped = legacyForceAgentMap[value] || value;
+    return supportedForceAgents.has(mapped) ? mapped : 'tutor_agent';
+  }
 
   const agentCatalog = computed(() => {
     const taskByKey = new Map(courseAgentTasks.map((task) => [task.key, task]));
@@ -269,7 +296,7 @@
   const incomingUpstreamSource = computed(() => routeQueryText(route.query.upstreamSource));
   const incomingNodeId = computed(() => routeQueryText(route.query.nodeId));
   const incomingAudit = computed(() => routeQueryText(route.query.audit));
-  const incomingForceAgent = computed(() => routeQueryText(route.query.forceAgent));
+  const incomingForceAgent = computed(() => normalizeForceAgent(routeQueryText(route.query.forceAgent)));
   const incomingResourceId = computed(() => routeQueryText(route.query.resourceId));
   const incomingResource = computed(() =>
     course.value && incomingResourceId.value
@@ -333,10 +360,10 @@
   });
 
   const launchTarget = computed(() => {
-    if (incomingPackageContext.value && incomingPrompt.value) return incomingForceAgent.value || 'graph_agent';
+    if (incomingPackageContext.value && incomingPrompt.value) return incomingForceAgent.value || 'retrieval_agent';
     if (selectedAgent.value?.launch === 'resource') return '资料生成器';
     if (selectedAgent.value?.launch === 'graph') return '课程知识图谱';
-    return selectedAgent.value?.task?.forceAgent || 'tutor_agent';
+    return normalizeForceAgent(selectedAgent.value?.task?.forceAgent) || 'tutor_agent';
   });
 
   const inputContextCards = computed(() => {
@@ -592,7 +619,7 @@
         name: 'TutorChat',
         query: {
           prompt: buildTutorPrompt(agent),
-          forceAgent: incomingForceAgent.value || agent.task?.forceAgent || 'graph_agent',
+          forceAgent: incomingForceAgent.value || normalizeForceAgent(agent.task?.forceAgent) || 'retrieval_agent',
           courseId: course.value.id,
           source: 'course-agent-package-audit',
           task: agent.key,
@@ -613,7 +640,7 @@
       name: 'TutorChat',
       query: {
         prompt: buildTutorPrompt(agent),
-        forceAgent: incomingForceAgent.value || agent.task?.forceAgent || 'tutor_agent',
+        forceAgent: incomingForceAgent.value || normalizeForceAgent(agent.task?.forceAgent) || 'tutor_agent',
         courseId: course.value.id,
         source: incomingPackageContext.value ? 'course-agent-package-audit' : 'course-agent',
         task: agent.key,
