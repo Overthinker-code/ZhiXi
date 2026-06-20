@@ -582,6 +582,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
+import type { LocationQueryRaw } from 'vue-router';
 import { Message } from '@arco-design/web-vue';
 import {
   IconApps,
@@ -611,6 +612,7 @@ import {
 } from '@arco-design/web-vue/es/icon';
 import axios from 'axios';
 import ZyPageShell from '@/components/zy/ZyPageShell.vue';
+import { courseWorkspaceLocation } from '@/composables/useCourseRouteContext';
 import { useSelectionQueryMenu } from '@/composables/useSelectionQueryMenu';
 import {
   generateResourcePackage as generateDownloadableResourcePackage,
@@ -679,6 +681,54 @@ const mindCanvas = ref<CanvasExpose | null>(null);
 const modalCanvas = ref<CanvasExpose | null>(null);
 const selectedMindNodeText = ref('');
 const localLearningState = ref<LocalLearningState>({ ...emptyLearningState });
+
+function routeQueryText(value: unknown) {
+  if (Array.isArray(value)) return String(value[0] || '').trim();
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function incomingMindNodeText() {
+  return (
+    routeQueryText(route.query.nodeLabel) ||
+    routeQueryText(route.query.node) ||
+    routeQueryText(route.query.topic)
+  );
+}
+
+function resolveIncomingMindNodeText(course = currentCourse.value) {
+  const directText = incomingMindNodeText();
+  if (!course) return directText;
+  const nodeId = routeQueryText(route.query.nodeId);
+  const chapterMatch = /^chapter-(\d+)$/u.exec(nodeId);
+  if (chapterMatch) {
+    const chapterIndex = Number(chapterMatch[1]);
+    return course.concepts[chapterIndex]?.title || course.notes[chapterIndex]?.title || directText;
+  }
+  if (!directText) return '';
+  const exactMatch = [...course.concepts, ...course.notes].some(
+    (item) => item.title === directText || item.points.includes(directText)
+  );
+  if (exactMatch) return directText;
+  const fuzzyConcept = course.concepts.find(
+    (item) => directText.includes(item.title) || item.title.includes(directText)
+  );
+  return fuzzyConcept?.title || directText;
+}
+
+type ClassroomQueryValue = string | number | null | undefined;
+
+function incomingNodeContext(extra: Record<string, ClassroomQueryValue> = {}): LocationQueryRaw {
+  return Object.fromEntries(
+    Object.entries({
+      nodeId: routeQueryText(route.query.nodeId),
+      nodeLabel: selectedMindNodeText.value || incomingMindNodeText(),
+      mapType: routeQueryText(route.query.mapType),
+      topic: selectedMindNodeText.value || incomingMindNodeText() || currentLesson.value.title,
+      lessonId: currentLesson.value.id,
+      ...extra,
+    }).filter(([, value]) => value !== undefined && value !== null && value !== '')
+  ) as LocationQueryRaw;
+}
 
 const currentCourse = computed(() =>
   getClassroomCourse(
@@ -1005,7 +1055,7 @@ watch(
       saved.lessonId && lessonIds.has(saved.lessonId)
         ? saved.lessonId
         : course?.chapters[0]?.lessons[0]?.id || '';
-    selectedMindNodeText.value = saved.selectedMindNodeText || course?.shortTitle || '';
+    selectedMindNodeText.value = resolveIncomingMindNodeText(course) || saved.selectedMindNodeText || course?.shortTitle || '';
     openChapters.value = new Set(course?.chapters.map((chapter) => chapter.id) || []);
     clearAnswerPanel();
     if (route.query.open === 'mind' && course) {
@@ -1013,6 +1063,21 @@ watch(
     }
   },
   { immediate: true }
+);
+
+watch(
+  () => [route.query.nodeId, route.query.nodeLabel, route.query.node, route.query.topic, route.query.open],
+  () => {
+    if (!currentCourse.value) return;
+    const incomingText = resolveIncomingMindNodeText();
+    if (incomingText) {
+      selectedMindNodeText.value = incomingText;
+      recordLearningAction('node', { selectedMindNodeText: incomingText });
+    }
+    if (route.query.open === 'mind') {
+      requestAnimationFrame(() => openArtifact('mind'));
+    }
+  }
 );
 
 function openCourse(courseId: string) {
@@ -1266,34 +1331,33 @@ function generateFromNotes() {
   router.push({
     name: 'StudentCourseResourceGenerator',
     params: { courseId: currentCourse.value.id },
-    query: {
+    query: incomingNodeContext({
       subject: currentCourse.value.title,
-      topic: selectedMindNodeText.value || currentLesson.value.title || currentCourse.value.notes[0]?.title,
       goal: `基于${currentCourse.value.title}的课堂笔记和「${selectedMindNodeText.value || currentLesson.value.title}」节点生成讲义、知识卡和自测题。`,
       source: 'classroom-notes',
-    },
+    }),
   });
 }
 
 function askMindMapTutor() {
   if (!currentCourse.value) return;
   recordLearningAction('generate');
-  router.push({
-    name: 'TutorChat',
-    query: {
-      courseId: currentCourse.value.id,
+  router.push(
+    courseWorkspaceLocation(currentCourse.value.id, 'agent', incomingNodeContext({
+      task: 'graph',
       source: 'classroom-mind-map',
       forceAgent: 'tutor_agent',
       prompt: [
         `当前课程：${currentCourse.value.title}`,
         `当前课节：${currentLesson.value.label} ${currentLesson.value.title}`,
+        `当前课堂节点：${selectedMindNodeText.value || currentLesson.value.title}`,
         `思维导图节点：${currentCourse.value.concepts
           .map((item) => `${item.title}（${item.points.join('、')}）`)
           .join('；')}`,
         '请按“核心概念-前后置关系-易错提醒-练习建议”的结构解读这张课堂思维导图。',
       ].join('\n'),
-    },
-  });
+    }))
+  );
 }
 
 function normalizeMindNodeProfile(concept: ClassroomConcept, title: string, isPoint: boolean) {

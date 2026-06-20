@@ -2,6 +2,7 @@
   import { computed, ref, watch } from 'vue';
   import { Message } from '@arco-design/web-vue';
   import { useRoute, useRouter } from 'vue-router';
+  import type { LocationQueryRaw } from 'vue-router';
   import {
     IconBulb,
     IconDownload,
@@ -26,6 +27,12 @@
     node: CourseKnowledgeNode;
     score: number;
   };
+  type NodeStudyStatus = {
+    reviewed?: boolean;
+    practice?: boolean;
+    resource?: boolean;
+    updatedAt?: string;
+  };
 
   const route = useRoute();
   const router = useRouter();
@@ -40,6 +47,8 @@
   const canvasPan = ref({ x: 0, y: 0 });
   const isPanning = ref(false);
   const panStart = ref({ pointerX: 0, pointerY: 0, x: 0, y: 0 });
+  const selectedLinkKey = ref('');
+  const nodeStatuses = ref<Record<string, NodeStudyStatus>>({});
 
   const course = computed(() => getClassroomCourse(String(route.params.courseId || '')));
   const maps = computed(() => (course.value ? buildCourseKnowledgeMaps(course.value) : []));
@@ -100,6 +109,20 @@
           link: CourseKnowledgeMap['links'][number];
           neighbor: CourseKnowledgeNode;
       }>;
+  });
+  const selectedLink = computed(() => {
+    const map = activeMap.value;
+    if (!map || !selectedLinkKey.value) return null;
+    return visibleLinks.value.find((link) => linkKey(link) === selectedLinkKey.value) || null;
+  });
+  const selectedLinkNodes = computed(() => {
+    const map = activeMap.value;
+    const link = selectedLink.value;
+    if (!map || !link) return null;
+    const source = map.nodes.find((node) => node.id === link.source);
+    const target = map.nodes.find((node) => node.id === link.target);
+    if (!source || !target) return null;
+    return { source, target };
   });
   const graphPathSteps = computed(() => {
     const map = activeMap.value;
@@ -456,6 +479,69 @@
       count: index === 0 ? visibleNodes.value.length : Math.max(1, Math.round(visibleLinks.value.length / (index + 1))),
     }))
   );
+  const searchMatches = computed(() => {
+    const key = normalizeMatchText(keyword.value);
+    if (!key || !activeMap.value) return [];
+    return activeMap.value.nodes
+      .map((node) => {
+        const fields = [
+          { label: '名称', value: node.label, weight: 5 },
+          { label: '说明', value: node.detail || '', weight: 3 },
+          { label: '证据', value: node.evidence?.join(' ') || '', weight: 2 },
+          { label: '资源', value: node.resources?.join(' ') || '', weight: 2 },
+          { label: '检查', value: node.checks?.join(' ') || '', weight: 1 },
+        ];
+        const hit = fields.find((field) => normalizeMatchText(field.value).includes(key));
+        const exact = normalizeMatchText(node.label) === key;
+        return hit
+          ? {
+              node,
+              hitLabel: hit.label,
+              excerpt: hit.value || node.label,
+              score: hit.weight + (exact ? 4 : 0) + (node.weight >= 4 ? 1 : 0),
+            }
+          : null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => b!.score - a!.score)
+      .slice(0, 6) as Array<{
+        node: CourseKnowledgeNode;
+        hitLabel: string;
+        excerpt: string;
+        score: number;
+      }>;
+  });
+  const selectedNodeStatus = computed(() => {
+    const key = nodeStudyStatusKey();
+    return key ? nodeStatuses.value[key] || {} : {};
+  });
+  const nodeStatusActions = computed(() => [
+    {
+      key: 'reviewed' as const,
+      label: '已读证据',
+      active: Boolean(selectedNodeStatus.value.reviewed),
+    },
+    {
+      key: 'practice' as const,
+      label: '加入复习',
+      active: Boolean(selectedNodeStatus.value.practice),
+    },
+    {
+      key: 'resource' as const,
+      label: '需要资料',
+      active: Boolean(selectedNodeStatus.value.resource),
+    },
+  ]);
+  const selectedNodePopoverStyle = computed(() => {
+    const node = selectedNode.value;
+    if (!node) return {};
+    const left = Math.max(8, Math.min(92, ((node.x - 40) / 880) * 100));
+    const top = Math.max(14, Math.min(88, (node.y / 460) * 100));
+    return {
+      left: `${left}%`,
+      top: `${top}%`,
+    };
+  });
   const chapterCount = computed(() => course.value?.chapters.length || 0);
   const conceptCount = computed(() => course.value?.concepts.flatMap((item) => item.points).length || 0);
   const actionBadgeCount = computed(() =>
@@ -465,7 +551,12 @@
     const topic = queryText(route.query.topic);
     const packageId = queryText(route.query.packageId);
     const source = queryText(route.query.source);
-    if (!topic && !packageId && source !== 'resource-generation') return null;
+    const packageSources = new Set([
+      'resource-generation',
+      'knowledge-map-audit',
+      'course-agent-package-audit',
+    ]);
+    if (!packageId && !packageSources.has(source)) return null;
     return {
       topic: topic || selectedNode.value?.label || activeMap.value?.title || '课程资源包',
       packageId: packageId || 'local-preview',
@@ -592,6 +683,7 @@
   function nodeClass(node: CourseKnowledgeNode) {
     const selected = selectedNode.value;
     const packageNode = packageTarget.value?.node;
+    const status = nodeStatuses.value[nodeStudyStatusKey(node)];
     const shouldDim = Boolean(
       selected && selected.weight < 4 && node.id !== selected.id && !selectedNeighborIds.value.has(node.id)
     );
@@ -605,6 +697,10 @@
         weak: (node.mastery ?? course.value?.progress ?? 0) < 60,
         stable: (node.mastery ?? course.value?.progress ?? 0) >= 80,
         'package-target': packageContext.value && packageNode?.id === node.id,
+        'search-hit': searchMatches.value.some((item) => item.node.id === node.id),
+        'status-reviewed': Boolean(status?.reviewed),
+        'status-practice': Boolean(status?.practice),
+        'status-resource': Boolean(status?.resource),
       },
     ];
   }
@@ -612,12 +708,14 @@
   function linkClass(link: CourseKnowledgeMap['links'][number]) {
     const selected = selectedNode.value;
     const selectedId = selected?.id;
+    const isSelectedLink = selectedLinkKey.value === linkKey(link);
     return [
       `link-${link.relation}`,
       {
-        selected: selectedId === link.source || selectedId === link.target,
+        selected: isSelectedLink || selectedId === link.source || selectedId === link.target,
+        'link-selected': isSelectedLink,
         dimmed: Boolean(
-          selectedId && selected?.weight !== 4 && selectedId !== link.source && selectedId !== link.target
+          selectedId && selected?.weight !== 4 && !isSelectedLink && selectedId !== link.source && selectedId !== link.target
         ),
       },
     ];
@@ -684,12 +782,26 @@
     return `M ${source.x} ${source.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${target.x} ${target.y}`;
   }
 
+  function linkKey(link: CourseKnowledgeMap['links'][number]) {
+    return `${link.source}::${link.target}::${link.relation}`;
+  }
+
   function shortNodeLabel(label: string, limit = 9) {
     return label.length > limit ? `${label.slice(0, limit - 1)}…` : label;
   }
 
   function selectNode(node: CourseKnowledgeNode) {
     selectedNodeId.value = node.id;
+    persistSelectedNode();
+  }
+
+  function selectLink(link: CourseKnowledgeMap['links'][number]) {
+    selectedLinkKey.value = linkKey(link);
+    const source = activeMap.value?.nodes.find((node) => node.id === link.source);
+    const target = activeMap.value?.nodes.find((node) => node.id === link.target);
+    if (source && target && selectedNode.value?.id !== source.id && selectedNode.value?.id !== target.id) {
+      selectedNodeId.value = target.id;
+    }
   }
 
   function selectMap(type: CourseKnowledgeMapType) {
@@ -712,6 +824,101 @@
 
   function normalizeMatchText(value: string) {
     return value.toLowerCase().replace(/\s+/g, '').replace(/[「」《》、，。；：:：\-_/|()[\]{}]/g, '');
+  }
+
+  type CourseQueryValue = string | number | null | undefined;
+
+  function compactQuery(query: Record<string, CourseQueryValue>): LocationQueryRaw {
+    return Object.fromEntries(
+      Object.entries(query).filter(([, value]) => value !== undefined && value !== null && value !== '')
+    ) as LocationQueryRaw;
+  }
+
+  function nodeContextQuery(extra: Record<string, CourseQueryValue> = {}) {
+    const node = selectedNode.value;
+    return compactQuery({
+      topic: node?.label || activeMap.value?.title,
+      nodeId: node?.id,
+      nodeLabel: node?.label,
+      mapType: activeMap.value?.type,
+      source: 'knowledge-map',
+      ...extra,
+    });
+  }
+
+  function nodeStudyStorageKey() {
+    if (!course.value || !activeMap.value) return '';
+    return `zhixi:knowledge-node-status:${course.value.id}:${activeMap.value.type}`;
+  }
+
+  function selectedNodeStorageKey() {
+    if (!course.value || !activeMap.value) return '';
+    return `zhixi:knowledge-selected-node:${course.value.id}:${activeMap.value.type}`;
+  }
+
+  function nodeStudyStatusKey(node = selectedNode.value) {
+    if (!activeMap.value || !node) return '';
+    return `${activeMap.value.type}:${node.id}`;
+  }
+
+  function loadNodeStatuses() {
+    const key = nodeStudyStorageKey();
+    if (!key || typeof window === 'undefined') {
+      nodeStatuses.value = {};
+      return;
+    }
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(key) || '{}') as Record<string, NodeStudyStatus>;
+      nodeStatuses.value = parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      nodeStatuses.value = {};
+    }
+  }
+
+  function persistNodeStatuses() {
+    const key = nodeStudyStorageKey();
+    if (!key || typeof window === 'undefined') return;
+    window.localStorage.setItem(key, JSON.stringify(nodeStatuses.value));
+  }
+
+  function persistSelectedNode() {
+    const key = selectedNodeStorageKey();
+    if (!key || typeof window === 'undefined') return;
+    window.localStorage.setItem(key, selectedNodeId.value);
+  }
+
+  function loadSelectedNodeForMap() {
+    const key = selectedNodeStorageKey();
+    if (!key || typeof window === 'undefined' || !activeMap.value) return;
+    const savedNodeId = window.localStorage.getItem(key);
+    if (savedNodeId && activeMap.value.nodes.some((node) => node.id === savedNodeId)) {
+      selectedNodeId.value = savedNodeId;
+    }
+  }
+
+  function toggleNodeStatus(key: keyof Omit<NodeStudyStatus, 'updatedAt'>) {
+    const statusKey = nodeStudyStatusKey();
+    if (!statusKey || !selectedNode.value) return;
+    const current = nodeStatuses.value[statusKey] || {};
+    nodeStatuses.value = {
+      ...nodeStatuses.value,
+      [statusKey]: {
+        ...current,
+        [key]: !current[key],
+        updatedAt: new Date().toISOString(),
+      },
+    };
+    persistSelectedNode();
+    persistNodeStatuses();
+    Message.success(`「${selectedNode.value.label}」学习状态已更新`);
+  }
+
+  function selectSearchMatch(node: CourseKnowledgeNode) {
+    selectNode(node);
+    canvasPan.value = {
+      x: Math.round((470 - node.x) * 0.36),
+      y: Math.round((230 - node.y) * 0.36),
+    };
   }
 
   function packageAuditContextLines() {
@@ -742,6 +949,30 @@
     keyword.value = '';
     selectedNodeId.value = target.node.id;
     Message.success(`已定位到「${target.node.label}」`);
+  }
+
+  function applyIncomingNodeFromRoute() {
+    const requestedNodeId = queryText(route.query.nodeId);
+    const requestedLabel = queryText(route.query.nodeLabel) || queryText(route.query.topic);
+    const requestedMap = queryText(route.query.mapType) as CourseKnowledgeMapType;
+    if (!requestedNodeId && !requestedLabel && !requestedMap) return;
+    const candidateMaps = requestedMap
+      ? maps.value.filter((map) => map.type === requestedMap)
+      : maps.value;
+    const match = candidateMaps
+      .flatMap((map) => map.nodes.map((node) => ({ map, node })))
+      .find(({ node }) => {
+        if (requestedNodeId && node.id === requestedNodeId) return true;
+        return requestedLabel && normalizeMatchText(node.label) === normalizeMatchText(requestedLabel);
+      });
+    if (!match) {
+      if (requestedMap && maps.value.some((map) => map.type === requestedMap)) {
+        activeType.value = requestedMap;
+      }
+      return;
+    }
+    activeType.value = match.map.type;
+    selectedNodeId.value = match.node.id;
   }
 
   function askPackageAudit() {
@@ -835,6 +1066,9 @@
         forceAgent: 'retrieval_agent',
         source: packageContext.value ? 'knowledge-map-package-audit' : 'knowledge-map',
         topic: packageContext.value?.topic || node?.label || activeMap.value.title,
+        nodeId: node?.id,
+        nodeLabel: node?.label,
+        mapType: activeMap.value.type,
         packageId: packageContext.value?.packageId,
         prompt: [
           `当前课程：${course.value.title}`,
@@ -856,23 +1090,30 @@
     router.push({
       name: 'StudentCourseResourceGenerator',
       params: { courseId: course.value.id },
-      query: {
+      query: nodeContextQuery({
         subject: course.value.title,
-        topic: node?.label || activeMap.value.title,
         goal: node
           ? `围绕${node.label}生成带证据清单、误区纠正、检查题和学习路径的个性化资料。`
           : `围绕${activeMap.value.title}生成课程图谱配套资料。`,
         source: packageContext.value ? 'knowledge-map-package-audit' : 'knowledge-map',
         upstreamSource: packageContext.value?.source,
         packageId: packageContext.value?.packageId,
-        nodeId: node?.id,
-      },
+      }),
     });
   }
 
   function goCourseContent() {
     if (!course.value) return;
-    router.push(courseWorkspaceLocation(course.value.id, 'content'));
+    router.push(
+      courseWorkspaceLocation(
+        course.value.id,
+        'content',
+        nodeContextQuery({
+          open: 'mind',
+          source: 'knowledge-map',
+        })
+      )
+    );
   }
 
   function runGraphCommand(key: string) {
@@ -918,7 +1159,7 @@
     router.push({
       name: 'StudentCourseResourceGenerator',
       params: { courseId: course.value.id },
-      query: {
+      query: nodeContextQuery({
         subject: course.value.title,
         topic: `${selectedNode.value.label}学习路径`,
         goal: [
@@ -929,9 +1170,8 @@
             .join('；')}`,
         ].join(''),
         source: 'knowledge-path',
-        nodeId: selectedNode.value.id,
         path: graphPathSteps.value.map((item) => `${item.phase}:${item.title}`).join('>'),
-      },
+      }),
     });
   }
 
@@ -1061,6 +1301,21 @@
       selectedNodeId.value = map.nodes[0]?.id || 'course-root';
     }
   });
+
+  watch(
+    [course, activeMap],
+    () => {
+      loadNodeStatuses();
+      loadSelectedNodeForMap();
+    },
+    { immediate: true }
+  );
+
+  watch(
+    () => [route.query.nodeId, route.query.nodeLabel, route.query.mapType, route.query.topic],
+    applyIncomingNodeFromRoute,
+    { immediate: true }
+  );
 
   watch(
     packageTarget,
@@ -1219,6 +1474,24 @@
               </div>
             </div>
           </div>
+
+          <section v-if="keyword.trim()" class="graph-search-results" aria-label="图谱搜索结果">
+            <div>
+              <strong>搜索定位</strong>
+              <span>{{ searchMatches.length ? `找到 ${searchMatches.length} 个相关节点` : '暂无命中节点' }}</span>
+            </div>
+            <button
+              v-for="item in searchMatches"
+              :key="item.node.id"
+              type="button"
+              :class="{ active: item.node.id === selectedNode?.id }"
+              @click="selectSearchMatch(item.node)"
+            >
+              <b>{{ item.node.label }}</b>
+              <em>{{ item.hitLabel }}</em>
+              <small>{{ item.excerpt }}</small>
+            </button>
+          </section>
 
           <div class="graph-command-deck">
             <article v-for="item in graphCommandDeck" :key="item.key">
@@ -1383,6 +1656,10 @@
                       :key="`${link.source}-${link.target}-${link.relation}`"
                       :d="linkPath(link)"
                       :class="linkClass(link)"
+                      role="button"
+                      tabindex="0"
+                      @click.stop="selectLink(link)"
+                      @keydown.enter.stop="selectLink(link)"
                     />
                   </g>
 
@@ -1457,6 +1734,30 @@
                       <rect x="-30" y="-11" width="60" height="22" rx="11" />
                       <text x="0" y="4" text-anchor="middle">资源包</text>
                     </g>
+                    <g
+                      v-if="nodeStatuses[nodeStudyStatusKey(node)]"
+                      class="node-status-badges"
+                      :transform="`translate(14 ${nodeBoxHeight(node) + 10})`"
+                    >
+                      <circle
+                        v-if="nodeStatuses[nodeStudyStatusKey(node)]?.reviewed"
+                        cx="0"
+                        cy="0"
+                        r="5"
+                      />
+                      <circle
+                        v-if="nodeStatuses[nodeStudyStatusKey(node)]?.practice"
+                        cx="14"
+                        cy="0"
+                        r="5"
+                      />
+                      <circle
+                        v-if="nodeStatuses[nodeStudyStatusKey(node)]?.resource"
+                        cx="28"
+                        cy="0"
+                        r="5"
+                      />
+                    </g>
                     <circle
                       v-if="node.weight < 4"
                       cx="17"
@@ -1487,6 +1788,27 @@
                 <div v-if="!visibleNodes.length" class="graph-empty">
                   <strong>没有匹配节点</strong>
                   <span>换一个关键词或切回全部关系后继续查看图谱。</span>
+                </div>
+
+                <div
+                  v-if="selectedNode"
+                  class="node-canvas-popover"
+                  :style="selectedNodePopoverStyle"
+                >
+                  <div>
+                    <span>{{ nodeTypeLabel(selectedNode.type) }} · {{ selectedNodeMastery }}%</span>
+                    <strong>{{ selectedNode.label }}</strong>
+                  </div>
+                  <div class="popover-metrics">
+                    <em>{{ selectedNodeEvidence.length }} 证据</em>
+                    <em>{{ selectedNodeResources.length }} 资源</em>
+                    <em>{{ selectedLinks.length }} 关系</em>
+                  </div>
+                  <div class="popover-actions">
+                    <button type="button" @click.stop="askGraphAgent('解释当前节点的定义、前后置关系和课堂证据')">AI解释</button>
+                    <button type="button" @click.stop="goResourceGenerator">生成资料</button>
+                    <button type="button" @click.stop="downloadNodeStudyPack">学习包</button>
+                  </div>
                 </div>
               </div>
 
@@ -1556,6 +1878,17 @@
 
               <section class="node-health-panel">
                 <strong>节点状态</strong>
+                <div class="node-status-toggles" aria-label="节点学习状态">
+                  <button
+                    v-for="item in nodeStatusActions"
+                    :key="item.key"
+                    type="button"
+                    :class="{ active: item.active }"
+                    @click="toggleNodeStatus(item.key)"
+                  >
+                    {{ item.label }}
+                  </button>
+                </div>
                 <div class="node-health-grid">
                   <article
                     v-for="item in selectedNodeHealth"
@@ -1567,6 +1900,28 @@
                     <p>{{ item.desc }}</p>
                   </article>
                 </div>
+              </section>
+
+              <section v-if="selectedLink && selectedLinkNodes" class="link-audit-panel">
+                <strong>关系详情</strong>
+                <div class="link-audit-main">
+                  <span>{{ selectedLink.relation }}</span>
+                  <b>{{ selectedLinkNodes.source.label }} → {{ selectedLinkNodes.target.label }}</b>
+                  <em>强度 {{ selectedLink.strength || 72 }}%</em>
+                </div>
+                <div class="link-audit-grid">
+                  <article>
+                    <span>起点证据</span>
+                    <p>{{ selectedLinkNodes.source.evidence?.[0] || selectedLinkNodes.source.detail || '需要补齐起点课堂证据。' }}</p>
+                  </article>
+                  <article>
+                    <span>终点检查</span>
+                    <p>{{ selectedLinkNodes.target.checks?.[0] || selectedLinkNodes.target.recommendedAction || '需要生成终点检查题。' }}</p>
+                  </article>
+                </div>
+                <button type="button" @click="askGraphAgent(`审计${selectedLink.relation}：${selectedLinkNodes.source.label}到${selectedLinkNodes.target.label}的证据是否充分`)">
+                  AI 审计这条关系
+                </button>
               </section>
 
               <section class="node-timeline-panel">
@@ -3672,6 +4027,82 @@
     background: #fff;
   }
 
+  .graph-search-results {
+    display: grid;
+    grid-template-columns: 150px repeat(6, minmax(0, 1fr));
+    gap: 8px;
+    align-items: stretch;
+    padding: 12px 16px;
+    border-bottom: 1px solid #edf2f8;
+    background: #fbfdff;
+
+    > div,
+    button {
+      min-width: 0;
+      border: 1px solid #e5ecf8;
+      border-radius: 13px;
+      background: #fff;
+    }
+
+    > div {
+      display: grid;
+      align-content: center;
+      gap: 4px;
+      padding: 10px 12px;
+
+      strong {
+        color: #1f2b45;
+        font-size: 13px;
+      }
+
+      span {
+        color: #7a879b;
+        font-size: 11px;
+      }
+    }
+
+    button {
+      display: grid;
+      gap: 4px;
+      padding: 10px;
+      color: #56647b;
+      cursor: pointer;
+      text-align: left;
+
+      &.active,
+      &:hover {
+        border-color: #b9ccff;
+        background: #f3f7ff;
+      }
+    }
+
+    b,
+    em,
+    small {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    b {
+      color: #24304a;
+      font-size: 12px;
+    }
+
+    em {
+      color: #2f68df;
+      font-size: 10px;
+      font-style: normal;
+      font-weight: 900;
+    }
+
+    small {
+      color: #7f8ba0;
+      font-size: 10px;
+    }
+  }
+
   .graph-command-deck {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -4162,6 +4593,8 @@
 
   .graph-work-area .graph-links path {
     stroke-width: 2.2;
+    cursor: pointer;
+    pointer-events: stroke;
   }
 
   .graph-work-area .graph-links .link-父子关系,
@@ -4189,9 +4622,114 @@
     stroke-width: 4;
   }
 
+  .graph-work-area .graph-links .link-selected {
+    stroke: #255fe8;
+    stroke-width: 5;
+    filter: drop-shadow(0 4px 6px rgba(47, 104, 223, 0.24));
+  }
+
   .graph-work-area .graph-node.selected .node-body {
     stroke: #355ff2;
     stroke-width: 3.4;
+  }
+
+  .graph-work-area .graph-node.search-hit .node-body {
+    stroke: #2f68df;
+    stroke-dasharray: 5 4;
+  }
+
+  .graph-work-area .graph-node.status-practice .node-body {
+    filter: drop-shadow(0 10px 11px rgba(226, 132, 45, 0.18));
+  }
+
+  .node-status-badges {
+    pointer-events: none;
+
+    circle {
+      fill: #2f68df;
+      stroke: #fff;
+      stroke-width: 2;
+
+      &:nth-child(2) {
+        fill: #e88d32;
+      }
+
+      &:nth-child(3) {
+        fill: #2c9a66;
+      }
+    }
+  }
+
+  .node-canvas-popover {
+    position: absolute;
+    z-index: 2;
+    width: min(282px, calc(100% - 24px));
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid rgba(195, 209, 241, 0.92);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 16px 34px rgba(28, 42, 79, 0.14);
+    transform: translate(-50%, calc(-100% - 16px));
+    backdrop-filter: blur(12px);
+    pointer-events: auto;
+
+    span,
+    strong {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    span {
+      color: #5878f5;
+      font-size: 10px;
+      font-weight: 900;
+    }
+
+    strong {
+      margin-top: 3px;
+      color: #17213a;
+      font-size: 15px;
+    }
+  }
+
+  .popover-metrics,
+  .popover-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .popover-metrics em {
+    padding: 4px 7px;
+    border-radius: 999px;
+    color: #60708a;
+    background: #f2f6fc;
+    font-size: 10px;
+    font-style: normal;
+    font-weight: 800;
+  }
+
+  .popover-actions button {
+    height: 28px;
+    padding: 0 9px;
+    border: 1px solid #dbe5f5;
+    border-radius: 9px;
+    color: #35435c;
+    background: #fff;
+    font-size: 11px;
+    font-weight: 900;
+    cursor: pointer;
+
+    &:hover {
+      border-color: #c3d4ff;
+      color: #2f68df;
+      background: #f2f6ff;
+    }
   }
 
   .graph-work-area .map-canvas-tools {
@@ -4223,6 +4761,99 @@
       font-style: normal;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+  }
+
+  .node-status-toggles {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
+    margin-bottom: 9px;
+
+    button {
+      min-height: 30px !important;
+      margin: 0 !important;
+      padding: 0 6px !important;
+      border-color: #e2e9f5 !important;
+      color: #69778e !important;
+      background: #fbfcff !important;
+      font-size: 10px !important;
+      font-weight: 900;
+
+      &.active {
+        border-color: #b9ccff !important;
+        color: #2f68df !important;
+        background: #f1f6ff !important;
+      }
+    }
+  }
+
+  .link-audit-panel {
+    padding: 12px;
+    border: 1px solid #dce7ff !important;
+    border-radius: 16px;
+    background:
+      linear-gradient(135deg, rgba(241, 246, 255, 0.96), rgba(255, 255, 255, 0.96)),
+      radial-gradient(circle at 0 0, rgba(47, 104, 223, 0.11), transparent 30%);
+  }
+
+  .link-audit-main {
+    display: grid;
+    gap: 5px;
+    margin-bottom: 9px;
+
+    span,
+    b,
+    em {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    span {
+      color: #2f68df;
+      font-size: 10px;
+      font-weight: 900;
+    }
+
+    b {
+      color: #1f2b45;
+      font-size: 13px;
+    }
+
+    em {
+      color: #65748c;
+      font-size: 10px;
+      font-style: normal;
+      font-weight: 800;
+    }
+  }
+
+  .link-audit-grid {
+    display: grid;
+    gap: 7px;
+
+    article {
+      padding: 9px;
+      border: 1px solid #e4ebf8;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.86);
+    }
+
+    span {
+      display: block;
+      margin-bottom: 4px;
+      color: #2c7a62;
+      font-size: 10px;
+      font-weight: 900;
+    }
+
+    p {
+      display: -webkit-box;
+      overflow: hidden;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
     }
   }
 
@@ -4258,6 +4889,10 @@
     }
 
     .graph-command-deck {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .graph-search-results {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
@@ -4315,6 +4950,10 @@
     }
 
     .graph-command-deck {
+      grid-template-columns: 1fr;
+    }
+
+    .graph-search-results {
       grid-template-columns: 1fr;
     }
 
