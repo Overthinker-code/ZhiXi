@@ -10,6 +10,9 @@ export interface CourseResourceReference {
   name: string;
   size: number;
   scope: 'system';
+  is_virtual: true;
+  rag_bindable: false;
+  context_scope: 'course_resource';
   created: string;
   courseId: string;
   courseTitle: string;
@@ -60,6 +63,9 @@ export function resolveCourseResourceReference(
     name: fileName,
     size: parseSizeLabel(resource.size),
     scope: 'system',
+    is_virtual: true,
+    rag_bindable: false,
+    context_scope: 'course_resource',
     created: resource.updatedAt,
     courseId: course.id,
     courseTitle: course.title,

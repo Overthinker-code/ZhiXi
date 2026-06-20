@@ -1,6 +1,7 @@
 <script setup lang="ts">
   import { computed, ref } from 'vue';
   import { useSettingStore } from '@/store/setting';
+  import { normalizeCitationScope, stripInlineCitationMarkers } from '@/utils/citationDisplay';
   import { renderMarkdown, stripMarkdownCodeToolbar } from '@/utils/markdown';
 
   type CitationItem = {
@@ -30,10 +31,10 @@
     () => Boolean(settingStore.settings.debugMode)
   );
   const cleanCitationText = (value?: string) =>
-    String(value || '')
-      .replace(/<hr\s*\/?>/gi, '\n')
-      .replace(/\s*\[citation:\d+\]/gi, '')
-      .replace(/\s*\[doc:\d+\]/gi, '')
+    stripInlineCitationMarkers(
+      String(value || '')
+        .replace(/<hr\s*\/?>/gi, '\n')
+    )
       .split('\n')
       .map((line) => line.replace(/[ \t]+$/g, ''))
       .filter((line) => {
@@ -62,25 +63,15 @@
     return `${text.slice(0, 6)}…${text.slice(-4)}`;
   };
 
-  const scopeLabel = (item: CitationItem, hasFileId: boolean) => {
-    const raw = String(item.context_scope || '').toLowerCase();
-    if (
-      raw === 'uploaded_document' ||
-      raw === 'current_file' ||
-      raw === 'thread_file' ||
-      raw === 'mounted_file'
-    ) {
+  const scopeLabel = (item: CitationItem) => {
+    const raw = normalizeCitationScope(item.context_scope);
+    if (raw === 'uploaded_document') {
       return '当前文件';
     }
-    if (
-      raw === 'knowledge_base' ||
-      raw === 'course' ||
-      raw === 'course_library' ||
-      raw === 'system'
-    ) {
+    if (raw === 'knowledge_base') {
       return '课程库';
     }
-    return hasFileId ? '当前文件' : '';
+    return item.file_id ? '资料' : '';
   };
 
   const normalizeScore = (item: CitationItem) => {
@@ -104,7 +95,7 @@
           citation_id: Number.isFinite(citationId) && citationId > 0 ? citationId : index + 1,
           sourceLabel,
           locator: locator || '',
-          scope: scopeLabel(item, Boolean(item.file_id)),
+          scope: scopeLabel(item),
           snippet,
           reason,
           score: normalizeScore(item),
@@ -247,6 +238,7 @@
       <article
         v-for="item in normalizedCitations"
         :key="`${item.citation_id}-${item.source}-${item.chunk_id}`"
+        :id="`citation-${item.citation_id}`"
         class="citation-detail"
       >
         <span class="citation-detail__index">{{ item.citation_id }}</span>

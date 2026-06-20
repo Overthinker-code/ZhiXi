@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { getToken } from '@/utils/auth';
+import { normalizeCitationScope } from '@/utils/citationDisplay';
 import { normalizeDisplayText, normalizeSuggestionList, normalizeTextList } from '@/utils/llmDisplay';
 
 /** 会话列表/设置/知识库列表等：尽快失败，避免 AI 页长时间白屏等待 */
@@ -90,34 +91,6 @@ const firstText = (...values: unknown[]) => {
   return '';
 };
 
-const normalizeCitationScope = (value: unknown, hasFileId: boolean) => {
-  const raw = String(value || '').toLowerCase();
-  if (
-    [
-      'uploaded_document',
-      'current_file',
-      'thread_file',
-      'mounted_file',
-      'personal',
-      'document',
-    ].includes(raw)
-  ) {
-    return 'uploaded_document';
-  }
-  if (
-    [
-      'knowledge_base',
-      'course',
-      'course_library',
-      'system',
-      'resource',
-    ].includes(raw)
-  ) {
-    return 'knowledge_base';
-  }
-  return hasFileId ? 'uploaded_document' : raw;
-};
-
 const normalizeCitationText = (value: unknown) => {
   const raw = firstText(value);
   if (!raw) return '';
@@ -198,7 +171,7 @@ export function normalizeCitationItems(raw: unknown): CitationItem[] {
         file_id: fileId || undefined,
         file_name: fileName || source,
         chunk_id: chunkId || undefined,
-        context_scope: normalizeCitationScope(item.context_scope ?? item.scope, Boolean(fileId)),
+        context_scope: normalizeCitationScope(item.context_scope ?? item.scope),
         locator: locator || undefined,
         snippet: snippet || '该证据片段未返回可展示文本，请结合文件定位继续核验。',
         reason: reason || undefined,

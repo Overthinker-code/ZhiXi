@@ -12,6 +12,7 @@
     type ReferenceFile,
     type ReferenceScopeFilter,
   } from '@/api/rag';
+  import { isRagBindableReference } from '@/utils/citationDisplay';
   import { resolveCourseResourceReference } from '@/utils/courseResourceReference';
   import LegacyAssistantPanel from './LegacyAssistantPanel.vue';
   import ReferenceFileUploadDialog from './components/ReferenceFileUploadDialog.vue';
@@ -168,6 +169,21 @@
   const mountedFile = computed(() =>
     chatStore.getMountedFile(chatStore.currentConversationId)
   );
+  const mountedReferenceLabel = computed(() => {
+    const file = mountedFile.value;
+    if (!file) return '';
+    if (!isRagBindableReference(file)) return '课程资源线索';
+    if (file.scope === 'system') return '课程库文件';
+    return '本对话文件';
+  });
+  const mountedReferenceDetail = computed(() => {
+    const file = mountedFile.value;
+    if (!file) return '';
+    if (!isRagBindableReference(file)) {
+      return '用于限定课程主题；未作为上传原文检索';
+    }
+    return '已作为本轮回答的可检索上下文';
+  });
   const routeCourseId = computed(() => {
     const value = route.query.courseId || route.params.courseId;
     return typeof value === 'string' ? value : '';
@@ -481,11 +497,11 @@
         </div>
         <div v-if="mountedFile" class="active-reference-strip">
           <div>
-            <span>{{ mountedFile.scope === 'system' ? '课程库引用' : '本对话引用' }}</span>
+            <span>{{ mountedReferenceLabel }}</span>
             <strong>{{ mountedFile.file_name || mountedFile.name }}</strong>
           </div>
-          <p v-if="mountedFile.chapter || mountedFile.type">
-            {{ mountedFile.chapter || '课程资料' }} · {{ mountedFile.type || getScopeLabel(mountedFile.scope) }}
+          <p v-if="mountedFile.chapter || mountedFile.type || mountedReferenceDetail">
+            {{ mountedFile.chapter || '课程资料' }} · {{ mountedFile.type || getScopeLabel(mountedFile.scope) }} · {{ mountedReferenceDetail }}
           </p>
           <button type="button" @click="openDrawer('resources')">查看引用</button>
         </div>
@@ -554,8 +570,9 @@
         </div>
         <div v-if="mountedFile" class="mounted-file-card">
           <div>
-            <span>本对话引用文件</span>
+            <span>{{ mountedReferenceLabel }}</span>
             <strong>{{ mountedFile.file_name || mountedFile.name }}</strong>
+            <small>{{ mountedReferenceDetail }}</small>
           </div>
           <a-button size="small" @click="clearMountedFile">取消引用</a-button>
         </div>
@@ -949,7 +966,8 @@
     background: #f4f6ff;
 
     span,
-    strong {
+    strong,
+    small {
       display: block;
     }
 
@@ -966,6 +984,13 @@
       font-size: 13px;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+
+    small {
+      margin-top: 3px;
+      color: #7b879c;
+      font-size: 11px;
+      line-height: 1.35;
     }
   }
 

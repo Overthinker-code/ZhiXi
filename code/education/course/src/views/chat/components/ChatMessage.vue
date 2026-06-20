@@ -13,6 +13,10 @@
   import dislikeActiveIcon from '@/assets/photo/踩2.png';
   import regenerateIcon from '@/assets/photo/重新生成.png';
   import humanizeAgentReasoning from '@/utils/humanizeAgentReasoning';
+  import {
+    renderInlineCitationMarkers,
+    stripInlineCitationMarkers,
+  } from '@/utils/citationDisplay';
   import AgentCollaborationTimeline from '@/views/chat/components/AgentCollaborationTimeline.vue';
   import ReasoningBlock from '@/views/chat/components/ReasoningBlock.vue';
   import CitationArea from '@/views/chat/components/CitationArea.vue';
@@ -108,7 +112,9 @@
   // 处理复制函数
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(normalizeAssistantMarkdown(props.message.content || ''));
+      await navigator.clipboard.writeText(
+        normalizeAssistantMarkdown(props.message.content || '', { forCopy: true })
+      );
       isCopied.value = true;
 
       // 1.5秒后恢复原始图标
@@ -168,15 +174,8 @@
     });
   };
 
-  const stripInlineCitationMarkers = (value) =>
-    String(value || '')
-      .replace(/\s*\[citation:\d+\]/gi, '')
-      .replace(/\s*\[doc:\d+\]/gi, '')
-      .replace(/[ \t]+\n/g, '\n')
-      .trim();
-
-  const normalizeAssistantMarkdown = (value) =>
-    stripInlineCitationMarkers(value)
+  const normalizeAssistantMarkdown = (value, options = {}) =>
+    (options.forCopy ? stripInlineCitationMarkers(value) : renderInlineCitationMarkers(value))
       .split('\n')
       .filter((line) => {
         const trimmed = line.trim();
@@ -527,6 +526,11 @@
             color: #fff;
           }
           :deep(a) { color: #e0e7ff; }
+          :deep(a[href^="#citation-"]) {
+            color: #fff;
+            background: rgba(255,255,255,0.2);
+            box-shadow: inset 0 0 0 1px rgba(255,255,255,0.26);
+          }
           :deep(blockquote) {
             border-left-color: rgba(255,255,255,0.4);
             background: rgba(255,255,255,0.10);
@@ -957,6 +961,25 @@
             }
           }
         }
+      }
+
+      .bubble.markdown-body :deep(a[href^="#citation-"]) {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 1.12rem;
+        height: 1.12rem;
+        margin: 0 0.08rem;
+        padding: 0 0.24rem;
+        border-radius: 999px;
+        background: #eef2ff;
+        color: #4f46e5;
+        font-size: 0.68em;
+        font-weight: 760;
+        line-height: 1;
+        text-decoration: none;
+        vertical-align: 0.12em;
+        box-shadow: inset 0 0 0 1px rgba(79, 70, 229, 0.14);
       }
 
       .hitl-card {

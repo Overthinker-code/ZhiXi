@@ -12,6 +12,7 @@ import {
 } from '@/utils/thoughtToNarrative';
 import { shouldAppendThoughtToReasoning } from '@/utils/streamReasoning';
 import { normalizeSuggestionList } from '@/utils/llmDisplay';
+import { isRagBindableReference } from '@/utils/citationDisplay';
 import {
   createAssistantChat,
   createAssistantChatStream,
@@ -257,11 +258,11 @@ export function useChat() {
         ? [
             `当前引用资料：${reference.title}`,
             `资料ID：${reference.resourceId}`,
-            `资料文件标识：${reference.file_id}`,
+            `资料线索标识：${reference.resourceId}`,
             `章节：${reference.chapter}`,
             `类型：${reference.type}`,
             `证据线索：${reference.evidence.join('；')}`,
-            '回答时必须优先围绕这份资料；证据不足时要明确说明，并在结尾列出依据。',
+            '这是一条课程资源线索，不代表已挂载原文文件；回答时必须优先围绕这份资料主题组织，证据不足时要明确说明，并在结尾列出依据来源类型。',
           ].join('\n')
         : resourceId
           ? [
@@ -590,6 +591,9 @@ export function useChat() {
         debugMode: Boolean(settingStore.settings.debugMode),
       };
 
+      const bindableMountedFile = isRagBindableReference(mountedFile)
+        ? mountedFile
+        : null;
       const shouldStream = Boolean(settingStore.settings.stream);
       if (shouldStream) {
         streamAbortController = new AbortController();
@@ -640,8 +644,8 @@ export function useChat() {
           currentThreadId.value,
           {
             ...commonOptions,
-            currentFileId: mountedFile?.file_id || undefined,
-            fileName: mountedFile?.file_name || undefined,
+            currentFileId: bindableMountedFile?.file_id || undefined,
+            fileName: bindableMountedFile?.file_name || undefined,
             imageBase64List,
             toolMode,
             reasoningEnabled: Boolean(messageContent.options?.deepThinking),
@@ -734,8 +738,8 @@ export function useChat() {
           currentThreadId.value,
           {
             ...commonOptions,
-            currentFileId: mountedFile?.file_id || undefined,
-            fileName: mountedFile?.file_name || undefined,
+            currentFileId: bindableMountedFile?.file_id || undefined,
+            fileName: bindableMountedFile?.file_name || undefined,
             imageBase64List,
             toolMode,
             reasoningEnabled: Boolean(messageContent.options?.deepThinking),
@@ -859,6 +863,9 @@ export function useChat() {
 
     try {
       const mountedFile = chatStore.getMountedFile(currentThreadId.value);
+      const bindableMountedFile = isRagBindableReference(mountedFile)
+        ? mountedFile
+        : null;
       const response = await askSelectionQuery(
         text,
         params.surroundingContext,
@@ -877,8 +884,8 @@ export function useChat() {
           surroundingContext: params.surroundingContext,
           videoTime: params.videoTime,
           courseModule: params.courseModule,
-          currentFileId: mountedFile?.file_id,
-          fileName: mountedFile?.file_name,
+          currentFileId: bindableMountedFile?.file_id,
+          fileName: bindableMountedFile?.file_name,
           forceAgent: settingStore.settings.forceAgent || undefined,
           forceCache: Boolean(settingStore.settings.forceCache),
           debugMode: Boolean(settingStore.settings.debugMode),

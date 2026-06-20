@@ -55,6 +55,16 @@ class RAGService:
         owner_id = self._normalize_owner_id(metadata.get("owner_id"))
         return bool(user_id) and owner_id == self._normalize_owner_id(user_id)
 
+    def _is_visible_to_knowledge_query(
+        self, metadata: dict, user_id: Optional[str], is_admin: bool
+    ) -> bool:
+        # Thread-scoped uploads are only authoritative through
+        # search_uploaded_document(current_file_id). Treating them as normal
+        # knowledge-base fallback results can leak a user's other conversations.
+        if self._normalize_scope(metadata.get("scope")) == "thread":
+            return False
+        return self._is_visible_to_user(metadata, user_id, is_admin)
+
     def _can_manage_file(
         self, metadata: dict, user_id: Optional[str], is_admin: bool
     ) -> bool:
@@ -191,7 +201,7 @@ class RAGService:
 
         def add_match(doc: Document, score: float) -> None:
             metadata = dict(doc.metadata or {})
-            if not self._is_visible_to_user(metadata, user_id, is_admin):
+            if not self._is_visible_to_knowledge_query(metadata, user_id, is_admin):
                 return
 
             key = self._doc_match_key(doc)
