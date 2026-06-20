@@ -174,19 +174,34 @@
     });
   };
 
-  const normalizeAssistantMarkdown = (value, options = {}) =>
-    (options.forCopy ? stripInlineCitationMarkers(value) : renderInlineCitationMarkers(value))
-      .split('\n')
-      .filter((line) => {
-        const trimmed = line.trim();
-        return (
-          !/^([-*_=])\1{2,}$/.test(trimmed) &&
-          !/^[＿_—─━―－﹘﹣]{3,}$/.test(trimmed)
-        );
-      })
+  const isDecorativeRuleLine = (line) => {
+    const compact = String(line || '').replace(/\s+/g, '');
+    if (!compact) return false;
+    if (/^([-*_=])\1{2,}$/.test(compact)) return true;
+    return /^[＿_—─━―－﹘﹣]{3,}$/.test(compact);
+  };
+
+  const normalizeAssistantMarkdown = (value, options = {}) => {
+    const source = (options.forCopy
+      ? stripInlineCitationMarkers(value)
+      : renderInlineCitationMarkers(value)
+    ).replace(/<hr\s*\/?>/gi, '\n');
+    const output = [];
+    let inFence = false;
+    source.split('\n').forEach((line) => {
+      if (/^\s*(`{3,}|~{3,})/.test(line)) {
+        inFence = !inFence;
+        output.push(line);
+        return;
+      }
+      if (!inFence && isDecorativeRuleLine(line)) return;
+      output.push(line);
+    });
+    return output
       .join('\n')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
+  };
 
   // 处理代码块的复制
   const handleCodeCopy = async (event) => {
@@ -967,19 +982,19 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-width: 1.12rem;
-        height: 1.12rem;
-        margin: 0 0.08rem;
-        padding: 0 0.24rem;
+        min-width: 0.92rem;
+        height: 0.92rem;
+        margin: 0 0.06rem;
+        padding: 0 0.2rem;
         border-radius: 999px;
-        background: #eef2ff;
-        color: #4f46e5;
-        font-size: 0.68em;
+        background: #f8fafc;
+        color: #475569;
+        font-size: 0.62em;
         font-weight: 760;
         line-height: 1;
         text-decoration: none;
-        vertical-align: 0.12em;
-        box-shadow: inset 0 0 0 1px rgba(79, 70, 229, 0.14);
+        vertical-align: 0.14em;
+        box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.28);
       }
 
       .hitl-card {

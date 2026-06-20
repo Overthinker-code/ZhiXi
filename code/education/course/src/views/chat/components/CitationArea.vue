@@ -63,6 +63,8 @@
     return `${text.slice(0, 6)}…${text.slice(-4)}`;
   };
 
+  const evidenceLabel = (count: number) => `${count} 段证据`;
+
   const scopeLabel = (item: CitationItem) => {
     const raw = normalizeCitationScope(item.context_scope);
     if (raw === 'uploaded_document') {
@@ -128,6 +130,7 @@
           score: item.score,
           fileId: item.file_id,
           evidenceCount: 1,
+          sourceKey: item.file_id || item.sourceLabel,
         });
         return;
       }
@@ -180,18 +183,23 @@
     class="citation-area"
   >
     <div class="citation-strip" aria-label="回答引用来源">
+      <span v-if="normalizedCitations.length" class="citation-strip__label">
+        来源
+      </span>
       <button
         v-for="source in visibleSourceChips"
         :key="`${source.scope}-${source.sourceLabel}`"
         type="button"
         class="source-chip"
         :aria-expanded="expanded"
-        :title="`${source.scope || '资料'} · ${source.sourceLabel}${source.locator ? ` · ${source.locator}` : ''}`"
+        :title="`${source.scope || '资料'} · ${source.sourceLabel}${source.locator ? ` · ${source.locator}` : ''}${source.fileId ? ` · file ${source.fileId}` : ''}`"
         @click="expanded = true"
       >
-        <span class="source-chip__index">[{{ source.displayIds }}]</span>
+        <span class="source-chip__index">{{ source.displayIds }}</span>
         <strong>{{ source.sourceLabel }}</strong>
-        <span v-if="source.scope" class="source-chip__scope">{{ source.scope }}</span>
+        <span class="source-chip__scope">
+          {{ source.scope || '资料' }} · {{ evidenceLabel(source.evidenceCount) }}
+        </span>
       </button>
       <button
         v-if="hiddenSourceCount"
@@ -209,7 +217,7 @@
         :aria-expanded="expanded"
         @click="expanded = !expanded"
       >
-        {{ expanded ? '收起依据' : `查看 ${normalizedCitations.length} 条依据` }}
+        {{ expanded ? '收起' : '展开依据' }}
       </button>
       <span v-if="currentFileCitationCount" class="current-file-pill">
         当前文件 {{ currentFileCitationCount }}
@@ -242,23 +250,25 @@
         class="citation-detail"
       >
         <span class="citation-detail__index">{{ item.citation_id }}</span>
-        <div class="citation-detail__head">
-          <strong>{{ item.sourceLabel }}</strong>
-          <span v-if="item.scope">{{ item.scope }}</span>
-        </div>
-        <div class="citation-meta">
-          <small v-if="item.locator">{{ item.locator }}</small>
-          <small v-if="item.chunk_id">chunk {{ item.chunk_id }}</small>
-          <small v-if="item.file_id">file {{ shortId(item.file_id) }}</small>
-          <small v-if="item.score">相关度 {{ item.score.toFixed(2) }}</small>
-        </div>
-        <!-- eslint-disable-next-line vue/no-v-html -->
-        <div class="citation-snippet" v-html="renderCitation(item.snippet)" />
-        <details v-if="item.reason" class="citation-reason">
-          <summary>匹配原因</summary>
+        <div class="citation-detail__body">
+          <div class="citation-detail__head">
+            <strong>{{ item.sourceLabel }}</strong>
+            <span v-if="item.scope">{{ item.scope }}</span>
+          </div>
+          <div class="citation-meta">
+            <small v-if="item.locator">{{ item.locator }}</small>
+            <small v-if="item.chunk_id">chunk {{ item.chunk_id }}</small>
+            <small v-if="item.file_id">file {{ shortId(item.file_id) }}</small>
+            <small v-if="item.score">相关度 {{ item.score.toFixed(2) }}</small>
+          </div>
           <!-- eslint-disable-next-line vue/no-v-html -->
-          <div v-html="renderCitation(item.reason)" />
-        </details>
+          <div class="citation-snippet" v-html="renderCitation(item.snippet)" />
+          <details v-if="item.reason" class="citation-reason">
+            <summary>匹配原因</summary>
+            <!-- eslint-disable-next-line vue/no-v-html -->
+            <div v-html="renderCitation(item.reason)" />
+          </details>
+        </div>
       </article>
     </div>
   </div>
@@ -266,21 +276,27 @@
 
 <style scoped lang="scss">
   .citation-area {
-    margin: 0.36rem 0 0 0.2rem;
+    margin: 0.28rem 0 0 0.1rem;
   }
 
   .citation-strip {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.32rem;
+    gap: 0.28rem;
+  }
+
+  .citation-strip__label {
+    color: #94a3b8;
+    font-size: 0.66rem;
+    font-weight: 700;
   }
 
   .source-toggle,
   .source-chip {
-    border: 1px solid rgba(203, 213, 225, 0.72);
-    background: rgba(255, 255, 255, 0.82);
-    color: #475569;
+    border: 0;
+    background: transparent;
+    color: #64748b;
     cursor: pointer;
     transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
   }
@@ -288,23 +304,31 @@
   .source-chip {
     display: inline-flex;
     align-items: center;
-    gap: 0.24rem;
-    height: 1.42rem;
-    max-width: min(15.5rem, 68vw);
-    padding: 0 0.48rem;
-    border-radius: 999px;
-    font-size: 0.7rem;
+    gap: 0.26rem;
+    min-height: 1.28rem;
+    max-width: min(18rem, 72vw);
+    padding: 0.14rem 0.36rem;
+    border-radius: 7px;
+    font-size: 0.68rem;
     font-weight: 600;
 
     .source-chip__index {
-      color: #4f46e5;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 1.02rem;
+      height: 1.02rem;
+      border-radius: 999px;
+      background: #f1f5f9;
+      color: #475569;
+      font-size: 0.62rem;
       font-weight: 760;
     }
 
     strong {
       min-width: 0;
       overflow: hidden;
-      color: #334155;
+      color: #475569;
       font-size: 0.68rem;
       font-weight: 620;
       text-overflow: ellipsis;
@@ -312,13 +336,13 @@
     }
 
     .source-chip__scope {
-      color: #64748b;
-      font-size: 0.64rem;
+      color: #94a3b8;
+      font-size: 0.62rem;
+      white-space: nowrap;
     }
 
     &:hover {
-      border-color: rgba(79, 70, 229, 0.32);
-      background: rgba(248, 250, 255, 0.98);
+      background: #f8fafc;
       color: #334155;
     }
   }
@@ -328,8 +352,8 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    height: 1.42rem;
-    border-radius: 999px;
+    min-height: 1.28rem;
+    border-radius: 7px;
     font-size: 0.68rem;
     font-weight: 650;
   }
@@ -341,12 +365,13 @@
   }
 
   .source-toggle {
-    padding: 0 0.5rem;
+    padding: 0.12rem 0.38rem;
     color: #64748b;
+    background: #f8fafc;
 
     &:hover {
-      border-color: rgba(79, 70, 229, 0.3);
-      background: #fff;
+      background: #eef2ff;
+      color: #4f46e5;
     }
   }
 
@@ -381,10 +406,10 @@
     gap: 0;
     max-width: min(760px, 100%);
     max-height: 24rem;
-    margin-top: 0.48rem;
+    margin-top: 0.38rem;
     overflow: auto;
-    border: 1px solid rgba(226, 232, 240, 0.92);
-    border-radius: 12px;
+    border: 1px solid rgba(226, 232, 240, 0.86);
+    border-radius: 10px;
     background: rgba(255, 255, 255, 0.96);
   }
 
@@ -393,7 +418,7 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 0.32rem;
-    padding: 0.56rem 0.68rem;
+    padding: 0.5rem 0.62rem;
     border-bottom: 1px solid rgba(226, 232, 240, 0.78);
 
     strong {
@@ -415,9 +440,9 @@
 
   .citation-detail {
     display: grid;
-    grid-template-columns: 1.32rem minmax(0, 1fr);
-    gap: 0.48rem;
-    padding: 0.66rem 0.72rem;
+    grid-template-columns: 1.08rem minmax(0, 1fr);
+    gap: 0.44rem;
+    padding: 0.62rem 0.68rem;
     background: #fff;
 
     & + .citation-detail {
@@ -429,13 +454,17 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 1.18rem;
-    height: 1.18rem;
+    width: 1.02rem;
+    height: 1.02rem;
     border-radius: 50%;
-    background: #f1f5ff;
-    color: #4f46e5;
-    font-size: 0.66rem;
+    background: #f8fafc;
+    color: #64748b;
+    font-size: 0.62rem;
     font-weight: 780;
+  }
+
+  .citation-detail__body {
+    min-width: 0;
   }
 
   .citation-detail__head {
@@ -486,7 +515,7 @@
 
   .citation-snippet {
     color: #334155;
-    font-size: 0.76rem;
+    font-size: 0.74rem;
     line-height: 1.55;
   }
 

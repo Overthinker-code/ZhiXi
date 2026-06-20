@@ -1238,4 +1238,40 @@
     margin: 0.04em 0;
     line-height: 1.28;
   }
+
+  :deep(.markdown-body hr) {
+    display: none !important;
+    height: 0 !important;
+    margin: 0 !important;
+    border: 0 !important;
+  }
+
+  :deep(.markdown-body blockquote) {
+    margin: 0.32rem 0;
+    padding: 0.42rem 0.56rem 0.42rem 0.68rem;
+    border: 0;
+    border-radius: 8px;
+    background: #f8fbff;
+    color: #56657a;
+    box-shadow: inset 2px 0 0 rgba(99, 102, 241, 0.22);
+  }
+
+  :deep(.markdown-body a[href^="#citation-"]) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0.88rem;
+    height: 0.88rem;
+    margin: 0 0.05rem;
+    padding: 0 0.18rem;
+    border-radius: 999px;
+    background: #f8fafc;
+    color: #475569;
+    font-size: 0.62em;
+    font-weight: 760;
+    line-height: 1;
+    text-decoration: none;
+    vertical-align: 0.12em;
+    box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.28);
+  }
 </style>

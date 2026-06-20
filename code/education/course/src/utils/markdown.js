@@ -36,6 +36,26 @@ md.use(mdLinkAttributes, {
   },
 });
 
+const defaultLinkOpenRenderer =
+  md.renderer.rules.link_open ||
+  ((tokens, idx, options, env, self) => self.renderToken(tokens, idx, options));
+
+function removeTokenAttr(token, name) {
+  const index = token.attrIndex(name);
+  if (index >= 0) token.attrs.splice(index, 1);
+}
+
+md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+  const token = tokens[idx];
+  const href = token.attrGet('href') || '';
+  if (href.startsWith('#citation-')) {
+    removeTokenAttr(token, 'target');
+    removeTokenAttr(token, 'rel');
+    return self.renderToken(tokens, idx, options);
+  }
+  return defaultLinkOpenRenderer(tokens, idx, options, env, self);
+};
+
 md.use(emoji);
 
 md.use(mditKatex, {
@@ -243,12 +263,12 @@ function normalizeChatIndentation(segment) {
 function removeDecorativeHorizontalRules(segment) {
   return String(segment || '')
     .split('\n')
-    .filter(
-      (line) =>
-        !/^\s{0,3}(?:-{3,}|\*{3,}|_{3,}|={3,}|[＿_—─━―－﹘﹣]{3,})\s*$/.test(
-          line
-        )
-    )
+    .filter((line) => {
+      const compact = line.replace(/\s+/g, '');
+      return !/^(?:-{3,}|\*{3,}|_{3,}|={3,}|[＿_—─━―－﹘﹣]{3,})$/.test(
+        compact
+      );
+    })
     .join('\n');
 }
 
