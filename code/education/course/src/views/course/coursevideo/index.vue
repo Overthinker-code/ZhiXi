@@ -88,13 +88,13 @@
             <div class="overview-progress__track">
               <i
                 :style="{
-                  width: `${currentCourse.progress}%`,
+                  width: `${displayProgress}%`,
                   background: currentCourse.accent,
                 }"
               ></i>
             </div>
-            <strong>{{ currentCourse.progress }}%</strong>
-            <small>已学 {{ currentCourse.learned }} / {{ currentCourse.total }} 节</small>
+            <strong>{{ displayProgress }}%</strong>
+            <small>已学 {{ displayLearned }} / {{ currentCourse.total }} 节</small>
           </div>
         </div>
         <div class="overview-meta">
@@ -103,6 +103,14 @@
             <p><small>{{ item.label }}</small><strong>{{ item.value }}</strong></p>
           </div>
         </div>
+      </section>
+
+      <section class="learning-state-strip">
+        <article v-for="item in learningStateCards" :key="item.label">
+          <span>{{ item.label }}</span>
+          <strong>{{ item.value }}</strong>
+          <p>{{ item.desc }}</p>
+        </article>
       </section>
 
       <div class="learning-layout">
@@ -130,6 +138,10 @@
                 </a-button>
                 <a-button size="small" @click="downloadCurrentLesson">
                   <template #icon><icon-download /></template>下载
+                </a-button>
+                <a-button size="small" type="primary" @click="completeCurrentLesson">
+                  <template #icon><icon-check-circle-fill /></template>
+                  {{ currentLessonCompleted ? '已完成' : '完成本节' }}
                 </a-button>
               </div>
             </div>
@@ -378,14 +390,14 @@
           <div class="chapter-header">
             <div>
               <strong>课程章节</strong>
-              <span>{{ currentCourse.learned }} / {{ currentCourse.total }} 节</span>
+              <span>{{ displayLearned }} / {{ currentCourse.total }} 节</span>
             </div>
-            <small>{{ currentCourse.progress }}%</small>
+            <small>{{ displayProgress }}%</small>
           </div>
           <div class="chapter-progress">
             <i
               :style="{
-                width: `${currentCourse.progress}%`,
+                width: `${displayProgress}%`,
                 background: currentCourse.accent,
               }"
             ></i>
@@ -407,13 +419,13 @@
                   :key="lesson.id"
                   type="button"
                   :class="{
-                    done: lesson.status === 'done',
+                    done: completedLessonIds.has(lesson.id),
                     active: currentLessonId === lesson.id,
                   }"
                   @click="selectLesson(lesson)"
                 >
                   <span>{{ lesson.label }}</span>
-                  <icon-check-circle-fill v-if="lesson.status === 'done'" />
+                  <icon-check-circle-fill v-if="completedLessonIds.has(lesson.id)" />
                   <icon-play-circle-fill v-else-if="currentLessonId === lesson.id" />
                   <i v-else></i>
                 </button>
@@ -587,6 +599,29 @@ import teacherAvatarImg from '@/assets/images/老师头像.png';
 
 type ArtifactType = 'notes' | 'mind';
 type CanvasExpose = { exportSvg: (filename: string) => void };
+type LocalLearningState = {
+  lessonId: string;
+  isFavorite: boolean;
+  notesOrganized: boolean;
+  selectedMindNodeText: string;
+  completedLessonIds: string[];
+  actionCount: number;
+  generatedCount: number;
+  downloadCount: number;
+  lastActiveAt: string;
+};
+
+const emptyLearningState: LocalLearningState = {
+  lessonId: '',
+  isFavorite: false,
+  notesOrganized: false,
+  selectedMindNodeText: '',
+  completedLessonIds: [],
+  actionCount: 0,
+  generatedCount: 0,
+  downloadCount: 0,
+  lastActiveAt: '',
+};
 
 const route = useRoute();
 const router = useRouter();
@@ -605,6 +640,7 @@ const artifactZoom = ref(1);
 const mindCanvas = ref<CanvasExpose | null>(null);
 const modalCanvas = ref<CanvasExpose | null>(null);
 const selectedMindNodeText = ref('');
+const localLearningState = ref<LocalLearningState>({ ...emptyLearningState });
 
 const currentCourse = computed(() =>
   getClassroomCourse(
@@ -628,6 +664,54 @@ const currentLesson = computed(
     allLessons.value[0] ||
     { id: '', label: '', title: '', status: 'pending' as const }
 );
+const completedLessonIds = computed(() => {
+  const ids = new Set(
+    allLessons.value.filter((lesson) => lesson.status === 'done').map((lesson) => lesson.id)
+  );
+  localLearningState.value.completedLessonIds.forEach((id) => ids.add(id));
+  return ids;
+});
+const currentLessonCompleted = computed(() => completedLessonIds.value.has(currentLesson.value.id));
+const displayLearned = computed(() => completedLessonIds.value.size);
+const displayProgress = computed(() => {
+  const total = currentCourse.value?.total || allLessons.value.length || 1;
+  return Math.max(
+    currentCourse.value?.progress || 0,
+    Math.round((displayLearned.value / Math.max(total, 1)) * 100)
+  );
+});
+const learningStateCards = computed(() => {
+  const lastActive = localLearningState.value.lastActiveAt
+    ? new Date(localLearningState.value.lastActiveAt).toLocaleString('zh-CN', {
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : '本次进入';
+  return [
+    {
+      label: '最近课节',
+      value: currentLesson.value.label || '未选择',
+      desc: currentLesson.value.title || '打开课程后自动恢复上次学习位置',
+    },
+    {
+      label: '本地进度',
+      value: `${displayProgress.value}%`,
+      desc: `${displayLearned.value}/${currentCourse.value?.total || allLessons.value.length} 节完成，刷新后保留`,
+    },
+    {
+      label: '学习动作',
+      value: `${localLearningState.value.actionCount}`,
+      desc: `最近活跃：${lastActive}`,
+    },
+    {
+      label: '产物沉淀',
+      value: `${localLearningState.value.generatedCount + localLearningState.value.downloadCount}`,
+      desc: `${localLearningState.value.generatedCount} 次生成 · ${localLearningState.value.downloadCount} 次下载`,
+    },
+  ];
+});
 const courseMeta = computed(() => {
   if (!currentCourse.value) return [];
   return [
@@ -772,17 +856,90 @@ const {
   clearAnswerPanel,
 } = useSelectionQueryMenu(() => courseContext.value);
 
+function stateStorageKey(courseId: string) {
+  return `zhixi:classroom-learning:${courseId}`;
+}
+
+function readLearningState(courseId: string): LocalLearningState {
+  try {
+    const raw = window.localStorage.getItem(stateStorageKey(courseId));
+    if (!raw) return { ...emptyLearningState };
+    const parsed = JSON.parse(raw) as Partial<LocalLearningState>;
+    return {
+      ...emptyLearningState,
+      ...parsed,
+      completedLessonIds: Array.isArray(parsed.completedLessonIds)
+        ? parsed.completedLessonIds.filter(Boolean)
+        : [],
+    };
+  } catch {
+    return { ...emptyLearningState };
+  }
+}
+
+function persistLearningState(patch: Partial<LocalLearningState> = {}) {
+  const course = currentCourse.value;
+  if (!course) return;
+  const next: LocalLearningState = {
+    ...localLearningState.value,
+    lessonId: currentLessonId.value,
+    isFavorite: isFavorite.value,
+    notesOrganized: notesOrganized.value,
+    selectedMindNodeText: selectedMindNodeText.value,
+    lastActiveAt: new Date().toISOString(),
+    ...patch,
+  };
+  next.completedLessonIds = Array.from(new Set(next.completedLessonIds)).filter(Boolean);
+  localLearningState.value = next;
+  try {
+    window.localStorage.setItem(stateStorageKey(course.id), JSON.stringify(next));
+    window.dispatchEvent(
+      new CustomEvent('zhixi-classroom-learning-updated', {
+        detail: { courseId: course.id, state: next },
+      })
+    );
+  } catch {
+    // localStorage may be unavailable in restricted browser modes; the in-memory state still updates.
+  }
+}
+
+function recordLearningAction(
+  kind: 'navigate' | 'favorite' | 'organize' | 'download' | 'generate' | 'complete' | 'node',
+  patch: Partial<LocalLearningState> = {}
+) {
+  persistLearningState({
+    actionCount: localLearningState.value.actionCount + 1,
+    downloadCount:
+      kind === 'download'
+        ? localLearningState.value.downloadCount + 1
+        : localLearningState.value.downloadCount,
+    generatedCount:
+      kind === 'generate'
+        ? localLearningState.value.generatedCount + 1
+        : localLearningState.value.generatedCount,
+    ...patch,
+  });
+}
+
 watch(
   currentCourse,
   (course) => {
     if (localVideoUrl.value) URL.revokeObjectURL(localVideoUrl.value);
     localVideoUrl.value = null;
     videoSrc.value = null;
-    isFavorite.value = false;
-    notesOrganized.value = false;
     notesGenerating.value = false;
-    currentLessonId.value = course?.chapters[0]?.lessons[0]?.id || '';
-    selectedMindNodeText.value = course?.shortTitle || '';
+    const saved = course ? readLearningState(course.id) : { ...emptyLearningState };
+    const lessonIds = new Set(
+      course?.chapters.flatMap((chapter) => chapter.lessons.map((lesson) => lesson.id)) || []
+    );
+    localLearningState.value = saved;
+    isFavorite.value = saved.isFavorite;
+    notesOrganized.value = saved.notesOrganized;
+    currentLessonId.value =
+      saved.lessonId && lessonIds.has(saved.lessonId)
+        ? saved.lessonId
+        : course?.chapters[0]?.lessons[0]?.id || '';
+    selectedMindNodeText.value = saved.selectedMindNodeText || course?.shortTitle || '';
     openChapters.value = new Set(course?.chapters.map((chapter) => chapter.id) || []);
     clearAnswerPanel();
     if (route.query.open === 'mind' && course) {
@@ -809,6 +966,7 @@ function toggleChapter(id: string) {
 
 function selectLesson(lesson: ClassroomLesson) {
   currentLessonId.value = lesson.id;
+  recordLearningAction('navigate', { lessonId: lesson.id });
   Message.success(`已切换到 ${lesson.label}`);
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -819,11 +977,13 @@ function focusNotes() {
 
 function toggleFavorite() {
   isFavorite.value = !isFavorite.value;
+  recordLearningAction('favorite', { isFavorite: isFavorite.value });
   Message.success(isFavorite.value ? '已收藏当前课节' : '已取消收藏');
 }
 
 function organizeNotes() {
   notesOrganized.value = true;
+  recordLearningAction('organize', { notesOrganized: true });
   Message.success('课堂笔记已按知识结构重新整理');
 }
 
@@ -856,6 +1016,7 @@ function notesMarkdown() {
 function exportNotes() {
   if (!currentCourse.value) return;
   downloadText(`${currentCourse.value.title}-课堂笔记.md`, notesMarkdown(), 'text/markdown;charset=utf-8');
+  recordLearningAction('download');
   Message.success('课堂笔记已导出');
 }
 
@@ -914,6 +1075,7 @@ function exportNotesDoc() {
     notesWordHtml(),
     'application/msword;charset=utf-8'
   );
+  recordLearningAction('download');
   Message.success('Word 版课堂笔记已下载');
 }
 
@@ -949,6 +1111,7 @@ async function generateNotesPdfArtifact() {
       return;
     }
     window.open(artifactUrl(pdf), '_blank', 'noopener,noreferrer');
+    recordLearningAction('generate');
     Message.success('PDF 讲义已生成，正在打开下载链接');
   } catch (error) {
     Message.error('PDF 生成失败，请检查后端资源生成服务');
@@ -964,6 +1127,7 @@ function downloadCurrentLesson() {
     notesMarkdown(),
     'text/markdown;charset=utf-8'
   );
+  recordLearningAction('download');
   Message.success('当前课节资料已下载');
 }
 
@@ -982,6 +1146,7 @@ function downloadAllLessons() {
     `# ${currentCourse.value.title}\n\n${currentCourse.value.description}\n\n${catalog}\n\n${notesMarkdown()}`,
     'text/markdown;charset=utf-8'
   );
+  recordLearningAction('download');
   Message.success('课程目录与笔记已下载');
 }
 
@@ -1003,6 +1168,7 @@ function openArtifact(type: ArtifactType) {
 
 function generateFromNotes() {
   if (!currentCourse.value) return;
+  recordLearningAction('generate');
   router.push({
     name: 'StudentCourseResourceGenerator',
     params: { courseId: currentCourse.value.id },
@@ -1017,6 +1183,7 @@ function generateFromNotes() {
 
 function askMindMapTutor() {
   if (!currentCourse.value) return;
+  recordLearningAction('generate');
   router.push({
     name: 'TutorChat',
     query: {
@@ -1056,6 +1223,7 @@ function normalizeMindNodeProfile(concept: ClassroomConcept, title: string, isPo
 
 function selectMindText(text: string) {
   selectedMindNodeText.value = text;
+  recordLearningAction('node', { selectedMindNodeText: text });
 }
 
 function openMindCheckPrompt(text: string, event: MouseEvent) {
@@ -1118,11 +1286,28 @@ function downloadMindNodePack() {
     mindNodePackMarkdown(),
     'text/markdown;charset=utf-8'
   );
+  recordLearningAction('download');
   Message.success('节点学习单已生成');
 }
 
+function completeCurrentLesson() {
+  if (!currentLesson.value.id) return;
+  const wasCompleted = currentLessonCompleted.value;
+  const nextCompleted = Array.from(
+    new Set([...localLearningState.value.completedLessonIds, currentLesson.value.id])
+  );
+  recordLearningAction('complete', {
+    completedLessonIds: nextCompleted,
+    lessonId: currentLesson.value.id,
+  });
+  Message.success(wasCompleted ? '本节学习状态已保存' : '已标记完成本节');
+}
+
 function changeZoom(delta: number) {
-  artifactZoom.value = Math.min(1.6, Math.max(0.7, Number((artifactZoom.value + delta).toFixed(1))));
+  artifactZoom.value = Math.min(
+    1.6,
+    Math.max(0.7, Number((artifactZoom.value + delta).toFixed(1)))
+  );
 }
 
 function exportCanvas(type: 'mind') {
@@ -1130,17 +1315,20 @@ function exportCanvas(type: 'mind') {
   if (type === 'mind') {
     mindCanvas.value?.exportSvg(`${currentCourse.value.title}-思维导图.svg`);
   }
+  recordLearningAction('download');
   Message.success('思维导图已导出为 SVG');
 }
 
 function exportModalCanvas() {
   if (!currentCourse.value) return;
   modalCanvas.value?.exportSvg(`${currentCourse.value.title}-思维导图.svg`);
+  recordLearningAction('download');
   Message.success('思维导图已导出为 SVG');
 }
 
 function handleVisualNodePrompt(payload: { text: string; rect: DOMRect }) {
   selectedMindNodeText.value = payload.text;
+  recordLearningAction('node', { selectedMindNodeText: payload.text });
   openMenuForText(payload.text, payload.rect, courseContext.value);
 }
 
@@ -1539,6 +1727,53 @@ onBeforeRouteLeave(() => {
   color: #596bfa;
   background: #f0f2ff;
   place-items: center;
+}
+
+.learning-state-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+
+  article {
+    min-width: 0;
+    padding: 13px 14px;
+    border: 1px solid #e4eaf4;
+    border-radius: 12px;
+    background:
+      linear-gradient(135deg, rgba(248, 251, 255, .96), rgba(255, 255, 255, .98)),
+      #fff;
+    box-shadow: 0 3px 14px rgba(34, 48, 88, .04);
+  }
+
+  span,
+  strong,
+  p {
+    display: block;
+    min-width: 0;
+  }
+
+  span {
+    color: #8a95a8;
+    font-size: 10px;
+    font-weight: 800;
+  }
+
+  strong {
+    margin-top: 5px;
+    overflow: hidden;
+    color: #253047;
+    font-size: 15px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  p {
+    margin: 5px 0 0;
+    color: #748095;
+    font-size: 10px;
+    line-height: 1.55;
+  }
 }
 
 .learning-layout {
@@ -2494,6 +2729,10 @@ onBeforeRouteLeave(() => {
     border-left: 0;
   }
 
+  .learning-state-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .learning-layout {
     grid-template-columns: 1fr;
   }
@@ -2537,6 +2776,10 @@ onBeforeRouteLeave(() => {
   }
 
   .notes-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .learning-state-strip {
     grid-template-columns: 1fr;
   }
 

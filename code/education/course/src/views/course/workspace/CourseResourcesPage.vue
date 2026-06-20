@@ -1,6 +1,6 @@
 <script setup lang="ts">
   import { computed, ref } from 'vue';
-  import { Message } from '@arco-design/web-vue';
+  import { Message, Modal } from '@arco-design/web-vue';
   import { useRoute, useRouter } from 'vue-router';
   import {
     IconBulb,
@@ -23,9 +23,43 @@
   const router = useRouter();
   const query = ref('');
   const activeType = ref<'全部' | CourseResourceItem['type']>('全部');
-  const course = computed(() => getClassroomCourse(String(route.params.courseId || '')));
+  const aiTrialLimit = 3;
+  const aiTrialStorageKey = 'zhixi-course-resource-ai-trial-v1';
+  type AiTrialUsage = Record<string, number>;
+
+  function readAiTrialUsage(): AiTrialUsage {
+    if (typeof window === 'undefined') return {};
+    try {
+      return JSON.parse(window.localStorage.getItem(aiTrialStorageKey) || '{}');
+    } catch {
+      return {};
+    }
+  }
+
+  function writeAiTrialUsage(value: AiTrialUsage) {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(aiTrialStorageKey, JSON.stringify(value));
+    } catch {
+      Message.warning('浏览器暂时无法保存本地额度记录');
+    }
+  }
+
+  const aiTrialUsage = ref<AiTrialUsage>(readAiTrialUsage());
+  const course = computed(() =>
+    getClassroomCourse(String(route.params.courseId || ''))
+  );
   const resources = computed(() =>
     course.value ? buildCourseResources(course.value) : []
+  );
+  const aiTrialUsed = computed(() =>
+    course.value ? aiTrialUsage.value[course.value.id] || 0 : 0
+  );
+  const aiTrialRemaining = computed(() =>
+    Math.max(aiTrialLimit - aiTrialUsed.value, 0)
+  );
+  const aiTrialPercent = computed(() =>
+    Math.min((aiTrialUsed.value / aiTrialLimit) * 100, 100)
   );
   const completedChapterCount = computed(
     () =>
@@ -40,7 +74,8 @@
   const visibleResources = computed(() => {
     const keyword = query.value.trim().toLowerCase();
     return resources.value.filter((item) => {
-      const typeMatches = activeType.value === '全部' || item.type === activeType.value;
+      const typeMatches =
+        activeType.value === '全部' || item.type === activeType.value;
       const searchMatches =
         !keyword ||
         item.title.toLowerCase().includes(keyword) ||
@@ -65,14 +100,36 @@
       desc: '导出文件包含可检查的学习交付标准',
     },
   ]);
+  const aiGenerationValue = computed(() => [
+    {
+      label: '生成内容',
+      value: '讲义 + 练习 + 知识卡',
+      desc: '一次生成可覆盖高频课前、课中和课后资料',
+    },
+    {
+      label: '课程绑定',
+      value: `${course.value?.chapters.length || 0} 章上下文`,
+      desc: '自动带入章节、知识点和交付标准',
+    },
+    {
+      label: '节省时间',
+      value: '约 30 分钟 / 次',
+      desc: '减少重复整理，把时间留给讲评和追问',
+    },
+  ]);
 
   function resourceIndex(item: CourseResourceItem) {
-    return Math.max(resources.value.findIndex((resource) => resource.id === item.id), 0);
+    return Math.max(
+      resources.value.findIndex((resource) => resource.id === item.id),
+      0
+    );
   }
 
   function relatedConcept(item: CourseResourceItem) {
     if (!course.value) return undefined;
-    return course.value.concepts[resourceIndex(item) % Math.max(course.value.concepts.length, 1)];
+    return course.value.concepts[
+      resourceIndex(item) % Math.max(course.value.concepts.length, 1)
+    ];
   }
 
   function relatedLesson(item: CourseResourceItem) {
@@ -111,7 +168,7 @@
 
   function buildResourceMarkdown(item: CourseResourceItem) {
     const plan = resourcePlan(item);
-    const concept = plan.concept;
+    const { concept } = plan;
     const courseTitle = course.value?.title || '';
     const lessonTitle = plan.lesson?.title || item.chapter;
     const lines = [
@@ -128,13 +185,21 @@
       '',
       '## 图谱定位',
       `核心节点：${plan.graphNodes.join(' / ')}`,
-      `前置关系：先复盘 ${item.chapter} 的基本定义，再进入 ${concept?.title || lessonTitle} 的应用边界。`,
+      `前置关系：先复盘 ${item.chapter} 的基本定义，再进入 ${
+        concept?.title || lessonTitle
+      } 的应用边界。`,
       `后续动作：把本资料生成的错题、摘要和追问同步到课程图谱。`,
       '',
       '## 课堂笔记骨架',
       `- 关键概念：${concept?.title || lessonTitle}`,
-      `- 证据材料：${concept?.resources?.slice(0, 3).join('；') || `${item.title}、课堂讲义、例题卡片`}`,
-      `- 易错点：${concept?.misconceptions?.slice(0, 2).join('；') || '定义边界不清；只背结论不写条件'}`,
+      `- 证据材料：${
+        concept?.resources?.slice(0, 3).join('；') ||
+        `${item.title}、课堂讲义、例题卡片`
+      }`,
+      `- 易错点：${
+        concept?.misconceptions?.slice(0, 2).join('；') ||
+        '定义边界不清；只背结论不写条件'
+      }`,
       '',
       '## 练习与交付',
       ...plan.tasks.map((task, index) => `${index + 1}. ${task}`),
@@ -146,7 +211,7 @@
       '- [ ] 能说清资料对应的章节、知识点和学习目标。',
       '- [ ] 能指出至少 2 个题目或案例中的证据。',
       '- [ ] 已完成自测并记录错因。',
-      '- [ ] 已把薄弱点同步到课程图谱或 AI 伴学。'
+      '- [ ] 已把薄弱点同步到课程图谱或 AI 伴学。',
     ];
     return `${lines.join('\n')}\n`;
   }
@@ -163,8 +228,36 @@
     );
   }
 
-  function openGenerator() {
+  function showUpgradePrompt() {
+    Modal.info({
+      title: '升级后继续生成课程资源',
+      content:
+        '当前课程的本地试用额度已用完。升级后适合批量生成讲义、练习、知识卡和图谱节点资源，并保留更多生成历史。',
+      okText: '知道了',
+    });
+  }
+
+  function consumeAiTrialCredit(actionLabel: string) {
+    if (!course.value) return false;
+    if (aiTrialRemaining.value <= 0) {
+      showUpgradePrompt();
+      return false;
+    }
+    const nextUsage = {
+      ...aiTrialUsage.value,
+      [course.value.id]: aiTrialUsed.value + 1,
+    };
+    aiTrialUsage.value = nextUsage;
+    writeAiTrialUsage(nextUsage);
+    Message.success(
+      `${actionLabel}已占用 1 次本地试用额度，剩余 ${aiTrialRemaining.value} 次`
+    );
+    return true;
+  }
+
+  function openGenerator(actionLabel = 'AI 生成课程资源') {
     if (!course.value) return;
+    if (!consumeAiTrialCredit(actionLabel)) return;
     router.push({
       name: 'StudentCourseResourceGenerator',
       params: { courseId: course.value.id },
@@ -187,7 +280,9 @@
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${course.value?.shortTitle || 'course'}-${item.title}-学习包.md`;
+    link.download = `${course.value?.shortTitle || 'course'}-${
+      item.title
+    }-学习包.md`;
     link.click();
     URL.revokeObjectURL(url);
     Message.success('学习资源包已生成');
@@ -202,19 +297,67 @@
         <h1>课程资料</h1>
         <p>按章节组织课件、讲义、案例和练习，所有资料都保留课程上下文。</p>
       </div>
-      <button type="button" @click="openGenerator">
-        <icon-robot /> AI 生成课程资源
+      <button type="button" @click="openGenerator()">
+        <icon-robot />
+        <span>AI 生成课程资源</span>
+        <small>{{
+          aiTrialRemaining ? `剩余 ${aiTrialRemaining} 次` : '升级解锁'
+        }}</small>
       </button>
     </header>
+
+    <section class="ai-credit-panel" aria-label="AI 生成试用额度">
+      <div class="ai-credit-panel__main">
+        <span class="ai-credit-panel__eyebrow">AI GENERATION TRIAL</span>
+        <h2>
+          {{
+            aiTrialRemaining
+              ? `剩余 ${aiTrialRemaining} 次试用生成`
+              : '试用额度已用完'
+          }}
+        </h2>
+        <p
+          >优先把高价值资料生成动作交给
+          AI：讲义、练习、笔记骨架和知识卡会带上当前课程上下文。</p
+        >
+        <div class="ai-credit-meter" aria-hidden="true">
+          <i :style="{ width: `${aiTrialPercent}%` }" />
+        </div>
+        <small
+          >本地额度 {{ aiTrialUsed }}/{{
+            aiTrialLimit
+          }}，仅在当前浏览器记录。</small
+        >
+      </div>
+      <div class="ai-credit-panel__value">
+        <article v-for="item in aiGenerationValue" :key="item.label">
+          <strong>{{ item.value }}</strong>
+          <span>{{ item.label }}</span>
+          <small>{{ item.desc }}</small>
+        </article>
+      </div>
+      <div class="ai-credit-panel__actions">
+        <button type="button" @click="openGenerator('课程资源生成')">
+          <icon-robot />
+          {{ aiTrialRemaining ? '用 1 次额度生成' : '查看升级提示' }}
+        </button>
+        <button type="button" @click="showUpgradePrompt">升级后批量生成</button>
+      </div>
+    </section>
 
     <div class="resource-overview">
       <article>
         <span class="overview-icon"><icon-storage /></span>
-        <div><small>资料总数</small><strong>{{ resources.length }}</strong></div>
+        <div
+          ><small>资料总数</small><strong>{{ resources.length }}</strong></div
+        >
       </article>
       <article>
         <span class="overview-icon"><icon-file /></span>
-        <div><small>覆盖章节</small><strong>{{ course.chapters.length }}</strong></div>
+        <div
+          ><small>覆盖章节</small
+          ><strong>{{ course.chapters.length }}</strong></div
+        >
       </article>
       <article>
         <span class="overview-icon"><icon-download /></span>
@@ -222,7 +365,10 @@
       </article>
       <article>
         <span class="overview-icon"><icon-check-circle /></span>
-        <div><small>图谱绑定</small><strong>{{ completedChapterCount }}</strong></div>
+        <div
+          ><small>图谱绑定</small
+          ><strong>{{ completedChapterCount }}</strong></div
+        >
       </article>
     </div>
 
@@ -230,7 +376,9 @@
       <div>
         <span>RESOURCE TO GRAPH</span>
         <h2>把资料接入课程图谱</h2>
-        <p>把章节资料、作业任务和讨论节点统一放进学习路径里，下载、追问、生成和图谱复盘形成同一条闭环。</p>
+        <p
+          >把章节资料、作业任务和讨论节点统一放进学习路径里，下载、追问、生成和图谱复盘形成同一条闭环。</p
+        >
       </div>
       <div class="flow-steps">
         <button type="button" @click="openKnowledgeMap">
@@ -238,12 +386,20 @@
           <strong>查看课程图谱</strong>
           <small>知识 / 问题 / 能力 / 目标</small>
         </button>
-        <button type="button" @click="openGenerator">
+        <button type="button" @click="openGenerator('图谱资源生成')">
           <icon-robot />
-          <strong>生成图谱资源</strong>
-          <small>讲义、练习、笔记、知识卡</small>
+          <strong>{{
+            aiTrialRemaining ? '生成图谱资源' : '升级生成资源'
+          }}</strong>
+          <small>{{
+            aiTrialRemaining ? '消耗 1 次试用额度' : '额度用完，查看升级提示'
+          }}</small>
         </button>
-        <button type="button" @click="askAboutResource(resources[0])" :disabled="!resources[0]">
+        <button
+          type="button"
+          @click="askAboutResource(resources[0])"
+          :disabled="!resources[0]"
+        >
           <icon-file />
           <strong>资料助手问答</strong>
           <small>基于当前课程资料追问</small>
@@ -281,7 +437,11 @@
     </div>
 
     <div class="resource-grid">
-      <article v-for="item in visibleResources" :key="item.id" class="resource-card">
+      <article
+        v-for="item in visibleResources"
+        :key="item.id"
+        class="resource-card"
+      >
         <div class="resource-card__top">
           <span class="resource-type">{{ item.type }}</span>
           <small>{{ item.updatedAt }}</small>
@@ -290,7 +450,10 @@
         <h2>{{ item.title }}</h2>
         <p>{{ item.chapter }}</p>
         <div class="resource-path">
-          <span v-for="node in resourcePlan(item).graphNodes.slice(0, 3)" :key="node">
+          <span
+            v-for="node in resourcePlan(item).graphNodes.slice(0, 3)"
+            :key="node"
+          >
             {{ node }}
           </span>
         </div>
@@ -325,9 +488,9 @@
 
   .resource-heading {
     display: flex;
+    gap: 20px;
     align-items: flex-end;
     justify-content: space-between;
-    gap: 20px;
     padding: 2px 2px 18px;
 
     > div > span {
@@ -350,8 +513,8 @@
 
     > button {
       display: flex;
-      align-items: center;
       gap: 6px;
+      align-items: center;
       height: 36px;
       padding: 0 14px;
       border: 0;
@@ -359,6 +522,151 @@
       color: #fff;
       background: #5367f8;
       cursor: pointer;
+
+      span {
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      small {
+        padding-left: 8px;
+        border-left: 1px solid rgba(255, 255, 255, 0.36);
+        font-size: 10px;
+        opacity: 0.88;
+      }
+    }
+  }
+
+  .ai-credit-panel {
+    display: grid;
+    grid-template-columns: minmax(240px, 0.9fr) minmax(0, 1.25fr) 150px;
+    gap: 12px;
+    margin-bottom: 12px;
+    padding: 16px;
+    border: 1px solid #dbe5ec;
+    border-radius: 12px;
+    background: linear-gradient(
+        135deg,
+        rgba(46, 125, 106, 0.09),
+        transparent 42%
+      ),
+      linear-gradient(90deg, #fff, #f8fbff);
+    box-shadow: 0 10px 28px rgba(36, 55, 84, 0.05);
+  }
+
+  .ai-credit-panel__main {
+    min-width: 0;
+
+    h2 {
+      margin: 6px 0 6px;
+      color: #21304a;
+      font-size: 18px;
+    }
+
+    p,
+    small {
+      margin: 0;
+      color: #7e8a9f;
+      font-size: 11px;
+      line-height: 1.65;
+    }
+
+    > small {
+      display: block;
+      margin-top: 7px;
+      color: #64748b;
+    }
+  }
+
+  .ai-credit-panel__eyebrow {
+    color: #2e7d6a;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+  }
+
+  .ai-credit-meter {
+    height: 7px;
+    margin-top: 11px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #e9eef6;
+
+    i {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #2e7d6a, #5367f8);
+      transition: width 180ms ease;
+    }
+  }
+
+  .ai-credit-panel__value {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+
+    article {
+      min-width: 0;
+      padding: 11px 10px;
+      border: 1px solid rgba(218, 226, 239, 0.9);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.74);
+    }
+
+    strong,
+    span,
+    small {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    strong {
+      color: #22314a;
+      font-size: 13px;
+    }
+
+    span {
+      margin-top: 5px;
+      color: #5367f8;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    small {
+      margin-top: 5px;
+      color: #8490a5;
+      font-size: 9px;
+    }
+  }
+
+  .ai-credit-panel__actions {
+    display: grid;
+    align-content: center;
+    gap: 8px;
+
+    button {
+      height: 34px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      border: 1px solid #dbe2f0;
+      border-radius: 9px;
+      color: #60708b;
+      background: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button:first-child {
+      border-color: transparent;
+      color: #fff;
+      background: #2e7d6a;
     }
   }
 
@@ -458,8 +766,11 @@
     padding: 16px;
     border: 1px solid #dfe5ff;
     border-radius: 12px;
-    background:
-      radial-gradient(circle at right top, rgba(83, 103, 248, 0.11), transparent 34%),
+    background: radial-gradient(
+        circle at right top,
+        rgba(83, 103, 248, 0.11),
+        transparent 34%
+      ),
       #fff;
 
     span {
@@ -766,6 +1077,8 @@
     .resource-overview,
     .resource-grid,
     .resource-flow,
+    .ai-credit-panel,
+    .ai-credit-panel__value,
     .quality-strip,
     .flow-steps {
       grid-template-columns: 1fr;

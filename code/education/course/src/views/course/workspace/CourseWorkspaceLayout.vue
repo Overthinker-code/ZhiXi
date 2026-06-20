@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { computed, ref, watch } from 'vue';
+  import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
   import { useRoute, useRouter } from 'vue-router';
   import {
     IconArrowLeft,
@@ -25,6 +25,7 @@
   const courseId = computed(() => String(route.params.courseId || ''));
   const course = computed(() => getClassroomCourse(courseId.value));
   const workspaceData = ref<CourseWorkspaceData | null>(null);
+  const localCompletedLessonIds = ref<string[]>([]);
 
   const navItems = [
     { key: 'home', label: '课程首页', desc: '概览与动态', icon: IconHome },
@@ -40,20 +41,68 @@
   const currentLabel = computed(
     () => navItems.find((item) => item.key === activeSection.value)?.label || '课程首页'
   );
-  const completedLessons = computed(
-    () =>
-      course.value?.chapters
-        .flatMap((chapter) => chapter.lessons)
-        .filter((lesson) => lesson.status === 'done').length || 0
-  );
   const totalLessons = computed(
     () => course.value?.chapters.flatMap((chapter) => chapter.lessons).length || 0
   );
+  const lessonIds = computed(
+    () =>
+      new Set(
+        course.value?.chapters
+          .flatMap((chapter) => chapter.lessons)
+          .map((lesson) => lesson.id) || []
+      )
+  );
+  const completedLessons = computed(() => {
+    const base =
+      course.value?.chapters
+        .flatMap((chapter) => chapter.lessons)
+        .filter((lesson) => lesson.status === 'done')
+        .map((lesson) => lesson.id) || [];
+    const merged = new Set([
+      ...base,
+      ...localCompletedLessonIds.value.filter((id) => lessonIds.value.has(id)),
+    ]);
+    return merged.size;
+  });
+  const displayProgress = computed(() => {
+    if (!course.value) return 0;
+    if (!totalLessons.value) return course.value.progress;
+    return Math.min(Math.round((completedLessons.value / totalLessons.value) * 100), 100);
+  });
   const dataCaption = computed(() => {
     const summary = workspaceData.value?.summary;
     if (!summary) return `${completedLessons.value} / ${totalLessons.value} 个课节已完成`;
     return `${summary.plan_count} 个教学计划 · ${summary.assignment_count} 项课程作业`;
   });
+
+  function readLocalCompletedLessons(id: string) {
+    if (!id) {
+      localCompletedLessonIds.value = [];
+      return;
+    }
+    try {
+      const raw = window.localStorage.getItem(`zhixi:classroom-learning:${id}`);
+      const parsed = raw ? JSON.parse(raw) : {};
+      localCompletedLessonIds.value = Array.isArray(parsed.completedLessonIds)
+        ? parsed.completedLessonIds.filter((lessonId: unknown): lessonId is string =>
+            typeof lessonId === 'string'
+          )
+        : [];
+    } catch {
+      localCompletedLessonIds.value = [];
+    }
+  }
+
+  function handleLearningStateUpdated(event: Event) {
+    const detail = (event as CustomEvent<{ courseId?: string }>).detail;
+    if (detail?.courseId === courseId.value) {
+      readLocalCompletedLessons(courseId.value);
+    }
+  }
+
+  function handleStorageUpdated() {
+    readLocalCompletedLessons(courseId.value);
+  }
 
   function navigate(section: (typeof navItems)[number]['key']) {
     router.push(courseWorkspaceLocation(courseId.value, section));
@@ -64,6 +113,7 @@
     async (id) => {
       workspaceData.value = null;
       if (!id) return;
+      readLocalCompletedLessons(id);
       try {
         workspaceData.value = await fetchCourseWorkspace(id);
       } catch {
@@ -72,6 +122,16 @@
     },
     { immediate: true }
   );
+
+  onMounted(() => {
+    window.addEventListener('storage', handleStorageUpdated);
+    window.addEventListener('zhixi-classroom-learning-updated', handleLearningStateUpdated);
+  });
+
+  onUnmounted(() => {
+    window.removeEventListener('storage', handleStorageUpdated);
+    window.removeEventListener('zhixi-classroom-learning-updated', handleLearningStateUpdated);
+  });
 </script>
 
 <template>
@@ -90,8 +150,8 @@
         </div>
         <div class="identity-progress">
           <span>课程进度</span>
-          <strong>{{ course.progress }}%</strong>
-          <div><i :style="{ width: `${course.progress}%` }"></i></div>
+          <strong>{{ displayProgress }}%</strong>
+          <div><i :style="{ width: `${displayProgress}%` }"></i></div>
           <small>{{ dataCaption }}</small>
         </div>
       </section>

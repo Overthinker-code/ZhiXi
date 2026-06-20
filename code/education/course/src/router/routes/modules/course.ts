@@ -169,12 +169,12 @@ const COURSE: AppRouteRecordRaw = {
           },
         },
         {
-          path: 'resources',
-          name: 'StudentCourseResources',
+          path: 'resources/generate',
+          name: 'StudentCourseResourceGenerator',
           component: () =>
-            import('@/views/course/workspace/CourseResourcesPage.vue'),
+            import('@/views/course/resource-generation/index.vue'),
           meta: {
-            locale: '课程资料',
+            locale: '资源生成',
             requiresAuth: true,
             roles: ['student'],
             courseSection: 'resources',
@@ -182,12 +182,12 @@ const COURSE: AppRouteRecordRaw = {
           },
         },
         {
-          path: 'resources/generate',
-          name: 'StudentCourseResourceGenerator',
+          path: 'resources',
+          name: 'StudentCourseResources',
           component: () =>
-            import('@/views/course/resource-generation/index.vue'),
+            import('@/views/course/workspace/CourseResourcesPage.vue'),
           meta: {
-            locale: '资源生成',
+            locale: '课程资料',
             requiresAuth: true,
             roles: ['student'],
             courseSection: 'resources',
