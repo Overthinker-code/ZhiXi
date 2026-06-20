@@ -66,6 +66,8 @@ class ChatProvider(BaseProvider[Chat, ChatCreate, ChatUpdate]):
             thread_id=thread_id,
             user_id=user_id,
             is_admin=bool(getattr(current_user, "is_superuser", False)) if current_user else False,
+            current_file_id=obj_in.current_file_id,
+            file_name=obj_in.file_name,
             image_base64_list=obj_in.image_base64_list,
             tool_mode=_normalize_tool_mode(obj_in.tool_mode),
             force_agent=obj_in.force_agent,

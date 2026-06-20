@@ -18,6 +18,7 @@
   const chatStore = useChatStore();
   const settingStore = useSettingStore();
   const route = useRoute();
+  const routeText = (value) => (Array.isArray(value) ? value[0] : value || '').toString().trim();
   const {
     currentMessages,
     isLoading,
@@ -200,7 +201,11 @@
       selectedText: `${prefixMap[mode] || ''}${selectedText}`,
       surroundingContext: selectionMenu.value.context,
       videoTime: '01:10',
-      courseModule: '并发控制',
+      courseModule:
+        routeText(route.query.nodeLabel) ||
+        routeText(route.query.resourceTitle) ||
+        routeText(route.query.topic) ||
+        routeText(route.query.courseModule),
     });
     hideSelectionMenu();
     window.getSelection()?.removeAllRanges();

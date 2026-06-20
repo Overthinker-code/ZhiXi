@@ -226,11 +226,21 @@ export function useChat() {
       file_name: fileName,
       name: fileName,
       scope: 'system',
+      is_virtual: true,
+      rag_bindable: false,
+      context_scope: 'route_file_hint',
       resourceId: typeof route.query.resourceId === 'string' ? route.query.resourceId : '',
     };
   });
   const routeCoursePrompt = computed(() => {
-    if (!routeCourse.value) return '';
+    const courseTitle =
+      routeCourse.value?.title ||
+      (typeof route.query.courseTitle === 'string' ? route.query.courseTitle : '') ||
+      '当前课程';
+    const courseShortTitle =
+      routeCourse.value?.shortTitle ||
+      (typeof route.query.courseShortTitle === 'string' ? route.query.courseShortTitle : '') ||
+      courseTitle;
     const resourceId =
       typeof route.query.resourceId === 'string' ? route.query.resourceId : '';
     const routeResourceTitle =
@@ -250,10 +260,44 @@ export function useChat() {
       typeof route.query.packageSource === 'string' ? route.query.packageSource : '';
     const audit =
       typeof route.query.audit === 'string' ? route.query.audit : '';
+    const nodeId =
+      typeof route.query.nodeId === 'string' ? route.query.nodeId : '';
+    const nodeLabel =
+      typeof route.query.nodeLabel === 'string' ? route.query.nodeLabel : '';
+    const mapType =
+      typeof route.query.mapType === 'string' ? route.query.mapType : '';
     const reference = routeResourceReference.value;
+    if (
+      !routeCourse.value &&
+      !resourceId &&
+      !routeResourceTitle &&
+      !packageId &&
+      !packageTopic &&
+      !audit &&
+      !nodeId &&
+      !nodeLabel &&
+      !mapType
+    ) {
+      return '';
+    }
     return [
-      `当前对话属于课程《${routeCourse.value.title}》（course_id=${routeCourse.value.id}）。`,
-      `课程进度为 ${routeCourse.value.progress}%，课程类型为${routeCourse.value.type}。`,
+      routeCourse.value
+        ? `当前对话属于课程《${courseTitle}》（course_id=${routeCourse.value.id}）。`
+        : routeCourseId.value
+          ? `当前对话带入课程标识 course_id=${routeCourseId.value}，本地课程档案未命中；必须以路由线索为准，不得补造课程资料。`
+          : `当前对话带入《${courseTitle}》课程上下文。`,
+      routeCourse.value
+        ? `课程进度为 ${routeCourse.value.progress}%，课程类型为${routeCourse.value.type}。`
+        : '',
+      nodeId || nodeLabel || mapType
+        ? [
+            '当前还带入了课程图谱节点上下文：',
+            nodeLabel ? `节点名称：${nodeLabel}` : '',
+            nodeId ? `节点ID：${nodeId}` : '',
+            mapType ? `图谱类型：${mapType}` : '',
+            '图谱节点是定位线索；若没有引用片段，不得声称已经检索到节点原文。',
+          ].filter(Boolean).join('\n')
+        : '',
       reference
         ? [
             `当前引用资料：${reference.title}`,
@@ -284,11 +328,103 @@ export function useChat() {
           ].filter(Boolean).join('\n')
         : '',
       `入口来源：${source}。`,
-      '回答必须限定在当前课程上下文；如证据不足，应明确说明，不得混入其他课程资料。',
+      `回答必须限定在${courseShortTitle}上下文；如证据不足，应明确说明，不得混入其他课程资料。`,
     ]
       .filter(Boolean)
       .join('\n');
   });
+
+  const routeContextCitations = computed(() => {
+    const courseTitle =
+      routeCourse.value?.title ||
+      (typeof route.query.courseTitle === 'string' ? route.query.courseTitle : '') ||
+      '当前课程';
+    const courseShortTitle =
+      routeCourse.value?.shortTitle ||
+      (typeof route.query.courseShortTitle === 'string' ? route.query.courseShortTitle : '') ||
+      courseTitle;
+    if (!routeCourse.value && !routeCourseId.value && !route.query.nodeLabel && !route.query.resourceTitle) return [];
+    const reference = routeResourceReference.value;
+    const source =
+      typeof route.query.source === 'string' ? route.query.source : 'course';
+    const packageId =
+      typeof route.query.packageId === 'string' ? route.query.packageId : '';
+    const packageTopic =
+      (typeof route.query.packageTopic === 'string' ? route.query.packageTopic : '') ||
+      (typeof route.query.topic === 'string' ? route.query.topic : '');
+    const nodeId =
+      typeof route.query.nodeId === 'string' ? route.query.nodeId : '';
+    const nodeLabel =
+      typeof route.query.nodeLabel === 'string' ? route.query.nodeLabel : '';
+    const routeResourceTitle =
+      typeof route.query.resourceTitle === 'string' ? route.query.resourceTitle : '';
+    const routeResourceChapter =
+      typeof route.query.resourceChapter === 'string' ? route.query.resourceChapter : '';
+    const routeResourceType =
+      typeof route.query.resourceType === 'string' ? route.query.resourceType : '';
+
+    if (reference) {
+      return normalizeCitationItems([
+        {
+          citation_id: 1,
+          source: reference.file_name,
+          file_name: reference.file_name,
+          context_scope: 'resource_hint',
+          locator: `${reference.chapter} · ${reference.type}`,
+          snippet: [
+            `课程资料线索：${reference.title}`,
+            `章节：${reference.chapter}`,
+            `类型：${reference.type}`,
+            `证据范围：${reference.evidence.join('；')}`,
+            '这是课程资料索引线索，不等同于已检索到完整原文；回答仍需按证据充足度说明边界。',
+          ].join('\n'),
+          reason: `对话入口来自 ${source}，已绑定课程资料线索 resourceId=${reference.resourceId}；该线索不会作为已检索文件发送。`,
+          relevance_score: 0.72,
+        },
+      ]);
+    }
+
+    if (routeResourceTitle || packageId || packageTopic || nodeLabel) {
+      return normalizeCitationItems([
+        {
+          citation_id: 1,
+          source:
+            routeResourceTitle ||
+            packageTopic ||
+            nodeLabel ||
+            `${courseTitle} 课程上下文`,
+          file_name:
+            routeResourceTitle ||
+            packageTopic ||
+            nodeLabel ||
+            `${courseShortTitle} 课程上下文`,
+          context_scope: routeResourceTitle ? 'resource_hint' : 'route_context',
+          locator:
+            routeResourceChapter ||
+            (nodeLabel ? `图谱节点：${nodeLabel}` : '') ||
+            (packageId ? `资源包：${packageId}` : ''),
+          snippet: [
+            routeResourceTitle ? `课程资料线索：${routeResourceTitle}` : '',
+            routeResourceChapter ? `章节：${routeResourceChapter}` : '',
+            routeResourceType ? `类型：${routeResourceType}` : '',
+            nodeLabel ? `图谱节点：${nodeLabel}${nodeId ? `（${nodeId}）` : ''}` : '',
+            packageTopic ? `资源包主题：${packageTopic}` : '',
+            packageId ? `资源包编号：${packageId}` : '',
+            '这是路由带入的课程上下文线索；若没有后端返回片段，应作为定位依据而非原文引用。',
+          ].filter(Boolean).join('\n'),
+          reason: `对话入口来自 ${source}，用于保持资料/图谱/资源包指向；该线索不是已检索原文。`,
+          relevance_score: 0.64,
+        },
+      ]);
+    }
+    return [];
+  });
+
+  function citationsWithRouteFallback(raw: unknown) {
+    const normalized = normalizeCitationItems(raw);
+    if (normalized.length) return normalized;
+    return routeContextCitations.value;
+  }
 
   /**
    * Load chat history for a specific thread from the backend.
@@ -707,7 +843,7 @@ export function useChat() {
             } else if (event.type === 'suggestions') {
               suggestions = normalizeSuggestionList(event.data || []);
             } else if (event.type === 'citations') {
-              citations = normalizeCitationItems(event.citations || event.data || []);
+              citations = citationsWithRouteFallback(event.citations || event.data || []);
               confidence = String(event.confidence || confidence || '');
               groundingMode = String(event.grounding_mode || groundingMode || '');
               if (event.metrics) metrics = event.metrics || metrics;
@@ -717,7 +853,7 @@ export function useChat() {
               answer = event.content || answer;
               requiresConfirmation = Boolean(event.requires_confirmation);
               pendingActionId = event.pending_action_id || '';
-              citations = normalizeCitationItems(event.citations || []);
+              citations = citationsWithRouteFallback(event.citations || []);
               confidence = String(event.confidence || '');
               groundingMode = String(event.grounding_mode || '');
               metrics = event.metrics || {};
@@ -757,7 +893,7 @@ export function useChat() {
           false,
           '',
           normalizeSuggestionList(response.suggestions || []),
-          normalizeCitationItems(response.citations || []),
+          citationsWithRouteFallback(response.citations || []),
           response.confidence || '',
           response.grounding_mode || '',
           response.metrics || {}
@@ -871,7 +1007,10 @@ export function useChat() {
         params.surroundingContext,
         currentThreadId.value,
         {
-          systemPrompt: settingStore.settings.customSystemPrompt || '',
+          systemPrompt: [
+            settingStore.settings.customSystemPrompt || '',
+            routeCoursePrompt.value,
+          ].filter(Boolean).join('\n\n'),
           ragK: settingStore.settings.ragK as 3 | 4 | 5,
           promptKey: settingStore.settings.promptKey,
           strictMode: settingStore.settings.strictMode,
@@ -883,7 +1022,12 @@ export function useChat() {
           selectedText: text,
           surroundingContext: params.surroundingContext,
           videoTime: params.videoTime,
-          courseModule: params.courseModule,
+          courseModule:
+            params.courseModule ||
+            (typeof route.query.nodeLabel === 'string' ? route.query.nodeLabel : '') ||
+            routeResourceReference.value?.title ||
+            routeCourse.value?.shortTitle ||
+            '',
           currentFileId: bindableMountedFile?.file_id,
           fileName: bindableMountedFile?.file_name,
           forceAgent: settingStore.settings.forceAgent || undefined,
@@ -903,7 +1047,7 @@ export function useChat() {
         false,
         '',
         normalizeSuggestionList(response.suggestions || []),
-        normalizeCitationItems(response.citations || []),
+        citationsWithRouteFallback(response.citations || []),
         response.confidence || '',
         response.grounding_mode || '',
         response.metrics || {}

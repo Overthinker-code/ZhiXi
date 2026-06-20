@@ -23,6 +23,7 @@
     confidence?: string;
     groundingMode?: string;
     metrics?: Record<string, any>;
+    showEmptyState?: boolean;
   }>();
 
   const settingStore = useSettingStore();
@@ -72,6 +73,18 @@
     }
     if (raw === 'knowledge_base') {
       return '课程库';
+    }
+    if (raw === 'course_resource') {
+      return '课程资料';
+    }
+    if (raw === 'resource_hint') {
+      return '入口线索';
+    }
+    if (raw === 'course') {
+      return '课程上下文';
+    }
+    if (raw === 'route_context') {
+      return '入口上下文';
     }
     return item.file_id ? '资料' : '';
   };
@@ -170,6 +183,16 @@
     return '通用模型回答';
   };
 
+  const detailSummary = computed(() => {
+    if (!normalizedCitations.value.length) return '';
+    const current = currentFileCitationCount.value
+      ? `当前文件 ${currentFileCitationCount.value} 条`
+      : '';
+    const sourceCount = `${compactSources.value.length} 个来源`;
+    const evidenceCount = `${normalizedCitations.value.length} 条片段`;
+    return [current, sourceCount, evidenceCount].filter(Boolean).join(' / ');
+  });
+
   const renderCitation = (value?: string) =>
     stripMarkdownCodeToolbar(renderMarkdown(cleanCitationText(value)));
 </script>
@@ -178,6 +201,7 @@
   <div
     v-if="
       hasCitations ||
+      showEmptyState ||
       (showDiagnostics && metrics?.agent_hops)
     "
     class="citation-area"
@@ -185,6 +209,9 @@
     <div class="citation-strip" aria-label="回答引用来源">
       <span v-if="normalizedCitations.length" class="citation-strip__label">
         来源
+      </span>
+      <span v-else class="citation-strip__label citation-strip__label--empty">
+        未检索到可展示来源
       </span>
       <button
         v-for="source in visibleSourceChips"
@@ -234,6 +261,9 @@
       >
         TTFT {{ metrics.ttft_ms }}ms
       </span>
+      <span v-if="showEmptyState && !normalizedCitations.length" class="meta-pill meta-pill--review">
+        需复核
+      </span>
     </div>
 
     <div v-if="expanded && normalizedCitations.length" class="citation-detail-list">
@@ -241,7 +271,7 @@
         <strong>引用依据</strong>
         <span>{{ groundingLabel(groundingMode) }}</span>
         <span>{{ confidenceLabel(confidence) }}</span>
-        <span>{{ compactSources.length }} 个来源 / {{ normalizedCitations.length }} 条片段</span>
+        <span>{{ detailSummary }}</span>
       </div>
       <article
         v-for="item in normalizedCitations"
@@ -276,20 +306,28 @@
 
 <style scoped lang="scss">
   .citation-area {
-    margin: 0.28rem 0 0 0.1rem;
+    margin: 0.22rem 0 0 0.1rem;
   }
 
   .citation-strip {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.28rem;
+    gap: 0.24rem;
   }
 
   .citation-strip__label {
-    color: #94a3b8;
-    font-size: 0.66rem;
-    font-weight: 700;
+    color: #9aa5b5;
+    font-size: 0.64rem;
+    font-weight: 650;
+  }
+
+  .citation-strip__label--empty {
+    padding: 0.12rem 0.38rem;
+    border-radius: 999px;
+    background: #f8fafc;
+    color: #8a94a6;
+    box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.74);
   }
 
   .source-toggle,
@@ -298,7 +336,7 @@
     background: transparent;
     color: #64748b;
     cursor: pointer;
-    transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+    transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
   }
 
   .source-chip {
@@ -307,22 +345,25 @@
     gap: 0.26rem;
     min-height: 1.28rem;
     max-width: min(18rem, 72vw);
-    padding: 0.14rem 0.36rem;
-    border-radius: 7px;
+    padding: 0.12rem 0.34rem;
+    border-radius: 999px;
     font-size: 0.68rem;
     font-weight: 600;
+    background: #f7f8fb;
+    box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.7);
 
     .source-chip__index {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-width: 1.02rem;
-      height: 1.02rem;
+      min-width: 0.96rem;
+      height: 0.96rem;
       border-radius: 999px;
-      background: #f1f5f9;
-      color: #475569;
+      background: #fff;
+      color: #526071;
       font-size: 0.62rem;
       font-weight: 760;
+      box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.75);
     }
 
     strong {
@@ -342,8 +383,9 @@
     }
 
     &:hover {
-      background: #f8fafc;
+      background: #eef2ff;
       color: #334155;
+      box-shadow: inset 0 0 0 1px rgba(199, 210, 254, 0.9);
     }
   }
 
@@ -353,7 +395,7 @@
     align-items: center;
     justify-content: center;
     min-height: 1.28rem;
-    border-radius: 7px;
+    border-radius: 999px;
     font-size: 0.68rem;
     font-weight: 650;
   }
@@ -367,7 +409,7 @@
   .source-toggle {
     padding: 0.12rem 0.38rem;
     color: #64748b;
-    background: #f8fafc;
+    background: transparent;
 
     &:hover {
       background: #eef2ff;
@@ -387,6 +429,13 @@
     font-weight: 650;
   }
 
+  .meta-pill--review {
+    height: 1.28rem;
+    background: #fff7ed;
+    color: #9a571d;
+    box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.24);
+  }
+
   .current-file-pill {
     display: inline-flex;
     align-items: center;
@@ -404,13 +453,28 @@
     display: flex;
     flex-direction: column;
     gap: 0;
-    max-width: min(760px, 100%);
-    max-height: 24rem;
-    margin-top: 0.38rem;
+    max-width: min(720px, 100%);
+    max-height: 22rem;
+    margin-top: 0.34rem;
     overflow: auto;
-    border: 1px solid rgba(226, 232, 240, 0.86);
-    border-radius: 10px;
-    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid rgba(226, 232, 240, 0.78);
+    border-radius: 12px;
+    background: rgba(248, 250, 252, 0.7);
+  }
+
+  @media (max-width: 640px) {
+    .citation-strip {
+      align-items: flex-start;
+    }
+
+    .source-chip {
+      max-width: 100%;
+    }
+
+    .citation-detail-list {
+      max-height: min(15rem, 48vh);
+      border-radius: 10px;
+    }
   }
 
   .citation-summary {
@@ -418,20 +482,20 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 0.32rem;
-    padding: 0.5rem 0.62rem;
+    padding: 0.48rem 0.62rem;
     border-bottom: 1px solid rgba(226, 232, 240, 0.78);
 
     strong {
       margin-right: 0.08rem;
-      color: #0f172a;
-      font-size: 0.76rem;
+      color: #1f2937;
+      font-size: 0.74rem;
       font-weight: 760;
     }
 
     span {
       padding: 0.12rem 0.42rem;
       border-radius: 999px;
-      background: #f8fafc;
+      background: #fff;
       color: #64748b;
       font-size: 0.68rem;
       font-weight: 650;
@@ -442,8 +506,8 @@
     display: grid;
     grid-template-columns: 1.08rem minmax(0, 1fr);
     gap: 0.44rem;
-    padding: 0.62rem 0.68rem;
-    background: #fff;
+    padding: 0.58rem 0.66rem;
+    background: rgba(255, 255, 255, 0.92);
 
     & + .citation-detail {
       border-top: 1px solid rgba(226, 232, 240, 0.72);
@@ -487,7 +551,7 @@
     span {
       padding: 0.1rem 0.32rem;
       border-radius: 999px;
-      background: #f8fafc;
+      background: #f4f6fa;
       color: #475569;
       font-size: 0.62rem;
       font-weight: 650;
@@ -505,7 +569,7 @@
       overflow: hidden;
       padding: 0.08rem 0.3rem;
       border-radius: 999px;
-      background: rgba(241, 245, 249, 0.86);
+      background: rgba(241, 245, 249, 0.74);
       color: #64748b;
       font-size: 0.62rem;
       text-overflow: ellipsis;

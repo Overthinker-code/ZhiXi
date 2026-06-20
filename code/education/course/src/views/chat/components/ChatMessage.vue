@@ -453,6 +453,9 @@
         :confidence="message.confidence"
         :grounding-mode="message.grounding_mode"
         :metrics="message.metrics || {}"
+        :show-empty-state="
+          message.loading === false && Boolean((message.content || '').trim())
+        "
       />
       <div v-if="answerInsightCards.length" class="answer-insight-grid">
         <article v-for="item in answerInsightCards" :key="item.label">
@@ -652,10 +655,9 @@
       .reasoning {
         margin: 0 0 0.6rem 1.4rem;
         padding: 0.65rem 0.8rem;
-        /* 品牌绿左边框 */
-        border-left: 3px solid rgba(99, 102, 241, 0.40);
-        border-radius: 0 10px 10px 0;
-        background: #f5f3ff;
+        border: 1px solid rgba(226, 232, 240, 0.78);
+        border-radius: 12px;
+        background: linear-gradient(90deg, #f8fafc, #fbfdff);
         color: #64748b;
         font-size: 0.85rem;
         line-height: 1.65;
@@ -828,7 +830,7 @@
           background: linear-gradient(90deg, #f6f9ff, #fbfdff);
           color: #56657a;
           border-radius: 12px;
-          box-shadow: inset 3px 0 0 rgba(99, 102, 241, 0.28);
+          box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.82);
         }
 
         :deep(table) {

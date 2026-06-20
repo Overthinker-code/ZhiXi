@@ -17,6 +17,8 @@ class ChatBase(BaseModel):
     top_k: Optional[int] = None
     image_base64_list: Optional[List[str]] = None
     tool_mode: Optional[str] = "chat"
+    current_file_id: Optional[str] = None
+    file_name: Optional[str] = None
     force_agent: Optional[str] = None
     force_cache: Optional[bool] = False
     debug_mode: Optional[bool] = False

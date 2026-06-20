@@ -215,7 +215,7 @@
         <a-dropdown trigger="click">
           <button type="button" class="zy-topnav__user">
             <a-avatar :size="32">{{ displayName.slice(0, 1) }}</a-avatar>
-            <span>{{ displayName }}</span>
+            <span class="zy-topnav__user-name">{{ displayName }}</span>
             <icon-down />
           </button>
           <template #content>
@@ -413,6 +413,33 @@
     .zy-topnav__search span { display: none; }
     .zy-topnav__menu { display: none; }
     .zy-topnav__mobile { display: inline-flex; }
+  }
+
+  @media (max-width: 640px) {
+    .zy-topnav__actions {
+      gap: 6px;
+    }
+
+    .zy-topnav__search {
+      width: 34px;
+      padding: 0;
+      justify-content: center;
+
+      kbd {
+        display: none;
+      }
+    }
+
+    .zy-topnav__user {
+      width: 34px;
+      justify-content: center;
+      gap: 0;
+
+      .zy-topnav__user-name,
+      .arco-icon-down {
+        display: none;
+      }
+    }
   }
 </style>
 

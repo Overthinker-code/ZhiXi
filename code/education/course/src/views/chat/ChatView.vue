@@ -172,6 +172,7 @@
   const mountedReferenceLabel = computed(() => {
     const file = mountedFile.value;
     if (!file) return '';
+    if (file.context_scope === 'route_file_hint') return '待验证文件线索';
     if (!isRagBindableReference(file)) return '课程资源线索';
     if (file.scope === 'system') return '课程库文件';
     return '本对话文件';
@@ -179,6 +180,9 @@
   const mountedReferenceDetail = computed(() => {
     const file = mountedFile.value;
     if (!file) return '';
+    if (file.context_scope === 'route_file_hint') {
+      return '来自页面地址，未校验文件权限；不会作为原文检索';
+    }
     if (!isRagBindableReference(file)) {
       return '用于限定课程主题；未作为上传原文检索';
     }
@@ -207,6 +211,9 @@
       name: fileName,
       size: 0,
       scope: 'system' as const,
+      is_virtual: true,
+      rag_bindable: false,
+      context_scope: 'route_file_hint',
       created: '',
     };
   });

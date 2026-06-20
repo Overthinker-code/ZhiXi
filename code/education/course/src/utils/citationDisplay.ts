@@ -28,12 +28,28 @@ export const normalizeCitationScope = (value: unknown) => {
   }
   if (
     [
-      'knowledge_base',
-      'course',
-      'course_library',
-      'system',
       'resource',
       'course_resource',
+      'route_resource',
+      'resource_hint',
+    ].includes(raw)
+  ) {
+    return raw === 'resource_hint' ? 'resource_hint' : 'course_resource';
+  }
+  if (
+    [
+      'course',
+      'course_context',
+      'route_context',
+    ].includes(raw)
+  ) {
+    return raw === 'route_context' ? 'route_context' : 'course';
+  }
+  if (
+    [
+      'knowledge_base',
+      'course_library',
+      'system',
     ].includes(raw)
   ) {
     return 'knowledge_base';
