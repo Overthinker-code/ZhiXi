@@ -24,6 +24,7 @@ export default defineConfig(({ mode }) => {
     '/ai-metrics',
     '/resource-generation',
     '/resource-workshop',
+    '/ai',
     '/alerts',
     '/education',
   ];

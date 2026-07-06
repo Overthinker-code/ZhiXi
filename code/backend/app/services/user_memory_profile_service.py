@@ -96,11 +96,13 @@ class UserMemoryProfileService:
 
     def collect_recent_chat_history(self, session: Session, user_id: UUID | str) -> str:
         limit = max(1, int(settings.MEMORY_PROFILE_MAX_TURNS))
-        uid = UUID(user_id) if isinstance(user_id, str) else user_id
+        # ChatThread.user_id is a legacy varchar column, while UserMemoryProfile.user_id is UUID.
+        # Keep profile writes UUID-native, but compare chat history using the stored string value.
+        thread_user_id = str(user_id)
         rows = session.exec(
             select(Chat)
             .join(ChatThread, ChatThread.thread_id == Chat.thread_id)
-            .where(ChatThread.user_id == uid)
+            .where(ChatThread.user_id == thread_user_id)
             .order_by(Chat.created_at.desc())
             .limit(limit)
         ).all()

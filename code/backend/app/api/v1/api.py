@@ -15,6 +15,7 @@ from app.api.v1.endpoints import (
     ai_metrics,
     resource_workshop,
     resource_generation,
+    ai_chat,
 )
 
 from app.core.config import settings
@@ -35,3 +36,4 @@ api_router.include_router(learning_path.router, prefix="/learning-path", tags=["
 api_router.include_router(ai_metrics.router, prefix="/ai-metrics", tags=["ai-metrics"])
 api_router.include_router(resource_workshop.router, prefix="/resource-workshop", tags=["resource-workshop"])
 api_router.include_router(resource_generation.router, prefix="/resource-generation", tags=["resource-generation"])
+api_router.include_router(ai_chat.router, prefix="/ai", tags=["ai-chat"])

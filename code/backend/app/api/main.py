@@ -25,6 +25,7 @@ from app.api.v1.endpoints import (
     alerts,
     resource_workshop,
     resource_generation,
+    ai_chat,
     student_hub,
 )
 from app.core.config import settings
@@ -50,6 +51,7 @@ api_router.include_router(student_hub.router, prefix="/student-hub", tags=["stud
 api_router.include_router(ai_metrics.router, prefix="/ai-metrics", tags=["ai-metrics"])
 api_router.include_router(resource_workshop.router, prefix="/resource-workshop", tags=["resource-workshop"])
 api_router.include_router(resource_generation.router, prefix="/resource-generation", tags=["resource-generation"])
+api_router.include_router(ai_chat.router, prefix="/ai", tags=["ai-chat"])
 api_router.include_router(
     digital_human_assistant.router, tags=["classroom-assistant"]
 )
