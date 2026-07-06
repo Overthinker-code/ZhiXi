@@ -169,6 +169,7 @@
       route.name === 'StudentCourseContent' ||
       route.name === 'StudentCourseResources' ||
       route.name === 'StudentCourseKnowledge' ||
+      route.name === 'StudentCourseAnalytics' ||
       route.name === 'StudentCourseAgent'
   );
 

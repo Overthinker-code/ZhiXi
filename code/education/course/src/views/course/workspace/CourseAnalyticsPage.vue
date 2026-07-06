@@ -44,6 +44,29 @@
       ? buildCourseTasks(course.value).filter((task) => task.status !== 'done').slice(0, 3)
       : []
   );
+  const masteryLevel = computed(() => {
+    const progress = course.value?.progress || 0;
+    if (progress >= 80) return '稳定掌握';
+    if (progress >= 60) return '持续推进';
+    return '需要补强';
+  });
+  const profileSignals = computed(() => [
+    {
+      label: '知识基础',
+      value: `${course.value?.progress || 0}%`,
+      desc: '以课节完成度和章节掌握度综合估算',
+    },
+    {
+      label: '学习节奏',
+      value: doneLessons.value >= 6 ? '稳定' : '待建立',
+      desc: '建议保持短时高频复习',
+    },
+    {
+      label: '资源偏好',
+      value: '讲义 + 练习',
+      desc: '适合先看证据，再做检查题',
+    },
+  ]);
 
   function askForPlan() {
     if (!course.value) return;
@@ -60,28 +83,47 @@
   <section v-if="course" class="course-analytics">
     <header class="analytics-heading">
       <div>
-        <span>COURSE INSIGHTS</span>
+        <span>学情概览</span>
         <h1>课程学情</h1>
-        <p>只分析当前课程的进度、掌握度和下一步行动，避免跨课程数据混淆。</p>
+        <p>围绕当前课程沉淀进度、薄弱点和下一步行动，让学习闭环有明确依据。</p>
       </div>
       <button type="button" @click="askForPlan"><icon-robot /> 生成个性化计划</button>
     </header>
+
+    <section class="learning-profile-card" aria-label="课程学情总览">
+      <div class="profile-main">
+        <span>{{ course.shortTitle }}</span>
+        <h2>{{ masteryLevel }}</h2>
+        <p>已完成 {{ doneLessons }}/{{ allLessons.length }} 个课节，当前应优先处理 {{ weakPoints.slice(0, 2).join('、') }}。</p>
+      </div>
+      <div class="profile-ring" :style="{ '--progress': `${course.progress * 3.6}deg` }">
+        <strong>{{ course.progress }}%</strong>
+        <small>课程进度</small>
+      </div>
+      <div class="profile-signals">
+        <article v-for="item in profileSignals" :key="item.label">
+          <span>{{ item.label }}</span>
+          <strong>{{ item.value }}</strong>
+          <p>{{ item.desc }}</p>
+        </article>
+      </div>
+    </section>
 
     <div class="insight-summary">
       <article>
         <span class="summary-icon"><icon-bar-chart /></span>
         <div><small>课程进度</small><strong>{{ course.progress }}%</strong></div>
-        <em>稳步推进</em>
+        <em>{{ masteryLevel }}</em>
       </article>
       <article>
         <span class="summary-icon"><icon-check-circle /></span>
         <div><small>已完成课节</small><strong>{{ doneLessons }}/{{ allLessons.length }}</strong></div>
-        <em>本周 +2</em>
+        <em>继续保持</em>
       </article>
       <article>
         <span class="summary-icon"><icon-clock-circle /></span>
         <div><small>近 7 日投入</small><strong>4.8h</strong></div>
-        <em>高于上周</em>
+        <em>建议分散复习</em>
       </article>
     </div>
 
@@ -468,6 +510,275 @@
       flex-direction: column;
     }
 
+    .insight-summary {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  /* Refined learning analytics surface. */
+  .course-analytics {
+    --zy-brand: #4f46e5;
+    --zy-brand-2: #6366f1;
+    --zy-text: #101828;
+    --zy-muted: #667085;
+    --zy-border: rgba(15, 23, 42, 0.08);
+    animation: analytics-enter 180ms ease both;
+  }
+
+  .analytics-heading {
+    align-items: center;
+    padding: 0 2px 14px;
+
+    > div > span {
+      color: var(--zy-brand);
+      letter-spacing: 0;
+    }
+
+    h1 {
+      color: var(--zy-text);
+      font-size: 26px;
+      letter-spacing: 0;
+    }
+
+    p {
+      color: var(--zy-muted);
+      line-height: 1.6;
+    }
+
+    > button {
+      height: 38px;
+      border-radius: 999px;
+      background: var(--zy-brand);
+      box-shadow: 0 10px 22px rgba(79, 70, 229, 0.14);
+      transition: transform 160ms ease, background 160ms ease;
+
+      &:hover {
+        background: var(--zy-brand-2);
+        transform: translateY(-1px);
+      }
+    }
+  }
+
+  .learning-profile-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 124px minmax(360px, 0.9fr);
+    gap: 18px;
+    align-items: center;
+    margin-bottom: 12px;
+    padding: 18px;
+    border: 1px solid var(--zy-border);
+    border-radius: 18px;
+    background:
+      radial-gradient(circle at 100% 0, rgba(99, 102, 241, 0.11), transparent 30%),
+      #ffffff;
+    box-shadow: 0 14px 34px rgba(15, 23, 42, 0.05);
+  }
+
+  .profile-main {
+    min-width: 0;
+
+    span {
+      color: var(--zy-brand);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    h2 {
+      margin: 7px 0 8px;
+      color: var(--zy-text);
+      font-size: 28px;
+      line-height: 1.18;
+    }
+
+    p {
+      max-width: 620px;
+      margin: 0;
+      color: var(--zy-muted);
+      font-size: 13px;
+      line-height: 1.7;
+    }
+  }
+
+  .profile-ring {
+    width: 108px;
+    height: 108px;
+    display: grid;
+    place-items: center;
+    justify-self: center;
+    border-radius: 50%;
+    background:
+      radial-gradient(circle, #fff 58%, transparent 60%),
+      conic-gradient(var(--zy-brand-2) var(--progress), #eef2ff 0);
+
+    strong,
+    small {
+      display: block;
+      grid-area: 1 / 1;
+      text-align: center;
+    }
+
+    strong {
+      margin-top: -10px;
+      color: var(--zy-brand);
+      font-size: 24px;
+    }
+
+    small {
+      margin-top: 34px;
+      color: #98a2b3;
+      font-size: 10px;
+    }
+  }
+
+  .profile-signals {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 9px;
+  }
+
+  .profile-signals article {
+    min-width: 0;
+    padding: 12px;
+    border: 1px solid var(--zy-border);
+    border-radius: 14px;
+    background: #fbfdff;
+
+    span,
+    strong,
+    p {
+      display: block;
+      min-width: 0;
+    }
+
+    span {
+      color: #98a2b3;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    strong {
+      margin-top: 5px;
+      color: var(--zy-text);
+      font-size: 15px;
+    }
+
+    p {
+      margin: 5px 0 0;
+      color: var(--zy-muted);
+      font-size: 11px;
+      line-height: 1.55;
+    }
+  }
+
+  .insight-summary {
+    gap: 10px;
+  }
+
+  .insight-summary article,
+  .panel {
+    border-color: var(--zy-border);
+    border-radius: 16px;
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.045);
+  }
+
+  .summary-icon {
+    color: var(--zy-brand);
+    background: #eef2ff;
+  }
+
+  .analytics-grid {
+    grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+    gap: 12px;
+  }
+
+  .panel-title {
+    border-bottom-color: var(--zy-border);
+
+    > div {
+      color: var(--zy-brand);
+    }
+  }
+
+  .mastery-track i,
+  .rhythm-chart i {
+    background: linear-gradient(180deg, #6366f1, #4f46e5);
+  }
+
+  .weak-list article,
+  .next-list article {
+    border: 1px solid transparent;
+    transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+
+    &:hover {
+      border-color: rgba(99, 102, 241, 0.18);
+      background: #ffffff;
+      transform: translateY(-1px);
+    }
+  }
+
+  .weak-list article > span,
+  .next-list article > span {
+    color: var(--zy-brand);
+    background: #eef2ff;
+  }
+
+  .next-panel > button {
+    height: 32px;
+    margin-top: 14px;
+    padding: 0 12px;
+    border: 1px solid rgba(99, 102, 241, 0.16);
+    border-radius: 999px;
+    color: var(--zy-brand);
+    background: #fff;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  @keyframes analytics-enter {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .course-analytics,
+    .analytics-heading > button,
+    .weak-list article,
+    .next-list article {
+      animation: none;
+      transition: none;
+    }
+  }
+
+  @media (max-width: 1180px) {
+    .learning-profile-card {
+      grid-template-columns: minmax(0, 1fr) 110px;
+    }
+
+    .profile-signals {
+      grid-column: 1 / -1;
+    }
+  }
+
+  @media (max-width: 900px) {
+    .learning-profile-card,
+    .analytics-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .profile-ring {
+      justify-self: start;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .profile-signals,
     .insight-summary {
       grid-template-columns: 1fr;
     }
