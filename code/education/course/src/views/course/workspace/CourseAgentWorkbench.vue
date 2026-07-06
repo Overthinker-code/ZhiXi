@@ -34,6 +34,7 @@
   const keyword = ref('');
   const selectedAgentKey = ref(normalizeAgentKey(route.query.task || 'resource'));
   const favoriteKeys = ref(new Set<string>(['resource', 'practice', 'reader']));
+  const detailDrawerOpen = ref(false);
 
   const categoryTabs: AgentCategory[] = ['全部智能体', '自学中心', '效率工具', '学习助手', '资料科研'];
   const categoryCopy: Record<AgentCategory, string> = {
@@ -405,12 +406,6 @@
     }))
   );
 
-  const hubStats = computed(() => [
-    { label: '可用智能体', value: `${agentCatalog.value.length}` },
-    { label: '课程进度', value: `${course.value?.progress || 0}%` },
-    { label: '已收藏', value: `${favoriteAgents.value.length}` },
-  ]);
-
   const launchLabel = computed(() => {
     if (incomingPackageContext.value && incomingPrompt.value) return '执行图谱核验';
     if (incomingPackageContext.value && selectedAgent.value?.launch === 'chat') return '带核验上下文执行';
@@ -428,6 +423,30 @@
     if (selectedAgent.value?.launch === 'graph') return '课程知识图谱';
     return normalizeForceAgent(selectedAgent.value?.task?.forceAgent) || 'tutor_agent';
   });
+
+  function readableLaunchTarget(target = launchTarget.value) {
+    const map: Record<string, string> = {
+      retrieval_agent: '课程检索',
+      web_research_agent: '联网研究',
+      tutor_agent: '学习问答',
+      grading_agent: '作业批改',
+      safety_review_agent: '引用校验',
+      profile_agent: '画像更新',
+      knowledge_mentor: '知识讲解',
+      code_tutor: '代码辅导',
+      quiz_master: '练习陪跑',
+      planner: '学习规划',
+      analyst: '学习分析',
+      doc_researcher: '资料研读',
+      supervisor: '智能调度',
+      资料生成器: '资料生成',
+      'AI 伴学对话': '学习问答',
+      课程知识图谱: '课程图谱',
+    };
+    return map[target] || target || '课程助手';
+  }
+
+  const displayLaunchTarget = computed(() => readableLaunchTarget());
 
   const inputContextCards = computed(() => {
     if (!course.value || !selectedAgent.value) return [];
@@ -509,7 +528,7 @@
     },
     {
       label: '执行入口',
-      detail: `将启动到 ${launchTarget.value}`,
+      detail: `将启动到 ${displayLaunchTarget.value}`,
       ready: Boolean(selectedAgent.value),
     },
     {
@@ -557,12 +576,16 @@
       'knowledge-map-audit': '图谱回炉',
       'knowledge-map': '课程图谱',
       'knowledge-path': '图谱路径',
-      'course-agent': 'AI智能体',
-      'course-agent-graph': '图谱智能体',
-      'course-agent-package-audit': '智能体核验',
+      'course-agent': '课程助手',
+      'course-agent-graph': '课程图谱',
+      'course-agent-package-audit': '图谱核验',
       resource: '课程资料',
     };
     return map[source] || source || '课程入口';
+  }
+
+  function categoryDisplayName(category: AgentCategory) {
+    return category === '全部智能体' ? '全部任务' : category;
   }
 
   function packageQueryPayload() {
@@ -813,7 +836,7 @@
     if (!agent) return;
     const brief = [
       `${agent.title}：${agent.desc}`,
-      `启动入口：${launchTarget.value}`,
+      `启动入口：${displayLaunchTarget.value}`,
       `输入上下文：${inputContextCards.value.map((item) => `${item.label}-${item.value}`).join('；')}`,
       incomingPrompt.value ? `入口任务：${incomingPrompt.value}` : '',
       incomingPackageContext.value
@@ -851,28 +874,32 @@
     <div class="hub-shell">
       <header class="hub-top">
         <div class="hub-title">
-          <span><icon-robot /> AI智能体</span>
-          <h1>{{ course.shortTitle }}智能体中心</h1>
-          <p>把资料、阅读、陪练、图谱和科研任务集中到可直接执行的课程 Agent 工作台。</p>
+          <span><icon-robot /> AI 课程助手</span>
+          <h1>{{ course.shortTitle }} · 任务助手</h1>
+          <p>把资料生成、课程问答、陪练批改和图谱核验收进同一个清晰入口。</p>
         </div>
         <label class="hub-search">
           <icon-search />
-          <input v-model="keyword" type="search" placeholder="搜索智能体、资料或知识点" />
+          <input v-model="keyword" type="search" placeholder="搜索任务、资料或知识点" />
         </label>
       </header>
 
-      <section class="hub-overview">
-        <article v-for="item in hubStats" :key="item.label">
-          <span>{{ item.label }}</span>
-          <strong>{{ item.value }}</strong>
+      <section class="hub-overview compact-overview">
+        <article>
+          <span>课程进度</span>
+          <strong>{{ course.progress }}%</strong>
+        </article>
+        <article>
+          <span>已学章节</span>
+          <strong>{{ course.learned }}/{{ course.total }}</strong>
         </article>
         <div class="spotlight-strip">
-          <span>高频推荐</span>
+          <span>推荐任务</span>
           <button
             v-for="agent in highlightedAgents"
             :key="agent.key"
             type="button"
-            @click="launchAgent(agent)"
+            @click="selectAgent(agent.key)"
           >
             <component :is="agent.icon" />
             {{ agent.title }}
@@ -880,7 +907,7 @@
         </div>
       </section>
 
-      <nav class="category-tabs" aria-label="AI智能体分类">
+      <nav class="category-tabs compact-tabs" aria-label="课程助手分类">
         <button
           v-for="item in categoryStats"
           :key="item.category"
@@ -888,24 +915,25 @@
           :class="{ active: activeCategory === item.category }"
           @click="activeCategory = item.category"
         >
-          <span>{{ item.category }}</span>
+          <span>{{ categoryDisplayName(item.category) }}</span>
           <small>{{ item.count }} 个 · {{ item.desc }}</small>
         </button>
       </nav>
 
-      <div class="hub-layout">
-        <main class="agent-market">
+      <div class="hub-layout task-layout">
+        <aside class="agent-rail">
           <section v-if="favoriteAgents.length" class="quick-row">
             <div class="section-heading">
               <strong><icon-star /> 我的收藏</strong>
-              <span>常用智能体可直接启动</span>
+              <span>常用任务</span>
             </div>
             <div class="quick-list">
               <button
                 v-for="agent in favoriteAgents"
                 :key="agent.key"
                 type="button"
-                @click="launchAgent(agent)"
+                :class="{ active: selectedAgent?.key === agent.key }"
+                @click="selectAgent(agent.key)"
               >
                 <component :is="agent.icon" />
                 <span>{{ agent.title }}</span>
@@ -915,67 +943,39 @@
 
           <section class="agent-section">
             <div class="section-heading">
-              <strong>{{ activeCategory }}</strong>
-              <span>{{ filteredAgents.length }} 个可用智能体</span>
+              <strong>{{ categoryDisplayName(activeCategory) }}</strong>
+              <span>{{ filteredAgents.length }} 个任务</span>
             </div>
 
-            <div v-if="filteredAgents.length" class="agent-grid">
-              <article
+            <div v-if="filteredAgents.length" class="agent-list">
+              <button
                 v-for="agent in filteredAgents"
                 :key="agent.key"
-                class="agent-card"
+                type="button"
+                class="agent-list-item"
                 :class="{ active: selectedAgent?.key === agent.key }"
+                @click="selectAgent(agent.key)"
               >
-                <button type="button" class="agent-main" @click="selectAgent(agent.key)">
-                  <span class="agent-icon"><component :is="agent.icon" /></span>
-                  <span class="agent-copy">
-                    <span class="agent-status">{{ agent.status }}</span>
-                    <strong>{{ agent.title }}</strong>
-                    <small>{{ agent.desc }}</small>
-                  </span>
-                </button>
-                <div class="agent-meta">
-                  <span>{{ agent.category }}</span>
-                  <span>{{ agent.source }}</span>
-                  <span>{{ agent.estimate }}</span>
-                  <span>{{ agent.accuracy }}% 匹配</span>
-                </div>
-                <div class="output-list">
-                  <em v-for="item in agent.outputs.slice(0, 4)" :key="`${agent.key}-${item}`">
-                    {{ item }}
-                  </em>
-                </div>
-                <div class="agent-actions">
-                  <button type="button" class="launch-btn" @click="launchAgent(agent)">
-                    <icon-play-arrow-fill /> 即用
-                  </button>
-                  <button type="button" @click="openResourceGenerator(agent)">
-                    <icon-storage /> 资料
-                  </button>
-                  <button
-                    type="button"
-                    class="favorite-btn"
-                    :aria-label="favoriteKeys.has(agent.key) ? '取消收藏' : '收藏智能体'"
-                    @click="toggleFavorite(agent.key)"
-                  >
-                    <icon-heart-fill v-if="favoriteKeys.has(agent.key)" />
-                    <icon-heart v-else />
-                  </button>
-                </div>
-              </article>
+                <span class="agent-icon"><component :is="agent.icon" /></span>
+                <span class="agent-copy">
+                  <span class="agent-status">{{ agent.status }}</span>
+                  <strong>{{ agent.title }}</strong>
+                  <small>{{ agent.desc }}</small>
+                </span>
+              </button>
             </div>
             <div v-else class="empty-agents">
               <icon-search />
-              <strong>没有匹配的智能体</strong>
-              <p>换一个关键词，或切回“全部智能体”查看课程可用能力。</p>
-              <button type="button" @click="activeCategory = '全部智能体'; keyword = ''">查看全部智能体</button>
+              <strong>没有匹配的任务</strong>
+              <p>换一个关键词，或切回“全部任务”查看课程可用能力。</p>
+              <button type="button" @click="activeCategory = '全部智能体'; keyword = ''">查看全部任务</button>
             </div>
           </section>
-        </main>
+        </aside>
 
-        <aside class="agent-panel">
-          <section class="selected-agent">
-            <div class="panel-kicker">Selected Agent</div>
+        <main class="task-workspace">
+          <section class="selected-agent task-hero">
+            <div class="panel-kicker">当前任务</div>
             <div class="selected-head">
               <span class="agent-icon agent-icon--large">
                 <component :is="selectedAgent?.icon" />
@@ -990,19 +990,24 @@
               <strong>{{ selectedAgent?.accuracy }}%</strong>
               <i :style="{ width: `${selectedAgent?.accuracy || 0}%` }"></i>
             </div>
-            <div class="app-runtime">
-              <div>
-                <span>启动入口</span>
-                <strong>{{ launchTarget }}</strong>
-              </div>
-              <div>
+            <div class="task-summary">
+              <article>
+                <span>执行方式</span>
+                <strong>{{ displayLaunchTarget }}</strong>
+              </article>
+              <article>
                 <span>预计耗时</span>
                 <strong>{{ selectedAgent?.estimate }}</strong>
-              </div>
-              <div>
-                <span>本周调用</span>
-                <strong>{{ selectedAgent?.usage }}</strong>
-              </div>
+              </article>
+              <article>
+                <span>输出数量</span>
+                <strong>{{ selectedAgent?.outputs.length || 0 }} 项</strong>
+              </article>
+            </div>
+            <div class="output-list output-list--large">
+              <em v-for="item in selectedAgent?.outputs || []" :key="`selected-${item}`">
+                {{ item }}
+              </em>
             </div>
             <div class="selected-actions">
               <button type="button" class="primary" @click="launchAgent()">
@@ -1014,13 +1019,31 @@
               <button type="button" @click="openKnowledgeCenter">
                 <icon-mind-mapping /> 课程图谱
               </button>
+              <button type="button" @click="copyAgent()">
+                复制任务简报
+              </button>
             </div>
           </section>
 
+          <section class="deliverable-preview">
+            <div class="panel-heading">
+              <strong>交付物预览</strong>
+              <span>{{ deliverablePreview.length }} 项</span>
+            </div>
+            <div class="deliverable-grid">
+              <article v-for="item in deliverablePreview" :key="item.title">
+                <strong>{{ item.title }}</strong>
+                <p>{{ item.detail }}</p>
+              </article>
+            </div>
+          </section>
+        </main>
+
+        <aside class="agent-panel task-inspector">
           <section class="context-package">
             <div class="panel-heading">
-              <strong>输入上下文</strong>
-              <span>启动时带入</span>
+              <strong>上下文</strong>
+              <span>自动带入</span>
             </div>
             <div class="context-stack">
               <article v-for="item in inputContextCards" :key="item.label">
@@ -1067,8 +1090,8 @@
               <h3>{{ incomingResourceContext.title }}</h3>
               <p>{{ incomingResourceContext.chapter }} · {{ incomingResourceContext.sizeLabel }} · {{ incomingResourceContext.downloads }} 次使用</p>
               <div class="reference-id">
-                <span>文件标识</span>
-                <strong>{{ incomingResourceContext.fileId }}</strong>
+                <span>资料来源</span>
+                <strong>{{ incomingResourceContext.resolved ? '课程资料库' : '入口线索' }}</strong>
               </div>
               <div v-if="incomingResourceContext.evidence.length" class="reference-evidence">
                 <span v-for="item in incomingResourceContext.evidence" :key="item">
@@ -1088,19 +1111,33 @@
             </div>
           </section>
 
-          <section class="deliverable-preview">
-            <div class="panel-heading">
-              <strong>交付物预览</strong>
-              <span>{{ deliverablePreview.length }} 项</span>
+          <section class="course-context compact-context">
+            <strong>课程范围</strong>
+            <p>{{ course.description }}</p>
+            <div class="context-tags">
+              <span v-for="concept in course.concepts.slice(0, 5)" :key="concept.title">
+                {{ concept.title }}
+              </span>
             </div>
-            <div class="deliverable-grid">
-              <article v-for="item in deliverablePreview" :key="item.title">
-                <strong>{{ item.title }}</strong>
-                <p>{{ item.detail }}</p>
-              </article>
-            </div>
+            <button type="button" @click="detailDrawerOpen = true">查看执行细节</button>
           </section>
+        </aside>
+      </div>
 
+      <div
+        v-if="detailDrawerOpen"
+        class="detail-drawer-mask"
+        role="presentation"
+        @click.self="detailDrawerOpen = false"
+      >
+        <aside class="detail-drawer" aria-label="课程助手执行细节">
+          <header>
+            <div>
+              <span>执行细节</span>
+              <strong>{{ selectedAgent?.title }}</strong>
+            </div>
+            <button type="button" @click="detailDrawerOpen = false">关闭</button>
+          </header>
           <section class="preflight-checks">
             <div class="panel-heading">
               <strong>启动前检查</strong>
@@ -1116,9 +1153,8 @@
               </li>
             </ul>
           </section>
-
           <section class="agent-flow">
-            <strong>执行流</strong>
+            <strong>执行流程</strong>
             <ol>
               <li v-for="(step, index) in selectedAgent?.workflow || []" :key="step">
                 <span>{{ index + 1 }}</span>
@@ -1126,28 +1162,17 @@
               </li>
             </ol>
           </section>
-
-          <section class="course-context">
-            <strong>课程上下文</strong>
-            <p>{{ course.description }}</p>
-            <div class="context-tags">
-              <span v-for="concept in course.concepts" :key="concept.title">
-                {{ concept.title }}
-              </span>
-            </div>
-            <button type="button" @click="copyAgent()">复制智能体说明</button>
-          </section>
         </aside>
       </div>
 
       <teleport to="body">
-        <section class="mobile-agent-dock" aria-label="当前智能体快捷启动">
+        <section class="mobile-agent-dock" aria-label="当前课程任务快捷启动">
           <span class="agent-icon">
             <component :is="selectedAgent?.icon" />
           </span>
           <div class="mobile-agent-dock__copy">
             <strong>{{ selectedAgent?.title }}</strong>
-            <small>{{ launchTarget }} · {{ selectedAgent?.estimate }}</small>
+            <small>{{ displayLaunchTarget }} · {{ selectedAgent?.estimate }}</small>
           </div>
           <button type="button" class="primary" @click="launchAgent()">
             <icon-play-arrow-fill /> 启动
@@ -1387,8 +1412,49 @@
     background: rgba(255, 255, 255, 0.96);
   }
 
+  .task-layout {
+    grid-template-columns: 300px minmax(0, 1fr) 330px;
+    align-items: start;
+    border-top: 1px solid #e8edf5;
+    border-radius: 22px;
+  }
+
+  .compact-overview {
+    grid-template-columns: repeat(2, 124px) minmax(0, 1fr);
+  }
+
+  .compact-tabs {
+    margin-bottom: 14px;
+    border-radius: 18px;
+
+    button {
+      min-height: 54px;
+      font-size: 14px;
+
+      small {
+        display: none;
+      }
+    }
+  }
+
   .agent-market {
     min-width: 0;
+  }
+
+  .agent-rail,
+  .task-workspace,
+  .task-inspector {
+    min-width: 0;
+  }
+
+  .agent-rail {
+    display: grid;
+    gap: 14px;
+  }
+
+  .task-workspace {
+    display: grid;
+    gap: 14px;
   }
 
   .quick-row,
@@ -1444,6 +1510,13 @@
       font-size: 12px;
       font-weight: 800;
       cursor: pointer;
+
+      &.active,
+      &:hover {
+        border-color: #bcd0ff;
+        color: #2f68df;
+        background: #eef5ff;
+      }
     }
   }
 
@@ -1455,6 +1528,63 @@
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 14px;
+  }
+
+  .agent-list {
+    display: grid;
+    gap: 8px;
+    max-height: 590px;
+    overflow: auto;
+    padding-right: 2px;
+  }
+
+  .agent-list-item {
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+    width: 100%;
+    min-height: 74px;
+    padding: 10px;
+    border: 1px solid transparent;
+    border-radius: 14px;
+    background: #f8fbff;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+
+    .agent-icon {
+      width: 42px;
+      height: 42px;
+      border-radius: 13px;
+      font-size: 20px;
+    }
+
+    .agent-status {
+      margin-bottom: 3px;
+      font-size: 10px;
+    }
+
+    strong {
+      margin-bottom: 3px;
+      font-size: 14px;
+    }
+
+    small {
+      display: -webkit-box;
+      overflow: hidden;
+      font-size: 12px;
+      line-height: 1.45;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+    }
+
+    &.active,
+    &:hover {
+      border-color: #bdd0ff;
+      background: #fff;
+      box-shadow: 0 10px 26px rgba(39, 65, 121, 0.08);
+    }
   }
 
   .empty-agents {
@@ -1665,6 +1795,10 @@
     padding: 16px;
   }
 
+  .task-hero {
+    padding: 22px;
+  }
+
   .panel-kicker {
     color: #2563eb;
     font-size: 11px;
@@ -1763,8 +1897,45 @@
     }
   }
 
+  .task-summary {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 14px;
+
+    article {
+      min-width: 0;
+      padding: 12px;
+      border: 1px solid #e6edf7;
+      border-radius: 14px;
+      background: #f8fbff;
+    }
+
+    span,
+    strong {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    span {
+      color: #7d899c;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    strong {
+      margin-top: 6px;
+      color: #172033;
+      font-size: 15px;
+    }
+  }
+
   .selected-actions {
     display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 9px;
 
     button {
@@ -1780,6 +1951,7 @@
       cursor: pointer;
 
       &.primary {
+        grid-column: 1 / -1;
         border-color: transparent;
         color: #fff;
         background: #4468f2;
@@ -1808,6 +1980,15 @@
       background: #eef4ff;
       font-size: 11px;
       font-weight: 800;
+    }
+  }
+
+  .output-list--large {
+    margin: 14px 0 16px;
+
+    em {
+      color: #315181;
+      background: #eef5ff;
     }
   }
 
@@ -2226,6 +2407,15 @@
     }
   }
 
+  .compact-context {
+    p {
+      display: -webkit-box;
+      overflow: hidden;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 3;
+    }
+  }
+
   .context-tags {
     display: flex;
     flex-wrap: wrap;
@@ -2242,6 +2432,87 @@
 
   .mobile-agent-dock {
     display: none;
+  }
+
+  .detail-drawer-mask {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    display: flex;
+    justify-content: flex-end;
+    background: rgba(15, 23, 42, 0.22);
+    animation: drawer-fade 0.18s ease both;
+  }
+
+  .detail-drawer {
+    width: min(440px, calc(100vw - 32px));
+    height: 100%;
+    padding: 18px;
+    overflow: auto;
+    background: #fff;
+    box-shadow: -18px 0 48px rgba(15, 23, 42, 0.16);
+    animation: drawer-enter 0.2s ease both;
+
+    > header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 14px;
+
+      span,
+      strong {
+        display: block;
+      }
+
+      span {
+        color: #667085;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      strong {
+        margin-top: 4px;
+        color: #101828;
+        font-size: 19px;
+      }
+
+      button {
+        height: 34px;
+        padding: 0 12px;
+        border: 1px solid #dfe6f2;
+        border-radius: 999px;
+        color: #344054;
+        background: #fff;
+        cursor: pointer;
+      }
+    }
+
+    .preflight-checks,
+    .agent-flow {
+      margin-bottom: 14px;
+      border: 1px solid #e7ecf4;
+      border-radius: 16px;
+      background: #fff;
+    }
+  }
+
+  @keyframes drawer-fade {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes drawer-enter {
+    from {
+      transform: translateX(16px);
+    }
+    to {
+      transform: translateX(0);
+    }
   }
 
   @media (max-width: 1180px) {
