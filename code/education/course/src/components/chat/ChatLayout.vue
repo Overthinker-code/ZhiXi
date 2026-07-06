@@ -162,23 +162,40 @@
     assistant.toolEvents = [...list];
   }
 
+  const INTERNAL_REASONING_LINE_RE =
+    /^(intent_classifier|course_context|deep_research|tutor|homework_review|resource_generation|course_retriever|safety_check|memory_update|数据库系统原理|第\s*\d+\s*章.*|.*ER\s*模型.*)$/i;
+  const INTERNAL_REASONING_TEXT_RE =
+    /(首条系统消息|已根据当前问题检索知识库|上下文注入协作线程|协作线程|系统消息|course_context|intent_classifier|deep_research|数据库系统原理\s*$)/i;
+
+  function normalizeReasoningLine(line: string) {
+    const text = line
+      .replace(/^【[^】]+】\s*/, '')
+      .replace(/\s*\([^)]*(?:系统消息|agent|context|classifier)[^)]*\)\s*/gi, '')
+      .trim();
+    if (!text) return '';
+    if (INTERNAL_REASONING_LINE_RE.test(text)) return '';
+    if (INTERNAL_REASONING_TEXT_RE.test(text)) return '';
+    return text;
+  }
+
   function appendReasoningDelta(assistant: Record<string, any>, data: Record<string, any>) {
     const raw = String(data.text || '');
     if (!raw) return;
     const stage = String(data.stage || data.agent || '').trim();
     const visible = raw
       .split(/\r?\n/)
-      .filter((line) => {
+      .map((line) => {
         const text = line.trim();
-        if (!text) return true;
-        if (isPipelineThought(text, stage)) return false;
-        if (/^(intent_classifier|course_context|deep_research)$/i.test(text)) return false;
-        if (/^(agent|router|planner|worker|tool)_[a-z0-9_]+$/i.test(text)) return false;
-        return true;
+        if (!text) return '';
+        if (isPipelineThought(text, stage)) return '';
+        if (/^(intent_classifier|course_context|deep_research)$/i.test(text)) return '';
+        if (/^(agent|router|planner|worker|tool)_[a-z0-9_]+$/i.test(text)) return '';
+        return normalizeReasoningLine(text);
       })
+      .filter(Boolean)
       .join('\n');
     if (!visible.trim()) return;
-    assistant.reasoning_content = `${assistant.reasoning_content || ''}${visible}`;
+    assistant.reasoning_content = `${assistant.reasoning_content || ''}${visible}\n`;
   }
 
   function latestAssistantMutable() {

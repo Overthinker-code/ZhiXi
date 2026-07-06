@@ -7,7 +7,9 @@
   }>();
 
   const expanded = ref(false);
-  const internalAgents = new Set(['intent_classifier', 'course_context', 'deep_research']);
+  const internalAgents = new Set(['intent_classifier', 'course_context']);
+  const INTERNAL_LABEL_RE =
+    /(intent_classifier|course_context|deep_research|首条系统消息|系统消息|数据库系统原理|第\s*\d+\s*章|ER\s*模型)/i;
   const stageLabelMap: Record<string, string> = {
     course_retriever: '检索课程资料',
     course: '检索课程资料',
@@ -26,9 +28,17 @@
   );
   const friendlyLabel = (item: Record<string, any>, index = 0) => {
     const key = normalizeAgent(item);
+    if (key === 'deep_research') return '深度研究';
     if (stageLabelMap[key]) return stageLabelMap[key];
     const label = String(item.label || item.summary || item.message || '').trim();
+    if (INTERNAL_LABEL_RE.test(label)) {
+      if (/检索|知识库|资料/.test(label)) return '检索资料';
+      if (/研究|deep_research/i.test(label)) return '深度研究';
+      return `处理步骤 ${index + 1}`;
+    }
     if (/检索/.test(label)) return '检索资料';
+    if (/联网|搜索/.test(label)) return '联网搜索';
+    if (/研究|报告/.test(label)) return '深度研究';
     if (/资源/.test(label)) return '生成资源';
     if (/画像/.test(label)) return '更新学习画像';
     if (/安全|校验|引用/.test(label)) return '校验引用';

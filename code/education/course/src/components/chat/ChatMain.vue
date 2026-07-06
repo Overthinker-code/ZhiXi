@@ -54,18 +54,19 @@
 
   .chat-empty {
     position: absolute;
-    top: clamp(150px, 30vh, 220px);
-    right: 24px;
-    left: 24px;
+    top: clamp(130px, 28vh, 200px);
+    left: 50%;
     display: flex;
+    width: min(820px, calc(100% - 48px));
     justify-content: center;
     text-align: center;
+    transform: translateX(-50%);
     animation: enter-centered 0.18s ease both;
 
     h1 {
       margin: 0;
       color: #101828;
-      font-size: 36px;
+      font-size: 34px;
       font-weight: 720;
       letter-spacing: 0;
     }
@@ -138,11 +139,11 @@
   @keyframes enter-centered {
     from {
       opacity: 0;
-      transform: translateY(8px);
+      transform: translateX(-50%) translateY(8px);
     }
     to {
       opacity: 1;
-      transform: translateY(0);
+      transform: translateX(-50%) translateY(0);
     }
   }
 

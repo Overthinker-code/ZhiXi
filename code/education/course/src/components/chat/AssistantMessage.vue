@@ -14,7 +14,23 @@
   const rendered = computed(() => renderMarkdown(String(props.message.content || ''), {
     streaming: Boolean(props.message.loading),
   }));
-  const reasoning = computed(() => String(props.message.reasoning_content || '').trim());
+  const INTERNAL_REASONING_RE =
+    /^(intent_classifier|course_context|deep_research|tutor|homework_review|resource_generation|course_retriever|数据库系统原理|第\s*\d+\s*章.*|.*ER\s*模型.*)$/i;
+  const INTERNAL_REASONING_TEXT_RE =
+    /(首条系统消息|已根据当前问题检索知识库|上下文注入协作线程|协作线程|系统消息|intent_classifier|course_context|deep_research)/i;
+  const reasoning = computed(() =>
+    String(props.message.reasoning_content || '')
+      .split(/\r?\n/)
+      .map((line) =>
+        line
+          .replace(/^【[^】]+】\s*/, '')
+          .replace(/\s*\([^)]*(?:系统消息|agent|context|classifier)[^)]*\)\s*/gi, '')
+          .trim()
+      )
+      .filter((line) => line && !INTERNAL_REASONING_RE.test(line) && !INTERNAL_REASONING_TEXT_RE.test(line))
+      .join('\n')
+      .trim()
+  );
 </script>
 
 <template>
@@ -30,7 +46,7 @@
       class="reasoning-toggle"
       @click="reasoningOpen = !reasoningOpen"
     >
-      {{ reasoningOpen ? '收起思考摘要' : '查看思考摘要' }}
+      {{ reasoningOpen ? '收起思考' : '查看思考' }}
       <span v-if="message.loading" class="streaming-dots"><i /><i /><i /></span>
     </button>
     <div v-if="reasoningOpen && (reasoning || message.loading)" class="reasoning-box" aria-live="polite">

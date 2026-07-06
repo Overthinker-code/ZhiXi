@@ -58,12 +58,20 @@
       </button>
     </div>
     <template v-if="!collapsed">
-      <input v-model="keyword" class="history-search" placeholder="搜索历史" />
+      <div class="history-search-row">
+        <input v-model="keyword" class="history-search" placeholder="搜索历史" />
+        <button
+          type="button"
+          class="clear-all-button"
+          :disabled="!conversations.length"
+          title="一键清除全部对话记录"
+          @click="emit('clear-all')"
+        >
+          清除
+        </button>
+      </div>
       <div class="history-tools">
         <span>对话记录</span>
-        <button type="button" :disabled="!conversations.length" @click="emit('clear-all')">
-          清空全部
-        </button>
       </div>
       <section v-for="(items, group) in grouped" :key="group" class="history-group">
         <h3 v-if="items.length">{{ group }}</h3>
@@ -130,6 +138,12 @@
     font-weight: 700;
   }
 
+  .history-search-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
   .history-search {
     width: 100%;
     height: 38px;
@@ -146,6 +160,29 @@
     }
   }
 
+  .clear-all-button {
+    height: 38px;
+    padding: 0 12px;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 14px;
+    color: #667085;
+    background: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+      color: #4f46e5;
+      border-color: rgba(99, 102, 241, 0.3);
+      background: #f7f9ff;
+    }
+
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.45;
+    }
+  }
+
   .history-tools {
     display: flex;
     align-items: center;
@@ -155,25 +192,6 @@
     font-size: 12px;
     font-weight: 700;
 
-    button {
-      height: 28px;
-      padding: 0 10px;
-      border: 1px solid rgba(15, 23, 42, 0.08);
-      border-radius: 999px;
-      color: #667085;
-      background: #fff;
-      cursor: pointer;
-
-      &:hover:not(:disabled) {
-        color: #4f46e5;
-        border-color: rgba(99, 102, 241, 0.28);
-      }
-
-      &:disabled {
-        cursor: not-allowed;
-        opacity: 0.45;
-      }
-    }
   }
 
   .history-group {
