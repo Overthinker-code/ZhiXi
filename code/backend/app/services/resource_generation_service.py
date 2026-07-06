@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import json
 import re
+from typing import Any
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
+
+from langchain_core.messages import HumanMessage
 
 from app.core.config import settings
 from app.schemas.resource_generation import (
@@ -13,6 +16,7 @@ from app.schemas.resource_generation import (
     ResourceGenerationResponse,
     ResourceKind,
 )
+from app.services.chat_model_factory import ChatModelFactory
 
 
 DEFAULT_RESOURCE_TYPES: list[ResourceKind] = [
@@ -41,12 +45,13 @@ class ResourceGenerationService:
 
         kinds = request.resource_types or DEFAULT_RESOURCE_TYPES
         context = self._build_context(request)
+        ai_contents, ai_generation_error = self._generate_ai_contents(context, kinds)
         artifacts: list[GeneratedResourceArtifact] = []
         markdown_cache: dict[str, str] = {}
 
         for kind in kinds:
             if kind == "lecture_markdown":
-                markdown_cache["lecture"] = self._lecture_markdown(context)
+                markdown_cache["lecture"] = ai_contents.get(kind) or self._lecture_markdown(context)
                 artifacts.append(
                     self._write_artifact(
                         target_dir,
@@ -58,7 +63,7 @@ class ResourceGenerationService:
                     )
                 )
             elif kind == "lecture_pdf":
-                lecture = markdown_cache.get("lecture") or self._lecture_markdown(context)
+                lecture = markdown_cache.get("lecture") or ai_contents.get("lecture_markdown") or self._lecture_markdown(context)
                 artifacts.append(
                     self._write_artifact(
                         target_dir,
@@ -70,7 +75,7 @@ class ResourceGenerationService:
                     )
                 )
             elif kind == "practice_markdown":
-                markdown_cache["practice"] = self._practice_markdown(context)
+                markdown_cache["practice"] = ai_contents.get(kind) or self._practice_markdown(context)
                 artifacts.append(
                     self._write_artifact(
                         target_dir,
@@ -82,7 +87,7 @@ class ResourceGenerationService:
                     )
                 )
             elif kind == "practice_pdf":
-                practice = markdown_cache.get("practice") or self._practice_markdown(context)
+                practice = markdown_cache.get("practice") or ai_contents.get("practice_markdown") or self._practice_markdown(context)
                 artifacts.append(
                     self._write_artifact(
                         target_dir,
@@ -100,7 +105,7 @@ class ResourceGenerationService:
                         kind,
                         f"{request.topic} 思维导图",
                         "mind-map.mmd",
-                        self._mind_map(context),
+                        ai_contents.get(kind) or self._mind_map(context),
                         "text/plain",
                     )
                 )
@@ -111,7 +116,7 @@ class ResourceGenerationService:
                         kind,
                         f"{request.topic} 拓展阅读",
                         "reading-list.md",
-                        self._reading_list(context),
+                        ai_contents.get(kind) or self._reading_list(context),
                         "text/markdown",
                     )
                 )
@@ -122,7 +127,7 @@ class ResourceGenerationService:
                         kind,
                         f"{request.topic} 实操案例",
                         "case-project.md",
-                        self._case_project(context),
+                        ai_contents.get(kind) or self._case_project(context),
                         "text/markdown",
                     )
                 )
@@ -133,7 +138,7 @@ class ResourceGenerationService:
                         kind,
                         f"{request.topic} 数字人脚本",
                         "video-script.md",
-                        self._video_script(context),
+                        ai_contents.get(kind) or self._video_script(context),
                         "text/markdown",
                     )
                 )
@@ -144,7 +149,7 @@ class ResourceGenerationService:
                         kind,
                         f"{request.topic} 使用审查清单",
                         "quality-checklist.md",
-                        self._quality_checklist(context),
+                        ai_contents.get(kind) or self._quality_checklist(context),
                         "text/markdown",
                     )
                 )
@@ -169,19 +174,61 @@ class ResourceGenerationService:
             generated_at=datetime.utcnow(),
             local_model_profile={
                 "chat_provider": settings.CHAT_PROVIDER,
-                "chat_model": settings.OLLAMA_MODEL
-                if settings.CHAT_PROVIDER.lower() == "ollama"
-                else settings.CHAT_MODEL,
+                "chat_model": self._active_chat_model_name(),
                 "embedding_provider": settings.EMBEDDINGS_PROVIDER,
                 "multimodal_model": settings.MULTIMODAL_MODEL,
-                "deployment": "local-first",
-                "mode": "课程画像 + 领域模板 + 质量审查",
+                "deployment": "api-first"
+                if settings.CHAT_PROVIDER.lower() == "mimo"
+                else "provider-configured",
+                "mode": "课程上下文 + MiMo 结构化生成 + 质量审查"
+                if ai_contents
+                else "课程画像 + 本地结构化回退 + 质量审查",
+                "content_provider": "mimo"
+                if len(ai_contents) == len(
+                    [
+                        kind
+                        for kind in kinds
+                        if kind
+                        in {
+                            "lecture_markdown",
+                            "practice_markdown",
+                            "mind_map",
+                            "reading_list",
+                            "case_project",
+                            "video_script",
+                            "quality_checklist",
+                        }
+                    ]
+                )
+                else ("mimo_partial" if ai_contents else "local_fallback"),
+                "ai_generated_artifacts": sorted(ai_contents.keys()),
+                "fallback_artifacts": sorted(
+                    {
+                        kind
+                        for kind in kinds
+                        if kind
+                        in {
+                            "lecture_markdown",
+                            "practice_markdown",
+                            "mind_map",
+                            "reading_list",
+                            "case_project",
+                            "video_script",
+                            "quality_checklist",
+                        }
+                    }
+                    - set(ai_contents.keys())
+                ),
                 "domain": context["domain"],
+                "fallback_reason": ai_generation_error or "",
             },
             agent_trace=[
                 "ProfileAgent: 读取学习画像和目标难度",
                 f"DomainAgent: 识别课程域为 {context['domain']}",
                 "EvidenceAgent: 生成课程证据清单和引用模板",
+                "MiMoContentAgent: 基于课程上下文生成结构化资源正文"
+                if ai_contents
+                else "FallbackContentAgent: MiMo 内容生成不可用，使用本地结构化回退",
                 "LectureAgent: 生成讲义、概念卡和课堂案例",
                 "ExerciseAgent: 生成分层练习和评分量规",
                 "MindMapAgent: 生成知识结构、图谱节点和迁移路径",
@@ -192,7 +239,7 @@ class ResourceGenerationService:
                 "FinalizerAgent: 汇总为可下载资源包",
             ],
             quality_notes=[
-                f"已按“{context['scenario']}”组织案例，不再只输出通用学习建议。",
+                f"已按“{context['scenario']}”组织案例，不输出空泛学习建议。",
                 "讲义、练习、导图、阅读和案例均绑定课堂笔记、课程图谱与 AI 批改入口。",
                 "资源包包含 quality-checklist.md，可用于下载后逐项验收与学习闭环追踪。",
                 "所有可下载 Markdown 为中文主产物；PDF 为轻量预览版，排版完整性以 Markdown 为准。",
@@ -253,6 +300,15 @@ class ResourceGenerationService:
             if len(packages) >= limit:
                 break
         return packages
+
+    @staticmethod
+    def _active_chat_model_name() -> str:
+        provider = settings.CHAT_PROVIDER.lower()
+        if provider == "ollama":
+            return settings.OLLAMA_MODEL
+        if provider == "mimo":
+            return settings.MIMO_CHAT_MODEL or settings.CHAT_MODEL
+        return settings.CHAT_MODEL
 
     @staticmethod
     def _artifact_kind_from_name(file_name: str) -> str:
@@ -359,6 +415,244 @@ class ResourceGenerationService:
                 f"案例负责迁移应用，质量清单负责把学习动作闭环到 AI 批改和课程图谱。"
             ),
         }
+
+    def _generate_ai_contents(
+        self,
+        ctx: dict[str, str],
+        kinds: list[ResourceKind],
+    ) -> tuple[dict[str, str], str]:
+        provider = settings.CHAT_PROVIDER.lower()
+        if (
+            not settings.RESOURCE_GENERATION_AI_ENABLED
+            or provider != "mimo"
+            or not settings.MIMO_API_KEY
+        ):
+            return {}, "mimo_not_configured"
+        requested = [
+            kind
+            for kind in kinds
+            if kind
+            in {
+                "lecture_markdown",
+                "practice_markdown",
+                "mind_map",
+                "reading_list",
+                "case_project",
+                "video_script",
+                "quality_checklist",
+            }
+        ]
+        if not requested:
+            return {}, ""
+        contents: dict[str, str] = {}
+        generation_error = ""
+        try:
+            model = ChatModelFactory.create(
+                temperature=0.2,
+                max_tokens=4200,
+                top_p=0.9,
+                model_name=settings.MIMO_FAST_MODEL or settings.MIMO_CHAT_MODEL,
+            )
+            response = model.invoke(
+                [
+                    HumanMessage(
+                        content=self._resource_generation_prompt(ctx, requested)
+                    )
+                ]
+            )
+            raw = getattr(response, "content", response)
+            payload = self._parse_structured_payload(str(raw), requested)
+            if not payload:
+                payload = self._parse_json_payload(str(raw))
+            contents = self._validate_ai_contents(payload, requested, ctx)
+        except Exception as exc:
+            generation_error = exc.__class__.__name__
+        missing = [kind for kind in requested if kind not in contents]
+        for kind in missing:
+            try:
+                content = self._generate_single_ai_content(ctx, kind)
+                if content:
+                    contents[kind] = content
+            except Exception as exc:
+                generation_error = generation_error or exc.__class__.__name__
+        if not contents:
+            return {}, generation_error or "empty_ai_contents"
+        if len(contents) != len(requested):
+            return contents, generation_error or "partial_ai_contents"
+        return contents, ""
+
+    def _generate_single_ai_content(
+        self,
+        ctx: dict[str, str],
+        kind: str,
+    ) -> str:
+        max_tokens = {
+            "lecture_markdown": 2400,
+            "practice_markdown": 2600,
+            "mind_map": 1400,
+            "reading_list": 1400,
+            "case_project": 2200,
+            "video_script": 2000,
+            "quality_checklist": 2200,
+        }.get(kind, 1800)
+        model = ChatModelFactory.create(
+            temperature=0.2,
+            max_tokens=max_tokens,
+            top_p=0.9,
+            model_name=settings.MIMO_FAST_MODEL or settings.MIMO_CHAT_MODEL,
+        )
+        response = model.invoke(
+            [
+                HumanMessage(
+                    content=self._resource_generation_prompt(ctx, [kind])
+                )
+            ]
+        )
+        raw = getattr(response, "content", response)
+        raw_text = str(raw)
+        payload = self._parse_structured_payload(raw_text, [kind])
+        try:
+            if not payload:
+                payload = self._parse_json_payload(raw_text)
+        except Exception:
+            if not payload:
+                payload = {kind: raw_text.strip()}
+        contents = self._validate_ai_contents(payload, [kind], ctx)
+        return contents.get(kind, "")
+
+    @staticmethod
+    def _resource_generation_prompt(ctx: dict[str, str], kinds: list[str]) -> str:
+        tags = "\n".join(
+            f"<{kind}>\n请在这里输出 {kind} 正文\n</{kind}>" for kind in kinds
+        )
+        return f"""你是教育 SaaS 平台的课程资源生成器。请只输出下面这些 XML 风格标签，不要输出 Markdown 代码围栏，不要添加标签之外的解释。
+
+输出结构:
+{tags}
+
+生成要求：
+1. 每个请求的标签必须完整出现，开始标签和结束标签必须完全匹配。
+2. 内容必须围绕课程《{ctx['subject']}》和知识点“{ctx['topic']}”，不得泛泛而谈。
+3. 必须绑定课程图谱、课堂证据、学习目标、错因诊断和后续学习动作。
+4. 不得编造外部文献来源；阅读清单只能写课程内资料、教材章节、课堂笔记、练习和可核验资料类型。
+5. 每个 Markdown 类资源至少包含标题、学习目标、课程证据、节点关系、学习任务、质量自查。
+6. mind_map 字段必须输出 Mermaid mindmap 文本，根节点是“{ctx['topic']}”。
+7. practice_markdown 必须包含基础题、标准题、挑战题、答案框架和错因追练。
+8. quality_checklist 必须能用于验收资源是否真实服务学习闭环。
+9. 不允许出现“第X章”“第Y次课”“某教材”“待补充”“占位”等占位文案；若资料无法确定，写“课程讲义中与本节点关联的章节”这类可执行描述。
+
+课程上下文：
+- 课程：{ctx['subject']}
+- 知识点：{ctx['topic']}
+- 学习目标：{ctx['goal']}
+- 难度：{ctx['difficulty']}
+- 建议时长：{ctx['minutes']} 分钟
+- 课程域：{ctx['domain']}
+- 课程画像：{ctx['profile']}
+- 应用场景：{ctx['scenario']}
+- 案例线索：{ctx['case']}
+- 证据清单：{ctx['evidence']}
+- 评分量规：{ctx['rubric']}
+- 常见错因：{ctx['mistakes']}
+- 迁移目标：{ctx['transfer']}
+- 图谱节点：
+{ctx['graph_nodes']}
+- 学习路径：
+{ctx['learning_sequence']}
+- 质量门禁：
+{ctx['quality_gate']}
+"""
+
+    @staticmethod
+    def _parse_structured_payload(raw: str, requested: list[str]) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        for kind in requested:
+            match = re.search(
+                rf"<{re.escape(kind)}>\s*(.*?)\s*</{re.escape(kind)}>",
+                raw,
+                flags=re.DOTALL | re.IGNORECASE,
+            )
+            if match:
+                payload[kind] = match.group(1).strip()
+        return payload
+
+    @staticmethod
+    def _parse_json_payload(raw: str) -> dict[str, Any]:
+        text = raw.strip()
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?\s*", "", text)
+            text = re.sub(r"\s*```$", "", text).strip()
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            text = text[start : end + 1]
+        payload = json.loads(text)
+        return payload if isinstance(payload, dict) else {}
+
+    @staticmethod
+    def _validate_ai_contents(
+        payload: dict[str, Any],
+        requested: list[str],
+        ctx: dict[str, str],
+    ) -> dict[str, str]:
+        contents: dict[str, str] = {}
+        required_terms = [ctx["subject"], ctx["topic"]]
+        for kind in requested:
+            value = payload.get(kind)
+            if not isinstance(value, str):
+                continue
+            text = ResourceGenerationService._strip_artifact_tags(value.strip(), kind)
+            if len(text) < 240 and kind != "mind_map":
+                continue
+            if ResourceGenerationService._contains_placeholder(text):
+                continue
+            if ResourceGenerationService._contains_protocol_markup(text):
+                continue
+            if kind == "mind_map":
+                if "mindmap" not in text.lower() or ctx["topic"] not in text:
+                    continue
+            elif not all(term in text for term in required_terms):
+                continue
+            contents[kind] = text
+        return contents
+
+    @staticmethod
+    def _contains_placeholder(text: str) -> bool:
+        patterns = [
+            r"第\s*[XxYyZz]\s*(章|节|次|讲)",
+            r"某(教材|资料|章节|案例|文件)",
+            r"待(补充|填写|完善|确认)",
+            r"TBD",
+            r"占位",
+            r"xxx+",
+        ]
+        return any(re.search(pattern, text) for pattern in patterns)
+
+    @staticmethod
+    def _strip_artifact_tags(text: str, kind: str) -> str:
+        text = re.sub(
+            rf"^\s*<{re.escape(kind)}>\s*",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        )
+        text = re.sub(
+            rf"\s*</{re.escape(kind)}>\s*$",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        )
+        return text.strip()
+
+    @staticmethod
+    def _contains_protocol_markup(text: str) -> bool:
+        return bool(
+            re.search(
+                r"</?(lecture_markdown|practice_markdown|mind_map|reading_list|case_project|video_script|quality_checklist|resource)\b",
+                text,
+                flags=re.IGNORECASE,
+            )
+        )
 
     def _write_artifact(
         self,

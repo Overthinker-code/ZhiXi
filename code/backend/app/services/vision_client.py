@@ -112,13 +112,30 @@ def ocr_text_from_image_bytes(image_bytes: bytes | None) -> str:
 
 
 def _multimodal_models() -> list[str]:
-    base_url = settings.MULTIMODAL_API_BASE or ""
+    base_url = _multimodal_api_base() or ""
     models: list[str] = []
-    for candidate in (settings.MULTIMODAL_MODEL, settings.MULTIMODAL_FALLBACK_MODEL):
+    primary = (
+        settings.MIMO_MULTIMODAL_MODEL
+        if settings.MULTIMODAL_PROVIDER.lower() == "mimo"
+        else settings.MULTIMODAL_MODEL
+    )
+    for candidate in (primary, settings.MULTIMODAL_FALLBACK_MODEL):
         resolved = resolve_model_name_for_base_url(candidate, base_url)
         if resolved and resolved not in models:
             models.append(resolved)
     return models
+
+
+def _multimodal_api_base() -> str | None:
+    if settings.MULTIMODAL_PROVIDER.lower() == "mimo":
+        return settings.MULTIMODAL_API_BASE or settings.MIMO_API_BASE
+    return settings.MULTIMODAL_API_BASE
+
+
+def _multimodal_api_key() -> str | None:
+    if settings.MULTIMODAL_PROVIDER.lower() == "mimo":
+        return settings.MULTIMODAL_API_KEY or settings.MIMO_API_KEY
+    return settings.MULTIMODAL_API_KEY
 
 
 def vision_request_payload(model: str, prompt: str, image_ref: str) -> dict[str, Any]:
@@ -149,7 +166,8 @@ def call_vision_model(
     *,
     timeout: float | None = None,
 ) -> VisionCallResult:
-    if not settings.MULTIMODAL_API_BASE:
+    api_base = _multimodal_api_base()
+    if not api_base:
         return VisionCallResult(status="unconfigured", error="MULTIMODAL_API_BASE not set")
 
     normalized_ref = normalize_image_ref(image_ref)
@@ -161,15 +179,19 @@ def call_vision_model(
     last_fields: dict[str, Any] = {}
     timeout_seconds = float(timeout or settings.MULTIMODAL_TIMEOUT_SECONDS)
     headers = {
-        "Authorization": f"Bearer {settings.MULTIMODAL_API_KEY or 'local-placeholder'}"
+        "Authorization": f"Bearer {_multimodal_api_key() or 'local-placeholder'}"
     }
-    base = settings.MULTIMODAL_API_BASE.rstrip("/")
-    use_think_flag = is_local_ollama_compatible(settings.MULTIMODAL_API_BASE)
+    if settings.MULTIMODAL_PROVIDER.lower() == "mimo":
+        headers["api-key"] = _multimodal_api_key() or "local-placeholder"
+    base = api_base.rstrip("/")
+    use_think_flag = is_local_ollama_compatible(api_base)
 
     with httpx.Client(timeout=timeout_seconds) as client:
         for model in models:
             for with_think in ([True, False] if use_think_flag else [False]):
                 payload = _vision_request_payload(model, prompt, normalized_ref)
+                if settings.MULTIMODAL_PROVIDER.lower() == "mimo":
+                    payload["thinking"] = {"type": "disabled"}
                 if use_think_flag:
                     if with_think:
                         payload["think"] = False
@@ -212,7 +234,7 @@ def call_vision_model(
 
 def probe_multimodal_health(*, timeout: float = 45.0) -> dict[str, Any]:
     """Run a tiny vision inference probe (not just GET /models)."""
-    if not settings.MULTIMODAL_API_BASE:
+    if not _multimodal_api_base():
         return {"configured": False, "probe_ok": False, "detail": "not configured"}
     image_ref = normalize_image_ref(TINY_PROBE_PNG_B64)
     result = call_vision_model(
@@ -243,9 +265,9 @@ def build_chat_image_context(
     if not cleaned:
         return "", VisionCallResult(status="empty")
 
-    if not settings.MULTIMODAL_API_BASE:
+    if not _multimodal_api_base():
         return (
-            f"【图片上下文】学生上传了 {len(cleaned)} 张图片。当前完全本地部署尚未配置视觉模型服务，"
+            f"【图片上下文】学生上传了 {len(cleaned)} 张图片。当前后端尚未配置视觉模型服务，"
             "请结合学生补充文字进行讲解，并明确提示图片细节需要学生确认。",
             VisionCallResult(status="unconfigured"),
         )
@@ -259,7 +281,7 @@ def build_chat_image_context(
 
     result = call_vision_model(cleaned[0], prompt)
     if result.status == "ok" and result.text:
-        return f"【本地视觉模型识别结果】\n{result.text[:2500]}", result
+        return f"【视觉模型识别结果】\n{result.text[:2500]}", result
 
     image_bytes = decode_image_bytes(cleaned[0])
     ocr_text = ocr_text_from_image_bytes(image_bytes)
@@ -279,7 +301,7 @@ def build_chat_image_context(
 
     if result.error:
         return (
-            f"【图片上下文】学生上传了 {len(cleaned)} 张图片，但本地视觉模型调用失败：{result.error}。"
+            f"【图片上下文】学生上传了 {len(cleaned)} 张图片，但视觉模型调用失败：{result.error}。"
             "请基于学生补充文字继续回答，并明确说明图片细节未能稳定识别。",
             VisionCallResult(status="error", error=result.error, field_summary=result.field_summary),
         )

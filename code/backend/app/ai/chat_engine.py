@@ -342,6 +342,14 @@ def _strip_think_blocks_from_text(text: str) -> str:
     if not text:
         return text
     t = text
+    for tag in (_TK, "analysis"):
+        orphan_closers = list(
+            re.finditer(rf"</{tag}>", t, flags=re.IGNORECASE)
+        )
+        if orphan_closers and not re.search(
+            rf"<{tag}>", t[: orphan_closers[-1].start()], flags=re.IGNORECASE
+        ):
+            t = t[orphan_closers[-1].end() :]
     for pat in _MODEL_THINK_STRIP:
         t = pat.sub("", t)
     return t.strip()
@@ -1709,18 +1717,41 @@ def finalize_node(state: State) -> dict[str, Any]:
     try:
         raw_msg = None
         payload: StructuredAnswerPayload | None = None
-        try:
-            structured = llm.with_structured_output(StructuredAnswerPayload)
-            structured_result = structured.invoke([sys, structured_prompt, human])
-            if isinstance(structured_result, StructuredAnswerPayload):
-                payload = structured_result
-            elif isinstance(structured_result, dict):
-                payload = StructuredAnswerPayload.model_validate(structured_result)
-        except Exception:
-            payload = None
+        if settings.CHAT_PROVIDER.lower() != "mimo":
+            try:
+                structured = llm.with_structured_output(StructuredAnswerPayload)
+                structured_result = structured.invoke([sys, structured_prompt, human])
+                if isinstance(structured_result, StructuredAnswerPayload):
+                    payload = structured_result
+                elif isinstance(structured_result, dict):
+                    payload = StructuredAnswerPayload.model_validate(structured_result)
+            except Exception:
+                payload = None
         if payload is None:
-            raw_msg = llm.invoke([sys, structured_prompt, human])
-            payload = parse_structured_payload(_strict_ai_content_for_user(raw_msg))
+            final_prompt = structured_prompt
+            if settings.CHAT_PROVIDER.lower() == "mimo":
+                final_prompt = SystemMessage(
+                    content=(
+                        "请直接输出给学生看的最终 Markdown 正文，不要输出 JSON、代码围栏或字段名。"
+                        "如果有知识库证据候选且确实使用了证据，可以在相关句子后保留 [citation_id] 标记；"
+                        "不要编造不存在的 citation_id。回答要围绕当前学生问题，给出清晰解释和必要例子。"
+                    )
+                )
+            raw_msg = llm.invoke([sys, final_prompt, human])
+            raw_content = _strict_ai_content_for_user(raw_msg)
+            payload = parse_structured_payload(raw_content)
+            if payload is None and settings.CHAT_PROVIDER.lower() == "mimo":
+                raw_answer = _strip_think_blocks_from_text(raw_content).strip()
+                if raw_answer:
+                    payload = StructuredAnswerPayload(
+                        answer=raw_answer,
+                        confidence="medium",
+                        grounding_mode="rag"
+                        if state.get("rag_results")
+                        else "general",
+                        citations=[],
+                        follow_ups=[],
+                    )
         if payload:
             clean = _strip_think_blocks_from_text((payload.answer or "").strip())
             if looks_like_broken_math_markup(clean):

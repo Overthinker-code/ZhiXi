@@ -78,7 +78,7 @@ class Settings(BaseSettings):
     SMTP_USER: str | None = None
     SMTP_PASSWORD: str | None = None
     EMAILS_FROM_EMAIL: EmailStr | None = None
-    EMAILS_FROM_NAME: EmailStr | None = None
+    EMAILS_FROM_NAME: str | None = None
 
     @model_validator(mode="after")
     def _set_default_emails_from(self) -> Self:
@@ -125,8 +125,8 @@ class Settings(BaseSettings):
     RAG_UPLOAD_DIR: str = os.path.join(BASE_PATH, "uploads")
     CHROMA_DB_PATH: str = os.path.join(BASE_PATH, "vector_db")
 
-    CHAT_PROVIDER: str = "ollama"
-    CHAT_MODEL: str = "Qwen3-14B-Instruct"
+    CHAT_PROVIDER: str = "mimo"
+    CHAT_MODEL: str = "mimo-v2.5-pro"
     CHAT_TEMPERATURE: float = 0.0
     # 前端未传 max_tokens 时，协作图各专员/汇总使用的默认输出上限（可按机器与模型调大）
     CHAT_DEFAULT_MAX_TOKENS: int = 16384
@@ -137,7 +137,7 @@ class Settings(BaseSettings):
     CHAT_CONTEXT_TAIL_MESSAGES: int = 16
     CHAT_CONTEXT_MAX_MESSAGE_CHARS: int = 8000
 
-    EMBEDDINGS_PROVIDER: str = "ollama"
+    EMBEDDINGS_PROVIDER: str = "hash"
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "qwen3:14b"
@@ -147,11 +147,20 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str | None = None
     OPENAI_API_BASE: str | None = None
 
-    MULTIMODAL_PROVIDER: str = "openai_compatible"
-    MULTIMODAL_MODEL: str = "Qwen3-VL-8B-Instruct"
-    MULTIMODAL_FALLBACK_MODEL: str = "Qwen3-VL-4B-Instruct"
-    MULTIMODAL_API_BASE: str | None = "http://127.0.0.1:11434/v1"
-    MULTIMODAL_API_KEY: str | None = "ollama"
+    MIMO_API_KEY: str | None = None
+    MIMO_API_BASE: str = "https://api.xiaomimimo.com/v1"
+    MIMO_CHAT_MODEL: str = "mimo-v2.5-pro"
+    MIMO_FAST_MODEL: str = "mimo-v2.5"
+    MIMO_MULTIMODAL_MODEL: str = "mimo-v2.5"
+    MIMO_TTS_MODEL: str = "mimo-v2.5-tts"
+    MIMO_TIMEOUT_SECONDS: int = 120
+    RESOURCE_GENERATION_AI_ENABLED: bool = True
+
+    MULTIMODAL_PROVIDER: str = "mimo"
+    MULTIMODAL_MODEL: str = "mimo-v2.5"
+    MULTIMODAL_FALLBACK_MODEL: str = "mimo-v2.5-pro"
+    MULTIMODAL_API_BASE: str | None = None
+    MULTIMODAL_API_KEY: str | None = None
     MULTIMODAL_TIMEOUT_SECONDS: int = 180
 
     RAG_TOP_K: int = 4

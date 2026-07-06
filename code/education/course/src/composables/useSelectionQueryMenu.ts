@@ -100,6 +100,7 @@ export function useSelectionQueryMenu(getContextSource: () => string) {
     (raw || '')
       .replace(/<think>[\s\S]*?<\/think>/gi, '')
       .replace(/<analysis>[\s\S]*?<\/analysis>/gi, '')
+      .replace(/^[\s\S]*<\/(?:think|analysis)>/i, '')
       .replace(/<hr\s*\/?>/gi, '\n')
       .replace(/<\/?final>/gi, '')
       .split(/\r?\n/)

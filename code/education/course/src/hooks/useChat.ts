@@ -61,6 +61,18 @@ export function parseAssistantResponse(rawResponse: string) {
     };
   }
 
+  const orphanCloseIndex = Math.max(
+    rawResponse.toLowerCase().lastIndexOf('</think>'),
+    rawResponse.toLowerCase().lastIndexOf('</analysis>')
+  );
+  if (orphanCloseIndex >= 0) {
+    const content = rawResponse
+      .slice(orphanCloseIndex)
+      .replace(/^<\/(?:think|analysis)>/i, '')
+      .trim();
+    return { content, reasoning: '' };
+  }
+
   return { content: rawResponse.trim(), reasoning: '' };
 }
 
@@ -93,6 +105,7 @@ function sanitizeStreamingContent(raw: string) {
   const cleaned = (content || raw || '')
     .replace(/<think>[\s\S]*?<\/think>/gi, '')
     .replace(/<analysis>[\s\S]*?<\/analysis>/gi, '')
+    .replace(/^[\s\S]*<\/(?:think|analysis)>/i, '')
     .replace(/<\/?(think|analysis)>/gi, '')
     .replace(/<\/?final>/gi, '')
     .trim();

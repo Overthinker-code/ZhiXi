@@ -15,6 +15,20 @@ class EmbeddingFactory:
                 openai_api_base=settings.OPENAI_API_BASE,
             )
 
+        if provider in {"openai_compatible", "cloud"}:
+            from langchain_openai import OpenAIEmbeddings
+
+            return OpenAIEmbeddings(
+                model=settings.OPENAI_EMBEDDING_MODEL,
+                openai_api_key=settings.OPENAI_API_KEY,
+                openai_api_base=settings.OPENAI_API_BASE,
+            )
+
+        if provider == "hash":
+            from app.services.hash_embeddings import HashEmbeddings
+
+            return HashEmbeddings()
+
         if provider == "ollama":
             from langchain_ollama import OllamaEmbeddings
 

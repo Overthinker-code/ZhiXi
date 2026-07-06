@@ -160,8 +160,11 @@ AGENT_CONFIG: dict[AgentName, dict[str, str]] = {
 }
 
 def get_active_model_name() -> str:
-    if settings.CHAT_PROVIDER.lower() == "ollama":
+    provider = settings.CHAT_PROVIDER.lower()
+    if provider == "ollama":
         return settings.OLLAMA_MODEL
+    if provider == "mimo":
+        return settings.MIMO_CHAT_MODEL or settings.CHAT_MODEL
     return settings.CHAT_MODEL
 
 

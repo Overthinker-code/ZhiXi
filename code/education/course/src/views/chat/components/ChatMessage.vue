@@ -432,7 +432,7 @@
         :content="displayReasoningPlain"
         :actions="message.reasoningActions || []"
         :streaming="!!message.loading && isLastAssistantMessage"
-        :default-expanded="true"
+        :default-expanded="false"
       />
       <!-- content -->
       <div

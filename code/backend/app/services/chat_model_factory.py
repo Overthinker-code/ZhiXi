@@ -2,7 +2,11 @@ from app.core.config import settings
 
 
 def _with_optional_timeout(model):
-    timeout = getattr(settings, "LEARNING_REPORT_LLM_TIMEOUT_SECONDS", 0)
+    timeout = (
+        getattr(settings, "MIMO_TIMEOUT_SECONDS", 0)
+        if settings.CHAT_PROVIDER.lower() == "mimo"
+        else getattr(settings, "LEARNING_REPORT_LLM_TIMEOUT_SECONDS", 0)
+    )
     if not timeout:
         return model
     try:
@@ -20,6 +24,7 @@ class ChatModelFactory:
         top_p: float | None = None,
         top_k: int | None = None,
         reasoning: bool | str | None = False,
+        model_name: str | None = None,
     ):
         provider = settings.CHAT_PROVIDER.lower()
         effective_temperature = (
@@ -61,6 +66,27 @@ class ChatModelFactory:
             if max_tokens is not None:
                 kwargs["num_predict"] = max_tokens
             return _with_optional_timeout(ChatOllama(**kwargs))
+
+        if provider == "mimo":
+            from langchain_openai import ChatOpenAI
+
+            kwargs = {
+                "model": model_name or settings.MIMO_CHAT_MODEL or settings.CHAT_MODEL,
+                "temperature": effective_temperature,
+                "openai_api_key": settings.MIMO_API_KEY or "sk-placeholder",
+                "openai_api_base": settings.MIMO_API_BASE,
+                "default_headers": {
+                    "api-key": settings.MIMO_API_KEY or "sk-placeholder"
+                },
+                "extra_body": {"thinking": {"type": "disabled"}},
+                "request_timeout": settings.MIMO_TIMEOUT_SECONDS,
+            }
+            if max_tokens is not None:
+                kwargs["max_tokens"] = max_tokens
+            if top_p is not None:
+                kwargs["top_p"] = top_p
+
+            return _with_optional_timeout(ChatOpenAI(**kwargs))
 
         if provider in {"openai", "openai_compatible"}:
             from langchain_openai import ChatOpenAI

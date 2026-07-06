@@ -514,6 +514,7 @@
     (raw || '')
       .replace(/<think>[\s\S]*?<\/think>/gi, '')
       .replace(/<analysis>[\s\S]*?<\/analysis>/gi, '')
+      .replace(/^[\s\S]*<\/(?:think|analysis)>/i, '')
       .replace(/<\/?final>/gi, '')
       .trim();
 

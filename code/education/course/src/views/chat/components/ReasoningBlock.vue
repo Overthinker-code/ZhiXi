@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { computed, ref, watch } from 'vue';
+  import { computed, ref } from 'vue';
   import { IconDown, IconRight } from '@arco-design/web-vue/es/icon';
   import type { ReasoningActionItem } from '@/api/rag';
   import { renderMarkdown } from '@/utils/markdown';
@@ -11,20 +11,12 @@
     defaultExpanded?: boolean;
   }>();
 
-  const expanded = ref(Boolean(props.defaultExpanded ?? true));
+  const expanded = ref(Boolean(props.defaultExpanded ?? false));
 
   const displayText = computed(() => (props.content || '').trim());
 
   const actionCards = computed(() =>
     (props.actions || []).filter((a) => a && (a.title || a.detail))
-  );
-
-  watch(
-    () => props.streaming,
-    (v) => {
-      if (v) expanded.value = true;
-    },
-    { immediate: true }
   );
 
   const visibleText = computed(() => {
