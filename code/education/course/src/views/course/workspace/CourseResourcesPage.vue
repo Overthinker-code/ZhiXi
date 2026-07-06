@@ -33,6 +33,8 @@
   const recentPackages = ref<RecentGeneratedPackage[]>([]);
   const loadingRecentPackages = ref(false);
   const activeMissionResourceId = ref('');
+  const selectedResourceId = ref('');
+  const resourceDrawerVisible = ref(false);
   const aiTrialLimit = 3;
   const aiTrialStorageKey = 'zhixi-course-resource-ai-trial-v1';
   type AiTrialUsage = Record<string, number>;
@@ -258,6 +260,13 @@
       ? resourcePlan(activeMissionResource.value)
       : undefined
   );
+  const selectedResource = computed(() => {
+    const active = resources.value.find((item) => item.id === selectedResourceId.value);
+    return active || visibleResources.value[0] || resources.value[0] || undefined;
+  });
+  const selectedResourcePlan = computed(() =>
+    selectedResource.value ? resourcePlan(selectedResource.value) : undefined
+  );
 
   const missionReasons = computed(() => {
     const item = activeMissionResource.value;
@@ -341,6 +350,17 @@
     activeMissionResourceId.value = item.id;
     const board = document.querySelector('.resource-mission-board');
     board?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function selectResource(item: CourseResourceItem, openDrawer = false) {
+    selectedResourceId.value = item.id;
+    if (
+      openDrawer &&
+      typeof window !== 'undefined' &&
+      window.matchMedia('(max-width: 1180px)').matches
+    ) {
+      resourceDrawerVisible.value = true;
+    }
   }
 
   type RouteQueryPayload = Record<string, string | number | undefined>;
@@ -671,9 +691,8 @@
   <section v-if="course" class="course-resources">
     <header class="resource-heading">
       <div>
-        <span>COURSE LIBRARY</span>
         <h1>课程资料</h1>
-        <p>按章节组织课件、讲义、案例和练习，所有资料都保留课程上下文。</p>
+        <p>按章节整理课件、讲义、案例和练习；需要生成、追问或图谱核验时从右侧详情执行。</p>
       </div>
       <button type="button" @click="openGenerator()">
         <icon-robot />
@@ -992,80 +1011,169 @@
       </div>
     </section>
 
-    <div class="resource-toolbar">
-      <label>
-        <icon-search />
-        <input v-model="query" type="search" placeholder="搜索资料或章节" />
-      </label>
-      <div>
-        <button
-          v-for="type in resourceTypes"
-          :key="type"
-          type="button"
-          :class="{ active: activeType === type }"
-          @click="activeType = type"
-        >
-          {{ type }}
-        </button>
-      </div>
-    </div>
+    <section class="resource-library-shell" aria-label="课程资料库">
+      <div class="resource-library-main">
+        <div class="resource-toolbar">
+          <label>
+            <icon-search />
+            <input v-model="query" type="search" placeholder="搜索资料或章节" />
+          </label>
+          <div>
+            <button
+              v-for="type in resourceTypes"
+              :key="type"
+              type="button"
+              :class="{ active: activeType === type }"
+              @click="activeType = type"
+            >
+              {{ type }}
+            </button>
+          </div>
+        </div>
 
-    <div class="resource-grid">
-      <article
-        v-for="item in visibleResources"
-        :key="item.id"
-        class="resource-card"
-      >
-        <div class="resource-card__top">
-          <span class="resource-type">{{ item.type }}</span>
-          <small>{{ item.updatedAt }}</small>
-        </div>
-        <span class="resource-file-icon"><icon-file /></span>
-        <h2>{{ item.title }}</h2>
-        <p>{{ item.chapter }}</p>
-        <div class="resource-path">
-          <span
-            v-for="node in resourcePlan(item).graphNodes.slice(0, 3)"
-            :key="node"
+        <div class="resource-grid">
+          <article
+            v-for="item in visibleResources"
+            :key="item.id"
+            class="resource-card"
+            :class="{ active: selectedResource?.id === item.id }"
+            @click="selectResource(item, true)"
           >
-            {{ node }}
-          </span>
+            <div class="resource-card__top">
+              <span class="resource-type">{{ item.type }}</span>
+              <small>{{ item.updatedAt }}</small>
+            </div>
+            <span class="resource-file-icon"><icon-file /></span>
+            <h2>{{ item.title }}</h2>
+            <p>{{ item.chapter }}</p>
+            <div class="resource-path">
+              <span
+                v-for="node in resourcePlan(item).graphNodes.slice(0, 3)"
+                :key="node"
+              >
+                {{ node }}
+              </span>
+            </div>
+            <ul class="resource-checks">
+              <li v-for="task in resourcePlan(item).tasks.slice(0, 2)" :key="task">
+                {{ task }}
+              </li>
+            </ul>
+            <div class="resource-meta">
+              <span>{{ item.size }}</span>
+              <span>{{ item.downloads }} 次使用</span>
+            </div>
+            <div class="resource-trust-row">
+              <span>课程组审核</span>
+              <span>v{{ resourceIndex(item) + 1 }}.{{ item.downloads % 10 }}</span>
+              <span>{{ resourceLearningStatus(item) }}</span>
+            </div>
+            <div class="resource-actions">
+              <button type="button" class="primary" @click.stop="selectResource(item, true)">
+                <icon-check-circle /> 查看详情
+              </button>
+              <button type="button" @click.stop="downloadResourceBrief(item)">
+                <icon-download /> 学习包
+              </button>
+            </div>
+          </article>
         </div>
-        <ul class="resource-checks">
-          <li v-for="task in resourcePlan(item).tasks.slice(0, 2)" :key="task">
-            {{ task }}
-          </li>
-        </ul>
-        <div class="resource-meta">
-          <span>{{ item.size }}</span>
-          <span>{{ item.downloads }} 次使用</span>
+
+        <a-empty v-if="!visibleResources.length" description="没有匹配的课程资料" />
+      </div>
+
+      <aside v-if="selectedResource && selectedResourcePlan" class="resource-inspector">
+        <div class="resource-inspector__head">
+          <span>{{ selectedResource.type }}</span>
+          <h2>{{ selectedResource.title }}</h2>
+          <p>{{ selectedResource.chapter }} · {{ selectedResource.size }} · {{ selectedResource.downloads }} 次使用</p>
         </div>
-        <div class="resource-trust-row">
-          <span>课程组审核</span>
-          <span>v{{ resourceIndex(item) + 1 }}.{{ item.downloads % 10 }}</span>
-          <span>{{ resourceLearningStatus(item) }}</span>
+        <div class="resource-inspector__nodes">
+          <strong>关联知识点</strong>
+          <div>
+            <span v-for="node in selectedResourcePlan.graphNodes.slice(0, 4)" :key="node">
+              {{ node }}
+            </span>
+          </div>
         </div>
-        <div class="resource-actions">
-          <button type="button" class="primary" @click="activateResourceMission(item)">
-            <icon-check-circle /> 开始闭环
+        <section>
+          <strong>建议使用顺序</strong>
+          <ol>
+            <li v-for="task in selectedResourcePlan.tasks" :key="task">{{ task }}</li>
+          </ol>
+        </section>
+        <section>
+          <strong>可直接追问</strong>
+          <button
+            v-for="prompt in selectedResourcePlan.prompts"
+            :key="prompt"
+            type="button"
+            @click="askAboutResource(selectedResource)"
+          >
+            {{ prompt }}
           </button>
-          <button type="button" @click="downloadResourceBrief(item)">
-            <icon-download /> 学习包
+        </section>
+        <div class="resource-inspector__actions">
+          <button type="button" class="primary" @click="downloadResourceBrief(selectedResource)">
+            <icon-download /> 生成学习包
           </button>
-          <button type="button" @click="locateResourceInGraph(item)">
-            <icon-mind-mapping /> 图谱定位
-          </button>
-          <button type="button" @click="askAboutResource(item)">
-            <icon-robot /> 围绕资料提问
-          </button>
-          <button type="button" @click="generateResourceMaterials(item)">
+          <button type="button" @click="generateResourceMaterials(selectedResource)">
             <icon-bulb /> 生成配套
           </button>
+          <button type="button" @click="locateResourceInGraph(selectedResource)">
+            <icon-mind-mapping /> 图谱定位
+          </button>
+          <button type="button" @click="askAboutResource(selectedResource)">
+            <icon-robot /> 资料问答
+          </button>
         </div>
-      </article>
-    </div>
+      </aside>
+    </section>
 
-    <a-empty v-if="!visibleResources.length" description="没有匹配的课程资料" />
+    <a-drawer
+      v-model:visible="resourceDrawerVisible"
+      :width="380"
+      :footer="false"
+      placement="right"
+      unmount-on-close
+    >
+      <template #title>资料详情</template>
+      <div v-if="selectedResource && selectedResourcePlan" class="resource-inspector resource-inspector--drawer">
+        <div class="resource-inspector__head">
+          <span>{{ selectedResource.type }}</span>
+          <h2>{{ selectedResource.title }}</h2>
+          <p>{{ selectedResource.chapter }} · {{ selectedResource.size }} · {{ selectedResource.downloads }} 次使用</p>
+        </div>
+        <div class="resource-inspector__nodes">
+          <strong>关联知识点</strong>
+          <div>
+            <span v-for="node in selectedResourcePlan.graphNodes.slice(0, 4)" :key="node">
+              {{ node }}
+            </span>
+          </div>
+        </div>
+        <section>
+          <strong>建议使用顺序</strong>
+          <ol>
+            <li v-for="task in selectedResourcePlan.tasks" :key="task">{{ task }}</li>
+          </ol>
+        </section>
+        <div class="resource-inspector__actions">
+          <button type="button" class="primary" @click="downloadResourceBrief(selectedResource)">
+            <icon-download /> 学习包
+          </button>
+          <button type="button" @click="generateResourceMaterials(selectedResource)">
+            <icon-bulb /> 生成配套
+          </button>
+          <button type="button" @click="locateResourceInGraph(selectedResource)">
+            <icon-mind-mapping /> 图谱定位
+          </button>
+          <button type="button" @click="askAboutResource(selectedResource)">
+            <icon-robot /> 资料问答
+          </button>
+        </div>
+      </div>
+    </a-drawer>
   </section>
 </template>
 
@@ -2453,6 +2561,375 @@
         grid-column: 2;
         text-align: left;
       }
+    }
+  }
+
+  .ai-credit-panel,
+  .mobile-resource-action-strip,
+  .resource-mission-board,
+  .resource-flow,
+  .quality-strip,
+  .generated-package-panel {
+    display: none;
+  }
+
+  .course-resources {
+    animation: resource-enter 0.18s ease both;
+  }
+
+  .resource-heading {
+    padding-bottom: 14px;
+
+    h1 {
+      margin: 0 0 6px;
+      color: #101828;
+      font-size: 26px;
+      letter-spacing: 0;
+    }
+
+    p {
+      max-width: 660px;
+      color: #667085;
+      font-size: 13px;
+      line-height: 1.65;
+    }
+
+    > button {
+      height: 38px;
+      border-radius: 999px;
+      background: #6366f1;
+      box-shadow: 0 10px 22px rgba(99, 102, 241, 0.18);
+      transition: transform 160ms ease, background 160ms ease;
+
+      &:hover {
+        background: #4f46e5;
+        transform: translateY(-1px);
+      }
+    }
+  }
+
+  .resource-overview {
+    margin: 0 0 14px;
+  }
+
+  .generated-package-panel {
+    margin: 0 0 14px;
+    padding: 14px 16px;
+    border-radius: 16px;
+    background: #fff;
+  }
+
+  .generated-package-head {
+    h2 {
+      margin: 3px 0;
+      font-size: 18px;
+    }
+
+    p {
+      font-size: 12px;
+      line-height: 1.5;
+    }
+  }
+
+  .generated-package-empty {
+    padding: 14px;
+    border-radius: 13px;
+    background: #f8fafc;
+  }
+
+  .resource-library-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 336px;
+    gap: 16px;
+    align-items: start;
+  }
+
+  .resource-library-main,
+  .resource-inspector {
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 16px;
+    background: #fff;
+    box-shadow: 0 10px 26px rgba(15, 23, 42, 0.035);
+  }
+
+  .resource-library-main {
+    padding: 12px;
+  }
+
+  .resource-library-main .resource-toolbar {
+    margin: 0 0 10px;
+    gap: 10px;
+
+    label {
+      height: 38px;
+      border-radius: 999px;
+      background: #f8fafc;
+    }
+
+    > div {
+      padding: 4px;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      border-radius: 999px;
+      background: #f8fafc;
+    }
+
+    > div button {
+      height: 28px;
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      font-size: 12px;
+
+      &.active {
+        color: #6366f1;
+        background: #fff;
+        box-shadow: 0 3px 10px rgba(15, 23, 42, 0.06);
+      }
+    }
+  }
+
+  .resource-library-main .resource-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .resource-library-main .resource-card {
+    position: relative;
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr) auto;
+    gap: 10px 12px;
+    align-items: center;
+    min-height: 108px;
+    padding: 12px;
+    border-color: transparent;
+    border-radius: 14px;
+    background: #fbfcff;
+    cursor: pointer;
+    box-shadow: none;
+
+    &:hover,
+    &.active {
+      border-color: rgba(99, 102, 241, 0.18);
+      background: #fff;
+      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+      transform: translateY(-1px);
+    }
+  }
+
+  .resource-library-main .resource-card__top {
+    grid-column: 2;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  .resource-library-main .resource-file-icon {
+    grid-column: 1;
+    grid-row: 1 / span 4;
+    margin-top: 0;
+  }
+
+  .resource-library-main .resource-card h2 {
+    grid-column: 2;
+    margin: 0;
+    color: #101828;
+    font-size: 14px;
+  }
+
+  .resource-library-main .resource-card p {
+    grid-column: 2;
+    min-height: 0;
+    font-size: 12px;
+  }
+
+  .resource-library-main .resource-path,
+  .resource-library-main .resource-meta {
+    grid-column: 2;
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  .resource-library-main .resource-checks,
+  .resource-library-main .resource-trust-row {
+    display: none;
+  }
+
+  .resource-library-main .resource-actions {
+    grid-column: 3;
+    grid-row: 1 / span 4;
+    width: 176px;
+    margin-top: 0;
+
+    button {
+      height: 30px;
+      border-radius: 999px;
+      font-size: 11px;
+    }
+  }
+
+  .resource-inspector {
+    position: sticky;
+    top: 82px;
+    display: grid;
+    gap: 14px;
+    padding: 18px;
+  }
+
+  .resource-inspector__head {
+    span {
+      color: #6366f1;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    h2 {
+      margin: 7px 0 6px;
+      color: #101828;
+      font-size: 18px;
+      line-height: 1.35;
+    }
+
+    p {
+      margin: 0;
+      color: #667085;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+  }
+
+  .resource-inspector__nodes {
+    strong {
+      display: block;
+      margin-bottom: 8px;
+      color: #101828;
+      font-size: 13px;
+    }
+
+    div {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    span {
+      padding: 5px 8px;
+      border-radius: 999px;
+      color: #475467;
+      background: #f2f4f7;
+      font-size: 12px;
+    }
+  }
+
+  .resource-inspector section {
+    strong {
+      display: block;
+      margin-bottom: 8px;
+      color: #101828;
+      font-size: 13px;
+    }
+
+    ol {
+      display: grid;
+      gap: 7px;
+      margin: 0;
+      padding-left: 18px;
+      color: #667085;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    button {
+      width: 100%;
+      margin-bottom: 7px;
+      padding: 9px 10px;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      border-radius: 12px;
+      color: #475467;
+      background: #f8fafc;
+      text-align: left;
+      cursor: pointer;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+  }
+
+  .resource-inspector__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+
+    button {
+      height: 34px;
+      padding: 0 12px;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      border-radius: 999px;
+      color: #475467;
+      background: #fff;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 650;
+
+      &.primary {
+        color: #fff;
+        border-color: #6366f1;
+        background: #6366f1;
+      }
+    }
+  }
+
+  .resource-inspector--drawer {
+    border: 0;
+    box-shadow: none;
+    padding: 0;
+  }
+
+  @keyframes resource-enter {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @media (max-width: 1180px) {
+    .resource-library-shell {
+      grid-template-columns: 1fr;
+    }
+
+    .resource-inspector {
+      display: none;
+    }
+  }
+
+  @media (max-width: 760px) {
+    .resource-library-main .resource-card {
+      grid-template-columns: 38px minmax(0, 1fr);
+    }
+
+    .resource-library-main .resource-actions {
+      grid-column: 2;
+      grid-row: auto;
+      width: 100%;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .course-resources {
+      animation: none;
+    }
+
+    .resource-library-main .resource-card,
+    .resource-heading > button {
+      transition: none;
+    }
+
+    .resource-library-main .resource-card:hover,
+    .resource-library-main .resource-card.active,
+    .resource-heading > button:hover {
+      transform: none;
     }
   }
 </style>
