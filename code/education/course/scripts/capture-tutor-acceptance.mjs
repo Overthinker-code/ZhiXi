@@ -86,7 +86,8 @@ async function run() {
 
     await chooseTool(page, 'tool-web-search');
     await page.getByTestId('tool-menu').click();
-    await page.getByTestId('tool-reasoning').selectOption('deep');
+    await page.getByTestId('tool-reasoning').click();
+    await page.getByRole('button', { name: /超高/ }).click();
     const textbox = page.locator('textarea').first();
     await textbox.fill('请用三句话解释 ER 模型，并给一个选课系统例子。');
     await page.getByTestId('send-message').click();

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { computed, ref } from 'vue';
+  import { computed, ref, watch } from 'vue';
   import type { ChatToolPayload, ReasoningLevel, ResourceRequestPayload, TutorMode } from '@/api/ai-chat';
   import { DEFAULT_RESOURCE_TYPES, TUTOR_ACTIONS, type TutorPanel } from './tutorActions';
 
@@ -27,6 +27,8 @@
   const fileInput = ref<HTMLInputElement | null>(null);
   const toolMenuOpen = ref(false);
   const resourceTypeOpen = ref(false);
+  const reasoningMenuOpen = ref(false);
+  const selectedReasoningId = ref('balanced');
 
   const visibleActions = TUTOR_ACTIONS.filter((item) =>
     ['summarize_chapter', 'explain_problem', 'generate_outline', 'review_weak_points'].includes(item.id)
@@ -39,6 +41,13 @@
     code_case: '代码案例',
     video_script: '视频脚本',
   };
+  const reasoningOptions: Array<{ id: string; label: string; level: ReasoningLevel }> = [
+    { id: 'smart', label: '智能', level: 'balanced' },
+    { id: 'fast', label: '极速', level: 'fast' },
+    { id: 'balanced', label: '均衡', level: 'balanced' },
+    { id: 'high', label: '高级', level: 'deep' },
+    { id: 'ultra', label: '超高', level: 'deep' },
+  ];
 
   const canSend = computed(
     () => Boolean(input.value.trim() || files.value.length) && !props.loading
@@ -50,6 +59,11 @@
       props.tools.resourceGeneration ||
       props.tools.deepResearch ||
       files.value.length > 0
+  );
+  const selectedReasoning = computed(
+    () =>
+      reasoningOptions.find((item) => item.id === selectedReasoningId.value) ||
+      reasoningOptions[2]
   );
 
   const formatBytes = (size: number) => {
@@ -84,6 +98,7 @@
     files.value = [];
     toolMenuOpen.value = false;
     resourceTypeOpen.value = false;
+    reasoningMenuOpen.value = false;
   };
 
   const onKeydown = (event: KeyboardEvent) => {
@@ -110,6 +125,25 @@
   const toggleWebSearch = () => {
     emit('toggle-web');
   };
+
+  const chooseReasoning = (id: string) => {
+    const option = reasoningOptions.find((item) => item.id === id);
+    if (!option) return;
+    selectedReasoningId.value = option.id;
+    reasoningMenuOpen.value = false;
+    emit('set-reasoning', option.level);
+  };
+
+  watch(
+    () => props.reasoningLevel,
+    (level) => {
+      const current = reasoningOptions.find((item) => item.id === selectedReasoningId.value);
+      if (current?.level === level) return;
+      selectedReasoningId.value =
+        level === 'fast' ? 'fast' : level === 'deep' ? 'high' : 'balanced';
+    },
+    { immediate: true }
+  );
 
   defineExpose({
     openUpload: chooseFiles,
@@ -240,17 +274,34 @@
           </div>
         </div>
 
-        <select
-          class="reasoning-select"
-          :value="reasoningLevel"
-          data-testid="tool-reasoning"
-          aria-label="思考强度"
-          @change="emit('set-reasoning', ($event.target as HTMLSelectElement).value as ReasoningLevel)"
-        >
-          <option value="fast">快速</option>
-          <option value="balanced">均衡</option>
-          <option value="deep">深度</option>
-        </select>
+        <div class="reasoning-wrap">
+          <button
+            type="button"
+            class="reasoning-button"
+            data-testid="tool-reasoning"
+            aria-label="思考强度"
+            :aria-expanded="reasoningMenuOpen"
+            @click="reasoningMenuOpen = !reasoningMenuOpen"
+          >
+            <span>{{ selectedReasoning.label }}</span>
+            <i />
+          </button>
+
+          <div v-if="reasoningMenuOpen" class="reasoning-menu">
+            <button
+              v-for="option in reasoningOptions"
+              :key="option.id"
+              type="button"
+              :class="{ active: selectedReasoningId === option.id }"
+              @click="chooseReasoning(option.id)"
+            >
+              <span>
+                <strong>{{ option.label }}</strong>
+              </span>
+              <b v-if="selectedReasoningId === option.id">✓</b>
+            </button>
+          </div>
+        </div>
 
         <div class="toolbar-spacer" />
 
@@ -355,13 +406,14 @@
     padding: 8px 12px 12px;
   }
 
-  .tool-wrap {
+  .tool-wrap,
+  .reasoning-wrap {
     position: relative;
   }
 
   .icon-button,
   .send-button,
-  .reasoning-select {
+  .reasoning-button {
     height: 40px;
     border: 1px solid rgba(15, 23, 42, 0.08);
     border-radius: 999px;
@@ -390,17 +442,29 @@
     }
   }
 
-  .reasoning-select {
-    min-width: 92px;
-    padding: 0 32px 0 14px;
-    appearance: auto;
+  .reasoning-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 86px;
+    padding: 0 14px 0 16px;
     cursor: pointer;
 
     &:hover,
-    &:focus {
+    &:focus,
+    &[aria-expanded='true'] {
       border-color: rgba(99, 102, 241, 0.35);
       color: #4f46e5;
+      background: #eef2ff;
       outline: none;
+    }
+
+    i {
+      width: 7px;
+      height: 7px;
+      border-right: 2px solid currentColor;
+      border-bottom: 2px solid currentColor;
+      transform: translateY(-2px) rotate(45deg);
     }
   }
 
@@ -436,12 +500,11 @@
     }
   }
 
-  .tool-menu {
+  .tool-menu,
+  .reasoning-menu {
     position: absolute;
-    left: 0;
     bottom: 50px;
     z-index: 30;
-    width: 340px;
     max-height: min(620px, calc(100vh - 220px));
     overflow: auto;
     padding: 8px;
@@ -449,6 +512,11 @@
     border-radius: 20px;
     background: #fff;
     box-shadow: 0 24px 72px rgba(15, 23, 42, 0.16);
+  }
+
+  .tool-menu {
+    left: 0;
+    width: 340px;
     animation: menu-enter 0.16s ease both;
 
     section + section {
@@ -500,6 +568,54 @@
     }
   }
 
+  .reasoning-menu {
+    left: 50%;
+    bottom: 150px;
+    width: 250px;
+    transform: translateX(-50%);
+    animation: reasoning-enter 0.16s ease both;
+
+    button {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      width: 100%;
+      min-height: 48px;
+      padding: 9px 12px;
+      border: 0;
+      border-radius: 14px;
+      color: #101828;
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+
+      &:hover,
+      &.active {
+        background: #f7f9ff;
+      }
+    }
+
+    span {
+      min-width: 0;
+    }
+
+    strong {
+      display: block;
+    }
+
+    strong {
+      font-size: 15px;
+      font-weight: 720;
+    }
+
+    b {
+      color: #101828;
+      font-size: 18px;
+      font-weight: 500;
+    }
+  }
+
   .resource-types {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -527,6 +643,17 @@
     }
   }
 
+  @keyframes reasoning-enter {
+    from {
+      opacity: 0;
+      transform: translateX(-50%) translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+  }
+
   @media (max-width: 1280px) {
     .chat-composer {
       width: min(820px, calc(100vw - 360px));
@@ -534,6 +661,12 @@
 
     .tool-menu {
       width: 320px;
+    }
+
+    .reasoning-menu {
+      left: 0;
+      transform: none;
+      animation-name: menu-enter;
     }
   }
 
@@ -547,7 +680,7 @@
     .tool-menu,
     .icon-button,
     .send-button,
-    .reasoning-select,
+    .reasoning-button,
     .composer-box {
       animation: none;
       transition: none;
