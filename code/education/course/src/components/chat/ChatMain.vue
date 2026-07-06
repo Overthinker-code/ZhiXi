@@ -1,7 +1,5 @@
 <script setup lang="ts">
-  import { computed } from 'vue';
   import AssistantMessage from './AssistantMessage.vue';
-  import { TUTOR_ACTIONS } from './tutorActions';
 
   const props = defineProps<{
     messages: Array<Record<string, any>>;
@@ -9,15 +7,8 @@
   }>();
 
   const emit = defineEmits<{
-    (e: 'action', actionId: string): void;
     (e: 'retry'): void;
   }>();
-
-  const primaryActions = computed(() =>
-    TUTOR_ACTIONS.filter((item) =>
-      ['course_qa', 'homework_review', 'resource_generation', 'deep_research'].includes(item.id)
-    )
-  );
 
   const isLastAssistant = (index: number) =>
     index === props.messages.length - 1 && props.messages[index]?.role === 'assistant';
@@ -27,18 +18,7 @@
   <main class="chat-main" data-testid="tutor-chat-main">
     <section v-if="!messages.length" class="chat-empty">
       <h1>今天想学习什么？</h1>
-      <p>可以问课程问题、上传作业、生成资料，或基于课程上下文进行深度研究。</p>
-      <div class="chat-empty__actions">
-        <button
-          v-for="action in primaryActions"
-          :key="action.id"
-          type="button"
-          @click="emit('action', action.id)"
-        >
-          <strong>{{ action.label }}</strong>
-          <span>{{ action.description }}</span>
-        </button>
-      </div>
+      <p>直接提问即可。我会自动判断课程上下文；需要上传资料、联网搜索、作业批改或资源生成时，点击输入框左侧的 +。</p>
     </section>
 
     <section v-else class="chat-thread" aria-live="polite">
@@ -91,43 +71,6 @@
       color: #667085;
       font-size: 16px;
       line-height: 1.7;
-    }
-  }
-
-  .chat-empty__actions {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 12px;
-
-    button {
-      min-height: 112px;
-      padding: 16px;
-      border: 1px solid rgba(15, 23, 42, 0.08);
-      border-radius: 20px;
-      background: #fff;
-      text-align: left;
-      cursor: pointer;
-      transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
-
-      &:hover {
-        transform: translateY(-2px);
-        border-color: rgba(99, 102, 241, 0.28);
-        box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
-      }
-
-      strong {
-        display: block;
-        color: #101828;
-        font-size: 15px;
-      }
-
-      span {
-        display: block;
-        margin-top: 8px;
-        color: #667085;
-        font-size: 13px;
-        line-height: 1.55;
-      }
     }
   }
 
@@ -200,9 +143,6 @@
       padding-inline: 20px;
     }
 
-    .chat-empty__actions {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
   }
 
   @media (prefers-reduced-motion: reduce) {

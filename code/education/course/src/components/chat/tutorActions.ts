@@ -25,6 +25,8 @@ export const DEFAULT_RESOURCE_TYPES = [
   'video_script',
 ];
 
+export const CHAT_DEFAULT_RESOURCE_TYPES = ['lecture_note', 'mind_map', 'quiz'];
+
 export const TUTOR_ACTIONS: TutorAction[] = [
   {
     id: 'course_qa',
@@ -76,7 +78,7 @@ export const TUTOR_ACTIONS: TutorAction[] = [
         citationRequired: true,
       },
       resourceRequest: {
-        types: DEFAULT_RESOURCE_TYPES,
+        types: CHAT_DEFAULT_RESOURCE_TYPES,
         difficulty: 'normal',
         target: '',
       },

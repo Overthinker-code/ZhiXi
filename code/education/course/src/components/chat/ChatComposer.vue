@@ -8,7 +8,6 @@
     mode: TutorMode;
     tools: ChatToolPayload;
     reasoningLevel: ReasoningLevel;
-    chips: string[];
     resourceRequest: ResourceRequestPayload;
   }>();
 
@@ -18,7 +17,6 @@
     (e: 'action', actionId: string): void;
     (e: 'toggle-web'): void;
     (e: 'set-reasoning', level: ReasoningLevel): void;
-    (e: 'set-mode', mode: TutorMode): void;
     (e: 'open-panel', panel: TutorPanel): void;
     (e: 'update-resource-types', types: string[]): void;
   }>();
@@ -27,25 +25,31 @@
   const files = ref<File[]>([]);
   const composing = ref(false);
   const fileInput = ref<HTMLInputElement | null>(null);
-  const commandOpen = ref(false);
+  const toolMenuOpen = ref(false);
   const resourceTypeOpen = ref(false);
+
+  const visibleActions = TUTOR_ACTIONS.filter((item) =>
+    ['summarize_chapter', 'explain_problem', 'generate_outline', 'review_weak_points'].includes(item.id)
+  );
+  const resourceTypeLabels: Record<string, string> = {
+    lecture_note: '讲义',
+    mind_map: '思维导图',
+    quiz: '练习题',
+    reading: '拓展阅读',
+    code_case: '代码案例',
+    video_script: '视频脚本',
+  };
 
   const canSend = computed(
     () => Boolean(input.value.trim() || files.value.length) && !props.loading
   );
-
-  const modeText = computed(() => {
-    const map: Record<TutorMode, string> = {
-      tutor: '课程问答',
-      homework_review: '作业批改',
-      resource_generation: '资料生成',
-      deep_research: '深度研究',
-    };
-    return map[props.mode];
-  });
-
-  const fileLabel = computed(() =>
-    files.value.length ? `已选择 ${files.value.length} 个文件` : ''
+  const hasActiveTools = computed(
+    () =>
+      props.tools.webSearch ||
+      props.tools.homeworkReview ||
+      props.tools.resourceGeneration ||
+      props.tools.deepResearch ||
+      files.value.length > 0
   );
 
   const formatBytes = (size: number) => {
@@ -57,6 +61,8 @@
   };
 
   const chooseFiles = () => {
+    toolMenuOpen.value = false;
+    resourceTypeOpen.value = false;
     fileInput.value?.click();
   };
 
@@ -76,7 +82,7 @@
     emit('send', { text: input.value.trim(), files: [...files.value] });
     input.value = '';
     files.value = [];
-    commandOpen.value = false;
+    toolMenuOpen.value = false;
     resourceTypeOpen.value = false;
   };
 
@@ -86,11 +92,23 @@
     send();
   };
 
+  const pickAction = (actionId: string) => {
+    emit('action', actionId);
+    if (actionId !== 'resource_generation') {
+      toolMenuOpen.value = false;
+      resourceTypeOpen.value = false;
+    }
+  };
+
   const toggleResourceType = (type: string) => {
     const set = new Set(props.resourceRequest.types);
     if (set.has(type)) set.delete(type);
     else set.add(type);
     emit('update-resource-types', Array.from(set));
+  };
+
+  const toggleWebSearch = () => {
+    emit('toggle-web');
   };
 
   defineExpose({
@@ -100,13 +118,7 @@
 
 <template>
   <section class="chat-composer" data-testid="tutor-composer">
-    <div class="composer-status">
-      <span>当前模式：{{ modeText }}</span>
-      <span v-for="chip in chips" :key="chip">{{ chip }}</span>
-      <span v-if="fileLabel">{{ fileLabel }}</span>
-    </div>
-
-    <div class="composer-box">
+    <div class="composer-box" :class="{ 'has-tools': hasActiveTools }">
       <div v-if="files.length" class="composer-files">
         <button
           v-for="(file, index) in files"
@@ -121,7 +133,7 @@
 
       <textarea
         v-model="input"
-        placeholder="输入问题，上传资料，或用 @ 选择课程上下文"
+        placeholder="问任何课程问题，或上传资料让我一起分析"
         rows="2"
         @compositionstart="composing = true"
         @compositionend="composing = false"
@@ -129,112 +141,138 @@
       />
 
       <div class="composer-toolbar">
-        <div class="toolbar-left">
-          <input
-            ref="fileInput"
-            hidden
-            type="file"
-            multiple
-            accept="image/*,.pdf,.doc,.docx,.txt,.md,.markdown,.ppt,.pptx,.py,.js,.ts,.java,.cpp,.c,.sql"
-            @change="onFileChange"
-          />
-          <button type="button" class="tool-pill icon-pill" @click="chooseFiles">+</button>
-          <button type="button" class="tool-pill" @click="emit('open-panel', 'course_picker')">@ 课程上下文</button>
-          <div class="command-wrap">
-            <button type="button" class="tool-pill" @click="commandOpen = !commandOpen">/ 命令</button>
-            <div v-if="commandOpen" class="command-menu">
+        <input
+          ref="fileInput"
+          hidden
+          type="file"
+          multiple
+          accept="image/*,.pdf,.doc,.docx,.txt,.md,.markdown,.ppt,.pptx,.py,.js,.ts,.java,.cpp,.c,.sql"
+          @change="onFileChange"
+        />
+
+        <div class="tool-wrap">
+          <button
+            type="button"
+            class="icon-button"
+            :class="{ active: toolMenuOpen || hasActiveTools }"
+            aria-label="打开工具"
+            data-testid="tool-menu"
+            @click="toolMenuOpen = !toolMenuOpen"
+          >
+            +
+          </button>
+
+          <div v-if="toolMenuOpen" class="tool-menu" @keydown.esc="toolMenuOpen = false">
+            <section>
+              <h4>资料与上下文</h4>
+              <button type="button" @click="chooseFiles">
+                <strong>上传附件</strong>
+                <span>图片、PDF、文档、代码或作业</span>
+              </button>
+              <button type="button" @click="emit('open-panel', 'course_picker'); toolMenuOpen = false">
+                <strong>指定课程</strong>
+                <span>默认会自动判断，需要时手动覆盖</span>
+              </button>
+            </section>
+
+            <section>
+              <h4>能力</h4>
               <button
-                v-for="action in TUTOR_ACTIONS.filter((item) => ['summarize_chapter', 'explain_problem', 'generate_outline', 'review_weak_points'].includes(item.id))"
+                type="button"
+                data-testid="tool-web-search"
+                :class="{ active: tools.webSearch }"
+                @click="toggleWebSearch"
+              >
+                <strong>{{ tools.webSearch ? '联网搜索已开' : '联网搜索' }}</strong>
+                <span>需要外部资料或时效信息时启用</span>
+              </button>
+              <button
+                type="button"
+                data-testid="mode-homework"
+                :class="{ active: mode === 'homework_review' }"
+                @click="pickAction('homework_review')"
+              >
+                <strong>作业批改</strong>
+                <span>评分、错因、订正建议</span>
+              </button>
+              <button
+                type="button"
+                data-testid="mode-resource"
+                :class="{ active: mode === 'resource_generation' }"
+                @click="pickAction('resource_generation'); resourceTypeOpen = !resourceTypeOpen"
+              >
+                <strong>资料生成</strong>
+                <span>讲义、练习、思维导图、代码案例</span>
+              </button>
+              <div v-if="resourceTypeOpen" class="resource-types">
+                <label v-for="type in DEFAULT_RESOURCE_TYPES" :key="type">
+                  <input
+                    type="checkbox"
+                    :checked="resourceRequest.types.includes(type)"
+                    @change="toggleResourceType(type)"
+                  />
+                  {{ resourceTypeLabels[type] || type }}
+                </label>
+              </div>
+              <button
+                type="button"
+                data-testid="mode-deep-research"
+                :class="{ active: mode === 'deep_research' }"
+                @click="pickAction('deep_research')"
+              >
+                <strong>深度研究</strong>
+                <span>多轮检索、分析和报告生成</span>
+              </button>
+            </section>
+
+            <section>
+              <h4>快捷任务</h4>
+              <button
+                v-for="action in visibleActions"
                 :key="action.id"
                 type="button"
-                @click="emit('action', action.id)"
+                @click="pickAction(action.id)"
               >
                 <strong>{{ action.label }}</strong>
                 <span>{{ action.description }}</span>
               </button>
-            </div>
+            </section>
           </div>
         </div>
 
-        <div class="toolbar-center">
-          <button
-            type="button"
-            :class="['tool-pill', { active: tools.webSearch }]"
-            data-testid="tool-web-search"
-            @click="emit('toggle-web')"
-          >
-            联网搜索
-          </button>
-          <select
-            class="tool-select"
-            :value="reasoningLevel"
-            data-testid="tool-reasoning"
-            @change="emit('set-reasoning', ($event.target as HTMLSelectElement).value as ReasoningLevel)"
-          >
-            <option value="fast">深度思考：快速</option>
-            <option value="balanced">深度思考：均衡</option>
-            <option value="deep">深度思考：深度</option>
-          </select>
-          <button
-            type="button"
-            :class="['tool-pill', { active: mode === 'homework_review' }]"
-            data-testid="mode-homework"
-            @click="emit('action', 'homework_review')"
-          >
-            作业批改
-          </button>
-          <div class="command-wrap">
-            <button
-              type="button"
-              :class="['tool-pill', { active: mode === 'resource_generation' }]"
-              data-testid="mode-resource"
-              @click="emit('action', 'resource_generation'); resourceTypeOpen = !resourceTypeOpen"
-            >
-              资料生成
-            </button>
-            <div v-if="resourceTypeOpen" class="resource-menu">
-              <label v-for="type in DEFAULT_RESOURCE_TYPES" :key="type">
-                <input
-                  type="checkbox"
-                  :checked="resourceRequest.types.includes(type)"
-                  @change="toggleResourceType(type)"
-                />
-                {{ type }}
-              </label>
-            </div>
-          </div>
-          <button
-            type="button"
-            :class="['tool-pill', { active: mode === 'deep_research' }]"
-            data-testid="mode-deep-research"
-            @click="emit('action', 'deep_research')"
-          >
-            深度研究
-          </button>
-        </div>
+        <select
+          class="reasoning-select"
+          :value="reasoningLevel"
+          data-testid="tool-reasoning"
+          aria-label="思考强度"
+          @change="emit('set-reasoning', ($event.target as HTMLSelectElement).value as ReasoningLevel)"
+        >
+          <option value="fast">快速</option>
+          <option value="balanced">均衡</option>
+          <option value="deep">深度</option>
+        </select>
 
-        <div class="toolbar-right">
-          <span class="model-chip">MiMo 2.5</span>
-          <button
-            v-if="loading"
-            type="button"
-            class="send-btn stop"
-            data-testid="stop-generation"
-            @click="emit('stop')"
-          >
-            停止
-          </button>
-          <button
-            v-else
-            type="button"
-            class="send-btn"
-            :disabled="!canSend"
-            data-testid="send-message"
-            @click="send"
-          >
-            发送
-          </button>
-        </div>
+        <div class="toolbar-spacer" />
+
+        <button
+          v-if="loading"
+          type="button"
+          class="send-button stop"
+          data-testid="stop-generation"
+          @click="emit('stop')"
+        >
+          停止
+        </button>
+        <button
+          v-else
+          type="button"
+          class="send-button"
+          :disabled="!canSend"
+          data-testid="send-message"
+          @click="send"
+        >
+          发送
+        </button>
       </div>
     </div>
   </section>
@@ -242,26 +280,8 @@
 
 <style scoped lang="scss">
   .chat-composer {
-    width: min(880px, calc(100% - 48px));
+    width: min(880px, calc(100vw - 420px));
     margin: 0 auto;
-  }
-
-  .composer-status {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-bottom: 8px;
-
-    span {
-      height: 28px;
-      padding: 0 10px;
-      border: 1px solid rgba(15, 23, 42, 0.08);
-      border-radius: 999px;
-      color: #475467;
-      background: #fff;
-      font-size: 12px;
-      line-height: 27px;
-    }
   }
 
   .composer-box {
@@ -277,18 +297,49 @@
     }
   }
 
+  .composer-files {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px 14px 0;
+
+    button {
+      max-width: 220px;
+      padding: 8px 10px;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      border-radius: 14px;
+      background: #f7f9ff;
+      color: #344054;
+      text-align: left;
+      cursor: pointer;
+
+      span,
+      small {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      small {
+        margin-top: 2px;
+        color: #667085;
+        font-size: 11px;
+      }
+    }
+  }
+
   textarea {
-    display: block;
     width: 100%;
-    min-height: 72px;
+    min-height: 74px;
     max-height: 240px;
-    padding: 18px 20px 8px;
+    resize: vertical;
+    padding: 20px 24px 8px;
     border: 0;
     outline: none;
-    resize: vertical;
     color: #101828;
     background: transparent;
-    font: inherit;
+    font-size: 16px;
     line-height: 1.6;
 
     &::placeholder {
@@ -296,169 +347,80 @@
     }
   }
 
-  .composer-files {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    padding: 12px 16px 0;
-
-    button {
-      display: grid;
-      gap: 2px;
-      max-width: 220px;
-      padding: 8px 10px;
-      border: 1px solid rgba(15, 23, 42, 0.08);
-      border-radius: 12px;
-      background: #f7f9ff;
-      text-align: left;
-      cursor: pointer;
-    }
-
-    span {
-      overflow: hidden;
-      color: #344054;
-      font-size: 13px;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    small {
-      color: #667085;
-      font-size: 12px;
-    }
-  }
-
   .composer-toolbar {
-    display: grid;
-    grid-template-columns: auto 1fr auto;
-    gap: 10px;
-    align-items: center;
-    padding: 8px 10px 10px;
-  }
-
-  .toolbar-left,
-  .toolbar-center,
-  .toolbar-right {
+    position: relative;
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
     align-items: center;
+    gap: 10px;
+    padding: 8px 12px 12px;
   }
 
-  .toolbar-center {
-    justify-content: center;
-  }
-
-  .tool-pill,
-  .tool-select,
-  .model-chip {
-    height: 34px;
-    padding: 0 12px;
-    border: 1px solid rgba(15, 23, 42, 0.08);
-    border-radius: 999px;
-    color: #475467;
-    background: #f7f9ff;
-    font-size: 13px;
-  }
-
-  button.tool-pill {
-    cursor: pointer;
-    transition: background 0.18s ease, color 0.18s ease, transform 0.12s ease;
-
-    &:hover {
-      color: #4f46e5;
-    }
-
-    &:active {
-      transform: scale(0.98);
-    }
-
-    &.active {
-      color: #fff;
-      background: #4f46e5;
-      border-color: #4f46e5;
-    }
-  }
-
-  .icon-pill {
-    width: 34px;
-    padding: 0;
-    font-size: 20px;
-  }
-
-  .command-wrap {
+  .tool-wrap {
     position: relative;
   }
 
-  .command-menu,
-  .resource-menu {
-    position: absolute;
-    bottom: 42px;
-    left: 0;
-    z-index: 20;
-    width: 280px;
-    padding: 8px;
+  .icon-button,
+  .send-button,
+  .reasoning-select {
+    height: 40px;
     border: 1px solid rgba(15, 23, 42, 0.08);
-    border-radius: 16px;
-    background: #fff;
-    box-shadow: 0 16px 50px rgba(15, 23, 42, 0.1);
-  }
-
-  .command-menu button {
-    display: grid;
-    gap: 4px;
-    width: 100%;
-    padding: 10px;
-    border: 0;
-    border-radius: 12px;
-    background: transparent;
-    text-align: left;
-    cursor: pointer;
-
-    &:hover {
-      background: #f7f9ff;
-    }
-
-    strong {
-      color: #101828;
-      font-size: 13px;
-    }
-
-    span {
-      color: #667085;
-      font-size: 12px;
-      line-height: 1.45;
-    }
-  }
-
-  .resource-menu {
-    display: grid;
-    gap: 8px;
-
-    label {
-      display: flex;
-      gap: 8px;
-      color: #344054;
-      font-size: 13px;
-    }
-  }
-
-  .send-btn {
-    height: 38px;
-    min-width: 64px;
-    border: 0;
     border-radius: 999px;
-    color: #fff;
-    background: #4f46e5;
-    font-weight: 700;
-    cursor: pointer;
-    transition: transform 0.12s ease, filter 0.18s ease;
+    color: #344054;
+    background: #f8fafc;
+    font-weight: 600;
+    transition: transform 0.14s ease, border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+  }
 
-    &:hover {
-      filter: brightness(1.04);
+  .icon-button {
+    width: 40px;
+    padding: 0;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+
+    &.active {
+      color: #4f46e5;
+      border-color: rgba(99, 102, 241, 0.3);
+      background: #eef2ff;
     }
 
-    &:active {
+    &:hover {
+      border-color: rgba(99, 102, 241, 0.34);
+      background: #eef2ff;
+    }
+  }
+
+  .reasoning-select {
+    min-width: 92px;
+    padding: 0 32px 0 14px;
+    appearance: auto;
+    cursor: pointer;
+
+    &:hover,
+    &:focus {
+      border-color: rgba(99, 102, 241, 0.35);
+      color: #4f46e5;
+      outline: none;
+    }
+  }
+
+  .toolbar-spacer {
+    flex: 1;
+  }
+
+  .send-button {
+    min-width: 64px;
+    padding: 0 18px;
+    color: #fff;
+    border-color: transparent;
+    background: #4f46e5;
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+      background: #6366f1;
+    }
+
+    &:active:not(:disabled) {
       transform: scale(0.98);
     }
 
@@ -468,21 +430,127 @@
     }
 
     &.stop {
-      background: #344054;
+      color: #344054;
+      border-color: rgba(15, 23, 42, 0.1);
+      background: #f2f4f7;
+    }
+  }
+
+  .tool-menu {
+    position: absolute;
+    left: 0;
+    bottom: 50px;
+    z-index: 30;
+    width: 340px;
+    max-height: min(620px, calc(100vh - 220px));
+    overflow: auto;
+    padding: 8px;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 20px;
+    background: #fff;
+    box-shadow: 0 24px 72px rgba(15, 23, 42, 0.16);
+    animation: menu-enter 0.16s ease both;
+
+    section + section {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(15, 23, 42, 0.06);
+    }
+
+    h4 {
+      margin: 6px 10px 8px;
+      color: #98a2b3;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    button {
+      display: block;
+      width: 100%;
+      padding: 11px 12px;
+      border: 0;
+      border-radius: 14px;
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+
+      &:hover,
+      &.active {
+        background: #f7f9ff;
+      }
+
+      &.active strong {
+        color: #4f46e5;
+      }
+    }
+
+    strong {
+      display: block;
+      color: #101828;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    span {
+      display: block;
+      margin-top: 3px;
+      color: #667085;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+  }
+
+  .resource-types {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    padding: 2px 10px 8px;
+
+    label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 30px;
+      color: #475467;
+      font-size: 12px;
+    }
+  }
+
+  @keyframes menu-enter {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
     }
   }
 
   @media (max-width: 1280px) {
     .chat-composer {
-      width: min(820px, calc(100% - 32px));
+      width: min(820px, calc(100vw - 360px));
     }
 
-    .composer-toolbar {
-      grid-template-columns: 1fr;
+    .tool-menu {
+      width: 320px;
     }
+  }
 
-    .toolbar-center {
-      justify-content: flex-start;
+  @media (max-width: 860px) {
+    .chat-composer {
+      width: calc(100vw - 32px);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tool-menu,
+    .icon-button,
+    .send-button,
+    .reasoning-select,
+    .composer-box {
+      animation: none;
+      transition: none;
     }
   }
 </style>

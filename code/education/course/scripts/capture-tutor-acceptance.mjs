@@ -36,6 +36,17 @@ async function screenshot(page, name) {
   return file;
 }
 
+async function openToolMenu(page) {
+  const menuButton = page.getByTestId('tool-menu');
+  await menuButton.click();
+  await page.getByText('能力', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
+}
+
+async function chooseTool(page, testId) {
+  await openToolMenu(page);
+  await page.getByTestId(testId).click();
+}
+
 async function run() {
   await fs.rm(outDir, { recursive: true, force: true });
   await fs.mkdir(outDir, { recursive: true });
@@ -73,7 +84,8 @@ async function run() {
     rows.push(['context drawer', 'PASS', await screenshot(page, 'tutor-course-context-open.png')]);
     await page.getByTestId('tutor-context-drawer').getByRole('button', { name: '关闭' }).click();
 
-    await page.getByTestId('tool-web-search').click();
+    await chooseTool(page, 'tool-web-search');
+    await page.getByTestId('tool-menu').click();
     await page.getByTestId('tool-reasoning').selectOption('deep');
     const textbox = page.locator('textarea').first();
     await textbox.fill('请用三句话解释 ER 模型，并给一个选课系统例子。');
@@ -81,21 +93,20 @@ async function run() {
     await waitForVisible(page, '.assistant-message__loading, .assistant-message__body', 20000);
     rows.push(['chat streaming', 'PASS', await screenshot(page, 'tutor-chat-streaming.png')]);
     await page.waitForSelector('.assistant-message__body', { timeout: 90000 });
+    await page.getByTestId('send-message').waitFor({ state: 'visible', timeout: 90000 });
     rows.push(['chat finished', 'PASS', await screenshot(page, 'tutor-chat-finished-with-citations.png')]);
 
-    await page.getByTestId('mode-resource').click();
-    if (await page.getByTestId('tutor-context-drawer').isVisible().catch(() => false)) {
-      await page.getByTestId('tutor-context-drawer').getByRole('button', { name: '关闭' }).click();
-    }
+    await chooseTool(page, 'mode-resource');
+    await page.getByTestId('tool-menu').click();
     await textbox.fill('围绕 ER 模型生成讲义、练习题和思维导图。');
     await page.getByTestId('send-message').click();
     await page.waitForSelector('.artifact-card', { timeout: 120000 });
     rows.push(['resource artifact', 'PASS', await screenshot(page, 'tutor-resource-artifact.png')]);
 
-    await page.getByTestId('mode-homework').click();
+    await chooseTool(page, 'mode-homework');
     rows.push(['homework mode panel', 'PASS', await screenshot(page, 'tutor-homework-review.png')]);
 
-    await page.getByTestId('mode-deep-research').click();
+    await chooseTool(page, 'mode-deep-research');
     rows.push(['deep research mode', 'PASS', await screenshot(page, 'tutor-deep-research.png')]);
 
     const latestPayload = capturedPayloads.at(-1) || '';

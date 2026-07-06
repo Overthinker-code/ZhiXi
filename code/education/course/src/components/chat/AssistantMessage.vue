@@ -15,27 +15,10 @@
     streaming: Boolean(props.message.loading),
   }));
   const reasoning = computed(() => String(props.message.reasoning_content || '').trim());
-  const modeLabel = computed(() => {
-    const mode = String(props.message.mode || 'tutor');
-    const map: Record<string, string> = {
-      tutor: '课程问答',
-      homework_review: '作业批改',
-      resource_generation: '资料生成',
-      deep_research: '深度研究',
-    };
-    return map[mode] || 'AI 伴学';
-  });
-  const elapsed = computed(() => props.message.metrics?.latency_ms);
 </script>
 
 <template>
   <article class="assistant-message">
-    <header class="assistant-message__meta">
-      <span>MiMo 2.5</span>
-      <span>{{ modeLabel }}</span>
-      <span v-if="elapsed">{{ Math.round(Number(elapsed) / 1000) }}s</span>
-    </header>
-
     <ToolTrace
       :events="message.toolEvents || message.agentPhases || []"
       :loading="Boolean(message.loading)"
@@ -80,21 +63,6 @@
     width: min(820px, 100%);
     margin: 0 auto 28px;
     color: #344054;
-  }
-
-  .assistant-message__meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-bottom: 8px;
-    color: #667085;
-    font-size: 12px;
-
-    span {
-      padding: 4px 8px;
-      border-radius: 999px;
-      background: #f2f4f7;
-    }
   }
 
   .assistant-message__body {

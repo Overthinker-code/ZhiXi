@@ -22,7 +22,7 @@
   import ChatSidebar from './ChatSidebar.vue';
   import ContextDrawer from './ContextDrawer.vue';
   import {
-    DEFAULT_RESOURCE_TYPES,
+    CHAT_DEFAULT_RESOURCE_TYPES,
     getTutorAction,
     type TutorAction,
     type TutorPanel,
@@ -31,7 +31,6 @@
   const chatStore = useChatStore();
   const sidebarCollapsed = ref(false);
   const drawerVisible = ref(false);
-  const activePanel = ref<TutorPanel | null>(null);
   const composerRef = ref<InstanceType<typeof ChatComposer> | null>(null);
   const activeAction = ref<TutorAction>(getTutorAction('course_qa'));
   const mode = ref<TutorMode>('tutor');
@@ -50,7 +49,7 @@
     useCourseRag: true,
   });
   const resourceRequest = ref<ResourceRequestPayload>({
-    types: [...DEFAULT_RESOURCE_TYPES],
+    types: [...CHAT_DEFAULT_RESOURCE_TYPES],
     difficulty: 'normal',
     target: '',
   });
@@ -73,18 +72,6 @@
   const selectedCourse = computed(() =>
     courses.value.find((item) => item.courseId === courseContext.value.courseId)
   );
-  const selectedChapter = computed(() =>
-    selectedCourse.value?.chapters.find((item) => item.chapterId === courseContext.value.chapterId)
-  );
-  const chips = computed(() => {
-    const out: string[] = [];
-    if (selectedCourse.value) out.push(selectedCourse.value.title);
-    if (selectedChapter.value) out.push(selectedChapter.value.title);
-    if (courseContext.value.useCourseRag) out.push('课程 RAG 开启');
-    if (tools.value.webSearch) out.push('联网搜索开启');
-    out.push(`深度思考：${reasoningLevel.value === 'deep' ? '深度' : reasoningLevel.value === 'fast' ? '快速' : '均衡'}`);
-    return out;
-  });
   const profileItems = computed(() => {
     const weak = Array.isArray(learningReport.value?.weak_points)
       ? learningReport.value?.weak_points.slice(0, 2).join(' / ')
@@ -121,7 +108,7 @@
         ...action.requestPatch.resourceRequest,
       };
     }
-    if (action.openPanel) openPanel(action.openPanel);
+    if (action.openPanel === 'upload') openPanel('upload');
   }
 
   function handleAction(actionId: string) {
@@ -129,29 +116,18 @@
   }
 
   function openPanel(panel: TutorPanel) {
-    activePanel.value = panel;
     if (panel === 'upload') {
       composerRef.value?.openUpload();
-    } else {
+    } else if (panel === 'course_picker') {
       drawerVisible.value = true;
     }
   }
 
-  function validateContext(files: File[]) {
+  function validateContext(files: File[], text: string) {
     const required = activeAction.value.requiredContext || [];
-    if (required.includes('course') && !courseContext.value.courseId) {
-      openPanel('course_picker');
-      Message.warning('请先选择课程上下文');
-      return false;
-    }
-    if (required.includes('chapter') && !courseContext.value.chapterId) {
-      openPanel('course_picker');
-      Message.warning('请先选择章节');
-      return false;
-    }
-    if (required.includes('attachment') && !files.length) {
+    if (required.includes('attachment') && !files.length && !text.trim()) {
       openPanel('upload');
-      Message.warning('请先上传题目、答案或作业截图');
+      Message.warning('请上传题目材料，或直接在输入框粘贴题目文本');
       return false;
     }
     return true;
@@ -215,7 +191,7 @@
   }
 
   async function send({ text, files }: { text: string; files: File[] }) {
-    if (!validateContext(files)) return;
+    if (!validateContext(files, text)) return;
     lastDraft.value = { text, files };
     chatStore.setIsLoading(true);
     try {
@@ -457,7 +433,6 @@
         <ChatMain
           :messages="messages"
           :loading="chatStore.isLoading"
-          @action="handleAction"
           @retry="retry"
         />
       </div>
@@ -468,14 +443,12 @@
           :mode="mode"
           :tools="tools"
           :reasoning-level="reasoningLevel"
-          :chips="chips"
           :resource-request="resourceRequest"
           @send="send"
           @stop="stop"
           @action="handleAction"
           @toggle-web="tools.webSearch = !tools.webSearch"
           @set-reasoning="reasoningLevel = $event"
-          @set-mode="mode = $event"
           @open-panel="openPanel"
           @update-resource-types="resourceRequest.types = $event"
         />
