@@ -1687,7 +1687,7 @@
       <header class="graph-topbar">
         <div class="graph-brand">
           <span class="graph-pill">
-            <icon-mind-mapping /> AI 课程图谱
+            <icon-mind-mapping /> 课程图谱
           </span>
           <div>
             <h1>{{ course.title }}知识图谱</h1>
@@ -1708,7 +1708,7 @@
 
       <section v-if="packageContext" class="package-audit-banner">
         <div class="package-audit-title">
-          <span>RESOURCE PACKAGE AUDIT</span>
+          <span>资源包核验</span>
           <strong>{{ packageContext.topic }}</strong>
           <p>
             {{ packageContext.sourceLabel }} · {{ packageContext.packageId }} ·
@@ -1736,7 +1736,7 @@
       <div class="graph-workbench-grid">
         <aside class="map-catalog">
           <section class="catalog-card catalog-intro">
-            <span>KNOWLEDGE MAP</span>
+            <span>图谱目录</span>
             <strong>课程图谱目录</strong>
             <p>选择图谱后，中间画布会同步切换节点、关系和右侧学习动作。</p>
           </section>
@@ -1825,7 +1825,7 @@
           <section class="closure-command-center" aria-label="图谱学习闭环控制台">
             <div class="closure-command-head">
               <div>
-                <span>LEARNING LOOP</span>
+                <span>学习闭环</span>
                 <strong>图谱学习闭环控制台</strong>
                 <p>
                   把每个节点推进到“读证据、做检查、补资料”三步闭环，避免图谱只停留在展示层。
@@ -1930,7 +1930,7 @@
 
           <section v-if="recommendedNode" class="today-recommendation">
             <div class="today-recommendation__main">
-              <span>TODAY FOCUS</span>
+              <span>今日重点</span>
               <strong>建议先攻克「{{ recommendedNode.node.label }}」</strong>
               <p>
                 {{ recommendedNode.node.recommendedAction || recommendedNode.node.detail || '沿图谱完成一次证据、检查、资料闭环。' }}
@@ -2017,7 +2017,7 @@
 
               <div v-if="viewMode === 'structure'" class="structure-map">
                 <div class="structure-root">
-                  <span>2026春</span>
+                  <span>课程</span>
                   <strong>{{ course.shortTitle }}</strong>
                 </div>
                 <div class="structure-trunk" aria-hidden="true"></div>
@@ -2450,7 +2450,10 @@
                 </article>
               </section>
 
-              <section v-if="selectedNodeOutcomes.length || selectedNodeMisconceptions.length">
+              <section
+                v-if="selectedNodeOutcomes.length || selectedNodeMisconceptions.length"
+                class="node-mastery-panel"
+              >
                 <strong>掌握标准</strong>
                 <div class="insight-columns">
                   <div>
@@ -2464,21 +2467,21 @@
                 </div>
               </section>
 
-              <section v-if="selectedNodeChecks.length">
+              <section v-if="selectedNodeChecks.length" class="node-check-panel">
                 <strong>检查题</strong>
                 <ul class="check-list">
                   <li v-for="item in selectedNodeChecks" :key="item">{{ item }}</li>
                 </ul>
               </section>
 
-              <section v-if="selectedNodeActivities.length">
+              <section v-if="selectedNodeActivities.length" class="node-activity-panel">
                 <strong>课堂动作</strong>
                 <div class="activity-list">
                   <p v-for="item in selectedNodeActivities" :key="item">{{ item }}</p>
                 </div>
               </section>
 
-              <section v-if="selectedNeighbors.length">
+              <section v-if="selectedNeighbors.length" class="node-neighbor-panel">
                 <strong>相邻节点</strong>
                 <button
                   v-for="item in selectedNeighbors.slice(0, 5)"
@@ -2493,8 +2496,8 @@
                 </button>
               </section>
 
-              <section>
-                <strong>AI 动作</strong>
+              <section class="node-action-panel">
+                <strong>节点动作</strong>
                 <button type="button" @click="askGraphAgent('解释当前节点和先修关系')">解释当前节点</button>
                 <button type="button" @click="askGraphAgent('基于当前节点生成一组自测题')">生成图谱自测</button>
                 <button type="button" @click="downloadNodeStudyPack">下载节点学习包</button>
@@ -2506,7 +2509,7 @@
           <section class="path-inspector-panel" aria-label="图谱学习路径推演">
             <div class="path-inspector-head">
               <div>
-                <span>PATH REASONING</span>
+                <span>路径推演</span>
                 <strong>{{ selectedNode?.label || activeMap.title }} 学习路径推演</strong>
                 <p>把当前知识点拆成前置确认、当前攻克、后续迁移三段，并绑定证据、资料和检查题。</p>
               </div>
@@ -6147,6 +6150,369 @@
       width: max-content;
       grid-auto-flow: column;
       grid-template-columns: none;
+    }
+  }
+
+  /* Page refinement: keep the graph as the primary product surface. */
+  .knowledge-page {
+    --zy-brand: #4f46e5;
+    --zy-brand-soft: rgba(99, 102, 241, 0.1);
+    --zy-text: #101828;
+    --zy-muted: #667085;
+    --zy-border: rgba(15, 23, 42, 0.08);
+    animation: knowledge-page-enter 180ms ease both;
+  }
+
+  .graph-lab-shell {
+    overflow: visible;
+    padding: 18px;
+    border-color: var(--zy-border);
+    border-radius: 20px;
+    background: #f7f9ff;
+    box-shadow: none;
+  }
+
+  .graph-topbar {
+    margin-bottom: 14px;
+  }
+
+  .graph-lab-shell .graph-brand {
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .graph-pill {
+    height: 34px;
+    padding: 0 12px;
+    border: 1px solid rgba(99, 102, 241, 0.14);
+    color: var(--zy-brand);
+    background: #ffffff;
+    box-shadow: none;
+    font-size: 13px;
+  }
+
+  .graph-lab-shell .graph-brand h1 {
+    color: var(--zy-text);
+    font-size: 24px;
+    font-weight: 800;
+  }
+
+  .graph-lab-shell .graph-brand p {
+    max-width: 820px;
+    color: var(--zy-muted);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .graph-search {
+    height: 38px;
+    border-color: var(--zy-border);
+    background: #ffffff;
+    box-shadow: none;
+  }
+
+  .ghost-action,
+  .primary-action {
+    height: 36px;
+    border-radius: 999px;
+    transition: border-color 160ms ease, background 160ms ease, color 160ms ease, transform 160ms ease;
+  }
+
+  .ghost-action:hover,
+  .primary-action:hover {
+    transform: translateY(-1px);
+  }
+
+  .primary-action {
+    background: var(--zy-brand);
+    box-shadow: 0 10px 22px rgba(79, 70, 229, 0.14);
+  }
+
+  .catalog-intro,
+  .focus-chip-board,
+  .mobile-path-strip,
+  .closure-command-center,
+  .today-recommendation,
+  .graph-command-deck,
+  .path-inspector-panel,
+  .guided-path,
+  .node-canvas-popover,
+  .study-pack-panel,
+  .evidence-matrix-panel,
+  .node-mastery-panel,
+  .node-check-panel,
+  .node-activity-panel,
+  .link-audit-panel {
+    display: none !important;
+  }
+
+  .graph-workbench-grid {
+    grid-template-columns: 220px minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .map-catalog {
+    position: sticky;
+    top: 76px;
+    gap: 10px;
+  }
+
+  .graph-workbench-grid .graph-tabs {
+    gap: 8px;
+  }
+
+  .graph-workbench-grid .graph-tabs button {
+    min-height: 58px;
+    padding: 11px 12px 11px 16px;
+    border-color: var(--zy-border);
+    border-radius: 14px;
+    box-shadow: none;
+    transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+  }
+
+  .graph-workbench-grid .graph-tabs button:hover {
+    transform: translateY(-1px);
+  }
+
+  .graph-workbench-grid .graph-tabs button.active {
+    border-color: rgba(99, 102, 241, 0.24);
+    background: #ffffff;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+  }
+
+  .graph-workbench-grid .graph-tabs button.active::before {
+    background: var(--zy-brand);
+  }
+
+  .catalog-card {
+    padding: 14px;
+    border-color: var(--zy-border);
+    border-radius: 16px;
+    box-shadow: none;
+  }
+
+  .catalog-card > strong {
+    color: var(--zy-text);
+    font-size: 14px;
+  }
+
+  .weak-node {
+    min-height: 34px;
+    margin-top: 7px;
+    border-color: var(--zy-border);
+    background: #ffffff;
+  }
+
+  .graph-work-area {
+    border-color: var(--zy-border);
+    border-radius: 18px;
+    box-shadow: 0 14px 34px rgba(15, 23, 42, 0.05);
+  }
+
+  .graph-work-area .graph-filter-row {
+    align-items: center;
+    padding: 12px 14px;
+  }
+
+  .relation-filter {
+    max-width: 100%;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scrollbar-width: none;
+  }
+
+  .relation-filter::-webkit-scrollbar {
+    display: none;
+  }
+
+  .relation-filter button,
+  .view-switch button {
+    flex: 0 0 auto;
+    height: 28px;
+    border-color: var(--zy-border);
+    background: #ffffff;
+  }
+
+  .relation-filter button.active,
+  .view-switch button.active {
+    border-color: rgba(99, 102, 241, 0.2);
+    color: var(--zy-brand);
+    background: #f4f6ff;
+  }
+
+  .graph-work-area .graph-stage {
+    grid-template-columns: minmax(0, 1fr) 320px;
+    min-height: 0;
+    padding: 14px;
+    background: #f7f9ff;
+  }
+
+  .graph-work-area .graph-canvas-panel,
+  .graph-work-area .map-insights {
+    border: 1px solid var(--zy-border);
+    border-radius: 16px;
+    box-shadow: none;
+  }
+
+  .graph-work-area .graph-canvas-head {
+    min-height: 70px;
+    padding: 14px 16px;
+  }
+
+  .graph-work-area .graph-canvas-head strong {
+    color: var(--zy-text);
+    font-size: 19px;
+  }
+
+  .canvas-eyebrow {
+    color: var(--zy-brand) !important;
+    letter-spacing: 0 !important;
+  }
+
+  .stat-strip span {
+    border-color: var(--zy-border);
+    background: #ffffff;
+  }
+
+  .map-canvas-viewport {
+    height: clamp(520px, calc(100vh - 290px), 680px);
+    background:
+      linear-gradient(rgba(79, 70, 229, 0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(79, 70, 229, 0.04) 1px, transparent 1px),
+      #fbfdff;
+    background-size: 28px 28px;
+  }
+
+  .canvas-orbit-tools {
+    top: 14px;
+    right: 14px;
+    gap: 6px;
+    border-color: var(--zy-border);
+    border-radius: 14px;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.07);
+  }
+
+  .canvas-orbit-tools button {
+    width: 48px;
+    height: 28px;
+    border-color: var(--zy-border);
+    border-radius: 9px;
+  }
+
+  .graph-work-area .map-canvas-tools {
+    left: 14px;
+    right: 14px;
+    bottom: 14px;
+    padding: 9px 10px;
+    border-color: var(--zy-border);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: 0 10px 26px rgba(15, 23, 42, 0.06);
+    backdrop-filter: blur(8px);
+  }
+
+  .graph-quick-actions button {
+    border-radius: 999px;
+  }
+
+  .graph-work-area .map-insights {
+    max-height: clamp(540px, calc(100vh - 260px), 720px);
+    padding: 14px;
+    overflow: auto;
+    background: #ffffff;
+  }
+
+  .map-insights section + section {
+    margin-top: 12px;
+    padding-top: 12px;
+  }
+
+  .node-detail-head {
+    grid-template-columns: minmax(0, 1fr) 54px;
+  }
+
+  .mastery-ring {
+    width: 50px;
+    height: 50px;
+  }
+
+  .node-health-grid {
+    grid-template-columns: 1fr;
+    gap: 7px;
+  }
+
+  .node-health-grid article {
+    padding: 9px 10px;
+    border-color: var(--zy-border);
+    background: #fbfdff;
+  }
+
+  .path-decision-item,
+  .neighbor-button,
+  .map-insights button {
+    border-color: var(--zy-border);
+    transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
+  }
+
+  .node-action-panel {
+    display: grid;
+    gap: 7px;
+  }
+
+  .node-action-panel button:first-of-type {
+    border-color: rgba(99, 102, 241, 0.22);
+    color: #ffffff;
+    background: var(--zy-brand);
+  }
+
+  .graph-search-results {
+    grid-template-columns: 130px repeat(4, minmax(0, 1fr));
+    padding: 10px 14px;
+  }
+
+  @keyframes knowledge-page-enter {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .knowledge-page,
+    .graph-workbench-grid .graph-tabs button,
+    .ghost-action,
+    .primary-action {
+      animation: none;
+      transition: none;
+    }
+  }
+
+  @media (max-width: 1320px) {
+    .graph-workbench-grid {
+      grid-template-columns: 200px minmax(0, 1fr);
+    }
+
+    .graph-work-area .graph-stage {
+      grid-template-columns: 1fr;
+    }
+
+    .graph-work-area .map-insights {
+      max-height: none;
+    }
+  }
+
+  @media (max-width: 980px) {
+    .map-catalog {
+      position: static;
+    }
+
+    .graph-workbench-grid {
+      grid-template-columns: 1fr;
     }
   }
 </style>
