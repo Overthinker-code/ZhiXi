@@ -67,6 +67,7 @@ yarn-error.log*
 *.db
 *.sqlite3
 code/backend/vector_db/
+code/backend/generated_resources/
 code/backend/digital_human_inputs/
 code/backend/digital_human_outputs/
 code/backend/digital_human_assets/
