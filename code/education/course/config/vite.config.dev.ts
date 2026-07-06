@@ -19,7 +19,6 @@ export default defineConfig(({ mode }) => {
     '/rag',
     '/chat',
     '/file',
-    '/dashboard',
     '/behavior',
     '/learning-report',
     '/ai-metrics',
