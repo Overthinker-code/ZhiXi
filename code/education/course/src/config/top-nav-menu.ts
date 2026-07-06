@@ -30,41 +30,8 @@ const STUDENT_GROUPS: TopNavGroup[] = [
   {
     key: 'course',
     label: '课程中心',
+    routeName: 'CourseList',
     roles: ['student', 'teacher', '*'],
-    items: [
-      {
-        title: '课程总览',
-        desc: '浏览全部课程与进度',
-        routeName: 'CourseList',
-        icon: 'icon-book',
-      },
-      {
-        title: '课堂内容',
-        desc: '视频学习、笔记与高清导图',
-        routeName: 'CourseContent',
-        icon: 'icon-play-circle',
-      },
-      {
-        title: '课程信息',
-        desc: '课程详情与学情数据',
-        routeName: 'CourseOne',
-        icon: 'icon-file',
-      },
-      {
-        title: '实时课堂监控',
-        desc: 'YOLO 行为检测与专注度',
-        routeName: 'Monitor',
-        icon: 'icon-camera',
-        roles: ['teacher'],
-      },
-      {
-        title: '资源生成中心',
-        desc: '生成讲解、练习、导图与案例',
-        routeName: 'CourseResourceGeneration',
-        icon: 'icon-storage',
-        roles: ['student', 'teacher'],
-      },
-    ],
   },
   {
     key: 'solutions',

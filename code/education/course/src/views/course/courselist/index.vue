@@ -1,12 +1,11 @@
 <template>
   <ZyPageShell title="" max-width="1320px">
-    <!-- Hero Banner -->
     <section class="course-hero">
       <div class="course-hero__bg" />
       <div class="course-hero__content">
         <div class="course-hero__text">
           <h1>课程中心</h1>
-          <p>探索知识的边界，系统化学习专业课程，成就更好的自己。</p>
+          <p>管理正在学习的课程、收藏与最近访问记录，快速回到下一节内容。</p>
           <div class="course-hero__stats">
             <div class="stat-box">
               <span class="stat-box__icon">
@@ -20,7 +19,7 @@
               </span>
             </div>
             <div class="stat-box">
-              <span class="stat-box__icon stat-box__icon--learning">◆</span>
+              <span class="stat-box__icon stat-box__icon--learning">学</span>
               <span class="stat-box__content">
                 <span class="stat-box__label">正在学习</span>
                 <span class="stat-box__value"
@@ -28,16 +27,22 @@
                 >
               </span>
             </div>
+            <div class="stat-box">
+              <span class="stat-box__icon stat-box__icon--todo">续</span>
+              <span class="stat-box__content">
+                <span class="stat-box__label">推荐继续</span>
+                <span class="stat-box__value stat-box__value--text">数据库系统</span>
+              </span>
+            </div>
           </div>
         </div>
-        <div class="course-hero__deco" aria-hidden="true">
-          <div class="grad-cap">
-            <div class="grad-cap__top" />
-            <div class="grad-cap__board" />
-            <div class="grad-cap__tassel" />
-          </div>
-          <div class="deco-orb deco-orb--1" />
-          <div class="deco-orb deco-orb--2" />
+        <div class="course-hero__resume">
+          <span>继续学习</span>
+          <strong>数据库系统原理</strong>
+          <small>第 3 章 ER 模型 · 已完成 58%</small>
+          <button type="button" @click="goToCourseDetail('c1111111-1111-4111-9111-111111111101')">
+            进入课程
+          </button>
         </div>
       </div>
     </section>
@@ -452,50 +457,46 @@
 
   .course-hero {
     position: relative;
-    min-height: 210px;
+    min-height: 172px;
     overflow: hidden;
-    border: 1px solid rgba(99, 102, 241, 0.12);
-    border-radius: 12px;
-    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+    border: 1px solid rgba(15, 23, 42, 0.06);
+    border-radius: 16px;
+    background: #fff;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.055);
   }
 
   .course-hero__bg {
     position: absolute;
     inset: 0;
-    background: linear-gradient(
-        90deg,
-        rgba(10, 20, 48, 0.94) 0%,
-        rgba(15, 27, 61, 0.83) 48%,
-        rgba(22, 32, 77, 0.54) 100%
-      ),
-      url('@/assets/media/banner-lecture.jpg') center 48% / cover no-repeat;
-    transform: scale(1.01);
+    background:
+      radial-gradient(circle at 82% 18%, rgba(99, 102, 241, 0.13), transparent 28%),
+      linear-gradient(135deg, #ffffff 0%, #f7f9ff 100%);
   }
 
   .course-hero__content {
     position: relative;
     display: flex;
-    min-height: 210px;
+    min-height: 172px;
     align-items: center;
     justify-content: space-between;
     gap: 24px;
-    padding: 30px 34px;
+    padding: 24px 28px;
   }
 
   .course-hero__text {
     h1 {
       margin: 0;
-      color: #fff;
+      color: @text-primary;
       font-family: var(--zy-font-display);
-      font-size: 32px;
+      font-size: 30px;
       font-weight: 700;
-      letter-spacing: 0.01em;
+      letter-spacing: 0;
     }
 
     p {
       max-width: 560px;
-      margin: 10px 0 22px;
-      color: rgba(255, 255, 255, 0.82);
+      margin: 9px 0 20px;
+      color: @text-secondary;
       font-size: 15px;
       line-height: 1.6;
     }
@@ -508,14 +509,14 @@
 
   .stat-box {
     display: flex;
-    min-width: 118px;
+    min-width: 132px;
     align-items: center;
     gap: 11px;
-    padding: 9px 12px;
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    border-radius: 10px;
-    background: rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(10px);
+    padding: 10px 12px;
+    border: 1px solid rgba(15, 23, 42, 0.06);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.74);
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.035);
 
     &__icon {
       display: inline-flex;
@@ -524,13 +525,19 @@
       align-items: center;
       justify-content: center;
       border-radius: 9px;
-      background: rgba(129, 140, 248, 0.22);
-      color: #c7d2fe;
+      background: #eef2ff;
+      color: @brand;
       font-size: 16px;
 
       &--learning {
-        color: #fff;
+        color: @brand;
         font-size: 12px;
+      }
+
+      &--todo {
+        color: #0f766e;
+        background: #ecfdf3;
+        font-size: 16px;
       }
     }
 
@@ -541,12 +548,12 @@
     }
 
     &__label {
-      color: rgba(255, 255, 255, 0.7);
+      color: @text-secondary;
       font-size: 11px;
     }
 
     &__value {
-      color: #fff;
+      color: @text-primary;
       font-size: 20px;
       font-weight: 700;
       line-height: 1;
@@ -555,94 +562,61 @@
         font-size: 11px;
         font-weight: 500;
       }
-    }
-  }
 
-  .course-hero__deco {
-    position: relative;
-    width: 170px;
-    height: 142px;
-    flex: 0 0 170px;
-
-    &::before,
-    &::after {
-      position: absolute;
-      border: 1px solid rgba(199, 210, 254, 0.36);
-      border-radius: 50%;
-      content: '';
-      transform: rotate(-18deg);
-    }
-
-    &::before {
-      right: 0;
-      bottom: 8px;
-      width: 150px;
-      height: 74px;
-    }
-
-    &::after {
-      right: 18px;
-      bottom: 20px;
-      width: 114px;
-      height: 114px;
-      background: radial-gradient(
-        circle at 42% 36%,
-        rgba(139, 92, 246, 0.42),
-        rgba(30, 41, 90, 0.08) 68%
-      );
-      box-shadow: inset 0 0 28px rgba(129, 140, 248, 0.34),
-        0 0 36px rgba(99, 102, 241, 0.24);
-    }
-  }
-
-  .grad-cap {
-    position: absolute;
-    right: 38px;
-    top: 52px;
-    z-index: 2;
-
-    &__board {
-      width: 80px;
-      height: 15px;
-      border-radius: 3px 3px 8px 8px;
-      background: linear-gradient(135deg, #5b5bd6, #8b5cf6);
-      box-shadow: 0 8px 22px rgba(15, 23, 42, 0.38);
-    }
-
-    &__top {
-      position: absolute;
-      top: -19px;
-      left: -9px;
-      width: 98px;
-      height: 50px;
-      background: linear-gradient(145deg, #a78bfa, #4338ca);
-      clip-path: polygon(50% 0, 100% 38%, 50% 76%, 0 38%);
-    }
-
-    &__tassel {
-      position: absolute;
-      top: 3px;
-      right: -11px;
-      width: 2px;
-      height: 37px;
-      border-radius: 2px;
-      background: #c7d2fe;
-
-      &::after {
-        position: absolute;
-        bottom: -5px;
-        left: -3px;
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: #c7d2fe;
-        content: '';
+      &--text {
+        font-size: 15px;
+        white-space: nowrap;
       }
     }
   }
 
-  .deco-orb {
-    display: none;
+  .course-hero__resume {
+    display: grid;
+    width: 280px;
+    flex: 0 0 280px;
+    gap: 6px;
+    padding: 18px;
+    border: 1px solid rgba(99, 102, 241, 0.12);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.82);
+    box-shadow: 0 10px 24px rgba(79, 70, 229, 0.07);
+
+    span {
+      color: @brand;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    strong {
+      color: @text-primary;
+      font-size: 17px;
+      line-height: 1.3;
+    }
+
+    small {
+      color: @text-secondary;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    button {
+      justify-self: start;
+      height: 34px;
+      margin-top: 8px;
+      padding: 0 14px;
+      border: 0;
+      border-radius: 999px;
+      background: @brand;
+      color: #fff;
+      cursor: pointer;
+      font-weight: 600;
+      transition: transform 160ms ease, background 160ms ease;
+
+      &:hover {
+        background: #4f46e5;
+        transform: translateY(-1px);
+      }
+    }
   }
 
   .filter-section {
@@ -925,10 +899,6 @@
       min-height: 230px;
       align-items: flex-start;
       padding: 26px 22px;
-    }
-
-    .course-hero__deco {
-      display: none;
     }
 
     .course-hero__text h1 {

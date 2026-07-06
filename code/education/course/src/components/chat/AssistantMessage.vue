@@ -101,6 +101,120 @@
       overflow: auto;
       border-radius: 14px;
     }
+
+    :deep(code:not(pre code)) {
+      padding: 2px 6px;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      border-radius: 6px;
+      background: #f6f8fb;
+      color: #344054;
+      font-size: 0.92em;
+    }
+
+    :deep(.code-block) {
+      margin: 14px 0;
+      overflow: hidden;
+      border: 1px solid rgba(15, 23, 42, 0.1);
+      border-radius: 14px;
+      background: #fff;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+    }
+
+    :deep(.code-header) {
+      display: flex;
+      min-height: 34px;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+      background: #f8fafc;
+      color: #667085;
+      font-size: 12px;
+    }
+
+    :deep(.code-lang) {
+      color: #667085;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+
+    :deep(.code-actions) {
+      display: inline-flex;
+      gap: 4px;
+    }
+
+    :deep(.code-action-btn) {
+      display: inline-flex;
+      width: 24px;
+      height: 24px;
+      align-items: center;
+      justify-content: center;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      cursor: pointer;
+
+      &:hover {
+        background: #eef2ff;
+      }
+
+      img {
+        width: 14px;
+        height: 14px;
+        opacity: 0.72;
+      }
+    }
+
+    :deep(pre),
+    :deep(pre.hljs) {
+      margin: 14px 0;
+      padding: 14px 16px;
+      border: 1px solid rgba(15, 23, 42, 0.1);
+      border-radius: 14px;
+      background: #fff !important;
+      color: #344054 !important;
+      font-size: 13px;
+      line-height: 1.65;
+    }
+
+    :deep(.code-block pre),
+    :deep(.code-block pre.hljs) {
+      margin: 0;
+      border: 0;
+      border-radius: 0;
+      box-shadow: none;
+    }
+
+    :deep(pre code),
+    :deep(pre.hljs code),
+    :deep(.hljs),
+    :deep(.hljs-subst) {
+      background: transparent !important;
+      color: #344054 !important;
+    }
+
+    :deep(.hljs-keyword),
+    :deep(.hljs-selector-tag),
+    :deep(.hljs-title.function_) {
+      color: #4f46e5 !important;
+    }
+
+    :deep(.hljs-string),
+    :deep(.hljs-attr),
+    :deep(.hljs-symbol) {
+      color: #087443 !important;
+    }
+
+    :deep(.hljs-number),
+    :deep(.hljs-literal) {
+      color: #b54708 !important;
+    }
+
+    :deep(.hljs-comment),
+    :deep(.hljs-quote) {
+      color: #98a2b3 !important;
+    }
   }
 
   .assistant-message__loading {

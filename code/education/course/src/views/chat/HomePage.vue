@@ -61,7 +61,7 @@
       icon: Brain,
       tone: 'violet',
       title: 'AI 智能问答',
-      desc: '基于 RAG 精准知识检索，告别无效搜索，直达答案核心。',
+      desc: '基于课程资料与引用证据回答问题，减少无效搜索和泛泛解释。',
       link: '/tutor',
       action: '立即体验',
     },
@@ -92,8 +92,8 @@
     {
       icon: Zap,
       tone: 'cyan',
-      title: '4 种 AI 模式',
-      desc: '导师 / 考试 / 简洁 / 苏格拉底，场景切换一键完成。',
+      title: '可控思考强度',
+      desc: '普通提问保持轻量，复杂任务可启用更深入的推理与研究过程。',
       link: '/tutor',
       action: '了解模式',
     },
@@ -225,8 +225,8 @@
           </h1>
 
           <p class="hero-desc">
-            智屿融合 AI 大模型、RAG 知识检索与行为分析，<br />
-            为每位学生提供专属学习路径，让学习更高效、更有趣。
+            智屿连接课程资料、学习画像与行为分析，<br />
+            为每位学生提供有证据、有反馈、有下一步的学习路径。
           </p>
 
           <div class="hero-actions">
@@ -298,7 +298,7 @@
                 <Bot :size="18" />
               </span>
               <div>
-                <strong>DeepSeek RAG</strong>
+                <strong>课程证据检索</strong>
                 <small>知识检索 · 精准回答</small>
               </div>
             </div>
@@ -460,6 +460,27 @@
     align-items: flex-start;
   }
 
+  .hero-left > *,
+  .visual-stage {
+    animation: home-reveal 0.42s ease both;
+  }
+
+  .hero-left .hero-desc {
+    animation-delay: 0.05s;
+  }
+
+  .hero-left .hero-actions {
+    animation-delay: 0.1s;
+  }
+
+  .hero-left .trust-badges {
+    animation-delay: 0.15s;
+  }
+
+  .visual-stage {
+    animation-delay: 0.08s;
+  }
+
   .hero-title {
     margin: 0;
     color: #111a33;
@@ -569,6 +590,23 @@
     object-fit: cover;
     border: 3px solid rgba(255, 255, 255, 0.92);
     box-shadow: 0 22px 46px rgba(25, 37, 73, 0.16);
+    transition: transform 0.28s ease, box-shadow 0.28s ease;
+  }
+
+  .visual-stage:hover .hero-photo {
+    box-shadow: 0 24px 50px rgba(25, 37, 73, 0.18);
+  }
+
+  .visual-stage:hover .hero-photo--library {
+    transform: translate3d(0, -4px, 0);
+  }
+
+  .visual-stage:hover .hero-photo--console {
+    transform: translate3d(-4px, 3px, 0);
+  }
+
+  .visual-stage:hover .hero-photo--team {
+    transform: translate3d(4px, -2px, 0);
   }
 
   .hero-photo--library {
@@ -610,6 +648,12 @@
     background: rgba(255, 255, 255, 0.92);
     box-shadow: 0 16px 42px rgba(42, 55, 104, 0.12);
     backdrop-filter: blur(10px);
+    transition: transform 0.24s ease, box-shadow 0.24s ease;
+
+    &:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 20px 48px rgba(42, 55, 104, 0.15);
+    }
 
     strong {
       display: block;
@@ -693,6 +737,17 @@
       &:nth-child(4) { height: 22px; opacity: 0.88; }
       &:nth-child(5) { height: 15px; opacity: 0.62; }
       &:nth-child(6) { height: 26px; }
+    }
+  }
+
+  @keyframes home-reveal {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
     }
   }
 
@@ -1096,6 +1151,29 @@
 
     .stats-card__item::before {
       display: none;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .hero-left > *,
+    .visual-stage {
+      animation: none;
+    }
+
+    .hero-photo,
+    .floating-card,
+    .feature-card,
+    .course-cat-card,
+    .btn-primary,
+    .btn-outline {
+      transition: none;
+    }
+
+    .visual-stage:hover .hero-photo--library,
+    .visual-stage:hover .hero-photo--console,
+    .visual-stage:hover .hero-photo--team,
+    .floating-card:hover {
+      transform: none;
     }
   }
 </style>
