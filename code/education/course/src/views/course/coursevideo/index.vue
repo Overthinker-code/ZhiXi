@@ -122,7 +122,7 @@
                 <strong>{{ currentLesson.label }}</strong>
               </div>
               <div class="video-actions">
-                <a-button size="small" @click="focusNotes">
+                <a-button size="small" @click="openArtifact('notes')">
                   <template #icon><icon-edit /></template>笔记
                 </a-button>
                 <a-button
@@ -186,6 +186,29 @@
                 </button>
               </div>
             </div>
+          </section>
+
+          <section class="quick-study-actions" aria-label="AI 助学快捷操作">
+            <button type="button" @click="generateFromNotes">
+              <icon-file />
+              <span>生成讲义</span>
+              <small>基于本节笔记</small>
+            </button>
+            <button type="button" @click="askMindMapTutor">
+              <icon-mind-mapping />
+              <span>导图解读</span>
+              <small>梳理前后置关系</small>
+            </button>
+            <button type="button" @click="openArtifact('notes')">
+              <icon-edit />
+              <span>课堂笔记</span>
+              <small>放大阅读</small>
+            </button>
+            <button type="button" @click="completeCurrentLesson">
+              <icon-check-circle-fill />
+              <span>{{ currentLessonCompleted ? '已完成' : '完成本节' }}</span>
+              <small>同步学习进度</small>
+            </button>
           </section>
 
           <section class="focus-card">
@@ -416,6 +439,58 @@
             </div>
           </section>
         </main>
+
+        <aside class="lesson-inspector" aria-label="本节学习概览">
+          <section class="inspector-card inspector-card--hero">
+            <span>本节学习</span>
+            <h2>{{ currentLesson.label }}</h2>
+            <p>{{ currentLesson.title || currentCourse.shortTitle }}</p>
+            <div class="lesson-progress-ring" :style="{ '--lesson-progress': `${displayProgress * 3.6}deg` }">
+              <strong>{{ displayProgress }}%</strong>
+              <small>课程进度</small>
+            </div>
+          </section>
+          <section class="inspector-card inspector-metrics">
+            <article>
+              <span>已学课节</span>
+              <strong>{{ displayLearned }}/{{ currentCourse.total }}</strong>
+            </article>
+            <article>
+              <span>本节状态</span>
+              <strong>{{ currentLessonCompleted ? '已完成' : '进行中' }}</strong>
+            </article>
+            <article>
+              <span>资料沉淀</span>
+              <strong>{{ localLearningState.generatedCount + localLearningState.downloadCount }}</strong>
+            </article>
+            <article>
+              <span>收藏状态</span>
+              <strong>{{ isFavorite ? '已收藏' : '未收藏' }}</strong>
+            </article>
+          </section>
+          <section class="inspector-card">
+            <strong>下一步建议</strong>
+            <ol class="next-step-list">
+              <li>先看完当前视频或课件，确认章节主线。</li>
+              <li>打开课堂笔记，标出定义、边界和例题证据。</li>
+              <li>生成讲义或检查题，把错因同步到课程图谱。</li>
+            </ol>
+          </section>
+          <section class="inspector-card inspector-actions">
+            <button type="button" class="primary" @click="completeCurrentLesson">
+              <icon-check-circle-fill /> {{ currentLessonCompleted ? '保存进度' : '完成学习' }}
+            </button>
+            <button type="button" @click="generateFromNotes">
+              <icon-file /> 生成配套资料
+            </button>
+            <button type="button" @click="askMindMapTutor">
+              <icon-robot /> 提问本节内容
+            </button>
+            <button type="button" @click="openArtifact('mind')">
+              <icon-mind-mapping /> 查看思维导图
+            </button>
+          </section>
+        </aside>
 
         <aside class="chapter-sidebar">
           <div class="chapter-header">
@@ -3062,6 +3137,458 @@ onBeforeRouteLeave(() => {
     small {
       grid-column: 2 / -1;
     }
+  }
+}
+
+/* Refined classroom layout: video first, actions compact, long artifacts opened on demand. */
+.classroom-page {
+  --zy-brand: #4f46e5;
+  --zy-brand-2: #6366f1;
+  --zy-page: #f7f9ff;
+  --zy-surface: #ffffff;
+  --zy-text: #101828;
+  --zy-muted: #667085;
+  --zy-border: rgba(15, 23, 42, 0.08);
+  animation: classroom-enter 180ms ease both;
+}
+
+.classroom-topbar {
+  margin: -6px 0 12px;
+}
+
+.back-picker-btn,
+.course-switcher :deep(.arco-select-view) {
+  border-color: var(--zy-border);
+  border-radius: 999px;
+  box-shadow: none;
+}
+
+.course-overview-card,
+.learning-state-strip,
+.focus-card,
+.notes-panel,
+.mindmap-panel {
+  display: none !important;
+}
+
+.learning-layout {
+  grid-template-columns: 236px minmax(0, 1fr) 292px;
+  gap: 14px;
+  align-items: start;
+  margin-top: 0;
+}
+
+.chapter-sidebar {
+  order: 1;
+  top: 78px;
+  min-height: calc(100vh - 110px);
+  max-height: calc(100vh - 92px);
+  border-color: var(--zy-border);
+  border-radius: 18px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.05);
+}
+
+.learning-main {
+  order: 2;
+  gap: 12px;
+}
+
+.lesson-inspector {
+  position: sticky;
+  top: 78px;
+  order: 3;
+  display: grid;
+  gap: 12px;
+  max-height: calc(100vh - 92px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.video-card,
+.quick-study-actions,
+.inspector-card {
+  border: 1px solid var(--zy-border);
+  border-radius: 18px;
+  background: var(--zy-surface);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.05);
+}
+
+.video-card {
+  overflow: hidden;
+}
+
+.video-toolbar {
+  min-height: 56px;
+  padding: 10px 16px;
+  border-bottom-color: var(--zy-border);
+}
+
+.video-toolbar > div:first-child {
+  display: grid;
+  gap: 2px;
+
+  span {
+    color: var(--zy-brand);
+    font-size: 12px;
+  }
+
+  strong {
+    color: var(--zy-text);
+    font-size: 16px;
+  }
+}
+
+.video-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+
+  :deep(.arco-btn) {
+    height: 32px;
+    border-radius: 999px;
+    background: #f4f6ff;
+    transition: background 160ms ease, transform 160ms ease;
+
+    &:hover {
+      transform: translateY(-1px);
+    }
+  }
+}
+
+.video-stage {
+  aspect-ratio: 16 / 9;
+  background: #0b1220;
+}
+
+.media-frame__content {
+  transform: translate(-50%, -50%);
+
+  strong {
+    max-width: 820px;
+    font-size: clamp(24px, 3vw, 38px);
+    letter-spacing: 0;
+  }
+
+  span {
+    font-size: 13px;
+  }
+}
+
+.media-play {
+  width: 66px;
+  height: 66px;
+  background: rgba(79, 70, 229, 0.78);
+}
+
+.upload-video-btn {
+  border-radius: 999px;
+}
+
+.quick-study-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px;
+}
+
+.quick-study-actions button {
+  min-width: 0;
+  min-height: 70px;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 3px 9px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  color: #344054;
+  background: #f8faff;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+
+  &:hover {
+    border-color: rgba(99, 102, 241, 0.2);
+    background: #ffffff;
+    transform: translateY(-1px);
+  }
+
+  svg {
+    grid-row: span 2;
+    width: 34px;
+    height: 34px;
+    padding: 8px;
+    border-radius: 12px;
+    color: var(--zy-brand);
+    background: #eef2ff;
+  }
+
+  span,
+  small {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  span {
+    color: var(--zy-text);
+    font-size: 13px;
+    font-weight: 800;
+  }
+
+  small {
+    color: var(--zy-muted);
+    font-size: 11px;
+  }
+}
+
+.inspector-card {
+  min-width: 0;
+  padding: 14px;
+}
+
+.inspector-card--hero {
+  position: relative;
+  overflow: hidden;
+  min-height: 166px;
+  background:
+    radial-gradient(circle at 100% 0, rgba(99, 102, 241, 0.12), transparent 30%),
+    #ffffff;
+
+  > span {
+    color: var(--zy-brand);
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  h2 {
+    margin: 8px 0 4px;
+    color: var(--zy-text);
+    font-size: 22px;
+    line-height: 1.2;
+  }
+
+  p {
+    max-width: 210px;
+    margin: 0;
+    color: var(--zy-muted);
+    font-size: 12px;
+    line-height: 1.65;
+  }
+}
+
+.lesson-progress-ring {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  width: 72px;
+  height: 72px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, #fff 56%, transparent 58%),
+    conic-gradient(var(--zy-brand-2) var(--lesson-progress), #eef2ff 0);
+
+  strong,
+  small {
+    display: block;
+    grid-area: 1 / 1;
+    text-align: center;
+  }
+
+  strong {
+    margin-top: -8px;
+    color: var(--zy-brand);
+    font-size: 17px;
+  }
+
+  small {
+    margin-top: 28px;
+    color: #98a2b3;
+    font-size: 9px;
+  }
+}
+
+.inspector-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+
+  article {
+    min-width: 0;
+    padding: 10px;
+    border: 1px solid var(--zy-border);
+    border-radius: 12px;
+    background: #fbfdff;
+  }
+
+  span,
+  strong {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  span {
+    color: #98a2b3;
+    font-size: 11px;
+  }
+
+  strong {
+    margin-top: 5px;
+    color: var(--zy-text);
+    font-size: 15px;
+  }
+}
+
+.inspector-card > strong {
+  display: block;
+  margin-bottom: 10px;
+  color: var(--zy-text);
+  font-size: 14px;
+}
+
+.next-step-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--zy-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.inspector-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.inspector-actions button {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--zy-border);
+  border-radius: 999px;
+  color: #344054;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease, transform 160ms ease;
+
+  &:hover {
+    transform: translateY(-1px);
+  }
+
+  &.primary {
+    border-color: transparent;
+    color: #ffffff;
+    background: var(--zy-brand);
+  }
+}
+
+.chapter-header {
+  padding: 14px 15px 10px;
+}
+
+.chapter-title {
+  min-height: 42px;
+}
+
+.lesson-list button {
+  border-radius: 10px;
+}
+
+@keyframes classroom-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .classroom-page,
+  .quick-study-actions button,
+  .inspector-actions button,
+  .video-actions :deep(.arco-btn) {
+    animation: none;
+    transition: none;
+  }
+}
+
+@media (max-width: 1280px) {
+  .learning-layout {
+    grid-template-columns: 224px minmax(0, 1fr);
+  }
+
+  .quick-study-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .chapter-sidebar {
+    min-height: calc(100vh - 110px);
+  }
+
+  .lesson-inspector {
+    position: static;
+    grid-column: 2;
+    max-height: none;
+    grid-template-columns: minmax(260px, 0.9fr) minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .lesson-inspector .inspector-actions {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1080px) {
+  .learning-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .chapter-sidebar,
+  .lesson-inspector {
+    position: static;
+    max-height: none;
+  }
+
+  .chapter-sidebar {
+    order: 2;
+    min-height: 0;
+  }
+
+  .learning-main {
+    order: 1;
+  }
+
+  .lesson-inspector {
+    order: 3;
+    grid-column: auto;
+    grid-template-columns: 1fr;
+  }
+
+  .lesson-inspector .inspector-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .quick-study-actions,
+  .inspector-metrics,
+  .lesson-inspector .inspector-actions {
+    grid-template-columns: 1fr;
   }
 }
 </style>

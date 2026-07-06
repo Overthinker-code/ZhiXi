@@ -123,6 +123,7 @@ axios.interceptors.response.use(
       url.includes('/behavior/behaviors/definitions') ||
       url.includes('/behavior/records') ||
       url.includes('/behavior/statistics/');
+    const isStudentHubReadonly = url.includes('/student-hub/messages');
     /** 课程中心接口失败由页面兜底，勿整站登出（避免隧道/权限抖动误踢） */
     const isEducationApi = url.includes('/education/');
     /** 登录/注册等：错误由页面内文案展示，避免与全局 Message 叠在一起 */
@@ -158,6 +159,11 @@ axios.interceptors.response.use(
       message = friendlyChatMessage;
     } else if (isNetworkError && (isAuthFormRequest || isLogin)) {
       message = friendlyNetworkHint;
+    } else if (
+      error?.response?.status >= 500 &&
+      /^Request failed with status code/i.test(rawMessage)
+    ) {
+      message = '后端服务暂时不可用，页面已切换为本地预览数据';
     }
 
     /** 后端未实现或路径不一致的读接口：404 不在全局弹 Toast，由各页兜底/占位 */
@@ -194,9 +200,11 @@ axios.interceptors.response.use(
       isFeedback ||
       (isChat && isNetworkError) ||
       isDashboard ||
+      isEducationApi ||
       isLearningReport ||
       isEducationRead ||
       isBehaviorReadonly ||
+      isStudentHubReadonly ||
       isAuthFormRequest ||
       url.includes('/users/me');
     /** /chat/threads 由业务层（如 useChat）统一提示，避免与 axios reject 后的 Message 重复 */
