@@ -31,9 +31,10 @@
       @click="reasoningOpen = !reasoningOpen"
     >
       {{ reasoningOpen ? '收起思考摘要' : '查看思考摘要' }}
+      <span v-if="message.loading" class="streaming-dots"><i /><i /><i /></span>
     </button>
-    <div v-if="reasoningOpen && reasoning" class="reasoning-box">
-      {{ reasoning }}
+    <div v-if="reasoningOpen && (reasoning || message.loading)" class="reasoning-box" aria-live="polite">
+      {{ reasoning || '正在整理思考过程...' }}
     </div>
 
     <div v-if="message.content" class="assistant-message__body markdown-body" v-html="rendered" />
@@ -125,6 +126,9 @@
   }
 
   .reasoning-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     margin: 10px 0;
     padding: 0;
     border: 0;
@@ -132,6 +136,27 @@
     background: transparent;
     font-size: 13px;
     cursor: pointer;
+  }
+
+  .streaming-dots {
+    display: inline-flex;
+    gap: 3px;
+
+    i {
+      width: 5px;
+      height: 5px;
+      border-radius: 999px;
+      background: #a4a7ff;
+      animation: reasoning-dot 1s ease-in-out infinite;
+
+      &:nth-child(2) {
+        animation-delay: 0.14s;
+      }
+
+      &:nth-child(3) {
+        animation-delay: 0.28s;
+      }
+    }
   }
 
   .reasoning-box {
@@ -179,8 +204,18 @@
     }
   }
 
+  @keyframes reasoning-dot {
+    0%, 100% {
+      opacity: 0.35;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
-    .assistant-message__loading span {
+    .assistant-message__loading span,
+    .streaming-dots i {
       animation: none;
     }
   }

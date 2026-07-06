@@ -44,6 +44,7 @@
 
 <style scoped lang="scss">
   .chat-main {
+    position: relative;
     min-width: 0;
     height: 100%;
     overflow-y: auto;
@@ -52,10 +53,13 @@
   }
 
   .chat-empty {
-    width: min(780px, 100%);
-    margin: clamp(104px, 28vh, 180px) auto 0;
+    position: absolute;
+    top: clamp(150px, 30vh, 220px);
+    left: 50%;
+    width: min(780px, calc(100% - 48px));
+    transform: translateX(-50%);
     text-align: center;
-    animation: enter 0.18s ease both;
+    animation: enter-centered 0.18s ease both;
 
     h1 {
       margin: 0;
@@ -127,6 +131,17 @@
     to {
       opacity: 1;
       transform: translateY(0);
+    }
+  }
+
+  @keyframes enter-centered {
+    from {
+      opacity: 0;
+      transform: translateX(-50%) translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
     }
   }
 

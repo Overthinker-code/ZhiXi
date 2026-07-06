@@ -1,6 +1,6 @@
 <script setup lang="ts">
   import { computed, nextTick, onMounted, ref, watch } from 'vue';
-  import { Message } from '@arco-design/web-vue';
+  import { Message, Modal } from '@arco-design/web-vue';
   import {
     fetchAIContextCourses,
     streamAIChat,
@@ -113,6 +113,20 @@
 
   function handleAction(actionId: string) {
     patchFromAction(getTutorAction(actionId));
+  }
+
+  function clearAllConversations() {
+    if (!conversations.value.length) return;
+    Modal.confirm({
+      title: '清空全部历史对话',
+      content: '将永久删除当前账号下的全部会话记录，此操作不可撤销。',
+      okText: '清空',
+      cancelText: '取消',
+      async onOk() {
+        await chatStore.deleteAllConversations();
+        Message.success('已清空全部历史');
+      },
+    });
   }
 
   function openPanel(panel: TutorPanel) {
@@ -422,6 +436,7 @@
       @new-chat="chatStore.enterDraftSession()"
       @switch="chatStore.switchConversation"
       @delete="chatStore.deleteConversation"
+      @clear-all="clearAllConversations"
       @toggle="sidebarCollapsed = !sidebarCollapsed"
     />
 

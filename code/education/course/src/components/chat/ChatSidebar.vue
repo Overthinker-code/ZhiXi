@@ -17,6 +17,7 @@
     (e: 'new-chat'): void;
     (e: 'switch', id: string): void;
     (e: 'delete', id: string): void;
+    (e: 'clear-all'): void;
     (e: 'toggle'): void;
   }>();
 
@@ -58,6 +59,12 @@
     </div>
     <template v-if="!collapsed">
       <input v-model="keyword" class="history-search" placeholder="搜索历史" />
+      <div class="history-tools">
+        <span>对话记录</span>
+        <button type="button" :disabled="!conversations.length" @click="emit('clear-all')">
+          清空
+        </button>
+      </div>
       <section v-for="(items, group) in grouped" :key="group" class="history-group">
         <h3 v-if="items.length">{{ group }}</h3>
         <button
@@ -139,8 +146,38 @@
     }
   }
 
+  .history-tools {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 14px 4px 0;
+    color: #98a2b3;
+    font-size: 12px;
+    font-weight: 700;
+
+    button {
+      height: 26px;
+      padding: 0 9px;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      border-radius: 999px;
+      color: #667085;
+      background: #fff;
+      cursor: pointer;
+
+      &:hover:not(:disabled) {
+        color: #4f46e5;
+        border-color: rgba(99, 102, 241, 0.28);
+      }
+
+      &:disabled {
+        cursor: not-allowed;
+        opacity: 0.45;
+      }
+    }
+  }
+
   .history-group {
-    margin-top: 18px;
+    margin-top: 14px;
 
     h3 {
       margin: 0 0 8px;

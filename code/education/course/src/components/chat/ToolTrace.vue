@@ -7,33 +7,61 @@
   }>();
 
   const expanded = ref(false);
+  const internalAgents = new Set(['intent_classifier', 'course_context']);
+  const stageLabelMap: Record<string, string> = {
+    course_retriever: '检索课程资料',
+    course: '检索课程资料',
+    web_search: '联网搜索',
+    web: '联网搜索',
+    resource_planner: '规划资源',
+    resource_generator: '生成资源包',
+    safety_check: '校验引用',
+    memory_update: '更新学习画像',
+    attachment_parser: '解析附件',
+  };
+  const normalizeAgent = (item: Record<string, any>) =>
+    String(item.agent || item.source || '').trim();
+  const visibleEvents = computed(() =>
+    props.events.filter((item) => !internalAgents.has(normalizeAgent(item)))
+  );
+  const friendlyLabel = (item: Record<string, any>, index = 0) => {
+    const key = normalizeAgent(item);
+    if (stageLabelMap[key]) return stageLabelMap[key];
+    const label = String(item.label || item.summary || item.message || '').trim();
+    if (/检索/.test(label)) return '检索资料';
+    if (/资源/.test(label)) return '生成资源';
+    if (/画像/.test(label)) return '更新学习画像';
+    if (/安全|校验|引用/.test(label)) return '校验引用';
+    return `处理步骤 ${index + 1}`;
+  };
   const doneCount = computed(
-    () => props.events.filter((item) => item.status === 'done').length
+    () => visibleEvents.value.filter((item) => item.status === 'done').length
   );
   const running = computed(() =>
-    props.events.find((item) => item.status === 'running')
+    visibleEvents.value.find((item) => item.status === 'running')
+  );
+  const summaryText = computed(() =>
+    running.value
+      ? `正在${friendlyLabel(running.value)}`
+      : visibleEvents.value.length
+        ? `已完成 ${doneCount.value || visibleEvents.value.length} 个协作步骤`
+        : '正在分析问题'
   );
 </script>
 
 <template>
-  <section v-if="events.length || loading" class="tool-trace">
+  <section v-if="visibleEvents.length || loading" class="tool-trace">
     <button type="button" class="tool-trace__summary" @click="expanded = !expanded">
       <span :class="['tool-dot', { 'is-running': loading || running }]" />
-      <span>
-        {{
-          running
-            ? running.label
-            : `已完成 ${doneCount || events.length} 个步骤`
-        }}
-      </span>
+      <span>{{ summaryText }}</span>
       <strong>{{ expanded ? '收起' : '查看过程' }}</strong>
     </button>
     <ol v-if="expanded" class="tool-trace__steps">
-      <li v-for="(item, index) in events" :key="`${item.agent || item.label}-${index}`">
+      <li v-for="(item, index) in visibleEvents" :key="`${normalizeAgent(item) || index}-${index}`">
         <span :class="['step-state', item.status || 'done']" />
         <div>
-          <strong>{{ item.agent || item.source || `步骤 ${index + 1}` }}</strong>
-          <p>{{ item.label || item.summary || item.message || '已完成' }}</p>
+          <strong>{{ friendlyLabel(item, index) }}</strong>
+          <p>{{ item.status === 'running' ? '进行中' : item.status === 'error' ? '处理失败' : '已完成' }}</p>
         </div>
       </li>
     </ol>
