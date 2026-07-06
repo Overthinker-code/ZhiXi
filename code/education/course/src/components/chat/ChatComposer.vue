@@ -1,7 +1,7 @@
 <script setup lang="ts">
   import { computed, ref, watch } from 'vue';
   import type { ChatToolPayload, ReasoningLevel, ResourceRequestPayload, TutorMode } from '@/api/ai-chat';
-  import { DEFAULT_RESOURCE_TYPES, TUTOR_ACTIONS, type TutorPanel } from './tutorActions';
+  import { DEFAULT_RESOURCE_TYPES, type TutorPanel } from './tutorActions';
 
   const props = defineProps<{
     loading?: boolean;
@@ -30,9 +30,6 @@
   const reasoningMenuOpen = ref(false);
   const selectedReasoningId = ref('balanced');
 
-  const visibleActions = TUTOR_ACTIONS.filter((item) =>
-    ['summarize_chapter', 'explain_problem', 'generate_outline', 'review_weak_points'].includes(item.id)
-  );
   const resourceTypeLabels: Record<string, string> = {
     lecture_note: '讲义',
     mind_map: '思维导图',
@@ -167,7 +164,7 @@
 
       <textarea
         v-model="input"
-        placeholder="问任何课程问题，或上传资料让我一起分析"
+        placeholder="有问题，尽管问"
         rows="2"
         @compositionstart="composing = true"
         @compositionend="composing = false"
@@ -198,45 +195,62 @@
 
           <div v-if="toolMenuOpen" class="tool-menu" @keydown.esc="toolMenuOpen = false">
             <section>
-              <h4>资料与上下文</h4>
-              <button type="button" @click="chooseFiles">
-                <strong>上传附件</strong>
-                <span>图片、PDF、文档、代码或作业</span>
+              <button type="button" class="tool-menu__item featured" @click="chooseFiles">
+                <span class="menu-icon">+</span>
+                <span class="menu-copy">
+                  <strong>添加照片和文件</strong>
+                  <em>从电脑上传</em>
+                </span>
               </button>
-              <button type="button" @click="emit('open-panel', 'course_picker'); toolMenuOpen = false">
-                <strong>指定课程</strong>
-                <span>默认会自动判断，需要时手动覆盖</span>
-              </button>
-            </section>
-
-            <section>
-              <h4>能力</h4>
               <button
                 type="button"
+                class="tool-menu__item"
+                @click="emit('open-panel', 'course_picker'); toolMenuOpen = false"
+              >
+                <span class="menu-icon">@</span>
+                <span class="menu-copy">
+                  <strong>课程上下文</strong>
+                  <em>需要时手动指定</em>
+                </span>
+              </button>
+              <button
+                type="button"
+                class="tool-menu__item"
                 data-testid="tool-web-search"
                 :class="{ active: tools.webSearch }"
                 @click="toggleWebSearch"
               >
-                <strong>{{ tools.webSearch ? '联网搜索已开' : '联网搜索' }}</strong>
-                <span>需要外部资料或时效信息时启用</span>
+                <span class="menu-icon">网</span>
+                <span class="menu-copy">
+                  <strong>{{ tools.webSearch ? '联网搜索已开' : '联网搜索' }}</strong>
+                  <em>查找实时资料和信息</em>
+                </span>
               </button>
               <button
                 type="button"
+                class="tool-menu__item"
                 data-testid="mode-homework"
                 :class="{ active: mode === 'homework_review' }"
                 @click="pickAction('homework_review')"
               >
-                <strong>作业批改</strong>
-                <span>评分、错因、订正建议</span>
+                <span class="menu-icon">批</span>
+                <span class="menu-copy">
+                  <strong>作业批改</strong>
+                  <em>评分、错因和订正建议</em>
+                </span>
               </button>
               <button
                 type="button"
+                class="tool-menu__item"
                 data-testid="mode-resource"
                 :class="{ active: mode === 'resource_generation' }"
                 @click="pickAction('resource_generation'); resourceTypeOpen = !resourceTypeOpen"
               >
-                <strong>资料生成</strong>
-                <span>讲义、练习、思维导图、代码案例</span>
+                <span class="menu-icon">资</span>
+                <span class="menu-copy">
+                  <strong>资料生成</strong>
+                  <em>讲义、练习和思维导图</em>
+                </span>
               </button>
               <div v-if="resourceTypeOpen" class="resource-types">
                 <label v-for="type in DEFAULT_RESOURCE_TYPES" :key="type">
@@ -250,29 +264,22 @@
               </div>
               <button
                 type="button"
+                class="tool-menu__item"
                 data-testid="mode-deep-research"
                 :class="{ active: mode === 'deep_research' }"
                 @click="pickAction('deep_research')"
               >
-                <strong>深度研究</strong>
-                <span>多轮检索、分析和报告生成</span>
-              </button>
-            </section>
-
-            <section>
-              <h4>快捷任务</h4>
-              <button
-                v-for="action in visibleActions"
-                :key="action.id"
-                type="button"
-                @click="pickAction(action.id)"
-              >
-                <strong>{{ action.label }}</strong>
-                <span>{{ action.description }}</span>
+                <span class="menu-icon">研</span>
+                <span class="menu-copy">
+                  <strong>深度研究</strong>
+                  <em>多轮检索和报告生成</em>
+                </span>
               </button>
             </section>
           </div>
         </div>
+
+        <div class="toolbar-spacer" />
 
         <div class="reasoning-wrap">
           <button
@@ -303,8 +310,6 @@
           </div>
         </div>
 
-        <div class="toolbar-spacer" />
-
         <button
           v-if="loading"
           type="button"
@@ -331,20 +336,20 @@
 
 <style scoped lang="scss">
   .chat-composer {
-    width: min(880px, calc(100vw - 420px));
+    width: min(780px, calc(100vw - 500px));
     margin: 0 auto;
   }
 
   .composer-box {
     border: 1px solid rgba(15, 23, 42, 0.08);
-    border-radius: 28px;
+    border-radius: 24px;
     background: #fff;
-    box-shadow: 0 16px 50px rgba(15, 23, 42, 0.08);
+    box-shadow: 0 14px 42px rgba(15, 23, 42, 0.07);
     transition: border-color 0.18s ease, box-shadow 0.18s ease;
 
     &:focus-within {
       border-color: #6366f1;
-      box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.12), 0 16px 50px rgba(15, 23, 42, 0.08);
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1), 0 14px 42px rgba(15, 23, 42, 0.07);
     }
   }
 
@@ -382,15 +387,15 @@
 
   textarea {
     width: 100%;
-    min-height: 74px;
+    min-height: 54px;
     max-height: 240px;
     resize: vertical;
-    padding: 20px 24px 8px;
+    padding: 15px 20px 4px;
     border: 0;
     outline: none;
     color: #101828;
     background: transparent;
-    font-size: 16px;
+    font-size: 15px;
     line-height: 1.6;
 
     &::placeholder {
@@ -402,8 +407,8 @@
     position: relative;
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 8px 12px 12px;
+    gap: 8px;
+    padding: 6px 10px 10px;
   }
 
   .tool-wrap,
@@ -424,7 +429,8 @@
   }
 
   .icon-button {
-    width: 40px;
+    width: 38px;
+    height: 38px;
     padding: 0;
     font-size: 22px;
     line-height: 1;
@@ -445,17 +451,23 @@
   .reasoning-button {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    min-width: 86px;
-    padding: 0 14px 0 16px;
+    gap: 7px;
+    min-width: 76px;
+    height: 38px;
+    padding: 0 12px 0 14px;
+    border-color: transparent;
+    color: #8a8f98;
+    background: transparent;
+    font-size: 15px;
+    font-weight: 560;
     cursor: pointer;
 
     &:hover,
     &:focus,
     &[aria-expanded='true'] {
       border-color: rgba(99, 102, 241, 0.35);
-      color: #4f46e5;
-      background: #eef2ff;
+      color: #667085;
+      background: #f2f4f7;
       outline: none;
     }
 
@@ -473,8 +485,9 @@
   }
 
   .send-button {
-    min-width: 64px;
-    padding: 0 18px;
+    min-width: 58px;
+    height: 38px;
+    padding: 0 16px;
     color: #fff;
     border-color: transparent;
     background: #4f46e5;
@@ -509,63 +522,90 @@
     overflow: auto;
     padding: 8px;
     border: 1px solid rgba(15, 23, 42, 0.08);
-    border-radius: 20px;
-    background: #fff;
-    box-shadow: 0 24px 72px rgba(15, 23, 42, 0.16);
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.98);
+    box-shadow: 0 20px 56px rgba(15, 23, 42, 0.16);
   }
 
   .tool-menu {
     left: 0;
-    width: 340px;
+    bottom: 150px;
+    width: 320px;
     animation: menu-enter 0.16s ease both;
 
     section + section {
-      margin-top: 8px;
-      padding-top: 8px;
+      margin-top: 6px;
+      padding-top: 6px;
       border-top: 1px solid rgba(15, 23, 42, 0.06);
     }
 
-    h4 {
-      margin: 6px 10px 8px;
-      color: #98a2b3;
-      font-size: 12px;
-      font-weight: 700;
-    }
-
-    button {
-      display: block;
+    .tool-menu__item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
       width: 100%;
-      padding: 11px 12px;
+      min-height: 46px;
+      padding: 8px 10px;
       border: 0;
-      border-radius: 14px;
+      border-radius: 13px;
       background: transparent;
       text-align: left;
       cursor: pointer;
 
-      &:hover,
-      &.active {
+      &.featured {
+        background: #f3f4f6;
+      }
+
+      &:hover {
         background: #f7f9ff;
+      }
+
+      &.active {
+        background: #eef2ff;
       }
 
       &.active strong {
         color: #4f46e5;
+      }
+
+      &.compact {
+        min-height: 42px;
       }
     }
 
     strong {
       display: block;
       color: #101828;
-      font-size: 14px;
-      font-weight: 700;
+      font-size: 13.5px;
+      font-weight: 680;
     }
 
-    span {
+    em {
       display: block;
-      margin-top: 3px;
-      color: #667085;
+      margin-top: 2px;
+      color: #8a94a6;
       font-size: 12px;
-      line-height: 1.45;
+      font-style: normal;
+      line-height: 1.35;
     }
+  }
+
+  .menu-icon {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 9px;
+    color: #4f46e5;
+    background: #eef2ff;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .menu-copy {
+    min-width: 0;
   }
 
   .reasoning-menu {
@@ -610,7 +650,7 @@
     }
 
     b {
-      color: #101828;
+      color: #667085;
       font-size: 18px;
       font-weight: 500;
     }
@@ -656,11 +696,11 @@
 
   @media (max-width: 1280px) {
     .chat-composer {
-      width: min(820px, calc(100vw - 360px));
+      width: min(720px, calc(100vw - 420px));
     }
 
     .tool-menu {
-      width: 320px;
+      width: 300px;
     }
 
     .reasoning-menu {

@@ -18,7 +18,6 @@
   <main class="chat-main" data-testid="tutor-chat-main">
     <section v-if="!messages.length" class="chat-empty">
       <h1>今天想学习什么？</h1>
-      <p>直接提问即可。我会自动判断课程上下文；需要上传资料、联网搜索、作业批改或资源生成时，点击输入框左侧的 +。</p>
     </section>
 
     <section v-else class="chat-thread" aria-live="polite">
@@ -53,24 +52,17 @@
   }
 
   .chat-empty {
-    width: min(880px, 100%);
-    margin: clamp(96px, 26vh, 170px) auto 0;
+    width: min(780px, 100%);
+    margin: clamp(104px, 28vh, 180px) auto 0;
+    text-align: center;
     animation: enter 0.18s ease both;
 
     h1 {
       margin: 0;
       color: #101828;
-      font-size: 34px;
+      font-size: 36px;
       font-weight: 720;
       letter-spacing: 0;
-    }
-
-    p {
-      max-width: 620px;
-      margin: 12px 0 28px;
-      color: #667085;
-      font-size: 16px;
-      line-height: 1.7;
     }
   }
 
