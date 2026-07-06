@@ -7,7 +7,7 @@
   }>();
 
   const expanded = ref(false);
-  const internalAgents = new Set(['intent_classifier', 'course_context']);
+  const internalAgents = new Set(['intent_classifier', 'course_context', 'deep_research']);
   const stageLabelMap: Record<string, string> = {
     course_retriever: '检索课程资料',
     course: '检索课程资料',
@@ -34,9 +34,6 @@
     if (/安全|校验|引用/.test(label)) return '校验引用';
     return `处理步骤 ${index + 1}`;
   };
-  const doneCount = computed(
-    () => visibleEvents.value.filter((item) => item.status === 'done').length
-  );
   const running = computed(() =>
     visibleEvents.value.find((item) => item.status === 'running')
   );
@@ -44,7 +41,7 @@
     running.value
       ? `正在${friendlyLabel(running.value)}`
       : visibleEvents.value.length
-        ? `已完成 ${doneCount.value || visibleEvents.value.length} 个协作步骤`
+        ? '已整理好回答依据'
         : '正在分析问题'
   );
 </script>

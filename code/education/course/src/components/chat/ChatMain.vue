@@ -55,9 +55,10 @@
   .chat-empty {
     position: absolute;
     top: clamp(150px, 30vh, 220px);
-    left: 50%;
-    width: min(780px, calc(100% - 48px));
-    transform: translateX(-50%);
+    right: 24px;
+    left: 24px;
+    display: flex;
+    justify-content: center;
     text-align: center;
     animation: enter-centered 0.18s ease both;
 
@@ -137,11 +138,11 @@
   @keyframes enter-centered {
     from {
       opacity: 0;
-      transform: translateX(-50%) translateY(8px);
+      transform: translateY(8px);
     }
     to {
       opacity: 1;
-      transform: translateX(-50%) translateY(0);
+      transform: translateY(0);
     }
   }
 

@@ -17,6 +17,7 @@
   import { fetchChatHistory, fetchLearningReport } from '@/api/rag';
   import { useChatStore } from '@/store/chat';
   import { getToken } from '@/utils/auth';
+  import { isPipelineThought } from '@/utils/streamReasoning';
   import ChatComposer from './ChatComposer.vue';
   import ChatMain from './ChatMain.vue';
   import ChatSidebar from './ChatSidebar.vue';
@@ -161,6 +162,25 @@
     assistant.toolEvents = [...list];
   }
 
+  function appendReasoningDelta(assistant: Record<string, any>, data: Record<string, any>) {
+    const raw = String(data.text || '');
+    if (!raw) return;
+    const stage = String(data.stage || data.agent || '').trim();
+    const visible = raw
+      .split(/\r?\n/)
+      .filter((line) => {
+        const text = line.trim();
+        if (!text) return true;
+        if (isPipelineThought(text, stage)) return false;
+        if (/^(intent_classifier|course_context|deep_research)$/i.test(text)) return false;
+        if (/^(agent|router|planner|worker|tool)_[a-z0-9_]+$/i.test(text)) return false;
+        return true;
+      })
+      .join('\n');
+    if (!visible.trim()) return;
+    assistant.reasoning_content = `${assistant.reasoning_content || ''}${visible}`;
+  }
+
   function latestAssistantMutable() {
     return chatStore.getLastMessage() as Record<string, any> | null;
   }
@@ -268,7 +288,7 @@
               assistant.citations = [...(assistant.citations || []), ...data.items];
             }
           } else if (event === 'reasoning_summary_delta') {
-            assistant.reasoning_content = `${assistant.reasoning_content || ''}${data.text || ''}`;
+            appendReasoningDelta(assistant, data);
           } else if (event === 'answer_delta') {
             assistant.content = `${assistant.content || ''}${data.text || ''}`;
           } else if (event === 'citation') {

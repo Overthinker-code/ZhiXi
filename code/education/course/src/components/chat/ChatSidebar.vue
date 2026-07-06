@@ -62,7 +62,7 @@
       <div class="history-tools">
         <span>对话记录</span>
         <button type="button" :disabled="!conversations.length" @click="emit('clear-all')">
-          清空
+          清空全部
         </button>
       </div>
       <section v-for="(items, group) in grouped" :key="group" class="history-group">
@@ -156,8 +156,8 @@
     font-weight: 700;
 
     button {
-      height: 26px;
-      padding: 0 9px;
+      height: 28px;
+      padding: 0 10px;
       border: 1px solid rgba(15, 23, 42, 0.08);
       border-radius: 999px;
       color: #667085;
