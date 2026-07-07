@@ -1697,7 +1697,7 @@
         <div class="graph-top-actions">
           <label class="graph-search">
             <icon-search />
-            <input v-model="keyword" type="search" placeholder="搜索知识点、资料、任务" />
+            <input v-model="keyword" type="search" placeholder="搜索节点或资料" />
           </label>
           <button type="button" class="ghost-action" @click="goCourseContent">课堂笔记</button>
           <button type="button" class="primary-action" @click="goResourceGenerator">
@@ -6204,11 +6204,20 @@
     line-height: 1.6;
   }
 
+  .graph-lab-shell .graph-top-actions {
+    gap: 8px;
+  }
+
   .graph-search {
     height: 38px;
     border-color: var(--zy-border);
     background: #ffffff;
     box-shadow: none;
+  }
+
+  .graph-lab-shell .graph-search {
+    flex: 1 1 190px;
+    min-width: 180px;
   }
 
   .ghost-action,
@@ -6247,25 +6256,38 @@
   }
 
   .graph-workbench-grid {
-    grid-template-columns: 210px minmax(0, 1fr);
-    gap: 14px;
-  }
-
-  .map-catalog {
-    position: sticky;
-    top: 76px;
+    grid-template-columns: 1fr;
     gap: 10px;
   }
 
+  .map-catalog {
+    position: static;
+    display: block;
+  }
+
+  .map-catalog .catalog-card {
+    display: none;
+  }
+
   .graph-workbench-grid .graph-tabs {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 8px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    overflow: visible;
   }
 
   .graph-workbench-grid .graph-tabs button {
-    min-height: 58px;
-    padding: 11px 12px 11px 16px;
+    min-height: 50px;
+    height: auto;
+    justify-items: start;
+    padding: 10px 12px;
     border-color: var(--zy-border);
     border-radius: 14px;
+    border-right: 1px solid var(--zy-border);
+    background: #ffffff;
     box-shadow: none;
     transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
   }
@@ -6276,12 +6298,20 @@
 
   .graph-workbench-grid .graph-tabs button.active {
     border-color: rgba(99, 102, 241, 0.24);
-    background: #ffffff;
+    background: #f6f7ff;
     box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
   }
 
-  .graph-workbench-grid .graph-tabs button.active::before {
+  .graph-workbench-grid .graph-tabs button.active::after {
     background: var(--zy-brand);
+  }
+
+  .graph-workbench-grid .graph-tabs span {
+    font-size: 13px;
+  }
+
+  .graph-workbench-grid .graph-tabs em {
+    font-size: 10px;
   }
 
   .catalog-card {
@@ -6311,7 +6341,7 @@
 
   .graph-work-area .graph-filter-row {
     align-items: center;
-    padding: 12px 14px;
+    padding: 10px 12px;
   }
 
   .relation-filter {
@@ -6341,9 +6371,9 @@
   }
 
   .graph-work-area .graph-stage {
-    grid-template-columns: minmax(0, 1fr) 310px;
+    grid-template-columns: minmax(0, 1fr) 294px;
     min-height: 0;
-    padding: 12px;
+    padding: 10px;
     background: #f7f9ff;
   }
 
@@ -6355,8 +6385,8 @@
   }
 
   .graph-work-area .graph-canvas-head {
-    min-height: 62px;
-    padding: 12px 14px;
+    min-height: 56px;
+    padding: 10px 14px;
   }
 
   .graph-work-area .graph-canvas-head strong {
@@ -6375,7 +6405,7 @@
   }
 
   .map-canvas-viewport {
-    height: clamp(500px, calc(100vh - 270px), 660px);
+    height: clamp(480px, calc(100vh - 330px), 570px);
     background:
       linear-gradient(rgba(79, 70, 229, 0.04) 1px, transparent 1px),
       linear-gradient(90deg, rgba(79, 70, 229, 0.04) 1px, transparent 1px),
@@ -6416,8 +6446,8 @@
   }
 
   .graph-work-area .map-insights {
-    max-height: clamp(520px, calc(100vh - 240px), 700px);
-    padding: 13px;
+    max-height: clamp(500px, calc(100vh - 300px), 620px);
+    padding: 12px;
     overflow: auto;
     background: #ffffff;
   }
@@ -6437,12 +6467,12 @@
   }
 
   .node-health-grid {
-    grid-template-columns: 1fr;
-    gap: 7px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
   }
 
   .node-health-grid article {
-    padding: 9px 10px;
+    padding: 8px;
     border-color: var(--zy-border);
     background: #fbfdff;
   }
@@ -6492,17 +6522,53 @@
     }
   }
 
-  @media (max-width: 1180px) {
-    .graph-workbench-grid {
-      grid-template-columns: 200px minmax(0, 1fr);
+  @media (max-width: 1320px) {
+    .graph-lab-shell .graph-topbar {
+      grid-template-columns: minmax(0, 1fr) minmax(390px, 0.42fr);
+      gap: 14px;
     }
 
-    .graph-work-area .graph-stage {
+    .graph-lab-shell .graph-top-actions {
+      width: auto;
+      min-width: 0;
+    }
+  }
+
+  @media (max-width: 1180px) {
+    .graph-lab-shell .graph-topbar {
       grid-template-columns: 1fr;
     }
 
+    .graph-lab-shell .graph-top-actions {
+      width: 100%;
+    }
+
+    .graph-workbench-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .graph-workbench-grid .graph-tabs {
+      display: flex;
+      overflow-x: auto;
+      padding-bottom: 2px;
+      scrollbar-width: none;
+    }
+
+    .graph-workbench-grid .graph-tabs::-webkit-scrollbar {
+      display: none;
+    }
+
+    .graph-workbench-grid .graph-tabs button {
+      flex: 0 0 168px;
+    }
+
+    .graph-work-area .graph-stage {
+      grid-template-columns: minmax(0, 1fr) 270px;
+      gap: 10px;
+    }
+
     .graph-work-area .map-insights {
-      max-height: none;
+      max-height: clamp(460px, calc(100vh - 292px), 560px);
     }
   }
 
@@ -6513,6 +6579,14 @@
 
     .graph-workbench-grid {
       grid-template-columns: 1fr;
+    }
+
+    .graph-work-area .graph-stage {
+      grid-template-columns: 1fr;
+    }
+
+    .graph-work-area .map-insights {
+      max-height: none;
     }
   }
 </style>
