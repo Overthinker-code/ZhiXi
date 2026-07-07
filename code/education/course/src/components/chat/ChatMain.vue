@@ -54,7 +54,7 @@
 
   .chat-empty {
     position: absolute;
-    top: calc(50% - 32px);
+    top: clamp(250px, 38%, 360px);
     left: 50%;
     z-index: 1;
     display: flex;
@@ -62,7 +62,7 @@
     justify-content: center;
     text-align: center;
     pointer-events: none;
-    transform: translate(calc(-50% + var(--chat-empty-offset-x, 0px)), -50%);
+    transform: translate(-50%, -50%);
     animation: empty-enter 0.18s ease both;
 
     h1 {
@@ -141,11 +141,11 @@
   @keyframes empty-enter {
     from {
       opacity: 0;
-      transform: translate(calc(-50% + var(--chat-empty-offset-x, 0px)), calc(-50% + 8px));
+      transform: translate(-50%, calc(-50% + 8px));
     }
     to {
       opacity: 1;
-      transform: translate(calc(-50% + var(--chat-empty-offset-x, 0px)), -50%);
+      transform: translate(-50%, -50%);
     }
   }
 

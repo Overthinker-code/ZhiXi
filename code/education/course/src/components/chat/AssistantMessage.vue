@@ -127,12 +127,13 @@
       font-size: 0.92em;
     }
 
-    :deep(.code-block) {
+    :deep(.code-block),
+    :deep(.markdown-it-code-block) {
       margin: 14px 0;
       overflow: hidden;
       border: 1px solid rgba(15, 23, 42, 0.1);
       border-radius: 14px;
-      background: #fff;
+      background: #fff !important;
       box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
     }
 
@@ -188,10 +189,12 @@
       padding: 14px 16px;
       border: 1px solid rgba(15, 23, 42, 0.1);
       border-radius: 14px;
-      background: #fff !important;
+      background: #ffffff !important;
+      background-color: #ffffff !important;
       color: #344054 !important;
       font-size: 13px;
       line-height: 1.65;
+      text-shadow: none !important;
     }
 
     :deep(.code-block pre),
@@ -207,29 +210,55 @@
     :deep(.hljs),
     :deep(.hljs-subst) {
       background: transparent !important;
+      background-color: transparent !important;
       color: #344054 !important;
+      text-shadow: none !important;
     }
 
     :deep(.hljs-keyword),
     :deep(.hljs-selector-tag),
-    :deep(.hljs-title.function_) {
+    :deep(.hljs-title.function_),
+    :deep(.hljs-built_in),
+    :deep(.hljs-type),
+    :deep(.hljs-name),
+    :deep(.hljs-operator) {
       color: #4f46e5 !important;
     }
 
     :deep(.hljs-string),
     :deep(.hljs-attr),
-    :deep(.hljs-symbol) {
+    :deep(.hljs-symbol),
+    :deep(.hljs-regexp),
+    :deep(.hljs-link) {
       color: #087443 !important;
     }
 
     :deep(.hljs-number),
-    :deep(.hljs-literal) {
+    :deep(.hljs-literal),
+    :deep(.hljs-variable),
+    :deep(.hljs-template-variable) {
       color: #b54708 !important;
     }
 
     :deep(.hljs-comment),
     :deep(.hljs-quote) {
       color: #98a2b3 !important;
+    }
+
+    :deep(.hljs-title),
+    :deep(.hljs-section),
+    :deep(.hljs-selector-id),
+    :deep(.hljs-selector-class) {
+      color: #175cd3 !important;
+    }
+
+    :deep(.hljs-meta),
+    :deep(.hljs-doctag),
+    :deep(.hljs-addition),
+    :deep(.hljs-deletion) {
+      color: #475467 !important;
+      background: transparent !important;
+      background-color: transparent !important;
     }
   }
 

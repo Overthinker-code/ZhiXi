@@ -556,10 +556,6 @@
     overflow: hidden;
   }
 
-  .tutor-chat-layout--empty .chat-main-scroll {
-    --chat-empty-offset-x: calc(var(--tutor-sidebar-width) / -2);
-  }
-
   .chat-main-actions {
     position: absolute;
     top: 16px;
@@ -594,10 +590,6 @@
     :deep(.chat-composer) {
       pointer-events: auto;
     }
-  }
-
-  .tutor-chat-layout--empty .composer-dock {
-    transform: translateX(calc(var(--tutor-sidebar-width) / -2));
   }
 
   @media (max-width: 1100px) {
