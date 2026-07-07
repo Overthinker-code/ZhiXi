@@ -53,18 +53,17 @@
   }
 
   .chat-empty {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: calc(var(--tutor-sidebar-width, 280px) * -1);
-    display: grid;
-    width: calc(100% + var(--tutor-sidebar-width, 280px));
-    margin: 0 auto;
-    place-items: center;
+    position: fixed;
+    top: 50vh;
+    left: 50vw;
+    z-index: 1;
+    display: flex;
+    align-items: center;
     justify-content: center;
     text-align: center;
     pointer-events: none;
-    animation: enter 0.18s ease both;
+    transform: translate(-50%, -50%);
+    animation: empty-enter 0.18s ease both;
 
     h1 {
       margin: 0;
@@ -136,6 +135,17 @@
     to {
       opacity: 1;
       transform: translateY(0);
+    }
+  }
+
+  @keyframes empty-enter {
+    from {
+      opacity: 0;
+      transform: translate(-50%, calc(-50% + 8px));
+    }
+    to {
+      opacity: 1;
+      transform: translate(-50%, -50%);
     }
   }
 

@@ -61,7 +61,7 @@
       icon: Brain,
       tone: 'violet',
       title: '课程证据问答',
-      desc: '围绕课程资料、引用证据和章节上下文回答问题，解释来源清楚，避免泛泛而谈。',
+      desc: '自动检索课程资料和引用证据，回答有出处，解释不过度发散。',
       link: '/tutor',
       action: '进入 AI 伴学',
     },
@@ -69,7 +69,7 @@
       icon: Target,
       tone: 'green',
       title: '个性化学习路径',
-      desc: '根据学习画像、掌握度和薄弱点生成下一步计划，把“学什么、怎么学”落到具体任务。',
+      desc: '把画像、掌握度和薄弱点转成下一步任务，明确今天该学什么。',
       link: '/profile/learning-data',
       action: '查看学习路径',
     },
@@ -77,7 +77,7 @@
       icon: SearchCheck,
       tone: 'blue',
       title: '学情画像更新',
-      desc: '从问答、练习和课程行为中沉淀目标、基础、偏好与易错点，持续更新学生档案。',
+      desc: '从问答、练习和课程行为中沉淀目标、基础、偏好与易错点。',
       link: '/profile/learning-data',
       action: '打开学情档案',
     },
@@ -85,7 +85,7 @@
       icon: Layers3,
       tone: 'amber',
       title: '多智能体资源生成',
-      desc: '把讲义、练习、导图、案例和阅读清单打包生成，并回流到课程资料与图谱节点。',
+      desc: '讲义、练习、导图、案例和阅读清单一并生成，并回流课程资料。',
       link: '/course/resource-generation',
       action: '进入资源工坊',
     },
@@ -93,7 +93,7 @@
       icon: Zap,
       tone: 'cyan',
       title: '可控研究深度',
-      desc: '普通问题保持轻量，复杂学习任务可启用更深入的检索、推理和报告生成过程。',
+      desc: '轻量问答保持迅速，复杂任务再启用检索、推理和报告生成。',
       link: '/tutor',
       action: '选择思考强度',
     },
@@ -101,7 +101,7 @@
       icon: Bell,
       tone: 'rose',
       title: '智能预警',
-      desc: '提前识别薄弱知识点、任务拖延和复习断点，及时给出资源与路径调整建议。',
+      desc: '提前识别薄弱知识点、拖延和复习断点，及时调整资源与路径。',
       link: '/profile/messages',
       action: '查看提醒',
     },
@@ -333,11 +333,11 @@
 
         <div class="features-grid">
           <router-link
-            v-for="feat in features"
+            v-for="(feat, index) in features"
             :key="feat.title"
             :to="feat.link"
             class="feature-card"
-            :class="`feature-card--${feat.tone}`"
+            :class="[`feature-card--${feat.tone}`, { 'feature-card--wide': index < 2 }]"
           >
             <div class="feat-icon">
               <component :is="feat.icon" :size="28" :stroke-width="1.8" />
@@ -353,7 +353,7 @@
         <div class="section-header section-header--course">
           <div class="course-title-center">
             <h2 class="section-title">课程资源中心</h2>
-          <p class="section-subtitle">按学科组织课程入口，先找到课程，再进入资料、问答和学习路径</p>
+            <p class="section-subtitle">按学科组织课程入口，先找到课程，再进入资料、问答和学习路径</p>
           </div>
           <router-link to="/course/list" class="section-link">
             浏览全部课程
@@ -880,7 +880,7 @@
   .features-section {
     max-width: 1232px;
     margin: 0 auto;
-    padding: 44px 24px 18px;
+    padding: 40px 24px 16px;
   }
 
   .section-header {
@@ -908,33 +908,37 @@
 
   .features-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 16px;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    align-items: start;
+    gap: 14px;
   }
 
   .feature-card {
     position: relative;
     overflow: hidden;
     display: flex;
-    min-height: 192px;
+    grid-column: span 3;
+    min-height: 142px;
     flex-direction: column;
-    padding: 22px 22px 20px;
+    padding: 20px;
     border: 1px solid #e9edf7;
-    border-radius: 16px;
-    background: #fff;
+    border-radius: 20px;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.92)),
+      radial-gradient(circle at 18% 4%, rgba(99, 102, 241, 0.12), transparent 28%);
     color: inherit;
     text-decoration: none;
-    box-shadow: 0 14px 34px rgba(45, 55, 93, 0.045);
+    box-shadow: 0 14px 34px rgba(45, 55, 93, 0.035);
     transition:
       transform 0.18s ease,
       border-color 0.18s ease,
       box-shadow 0.18s ease;
-    animation: home-reveal 0.28s ease both;
+    animation: home-reveal 0.32s ease both;
 
     &:hover {
-      transform: translateY(-2px);
+      transform: translateY(-3px);
       border-color: rgba(99, 102, 241, 0.28);
-      box-shadow: 0 20px 42px rgba(45, 55, 93, 0.09);
+      box-shadow: 0 20px 46px rgba(45, 55, 93, 0.085);
     }
 
     &::after {
@@ -952,6 +956,12 @@
     }
   }
 
+  .feature-card--wide {
+    grid-column: span 6;
+    min-height: 158px;
+    padding: 22px 24px;
+  }
+
   .feature-card:nth-child(2),
   .course-cat-card:nth-child(2) { animation-delay: 0.03s; }
   .feature-card:nth-child(3),
@@ -967,10 +977,18 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 42px;
-    height: 42px;
-    margin-bottom: 14px;
+    width: 40px;
+    height: 40px;
+    margin-bottom: 13px;
     border-radius: 50%;
+    transition:
+      transform 0.18s ease,
+      box-shadow 0.18s ease;
+  }
+
+  .feature-card:hover .feat-icon {
+    transform: translateY(-1px) rotate(-4deg);
+    box-shadow: 0 10px 22px rgba(79, 70, 229, 0.12);
   }
 
   .feature-card--violet .feat-icon { background: #f0edff; color: #745cff; }
@@ -983,12 +1001,16 @@
   .feat-title {
     margin: 0 0 10px;
     color: #1a2440;
-    font-size: 17px;
+    font-size: 16px;
     font-weight: 800;
   }
 
+  .feature-card--wide .feat-title {
+    font-size: 18px;
+  }
+
   .feat-desc {
-    flex: 1;
+    flex: 0 1 auto;
     margin: 0;
     color: #6f7c92;
     font-size: 13px;
@@ -1000,12 +1022,20 @@
     color: #5162f5;
     font-size: 13px;
     font-weight: 700;
+    transition:
+      color 0.18s ease,
+      transform 0.18s ease;
+  }
+
+  .feature-card:hover .feat-link {
+    color: #3f4ee8;
+    transform: translateX(2px);
   }
 
   .course-hub-section {
     max-width: 1232px;
     margin: 0 auto;
-    padding: 20px 24px 40px;
+    padding: 18px 24px 34px;
   }
 
   .section-header--course {
@@ -1043,13 +1073,15 @@
   }
 
   .course-cat-card {
+    position: relative;
+    overflow: hidden;
     display: flex;
     align-items: center;
     gap: 12px;
-    min-height: 82px;
-    padding: 15px 16px;
+    min-height: 78px;
+    padding: 14px 16px;
     border: 1px solid #e9edf7;
-    border-radius: 14px;
+    border-radius: 18px;
     color: inherit;
     text-decoration: none;
     transition:
@@ -1062,6 +1094,16 @@
       transform: translateY(-2px);
       border-color: rgba(86, 98, 255, 0.26);
       box-shadow: 0 14px 28px rgba(42, 55, 104, 0.08);
+    }
+
+    &::before {
+      content: '';
+      position: absolute;
+      inset: 10px auto 10px 0;
+      width: 3px;
+      border-radius: 999px;
+      background: currentColor;
+      opacity: 0.18;
     }
 
     strong,
@@ -1156,7 +1198,12 @@
 
     .features-grid,
     .course-cat-grid {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+    }
+
+    .feature-card,
+    .feature-card--wide {
+      grid-column: span 3;
     }
   }
 
@@ -1186,6 +1233,11 @@
     .features-grid,
     .course-cat-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .feature-card,
+    .feature-card--wide {
+      grid-column: span 1;
     }
   }
 
@@ -1220,6 +1272,11 @@
     .features-grid,
     .course-cat-grid {
       grid-template-columns: 1fr;
+    }
+
+    .feature-card,
+    .feature-card--wide {
+      grid-column: span 1;
     }
 
     .stats-card__item::before {

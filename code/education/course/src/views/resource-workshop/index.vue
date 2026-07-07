@@ -15,7 +15,7 @@
 
       <div class="hero-main">
         <div class="hero-title-line">
-          <h1>AI 学习资源工坊</h1>
+          <h1>多智能体资源工坊</h1>
           <span>{{ currentModeCaption }}</span>
         </div>
         <p>{{ currentPageDescription }}</p>
@@ -37,7 +37,7 @@
 
       <aside class="profile-state">
         <div class="state-label">
-          <span>当前学习画像状态</span>
+          <span>画像状态</span>
           <i />
         </div>
         <strong>{{ report ? riskLabel(report.risk_level) : '待生成' }}</strong>
@@ -47,7 +47,7 @@
           :loading="loadingReport"
           @click="loadProfile(true)"
         >
-          刷新学习画像
+          更新画像
         </a-button>
       </aside>
     </section>
@@ -90,6 +90,15 @@
                 ? '批改设置'
                 : '图像题解设置'
             }}</h2>
+            <button
+              v-if="isPackageMode"
+              type="button"
+              class="heading-generate"
+              :disabled="loadingPackage"
+              @click="handleGeneratePackage"
+            >
+              {{ loadingPackage ? '生成中' : '生成资源包' }}
+            </button>
           </div>
 
           <div v-if="incomingSeedSummary" class="seed-banner">
@@ -131,7 +140,7 @@
             <a-form-item field="goal" label="学习目标">
               <a-textarea
                 v-model="form.goal"
-                :auto-size="{ minRows: 4, maxRows: 5 }"
+                :auto-size="{ minRows: 3, maxRows: 4 }"
                 placeholder="理解并掌握函数单调性的判定方法，能解决相关综合题"
               />
             </a-form-item>
@@ -254,9 +263,9 @@
           <div class="card-heading card-heading--split">
             <div>
               <span class="step-badge">3</span>
-              <h2>生成结果预览</h2>
+              <h2>资源包预览</h2>
             </div>
-            <span class="muted-pill">生成后将包含以下内容</span>
+            <span class="muted-pill">讲义、练习、阅读、案例、提纲</span>
           </div>
 
           <template v-if="packageResult">
@@ -549,7 +558,7 @@
           <div class="card-heading card-heading--split">
             <div>
               <span class="step-badge">4</span>
-              <h2>学习画像与推荐</h2>
+              <h2>画像与推荐</h2>
             </div>
             <button type="button" class="text-link" @click="loadProfile(true)"
               >更多 ›</button
@@ -583,7 +592,7 @@
         <div class="work-card path-card">
           <div class="card-heading">
             <span class="step-badge">5</span>
-            <h2>个性化学习路径（预览）</h2>
+            <h2>学习路径预览</h2>
           </div>
           <div v-if="pathNodes.length" class="path-flow">
             <article
@@ -1632,14 +1641,15 @@
 
 <style scoped>
   .resource-workshop-page {
-    --workshop-brand: #5368f5;
+    --workshop-brand: #4f46e5;
+    --workshop-brand-soft: #6366f1;
     --workshop-ink: #182448;
     --workshop-muted: #7180a2;
-    --workshop-line: #e4e9f5;
-    --workshop-surface: rgba(255, 255, 255, 0.96);
+    --workshop-line: rgba(15, 23, 42, 0.08);
+    --workshop-surface: rgba(255, 255, 255, 0.98);
     position: relative;
     min-height: calc(100vh - 64px);
-    padding: 0 18px 40px;
+    padding: 0 18px 34px;
     overflow: hidden;
     color: var(--workshop-ink);
     background: radial-gradient(
@@ -1647,7 +1657,7 @@
         rgba(112, 145, 255, 0.09),
         transparent 26%
       ),
-      linear-gradient(180deg, #f8faff 0%, #f5f7fc 100%);
+      linear-gradient(180deg, #f8faff 0%, #f7f9ff 100%);
   }
 
   .resource-workshop-page::before {
@@ -1669,19 +1679,19 @@
   .workbench-grid {
     position: relative;
     z-index: 1;
-    width: min(100%, 1560px);
+    width: min(100%, 1440px);
     margin-right: auto;
     margin-left: auto;
   }
 
   .workshop-hero {
     display: grid;
-    grid-template-columns: 180px minmax(0, 1fr) 300px;
-    gap: 24px;
+    grid-template-columns: 144px minmax(0, 1fr) 238px;
+    gap: 18px;
     align-items: center;
-    min-height: 226px;
+    min-height: 192px;
     margin-top: 10px;
-    padding: 22px 24px;
+    padding: 20px 22px;
     overflow: hidden;
     background: radial-gradient(
         circle at 7% 78%,
@@ -1690,16 +1700,16 @@
       ),
       linear-gradient(108deg, #e7ecff 0%, #f2f4ff 47%, #e9f5ff 100%);
     border: 1px solid #dce4fb;
-    border-radius: 14px;
-    box-shadow: 0 14px 34px rgba(57, 72, 142, 0.08);
+    border-radius: 18px;
+    box-shadow: 0 14px 34px rgba(57, 72, 142, 0.07);
   }
 
   .workshop-hero::after {
     position: absolute;
     top: -80px;
     right: 14%;
-    width: 310px;
-    height: 310px;
+    width: 280px;
+    height: 280px;
     pointer-events: none;
     content: '';
     border: 1px solid rgba(255, 255, 255, 0.7);
@@ -1711,7 +1721,7 @@
   .hero-visual {
     position: relative;
     display: grid;
-    height: 180px;
+    height: 148px;
     place-items: center;
     perspective: 760px;
   }
@@ -1719,8 +1729,8 @@
   .hero-visual::after {
     position: absolute;
     bottom: 4px;
-    width: 150px;
-    height: 28px;
+    width: 124px;
+    height: 22px;
     content: '';
     background: rgba(73, 89, 190, 0.24);
     border-radius: 50%;
@@ -1730,18 +1740,18 @@
   .folder-box {
     position: relative;
     z-index: 1;
-    width: 126px;
-    height: 102px;
+    width: 104px;
+    height: 84px;
     transform: rotateY(-12deg) rotateX(6deg);
     animation: folder-float 5s ease-in-out infinite;
   }
 
   .folder-lid {
     position: absolute;
-    top: -18px;
+    top: -15px;
     left: 6px;
-    width: 72px;
-    height: 38px;
+    width: 60px;
+    height: 32px;
     background: linear-gradient(145deg, #8f9cff, #586af5);
     border-radius: 16px 16px 5px 5px;
     box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.35);
@@ -1761,9 +1771,9 @@
 
   .folder-sheet {
     position: absolute;
-    bottom: 36px;
-    width: 66px;
-    height: 90px;
+    bottom: 30px;
+    width: 54px;
+    height: 72px;
     border: 1px solid rgba(255, 255, 255, 0.72);
     border-radius: 10px;
     box-shadow: 0 12px 24px rgba(65, 74, 167, 0.24);
@@ -1779,13 +1789,13 @@
 
   .folder-sheet--two {
     right: 7px;
-    bottom: 46px;
+    bottom: 38px;
     display: grid;
-    width: 58px;
-    height: 68px;
+    width: 48px;
+    height: 56px;
     place-items: center;
     color: #fff;
-    font-size: 24px;
+    font-size: 20px;
     font-weight: 900;
     background: linear-gradient(145deg, #ad6bff, #6754f7);
     transform: rotate(8deg);
@@ -1805,7 +1815,7 @@
   .hero-title-line h1 {
     margin: 0;
     color: #172248;
-    font-size: clamp(27px, 2vw, 34px);
+    font-size: clamp(26px, 2vw, 32px);
     font-weight: 800;
     letter-spacing: -0.03em;
   }
@@ -1821,8 +1831,8 @@
   }
 
   .hero-main > p {
-    max-width: 720px;
-    margin: 10px 0 18px;
+    max-width: 760px;
+    margin: 9px 0 15px;
     color: #617092;
     font-size: 14px;
     line-height: 1.75;
@@ -1838,11 +1848,11 @@
     display: grid;
     grid-template-columns: 32px minmax(0, 1fr);
     gap: 10px;
-    min-height: 78px;
-    padding: 13px 14px;
+    min-height: 68px;
+    padding: 11px 12px;
     background: rgba(255, 255, 255, 0.72);
     border: 1px solid rgba(218, 225, 246, 0.95);
-    border-radius: 10px;
+    border-radius: 12px;
     box-shadow: inset 0 1px rgba(255, 255, 255, 0.9);
   }
 
@@ -1891,10 +1901,10 @@
 
   .profile-state {
     min-width: 0;
-    padding: 20px;
+    padding: 16px;
     background: rgba(255, 255, 255, 0.78);
     border: 1px solid rgba(218, 225, 246, 0.96);
-    border-radius: 12px;
+    border-radius: 14px;
     box-shadow: inset 0 1px rgba(255, 255, 255, 0.95);
   }
 
@@ -1929,13 +1939,13 @@
 
   .profile-state > strong {
     display: block;
-    margin-top: 15px;
+    margin-top: 11px;
     color: #172248;
-    font-size: 22px;
+    font-size: 20px;
   }
 
   .profile-state > p {
-    min-height: 38px;
+    min-height: 34px;
     margin: 8px 0 14px;
     overflow: hidden;
     color: #7a86a3;
@@ -1946,21 +1956,22 @@
 
   .profile-state :deep(.arco-btn) {
     float: right;
-    min-width: 120px;
-    border-radius: 7px;
+    min-width: 104px;
+    height: 34px;
+    border-radius: 999px;
     box-shadow: 0 8px 18px rgba(83, 104, 245, 0.22);
   }
 
   .mode-dock {
     display: grid;
-    grid-template-columns: 94px repeat(3, minmax(0, 1fr));
-    gap: 16px;
+    grid-template-columns: 78px repeat(3, minmax(0, 1fr));
+    gap: 10px;
     align-items: center;
     margin-top: 12px;
-    padding: 10px 14px;
+    padding: 8px 10px;
     background: rgba(255, 255, 255, 0.94);
     border: 1px solid var(--workshop-line);
-    border-radius: 12px;
+    border-radius: 16px;
     box-shadow: 0 8px 24px rgba(35, 48, 98, 0.04);
   }
 
@@ -1973,16 +1984,16 @@
   .mode-card {
     position: relative;
     display: grid;
-    grid-template-columns: 42px minmax(0, 1fr) 24px;
-    gap: 12px;
+    grid-template-columns: 34px minmax(0, 1fr) 22px;
+    gap: 10px;
     align-items: center;
     min-width: 0;
-    min-height: 64px;
-    padding: 8px 12px;
+    min-height: 56px;
+    padding: 8px 10px;
     text-align: left;
     background: #fff;
     border: 1px solid #e2e7f2;
-    border-radius: 9px;
+    border-radius: 13px;
     cursor: pointer;
     transition: transform 180ms ease, border-color 180ms ease,
       box-shadow 180ms ease;
@@ -2001,14 +2012,14 @@
 
   .mode-card__icon {
     display: grid;
-    width: 40px;
-    height: 40px;
+    width: 34px;
+    height: 34px;
     place-items: center;
     color: #5368f5;
     font-size: 13px;
     font-weight: 900;
     background: linear-gradient(145deg, #f0f2ff, #dde4ff);
-    border-radius: 12px;
+    border-radius: 11px;
   }
 
   .mode-card__copy {
@@ -2050,11 +2061,8 @@
 
   .workbench-grid {
     display: grid;
-    grid-template-columns: minmax(230px, 0.72fr) minmax(420px, 1.6fr) minmax(
-        230px,
-        0.78fr
-      );
-    gap: 14px;
+    grid-template-columns: minmax(268px, 0.78fr) minmax(520px, 1.55fr);
+    gap: 12px;
     align-items: start;
     margin-top: 12px;
   }
@@ -2064,28 +2072,33 @@
   .insight-column {
     display: grid;
     min-width: 0;
-    gap: 14px;
+    gap: 12px;
+  }
+
+  .insight-column {
+    grid-column: 1 / -1;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
   }
 
   .work-card {
     min-width: 0;
-    padding: 16px;
+    padding: 14px;
     background: var(--workshop-surface);
     border: 1px solid var(--workshop-line);
-    border-radius: 12px;
-    box-shadow: 0 8px 26px rgba(34, 48, 98, 0.045);
+    border-radius: 16px;
+    box-shadow: 0 10px 26px rgba(34, 48, 98, 0.045);
   }
 
   .settings-card {
-    min-height: 492px;
+    min-height: 430px;
   }
 
   .flow-card {
-    min-height: 178px;
+    min-height: 164px;
   }
 
   .result-preview-card {
-    min-height: 300px;
+    min-height: 292px;
   }
 
   .card-heading,
@@ -2097,7 +2110,7 @@
   }
 
   .card-heading {
-    margin-bottom: 17px;
+    margin-bottom: 14px;
   }
 
   .card-heading--split {
@@ -2114,6 +2127,34 @@
     white-space: nowrap;
   }
 
+  .heading-generate {
+    margin-left: auto;
+    padding: 6px 10px;
+    border: 0;
+    border-radius: 999px;
+    color: #ffffff;
+    background: var(--workshop-brand);
+    box-shadow: 0 8px 18px rgba(79, 70, 229, 0.18);
+    font-size: 11px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
+  }
+
+  .heading-generate:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 22px rgba(79, 70, 229, 0.24);
+  }
+
+  .heading-generate:active {
+    transform: translateY(0) scale(0.98);
+  }
+
+  .heading-generate:disabled {
+    cursor: wait;
+    opacity: 0.72;
+  }
+
   .step-badge {
     display: grid;
     width: 26px;
@@ -2123,8 +2164,8 @@
     color: #fff;
     font-size: 12px;
     font-weight: 800;
-    background: linear-gradient(145deg, #667af8, #4658dc);
-    border-radius: 50%;
+    background: linear-gradient(145deg, var(--workshop-brand-soft), var(--workshop-brand));
+    border-radius: 10px;
     box-shadow: 0 5px 12px rgba(83, 104, 245, 0.3);
   }
 
@@ -2168,9 +2209,9 @@
 
   .course-seed-card {
     display: grid;
-    gap: 10px;
-    margin-bottom: 14px;
-    padding: 12px;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 10px;
     background:
       radial-gradient(circle at right top, rgba(83, 104, 245, 0.12), transparent 36%),
       #fff;
@@ -2201,21 +2242,26 @@
   }
 
   .course-seed-card p {
+    display: -webkit-box;
+    overflow: hidden;
     margin: 0;
     color: #7d879d;
     font-size: 11px;
     line-height: 1.65;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
   }
 
   .seed-links {
     display: grid;
-    gap: 6px;
+    gap: 5px;
   }
 
   .seed-links button {
     display: grid;
     gap: 3px;
-    padding: 9px 10px;
+    min-height: 42px;
+    padding: 7px 9px;
     color: #66728c;
     text-align: left;
     background: #f8faff;
@@ -2243,12 +2289,14 @@
   }
 
   .seed-links small {
+    display: block;
     color: #8d98ad;
     font-size: 9px;
+    line-height: 1.35;
   }
 
   .compact-form :deep(.arco-form-item) {
-    margin-bottom: 14px;
+    margin-bottom: 10px;
   }
 
   .compact-form :deep(.arco-form-item-label-col > label) {
@@ -2278,13 +2326,13 @@
   }
 
   .primary-action {
-    height: 44px;
+    height: 42px;
     margin-top: 2px;
     font-size: 15px;
     font-weight: 700;
     background: linear-gradient(100deg, #526ef6, #8b4ef0);
     border: none;
-    border-radius: 7px;
+    border-radius: 999px;
     box-shadow: 0 10px 20px rgba(101, 82, 236, 0.2);
   }
 
@@ -2323,8 +2371,8 @@
   }
 
   .flow-card :deep(.agent-stage__node-icon) {
-    width: 38px;
-    height: 38px;
+    width: 34px;
+    height: 34px;
     background: linear-gradient(145deg, #f3f5ff, #e2e8ff);
     border: 1px solid #d7defa;
     box-shadow: 0 5px 14px rgba(65, 84, 190, 0.1);
@@ -2332,7 +2380,7 @@
 
   .flow-card :deep(.agent-stage__node-label) {
     color: #405077;
-    font-size: 11px;
+    font-size: 10px;
   }
 
   .flow-card :deep(.agent-stage__node-sub) {
@@ -3162,6 +3210,7 @@
 
     .insight-column {
       grid-column: auto;
+      grid-template-columns: 1fr;
     }
   }
 
