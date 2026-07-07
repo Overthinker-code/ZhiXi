@@ -56,7 +56,6 @@
   const panStart = ref({ pointerX: 0, pointerY: 0, x: 0, y: 0 });
   const selectedLinkKey = ref('');
   const nodeStatuses = ref<Record<string, NodeStudyStatus>>({});
-  const expandedNodeIds = ref<Set<string>>(new Set(['course-root']));
 
   const course = computed(() => getClassroomCourse(String(route.params.courseId || '')));
   const maps = computed(() => (course.value ? buildCourseKnowledgeMaps(course.value) : []));
@@ -70,13 +69,13 @@
     '全部' as const,
     ...Array.from(new Set(activeMap.value?.links.map((link) => link.relation) || [])),
   ]);
-  const directNeighborIds = (nodeId: string, links: CourseKnowledgeMap['links']) => {
-    const ids = new Set<string>();
-    links.forEach((link) => {
-      if (link.source === nodeId) ids.add(link.target);
-      if (link.target === nodeId) ids.add(link.source);
-    });
-    return ids;
+  const relationPriority = (relation: string) => {
+    if (relation === '父子关系') return 5;
+    if (relation === '前后置关系') return 4;
+    if (relation === '关联关系') return 3;
+    if (relation === '资料支撑') return 2;
+    if (relation === '任务驱动') return 1;
+    return 0;
   };
   const visibleNodes = computed(() => {
     const map = activeMap.value;
@@ -86,22 +85,33 @@
       const ids = new Set<string>();
       const root = map.nodes.find((node) => node.id === 'course-root') || map.nodes[0];
       if (root) ids.add(root.id);
-      map.nodes.forEach((node) => {
-        if (node.weight >= 3) ids.add(node.id);
-      });
       const selectedId = selectedNodeId.value || root?.id;
-      if (selectedId) ids.add(selectedId);
-      const expandSources = new Set<string>([
-        selectedId,
-        ...Array.from(expandedNodeIds.value).filter((id) => id !== root?.id),
-      ].filter(Boolean) as string[]);
-      if (!selectedId || selectedId === root?.id) {
-        if (root) expandSources.add(root.id);
+      const isRootFocus = !selectedId || selectedId === root?.id;
+      if (isRootFocus) {
+        map.nodes.forEach((node) => {
+          if (node.weight >= 3) ids.add(node.id);
+        });
+      } else if (selectedId) {
+        ids.add(selectedId);
+        map.links
+          .filter((link) => link.source === selectedId || link.target === selectedId)
+          .sort(
+            (a, b) =>
+              relationPriority(b.relation) - relationPriority(a.relation) ||
+              (b.strength || 0) - (a.strength || 0)
+          )
+          .slice(0, 12)
+          .forEach((link) => {
+            ids.add(link.source);
+            ids.add(link.target);
+          });
+        if (ids.size < 7) {
+          map.nodes
+            .filter((node) => node.weight >= 3)
+            .slice(0, 7 - ids.size)
+            .forEach((node) => ids.add(node.id));
+        }
       }
-      expandSources.forEach((id) => {
-        ids.add(id);
-        directNeighborIds(id, map.links).forEach((neighborId) => ids.add(neighborId));
-      });
       return map.nodes.filter((node) => ids.has(node.id));
     }
     const matchIds = searchMatchNodeIds.value;
@@ -315,7 +325,8 @@
   const selectedNodeMisconceptions = computed(() => selectedNode.value?.misconceptions?.slice(0, 3) || []);
   const selectedNodeResources = computed(() => selectedNode.value?.resources?.slice(0, 4) || []);
   const canvasTransform = computed(
-    () => `translate(${canvasPan.value.x}px, ${canvasPan.value.y}px) scale(${canvasZoom.value})`
+    () =>
+      `translate(${480 + canvasPan.value.x} ${236 + canvasPan.value.y}) scale(${canvasZoom.value}) translate(-480 -236)`
   );
   const graphNodePositions = computed(() => {
     const map = activeMap.value;
@@ -327,7 +338,7 @@
     const rootId = root?.id;
     const selectedId = selected?.id || rootId;
     const isRootFocus = !selectedId || selectedId === rootId;
-    const center = { x: 470, y: 222 };
+    const center = { x: 480, y: 236 };
 
     if (isRootFocus) {
       if (root) positions.set(root.id, center);
@@ -336,64 +347,104 @@
       primaryNodes.forEach((node, index) => {
         const angle = -Math.PI / 2 + (Math.PI * 2 * index) / Math.max(primaryNodes.length, 1);
         positions.set(node.id, {
-          x: center.x + Math.cos(angle) * 260,
-          y: center.y + Math.sin(angle) * 145,
+          x: center.x + Math.cos(angle) * 305,
+          y: center.y + Math.sin(angle) * 168,
         });
       });
       secondaryNodes.forEach((node, index) => {
-        const col = index % 2;
-        const row = Math.floor(index / 2);
+        const colCount = Math.min(Math.max(secondaryNodes.length, 1), 4);
+        const col = index % colCount;
+        const row = Math.floor(index / colCount);
         positions.set(node.id, {
-          x: col ? 735 : 205,
-          y: 110 + row * 76,
+          x: 210 + col * 180,
+          y: 410 - row * 58,
         });
       });
       return positions;
     }
 
     if (selected) positions.set(selected.id, center);
-    if (root && root.id !== selectedId) positions.set(root.id, { x: 470, y: 62 });
+    if (root && root.id !== selectedId) positions.set(root.id, { x: 480, y: 92 });
 
     const selectedLinksInMap = map.links.filter(
-      (link) => link.source === selectedId || link.target === selectedId
+      (link) =>
+        visibleNodeIds.value.has(link.source) &&
+        visibleNodeIds.value.has(link.target) &&
+        (link.source === selectedId || link.target === selectedId)
     );
-    const incoming = selectedLinksInMap
-      .filter((link) => link.target === selectedId)
-      .map((link) => map.nodes.find((node) => node.id === link.source))
-      .filter(Boolean) as CourseKnowledgeNode[];
-    const outgoing = selectedLinksInMap
-      .filter((link) => link.source === selectedId)
-      .map((link) => map.nodes.find((node) => node.id === link.target))
-      .filter(Boolean) as CourseKnowledgeNode[];
-    const lateral = selectedLinksInMap
-      .filter((link) => link.source !== selectedId && link.target !== selectedId)
-      .flatMap((link) => [link.source, link.target])
-      .map((id) => map.nodes.find((node) => node.id === id))
-      .filter(Boolean) as CourseKnowledgeNode[];
+    const nodeById = (id: string) => map.nodes.find((node) => node.id === id);
+    const nodesFromLinks = (
+      predicate: (link: CourseKnowledgeMap['links'][number]) => boolean,
+      side: 'source' | 'target'
+    ) =>
+      selectedLinksInMap
+        .filter(predicate)
+        .sort(
+          (a, b) =>
+            relationPriority(b.relation) - relationPriority(a.relation) ||
+            (b.strength || 0) - (a.strength || 0)
+        )
+        .map((link) => nodeById(link[side]))
+        .filter(Boolean) as CourseKnowledgeNode[];
 
-    const placeColumn = (nodes: CourseKnowledgeNode[], x: number, startY = 124, gap = 74) => {
+    const incoming = nodesFromLinks((link) => link.target === selectedId, 'source');
+    const outgoing = nodesFromLinks((link) => link.source === selectedId, 'target');
+    const support = Array.from(
+      new Map(
+        [...incoming, ...outgoing]
+          .filter(
+            (node) =>
+              node.type === 'resource' ||
+              node.type === 'task' ||
+              node.type === 'ability' ||
+              selectedLinksInMap.some(
+                (link) =>
+                  (link.source === node.id || link.target === node.id) &&
+                  (link.relation === '资料支撑' || link.relation === '任务驱动')
+              )
+          )
+          .map((node) => [node.id, node])
+      ).values()
+    );
+    const supportIds = new Set(support.map((node) => node.id));
+    const leftNodes = incoming.filter((node) => !supportIds.has(node.id) && node.id !== rootId);
+    const rightNodes = outgoing.filter((node) => !supportIds.has(node.id) && node.id !== rootId);
+
+    const distribute = (count: number, start: number, end: number) => {
+      if (count <= 1) return [(start + end) / 2];
+      const step = (end - start) / (count - 1);
+      return Array.from({ length: count }, (_, index) => start + index * step);
+    };
+    const placeColumn = (nodes: CourseKnowledgeNode[], x: number, startY = 122, endY = 350) => {
       const unique = Array.from(new Map(nodes.map((node) => [node.id, node])).values())
         .filter((node) => visible.some((item) => item.id === node.id) && !positions.has(node.id));
-      const total = unique.length;
+      const ySlots = distribute(unique.length, startY, endY);
       unique.forEach((node, index) => {
-        const y = total <= 1 ? 222 : startY + index * gap;
-        positions.set(node.id, { x, y: Math.max(70, Math.min(394, y)) });
+        positions.set(node.id, { x, y: ySlots[index] });
+      });
+    };
+    const placeRail = (nodes: CourseKnowledgeNode[], y: number, startX = 245, endX = 715) => {
+      const unique = Array.from(new Map(nodes.map((node) => [node.id, node])).values())
+        .filter((node) => visible.some((item) => item.id === node.id) && !positions.has(node.id));
+      const xSlots = distribute(unique.length, startX, endX);
+      unique.forEach((node, index) => {
+        positions.set(node.id, { x: xSlots[index], y });
       });
     };
 
-    placeColumn(incoming, 210);
-    placeColumn(outgoing, 730);
-    placeColumn(lateral, 730);
+    placeColumn(leftNodes, 250);
+    placeColumn(rightNodes, 700);
+    placeRail(support, 398);
 
     const contextNodes = visible.filter((node) => !positions.has(node.id));
     contextNodes.forEach((node, index) => {
       const slots = [
-        { x: 160, y: 378 },
-        { x: 340, y: 378 },
-        { x: 600, y: 378 },
-        { x: 780, y: 378 },
-        { x: 160, y: 84 },
-        { x: 780, y: 84 },
+        { x: 255, y: 104 },
+        { x: 705, y: 104 },
+        { x: 255, y: 382 },
+        { x: 705, y: 382 },
+        { x: 120, y: 236 },
+        { x: 840, y: 236 },
       ];
       positions.set(node.id, slots[index % slots.length]);
     });
@@ -1079,14 +1130,14 @@
   }
 
   function nodeBoxWidth(node: CourseKnowledgeNode) {
-    if (node.weight >= 4) return 164;
-    if (node.weight >= 3) return 132;
-    if (node.type === 'resource' || node.type === 'task') return 116;
-    return 108;
+    if (node.weight >= 4) return 154;
+    if (node.weight >= 3) return 122;
+    if (node.type === 'resource' || node.type === 'task') return 102;
+    return 104;
   }
 
   function nodeBoxHeight(node: CourseKnowledgeNode) {
-    return node.weight >= 4 ? 58 : node.weight >= 3 ? 42 : 34;
+    return node.weight >= 4 ? 54 : node.weight >= 3 ? 38 : 32;
   }
 
   function nodeFill(node: CourseKnowledgeNode) {
@@ -1142,7 +1193,8 @@
   function selectNode(node: CourseKnowledgeNode) {
     selectedNodeId.value = node.id;
     selectedLinkKey.value = '';
-    expandedNodeIds.value = new Set([...expandedNodeIds.value, node.id]);
+    canvasZoom.value = Math.min(canvasZoom.value, 1.08);
+    canvasPan.value = { x: 0, y: 0 };
     persistSelectedNode();
   }
 
@@ -1160,7 +1212,6 @@
     activeRelation.value = '全部';
     selectedLinkKey.value = '';
     canvasPan.value = { x: 0, y: 0 };
-    expandedNodeIds.value = new Set();
   }
 
   function selectBranch(index: number) {
@@ -2204,7 +2255,6 @@
               >
                 <svg
                   class="map-canvas"
-                  :style="{ transform: canvasTransform }"
                   viewBox="40 0 880 460"
                   preserveAspectRatio="xMidYMin meet"
                   role="img"
@@ -2223,140 +2273,142 @@
                     </filter>
                   </defs>
 
-                  <g class="graph-links">
-                    <path
-                      v-for="link in visibleLinks"
-                      :key="`${link.source}-${link.target}-${link.relation}`"
-                      :d="linkPath(link)"
-                      :class="linkClass(link)"
-                      role="button"
-                      tabindex="0"
-                      @click.stop="selectLink(link)"
-                      @keydown.enter.stop="selectLink(link)"
-                      @keydown.space.prevent.stop="selectLink(link)"
-                    />
-                  </g>
+                  <g class="map-canvas-content" :transform="canvasTransform">
+                    <g class="graph-links">
+                      <path
+                        v-for="link in visibleLinks"
+                        :key="`${link.source}-${link.target}-${link.relation}`"
+                        :d="linkPath(link)"
+                        :class="linkClass(link)"
+                        role="button"
+                        tabindex="0"
+                        @click.stop="selectLink(link)"
+                        @keydown.enter.stop="selectLink(link)"
+                        @keydown.space.prevent.stop="selectLink(link)"
+                      />
+                    </g>
 
-                  <g
-                    v-for="node in visibleNodes"
-                    :key="node.id"
-                    :transform="`translate(${nodePosition(node).x - nodeBoxWidth(node) / 2} ${nodePosition(node).y - nodeBoxHeight(node) / 2})`"
-                    :class="nodeClass(node)"
-                    class="graph-node"
-                    tabindex="0"
-                    role="button"
-                    @click="selectNode(node)"
-                    @keydown.enter="selectNode(node)"
-                    @keydown.space.prevent="selectNode(node)"
-                  >
-                    <title>{{ node.label }} · {{ nodeSubtitle(node) }}</title>
-                    <rect
-                      class="node-body"
-                      :width="nodeBoxWidth(node)"
-                      :height="nodeBoxHeight(node)"
-                      :rx="node.weight >= 4 ? 18 : 12"
-                      :fill="nodeFill(node)"
-                      :stroke="nodeStroke(node)"
-                      :filter="node.weight >= 4 ? 'url(#graphRootShadow)' : 'url(#graphNodeShadow)'"
-                    />
-                    <rect
-                      v-if="node.weight < 4"
-                      class="node-track"
-                      x="16"
-                      :y="nodeBoxHeight(node) - 8"
-                      :width="nodeBoxWidth(node) - 32"
-                      height="3"
-                      rx="1.5"
-                    />
-                    <rect
-                      v-if="node.weight < 4"
-                      class="node-progress"
-                      x="16"
-                      :y="nodeBoxHeight(node) - 8"
-                      :width="(nodeBoxWidth(node) - 32) * ((node.mastery ?? course.progress) / 100)"
-                      height="3"
-                      rx="1.5"
-                      :fill="nodeStroke(node)"
-                    />
                     <g
-                      v-if="node.weight < 4"
-                      class="node-mastery-badge"
-                      :class="{
-                        hot: (node.mastery ?? course.progress) < 60,
-                        done: (node.mastery ?? course.progress) >= 80,
-                      }"
+                      v-for="node in visibleNodes"
+                      :key="node.id"
+                      :transform="`translate(${nodePosition(node).x - nodeBoxWidth(node) / 2} ${nodePosition(node).y - nodeBoxHeight(node) / 2})`"
+                      :class="nodeClass(node)"
+                      class="graph-node"
+                      tabindex="0"
+                      role="button"
+                      @click="selectNode(node)"
+                      @keydown.enter="selectNode(node)"
+                      @keydown.space.prevent="selectNode(node)"
                     >
+                      <title>{{ node.label }} · {{ nodeSubtitle(node) }}</title>
                       <rect
-                        :x="nodeBoxWidth(node) - 48"
-                        y="-10"
-                        width="42"
-                        height="20"
-                        rx="10"
+                        class="node-body"
+                        :width="nodeBoxWidth(node)"
+                        :height="nodeBoxHeight(node)"
+                        :rx="node.weight >= 4 ? 18 : 12"
+                        :fill="nodeFill(node)"
+                        :stroke="nodeStroke(node)"
+                        :filter="node.weight >= 4 ? 'url(#graphRootShadow)' : 'url(#graphNodeShadow)'"
+                      />
+                      <rect
+                        v-if="node.weight < 4"
+                        class="node-track"
+                        x="16"
+                        :y="nodeBoxHeight(node) - 8"
+                        :width="nodeBoxWidth(node) - 32"
+                        height="3"
+                        rx="1.5"
+                      />
+                      <rect
+                        v-if="node.weight < 4"
+                        class="node-progress"
+                        x="16"
+                        :y="nodeBoxHeight(node) - 8"
+                        :width="(nodeBoxWidth(node) - 32) * ((node.mastery ?? course.progress) / 100)"
+                        height="3"
+                        rx="1.5"
+                        :fill="nodeStroke(node)"
+                      />
+                      <g
+                        v-if="node.weight < 4"
+                        class="node-mastery-badge"
+                        :class="{
+                          hot: (node.mastery ?? course.progress) < 60,
+                          done: (node.mastery ?? course.progress) >= 80,
+                        }"
+                      >
+                        <rect
+                          :x="nodeBoxWidth(node) - 40"
+                          y="-8"
+                          width="34"
+                          height="16"
+                          rx="8"
+                        />
+                        <text
+                          :x="nodeBoxWidth(node) - 23"
+                          y="3"
+                          text-anchor="middle"
+                        >
+                          {{ node.mastery ?? course.progress }}%
+                        </text>
+                      </g>
+                      <g
+                        v-if="packageContext && packageTarget?.node.id === node.id"
+                        class="node-package-badge"
+                        :transform="`translate(${nodeBoxWidth(node) - 25} ${nodeBoxHeight(node) + 6})`"
+                      >
+                        <rect x="-30" y="-11" width="60" height="22" rx="11" />
+                        <text x="0" y="4" text-anchor="middle">资源包</text>
+                      </g>
+                      <g
+                        v-if="nodeStatuses[nodeStudyStatusKey(node)]"
+                        class="node-status-badges"
+                        :transform="`translate(14 ${nodeBoxHeight(node) + 10})`"
+                      >
+                        <circle
+                          v-if="nodeStatuses[nodeStudyStatusKey(node)]?.reviewed"
+                          cx="0"
+                          cy="0"
+                          r="5"
+                        />
+                        <circle
+                          v-if="nodeStatuses[nodeStudyStatusKey(node)]?.practice"
+                          cx="14"
+                          cy="0"
+                          r="5"
+                        />
+                        <circle
+                          v-if="nodeStatuses[nodeStudyStatusKey(node)]?.resource"
+                          cx="28"
+                          cy="0"
+                          r="5"
+                        />
+                      </g>
+                      <circle
+                        v-if="node.weight < 4"
+                        cx="17"
+                        :cy="nodeBoxHeight(node) / 2"
+                        r="4"
+                        :fill="nodeStroke(node)"
                       />
                       <text
-                        :x="nodeBoxWidth(node) - 27"
-                        y="4"
+                        :x="nodeBoxWidth(node) / 2 + (node.weight >= 4 ? 0 : 8)"
+                        :y="node.weight >= 4 ? 26 : nodeBoxHeight(node) / 2 - 1"
                         text-anchor="middle"
+                        :fill="nodeTextColor(node)"
                       >
-                        {{ node.mastery ?? course.progress }}%
+                        {{ shortNodeLabel(node.label, node.weight >= 4 ? 10 : 8) }}
+                      </text>
+                      <text
+                        v-if="node.weight >= 4"
+                        :x="nodeBoxWidth(node) / 2"
+                        y="43"
+                        text-anchor="middle"
+                        class="node-subtitle"
+                      >
+                        {{ nodeSubtitle(node) }}
                       </text>
                     </g>
-                    <g
-                      v-if="packageContext && packageTarget?.node.id === node.id"
-                      class="node-package-badge"
-                      :transform="`translate(${nodeBoxWidth(node) - 25} ${nodeBoxHeight(node) + 6})`"
-                    >
-                      <rect x="-30" y="-11" width="60" height="22" rx="11" />
-                      <text x="0" y="4" text-anchor="middle">资源包</text>
-                    </g>
-                    <g
-                      v-if="nodeStatuses[nodeStudyStatusKey(node)]"
-                      class="node-status-badges"
-                      :transform="`translate(14 ${nodeBoxHeight(node) + 10})`"
-                    >
-                      <circle
-                        v-if="nodeStatuses[nodeStudyStatusKey(node)]?.reviewed"
-                        cx="0"
-                        cy="0"
-                        r="5"
-                      />
-                      <circle
-                        v-if="nodeStatuses[nodeStudyStatusKey(node)]?.practice"
-                        cx="14"
-                        cy="0"
-                        r="5"
-                      />
-                      <circle
-                        v-if="nodeStatuses[nodeStudyStatusKey(node)]?.resource"
-                        cx="28"
-                        cy="0"
-                        r="5"
-                      />
-                    </g>
-                    <circle
-                      v-if="node.weight < 4"
-                      cx="17"
-                      :cy="nodeBoxHeight(node) / 2"
-                      r="4"
-                      :fill="nodeStroke(node)"
-                    />
-                    <text
-                      :x="nodeBoxWidth(node) / 2 + (node.weight >= 4 ? 0 : 8)"
-                      :y="node.weight >= 4 ? 26 : nodeBoxHeight(node) / 2 - 1"
-                      text-anchor="middle"
-                      :fill="nodeTextColor(node)"
-                    >
-                      {{ shortNodeLabel(node.label, node.weight >= 4 ? 10 : 8) }}
-                    </text>
-                    <text
-                      v-if="node.weight >= 4"
-                      :x="nodeBoxWidth(node) / 2"
-                      y="46"
-                      text-anchor="middle"
-                      class="node-subtitle"
-                    >
-                      {{ nodeSubtitle(node) }}
-                    </text>
                   </g>
                 </svg>
 
@@ -3198,7 +3250,7 @@
     stroke-width: 1.8;
     stroke-linecap: round;
     opacity: 0.82;
-    transition: opacity 0.16s ease, stroke 0.16s ease, stroke-width 0.16s ease;
+    transition: opacity 0.18s ease, stroke 0.18s ease, stroke-width 0.18s ease;
   }
 
   .graph-links .link-父子关系,
@@ -3219,7 +3271,7 @@
 
   .graph-links .selected {
     stroke: #3d70f2;
-    stroke-width: 3.4;
+    stroke-width: 3;
     opacity: 1;
   }
 
@@ -3230,11 +3282,11 @@
   .graph-node {
     cursor: pointer;
     outline: none;
-    transition: opacity 0.16s ease;
-    animation: graph-node-pop 180ms ease both;
+    transition: opacity 0.18s ease;
+    animation: graph-node-pop 160ms ease both;
 
     .node-body {
-      transition: transform 0.16s ease, filter 0.16s ease, stroke-width 0.16s ease;
+      transition: filter 0.18s ease, stroke-width 0.18s ease;
       transform-box: fill-box;
       transform-origin: center;
     }
@@ -3288,7 +3340,7 @@
     }
 
     text {
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 800;
       pointer-events: none;
     }
@@ -5647,7 +5699,7 @@
   }
 
   .graph-work-area .graph-links path {
-    stroke-width: 2.2;
+    stroke-width: 1.8;
     cursor: pointer;
     pointer-events: stroke;
   }
@@ -5655,7 +5707,7 @@
   .graph-work-area .graph-links .link-父子关系,
   .graph-work-area .graph-links .link-前后置关系 {
     stroke: #6d9fe8;
-    stroke-width: 3;
+    stroke-width: 2.4;
   }
 
   .graph-work-area .graph-links .link-关联关系 {
@@ -5664,23 +5716,23 @@
 
   .graph-work-area .graph-links .link-资料支撑 {
     stroke: #68bd91;
-    stroke-width: 2.6;
+    stroke-width: 2.2;
   }
 
   .graph-work-area .graph-links .link-任务驱动 {
     stroke: #e8a453;
-    stroke-width: 2.6;
+    stroke-width: 2.2;
   }
 
   .graph-work-area .graph-links .selected {
     stroke: #416df4;
-    stroke-width: 4;
+    stroke-width: 3.2;
   }
 
   .graph-work-area .graph-links .link-selected {
     stroke: #255fe8;
-    stroke-width: 5;
-    filter: drop-shadow(0 4px 6px rgba(47, 104, 223, 0.24));
+    stroke-width: 4;
+    filter: drop-shadow(0 4px 6px rgba(47, 104, 223, 0.18));
   }
 
   .graph-work-area .graph-links .search-muted {
@@ -5689,7 +5741,7 @@
 
   .graph-work-area .graph-node.selected .node-body {
     stroke: #355ff2;
-    stroke-width: 3.4;
+    stroke-width: 2.6;
   }
 
   .graph-work-area .graph-node.search-hit .node-body {
@@ -5724,11 +5776,11 @@
   }
 
   .canvas-orbit-tools {
+    display: none !important;
     position: absolute;
     top: 18px;
     right: 18px;
     z-index: 3;
-    display: grid;
     gap: 7px;
     padding: 8px;
     border: 1px solid rgba(205, 218, 240, 0.92);
@@ -5761,7 +5813,7 @@
     position: absolute;
     z-index: 2;
     width: min(282px, calc(100% - 24px));
-    display: grid;
+    display: none;
     gap: 10px;
     padding: 12px;
     border: 1px solid rgba(195, 209, 241, 0.92);
