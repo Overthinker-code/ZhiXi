@@ -1,23 +1,29 @@
 <template>
-  <ZyPageShell title="" max-width="1320px">
+  <ZyPageShell title="" max-width="1360px">
     <section class="course-hero">
       <div class="course-hero__bg" />
       <div class="course-hero__content">
         <div class="course-hero__text">
+          <span class="course-hero__eyebrow">我的学习空间</span>
           <h1>课程中心</h1>
-          <p>从课程进度、待学章节和资料证据出发，快速回到下一次学习。</p>
+          <p>按学习状态回到正在推进的课程，课程资料、AI 伴学和学习路径都从这里进入。</p>
           <div class="course-hero__metrics">
-            <span>全部课程 <strong>{{ totalCourses }}</strong></span>
-            <span>学习中 <strong>{{ learningCount }}</strong></span>
-            <span>推荐续学 <strong>数据库系统</strong></span>
+            <span><strong>{{ totalCourses }}</strong> 门课程</span>
+            <span><strong>{{ learningCount }}</strong> 门学习中</span>
+            <span><strong>{{ pagination.total || courses.length }}</strong> 门符合筛选</span>
           </div>
         </div>
         <div class="course-hero__resume">
-          <span>继续学习</span>
-          <strong>数据库系统原理</strong>
-          <small>第 3 章 ER 模型 · 已完成 58%</small>
+          <div>
+            <span>继续学习</span>
+            <strong>数据库系统原理</strong>
+            <small>第 3 章 ER 模型 · 已完成 58%</small>
+          </div>
+          <div class="resume-progress">
+            <i style="width: 58%" />
+          </div>
           <button type="button" @click="goToCourseDetail('c1111111-1111-4111-9111-111111111101')">
-            进入课程
+            继续学习
           </button>
         </div>
       </div>
@@ -27,7 +33,7 @@
       <div class="catalog-header">
         <div>
           <strong>我的课程</strong>
-          <span>按学习状态、课程类型和进度筛选</span>
+          <span>筛选课程后直接进入学习空间</span>
         </div>
         <div class="search-row">
           <a-input
@@ -47,24 +53,20 @@
         </div>
       </div>
 
-      <div class="category-tabs">
-        <button
-          v-for="category in categories"
-          :key="category"
-          type="button"
-          class="category-tab"
-          :class="{ 'category-tab--active': selectedCategory === category }"
-          @click="selectCategory(category)"
-        >
-          {{ category }}
-        </button>
-      </div>
-
-      <div class="list-toolbar">
-        <span class="list-toolbar__count">
-          共 <strong>{{ pagination.total || courses.length }}</strong> 门课程
-        </span>
-        <div class="list-toolbar__controls">
+      <div class="filter-panel">
+        <div class="category-tabs">
+          <button
+            v-for="category in categories"
+            :key="category"
+            type="button"
+            class="category-tab"
+            :class="{ 'category-tab--active': selectedCategory === category }"
+            @click="selectCategory(category)"
+          >
+            {{ category }}
+          </button>
+        </div>
+        <div class="filter-panel__selects">
           <a-select
             v-model="statusFilter"
             class="toolbar-select"
@@ -132,36 +134,41 @@
         <div class="empty-desc">尝试切换学院、学习状态或搜索关键词</div>
       </a-empty>
 
-      <div v-else class="course-directory">
+      <div v-else class="course-card-grid">
         <article
           v-for="course in displayCourses"
           :key="course.id"
-          class="course-row"
+          class="course-card"
           @click="goToCourseDetail(course.id)"
         >
-          <img :src="getCourseImage(course)" :alt="course.name" />
-          <div class="course-row__main">
-            <div class="course-row__title">
+          <div class="course-card__cover">
+            <img :src="getCourseImage(course)" :alt="course.name" />
+            <span>{{ course.course_type || '专业课程' }}</span>
+          </div>
+          <div class="course-card__body">
+            <div class="course-card__title">
               <strong>{{ course.name }}</strong>
-              <span>{{ course.course_type || '专业课程' }}</span>
+              <small>{{ courseProgressPercent(course) > 0 ? '学习中' : '未开始' }}</small>
             </div>
             <p>{{ course.description || '围绕课程核心概念、资料证据和学习任务持续推进。' }}</p>
-            <div class="course-row__meta">
+            <div class="course-card__meta">
               <span>{{ courseDepartment(course) }}</span>
               <span>{{ courseTeacher(course) }}</span>
               <span>{{ courseRating(course) }} 分</span>
             </div>
           </div>
-          <div class="course-row__progress">
-            <span>{{ courseProgressPercent(course) }}%</span>
+          <div class="course-card__footer">
+            <div class="course-card__progress">
+              <span>{{ courseProgressPercent(course) }}%</span>
+              <small>{{ courseProgressPercent(course) > 0 ? '已完成' : '待开始' }}</small>
+            </div>
             <div class="progress-track">
               <i :style="{ width: `${courseProgressPercent(course)}%` }" />
             </div>
-            <small>{{ courseProgressPercent(course) > 0 ? '继续学习' : '开始学习' }}</small>
+            <button type="button" @click.stop="goToCourseDetail(course.id)">
+              {{ courseProgressPercent(course) > 0 ? '继续学习' : '开始学习' }}
+            </button>
           </div>
-          <button type="button" @click.stop="goToCourseDetail(course.id)">
-            进入课程
-          </button>
         </article>
       </div>
 
@@ -429,34 +436,48 @@
   @brand: var(--zy-color-brand, #6366f1);
   @text-primary: var(--zy-color-text-primary, #0f172a);
   @text-secondary: var(--zy-color-text-secondary, #64748b);
-  @line: #e7eaf2;
+  @line: rgba(15, 23, 42, 0.08);
 
   .course-hero {
     position: relative;
-    min-height: 164px;
+    min-height: 154px;
     overflow: hidden;
-    border: 1px solid rgba(15, 23, 42, 0.06);
-    border-radius: 18px;
+    border: 1px solid @line;
+    border-radius: 22px;
     background: #fff;
-    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.045);
+    box-shadow: 0 16px 42px rgba(15, 23, 42, 0.045);
   }
 
   .course-hero__bg {
     position: absolute;
     inset: 0;
     background:
-      radial-gradient(circle at 82% 18%, rgba(99, 102, 241, 0.1), transparent 28%),
-      linear-gradient(135deg, #ffffff 0%, #f7f9ff 100%);
+      radial-gradient(circle at 86% 12%, rgba(99, 102, 241, 0.14), transparent 24%),
+      linear-gradient(135deg, #ffffff 0%, #f7f9ff 62%, #eef4ff 100%);
   }
 
   .course-hero__content {
     position: relative;
     display: flex;
-    min-height: 164px;
+    min-height: 154px;
     align-items: center;
     justify-content: space-between;
-    gap: 24px;
-    padding: 22px 28px;
+    gap: 28px;
+    padding: 22px 28px 22px 30px;
+  }
+
+  .course-hero__eyebrow {
+    display: inline-flex;
+    align-items: center;
+    min-height: 26px;
+    margin-bottom: 8px;
+    padding: 0 10px;
+    border: 1px solid rgba(99, 102, 241, 0.16);
+    border-radius: 999px;
+    color: @brand;
+    background: rgba(99, 102, 241, 0.06);
+    font-size: 12px;
+    font-weight: 700;
   }
 
   .course-hero__text {
@@ -464,14 +485,14 @@
       margin: 0;
       color: @text-primary;
       font-family: var(--zy-font-display);
-      font-size: 30px;
+      font-size: 32px;
       font-weight: 700;
       letter-spacing: 0;
     }
 
     p {
-      max-width: 560px;
-      margin: 9px 0 16px;
+      max-width: 620px;
+      margin: 9px 0 14px;
       color: @text-secondary;
       font-size: 15px;
       line-height: 1.6;
@@ -487,12 +508,12 @@
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      min-height: 30px;
-      padding: 0 11px;
-      border: 1px solid rgba(99, 102, 241, 0.12);
-      border-radius: 999px;
+      min-height: 28px;
+      padding: 0 10px;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      border-radius: 8px;
       color: @text-secondary;
-      background: rgba(255, 255, 255, 0.78);
+      background: rgba(255, 255, 255, 0.72);
       font-size: 12px;
       font-weight: 600;
     }
@@ -505,14 +526,14 @@
 
   .course-hero__resume {
     display: grid;
-    width: 300px;
-    flex: 0 0 300px;
-    gap: 6px;
-    padding: 18px;
-    border: 1px solid rgba(99, 102, 241, 0.12);
-    border-radius: 14px;
-    background: rgba(255, 255, 255, 0.82);
-    box-shadow: 0 10px 24px rgba(79, 70, 229, 0.07);
+    width: 330px;
+    flex: 0 0 330px;
+    gap: 10px;
+    padding: 16px;
+    border: 1px solid rgba(99, 102, 241, 0.14);
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 12px 30px rgba(79, 70, 229, 0.08);
 
     span {
       color: @brand;
@@ -535,7 +556,6 @@
     button {
       justify-self: start;
       height: 34px;
-      margin-top: 8px;
       padding: 0 14px;
       border: 0;
       border-radius: 999px;
@@ -549,6 +569,25 @@
         background: #4f46e5;
         transform: translateY(-1px);
       }
+
+      &:active {
+        transform: scale(0.98);
+      }
+    }
+  }
+
+  .resume-progress {
+    height: 7px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #edf0f7;
+
+    i {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #4f46e5, #60a5fa);
+      animation: progress-reveal 0.7s ease both;
     }
   }
 
@@ -558,14 +597,14 @@
     align-items: center;
     gap: 8px;
     overflow-x: auto;
-    padding: 2px 0 12px;
+    padding: 0;
   }
 
   .category-tab {
-    height: 38px;
-    padding: 0 17px;
+    height: 34px;
+    padding: 0 14px;
     border: 1px solid transparent;
-    border-radius: 9px;
+    border-radius: 999px;
     background: transparent;
     color: @text-secondary;
     cursor: pointer;
@@ -575,16 +614,16 @@
     white-space: nowrap;
 
     &:hover {
-      border-color: #dfe3f4;
+      border-color: rgba(99, 102, 241, 0.18);
       background: #fff;
       color: @brand;
     }
 
     &--active {
-      border-color: #cfd3ff;
-      background: #fff;
-      box-shadow: 0 2px 8px rgba(99, 102, 241, 0.08);
-      color: @brand;
+      border-color: transparent;
+      background: @brand;
+      box-shadow: 0 8px 18px rgba(79, 70, 229, 0.18);
+      color: #fff;
       font-weight: 600;
     }
   }
@@ -603,7 +642,7 @@
 
     strong {
       color: @text-primary;
-      font-size: 18px;
+      font-size: 20px;
     }
 
     span {
@@ -615,7 +654,7 @@
 
   .search-row {
     display: flex;
-    width: min(430px, 42vw);
+    width: min(440px, 42vw);
     flex: 0 0 auto;
     align-items: center;
   }
@@ -626,8 +665,8 @@
 
     :deep(.arco-input-wrapper) {
       height: 38px;
-      border-color: #dfe3ed;
-      border-radius: 9px 0 0 9px;
+      border-color: rgba(15, 23, 42, 0.08);
+      border-radius: 999px 0 0 999px;
       background: #fff;
       box-shadow: none;
 
@@ -643,58 +682,53 @@
     flex: 0 0 82px;
     margin-left: -1px;
     border-color: @brand !important;
-    border-radius: 0 9px 9px 0;
+    border-radius: 0 999px 999px 0;
     background: @brand !important;
     font-weight: 600;
   }
 
   .course-catalog {
-    padding: 18px 18px 16px;
+    padding: 18px;
     border: 1px solid @line;
-    border-radius: 18px;
+    border-radius: 22px;
     background: #fff;
-    box-shadow: 0 6px 20px rgba(15, 23, 42, 0.045);
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.045);
   }
 
-  .list-toolbar {
+  .filter-panel {
     display: flex;
-    min-height: 38px;
+    min-height: 48px;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
-    margin-bottom: 12px;
+    gap: 14px;
+    margin-bottom: 16px;
+    padding: 7px;
+    border: 1px solid rgba(15, 23, 42, 0.06);
+    border-radius: 16px;
+    background: #f8faff;
+  }
 
-    &__count {
-      color: @text-secondary;
-      font-size: 14px;
-
-      strong {
-        color: @text-primary;
-        font-weight: 600;
-      }
-    }
-
-    &__controls {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
+  .filter-panel__selects {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 8px;
   }
 
   :deep(.toolbar-select.arco-select) {
-    width: 120px;
-    flex: 0 0 120px;
+    width: 112px;
+    flex: 0 0 112px;
   }
 
   :deep(.toolbar-select--sort.arco-select) {
-    width: 142px;
-    flex-basis: 142px;
+    width: 132px;
+    flex-basis: 132px;
   }
 
   :deep(.toolbar-select.arco-select .arco-select-view) {
-    height: 36px;
+    height: 34px;
     border-color: #e0e4ed;
-    border-radius: 8px;
+    border-radius: 999px;
     background: #fff;
     color: #475569;
     box-shadow: none;
@@ -722,104 +756,119 @@
     padding: 14px 16px 18px;
   }
 
-  .course-directory {
+  .course-card-grid {
     display: grid;
-    gap: 10px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
   }
 
-  .course-row {
-    display: grid;
-    grid-template-columns: 180px minmax(0, 1fr) 150px auto;
-    gap: 18px;
-    align-items: center;
-    min-height: 128px;
-    padding: 12px;
-    border: 1px solid #e7eaf2;
-    border-radius: 16px;
+  .course-card {
+    overflow: hidden;
+    display: flex;
+    min-width: 0;
+    min-height: 302px;
+    flex-direction: column;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 18px;
     background: #fff;
     cursor: pointer;
-    transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.035);
+    transition:
+      border-color 180ms ease,
+      box-shadow 180ms ease,
+      transform 180ms ease;
+    animation: course-card-enter 0.24s ease both;
 
     &:hover {
       border-color: rgba(99, 102, 241, 0.26);
-      box-shadow: 0 12px 28px rgba(15, 23, 42, 0.07);
-      transform: translateY(-1px);
+      box-shadow: 0 16px 34px rgba(15, 23, 42, 0.08);
+      transform: translateY(-2px);
     }
+  }
 
-    > img {
+  .course-card__cover {
+    position: relative;
+    overflow: hidden;
+    height: 136px;
+    background: #eef2ff;
+
+    img {
       width: 100%;
-      height: 104px;
-      border-radius: 12px;
+      height: 100%;
       object-fit: cover;
-      background: #eef2ff;
-    }
-
-    > button {
-      height: 38px;
-      padding: 0 16px;
-      border: 0;
-      border-radius: 999px;
-      color: #fff;
-      background: @brand;
-      font-weight: 700;
-      cursor: pointer;
-      transition: transform 150ms ease, background 150ms ease;
-
-      &:hover {
-        background: #4f46e5;
-      }
-
-      &:active {
-        transform: scale(0.98);
-      }
-    }
-  }
-
-  .course-row__main {
-    min-width: 0;
-
-    p {
-      display: -webkit-box;
-      margin: 8px 0 10px;
-      overflow: hidden;
-      color: @text-secondary;
-      font-size: 13px;
-      line-height: 1.6;
-      -webkit-box-orient: vertical;
-      -webkit-line-clamp: 2;
-    }
-  }
-
-  .course-row__title {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-width: 0;
-
-    strong {
-      overflow: hidden;
-      color: @text-primary;
-      font-size: 17px;
-      font-weight: 700;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      transition: transform 300ms ease;
     }
 
     span {
-      flex: 0 0 auto;
-      padding: 4px 9px;
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      padding: 5px 9px;
+      border: 1px solid rgba(255, 255, 255, 0.72);
       border-radius: 999px;
-      color: @brand;
-      background: #eef2ff;
+      color: #fff;
+      background: rgba(15, 23, 42, 0.48);
+      backdrop-filter: blur(8px);
       font-size: 11px;
       font-weight: 700;
     }
   }
 
-  .course-row__meta {
+  .course-card:hover .course-card__cover img {
+    transform: scale(1.035);
+  }
+
+  .course-card__body {
+    min-width: 0;
+    padding: 15px 16px 10px;
+    flex: 1;
+  }
+
+  .course-card__title {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 0;
+
+    strong {
+      display: -webkit-box;
+      overflow: hidden;
+      color: @text-primary;
+      font-size: 17px;
+      font-weight: 750;
+      line-height: 1.35;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+    }
+
+    small {
+      flex: 0 0 auto;
+      padding: 4px 8px;
+      border-radius: 999px;
+      color: @brand;
+      background: #eef2ff;
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+  }
+
+  .course-card__body p {
+    display: -webkit-box;
+    margin: 9px 0 12px;
+    overflow: hidden;
+    color: @text-secondary;
+    font-size: 13px;
+    line-height: 1.6;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .course-card__meta {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 7px;
 
     span {
       color: #667085;
@@ -838,10 +887,36 @@
     }
   }
 
-  .course-row__progress {
+  .course-card__footer {
     display: grid;
-    gap: 7px;
-    min-width: 0;
+    gap: 10px;
+    padding: 0 16px 16px;
+
+    button {
+      height: 38px;
+      border: 0;
+      border-radius: 999px;
+      color: #fff;
+      background: @brand;
+      cursor: pointer;
+      font-weight: 700;
+      transition: transform 150ms ease, background 150ms ease;
+
+      &:hover {
+        background: #4f46e5;
+      }
+
+      &:active {
+        transform: scale(0.98);
+      }
+    }
+  }
+
+  .course-card__progress {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
 
     span {
       color: @text-primary;
@@ -868,6 +943,7 @@
       height: 100%;
       border-radius: inherit;
       background: linear-gradient(90deg, #6366f1, #60a5fa);
+      animation: progress-reveal 0.7s ease both;
     }
   }
 
@@ -926,21 +1002,42 @@
     .skeleton-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+  }
 
-    .course-row {
-      grid-template-columns: 150px minmax(0, 1fr) 130px;
+  @media (max-width: 920px) {
+    .course-hero__content {
+      align-items: stretch;
+      flex-direction: column;
+    }
 
-      > button {
-        grid-column: 2 / 4;
-        justify-self: start;
-      }
+    .course-hero__resume {
+      width: auto;
+      flex-basis: auto;
     }
   }
 
   @media (max-width: 760px) {
+    .filter-panel {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .filter-panel__selects {
+      flex-wrap: wrap;
+    }
+
+    .course-card-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    :deep(.toolbar-select.arco-select),
+    :deep(.toolbar-select--sort.arco-select) {
+      min-width: 120px;
+      flex: 1 1 120px;
+    }
+
     .course-hero__content {
       min-height: 230px;
-      align-items: flex-start;
       padding: 26px 22px;
     }
 
@@ -948,43 +1045,14 @@
       font-size: 28px;
     }
 
-    .list-toolbar {
-      align-items: flex-start;
-      flex-direction: column;
-    }
-
-    .list-toolbar__controls {
-      width: 100%;
-      flex-wrap: wrap;
-    }
-
-    :deep(.toolbar-select.arco-select) {
-      min-width: 120px;
-      flex: 1 1 120px;
-    }
-
     .skeleton-grid {
       grid-template-columns: 1fr;
     }
+  }
 
-    .course-row {
+  @media (max-width: 620px) {
+    .course-card-grid {
       grid-template-columns: 1fr;
-      gap: 12px;
-
-      > img {
-        height: 150px;
-      }
-
-      > button {
-        grid-column: auto;
-        justify-self: stretch;
-      }
-    }
-
-    .course-row__title {
-      align-items: flex-start;
-      flex-direction: column;
-      gap: 6px;
     }
   }
 
@@ -995,6 +1063,44 @@
 
     .course-catalog {
       padding: 12px;
+    }
+  }
+
+  @keyframes course-card-enter {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes progress-reveal {
+    from {
+      transform: scaleX(0);
+    }
+
+    to {
+      transform: scaleX(1);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .course-card,
+    .course-card__cover img,
+    .progress-track i,
+    .resume-progress i {
+      animation: none;
+      transition: none;
+    }
+
+    .course-card:hover,
+    .course-card:hover .course-card__cover img,
+    .course-hero__resume button:hover {
+      transform: none;
     }
   }
 </style>
