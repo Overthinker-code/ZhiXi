@@ -21,7 +21,6 @@
   import {
     fetchRecentGeneratedPackages,
     type RecentGeneratedPackage,
-    type ResourceKind,
   } from '@/api/resource-generation';
   import { getToken } from '@/utils/auth';
   import axios from 'axios';
@@ -32,9 +31,9 @@
   const activeType = ref<'全部' | CourseResourceItem['type']>('全部');
   const recentPackages = ref<RecentGeneratedPackage[]>([]);
   const loadingRecentPackages = ref(false);
-  const activeMissionResourceId = ref('');
   const selectedResourceId = ref('');
   const resourceDrawerVisible = ref(false);
+  const resourceToolDrawerVisible = ref(false);
   const showAllResources = ref(false);
   const defaultResourcePreviewCount = 6;
   const aiTrialLimit = 3;
@@ -82,9 +81,6 @@
   const aiTrialRemaining = computed(() =>
     Math.max(aiTrialLimit - aiTrialUsed.value, 0)
   );
-  const aiTrialPercent = computed(() =>
-    Math.min((aiTrialUsed.value / aiTrialLimit) * 100, 100)
-  );
   const completedChapterCount = computed(
     () =>
       course.value?.chapters.filter((chapter) =>
@@ -130,23 +126,6 @@
       label: '质量核查',
       value: '目标 / 证据 / 产物',
       desc: '导出文件包含可检查的学习交付标准',
-    },
-  ]);
-  const aiGenerationValue = computed(() => [
-    {
-      label: '生成内容',
-      value: '讲义 + 练习 + 导图',
-      desc: '生成成功后写入课程资料页和图谱核验入口',
-    },
-    {
-      label: '课程绑定',
-      value: `${course.value?.chapters.length || 0} 章上下文`,
-      desc: '自动带入章节、知识点和交付标准',
-    },
-    {
-      label: '节省时间',
-      value: '约 30 分钟 / 次',
-      desc: '减少重复整理，把时间留给讲评和追问',
     },
   ]);
   const resourceCoverageStats = computed(() => {
@@ -238,38 +217,6 @@
     return '本周复习推荐';
   }
 
-  function resourceMissionScore(item: CourseResourceItem) {
-    const lesson = relatedLesson(item);
-    const concept = relatedConcept(item);
-    return (
-      (lesson?.status === 'done' ? 8 : 24) +
-      (concept?.misconceptions?.length || 0) * 5 +
-      (item.type.includes('练习') ? 10 : 0) +
-      Math.max(0, 80 - item.downloads) / 10
-    );
-  }
-
-  const recommendedResource = computed(() => {
-    const candidates = visibleResources.value.length
-      ? visibleResources.value
-      : resources.value;
-    return [...candidates].sort(
-      (a, b) => resourceMissionScore(b) - resourceMissionScore(a)
-    )[0];
-  });
-
-  const activeMissionResource = computed(() => {
-    const active = resources.value.find(
-      (item) => item.id === activeMissionResourceId.value
-    );
-    return active || recommendedResource.value;
-  });
-
-  const activeMissionPlan = computed(() =>
-    activeMissionResource.value
-      ? resourcePlan(activeMissionResource.value)
-      : undefined
-  );
   const selectedResource = computed(() => {
     const active = resources.value.find((item) => item.id === selectedResourceId.value);
     return active || visibleResources.value[0] || resources.value[0] || undefined;
@@ -277,90 +224,6 @@
   const selectedResourcePlan = computed(() =>
     selectedResource.value ? resourcePlan(selectedResource.value) : undefined
   );
-
-  const missionReasons = computed(() => {
-    const item = activeMissionResource.value;
-    const plan = activeMissionPlan.value;
-    if (!item || !plan) return [];
-    const concept = plan.concept;
-    return [
-      resourceLearningStatus(item),
-      concept?.misconceptions?.[0]
-        ? `需要澄清：${concept.misconceptions[0]}`
-        : `重点补齐：${plan.graphNodes[0]}`,
-      `已绑定 ${plan.graphNodes.length} 个图谱节点`,
-    ];
-  });
-
-  const missionSteps = computed(() => {
-    const item = activeMissionResource.value;
-    const plan = activeMissionPlan.value;
-    if (!item || !plan) return [];
-    return [
-      {
-        key: 'read',
-        title: '阅读定位',
-        desc: plan.tasks[0],
-        action: '生成学习包',
-        handler: () => downloadResourceBrief(item),
-      },
-      {
-        key: 'practice',
-        title: '配套练习',
-        desc: plan.tasks[2] || '完成自测题并记录错因。',
-        action: aiTrialRemaining.value ? '生成追练包' : '查看额度',
-        handler: () => generateResourceMaterials(item),
-      },
-      {
-        key: 'ask',
-        title: 'AI 追问',
-        desc: plan.prompts[0],
-        action: '打开资料助手',
-        handler: () => askAboutResource(item),
-      },
-      {
-        key: 'graph',
-        title: '图谱核验',
-        desc: `回到课程图谱确认 ${plan.graphNodes.slice(0, 2).join('、')} 的关系。`,
-        action: '定位图谱',
-        handler: () => locateResourceInGraph(item),
-      },
-    ];
-  });
-
-  const materialReviewPreview = computed(() => {
-    const item = activeMissionResource.value;
-    const plan = activeMissionPlan.value;
-    if (!item || !plan) return [];
-    return [
-      {
-        title: '讲义结构',
-        value: `${item.chapter} / ${plan.concept?.title || plan.lesson?.title || item.title}`,
-        desc: '先讲定义边界，再放课堂证据和误区订正。',
-      },
-      {
-        title: '练习设计',
-        value: `${plan.tasks.length} 项任务`,
-        desc: '阅读标注、自测、错因追问和二次复盘都有明确交付。',
-      },
-      {
-        title: '图谱回流',
-        value: plan.graphNodes.slice(0, 3).join(' / '),
-        desc: '生成后可携带资源 ID、节点 ID 和主题回到图谱核验。',
-      },
-      {
-        title: '文件审查',
-        value: 'Markdown / PDF / 导图',
-        desc: '下载包内置质量清单，便于检查排版、证据和下一步行动。',
-      },
-    ];
-  });
-
-  function activateResourceMission(item: CourseResourceItem) {
-    activeMissionResourceId.value = item.id;
-    const board = document.querySelector('.resource-mission-board');
-    board?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
 
   function selectResource(item: CourseResourceItem, openDrawer = false) {
     selectedResourceId.value = item.id;
@@ -561,12 +424,6 @@
     });
   }
 
-  function formatFileSize(size: number) {
-    if (!Number.isFinite(size) || size <= 0) return '0 KB';
-    if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
-    return `${(size / 1024 / 1024).toFixed(1)} MB`;
-  }
-
   type GeneratedPackageArtifact = RecentGeneratedPackage['artifacts'][number];
 
   function generatedArtifactFileId(
@@ -575,21 +432,6 @@
   ) {
     if (!artifact?.file_name) return '';
     return `${pkg.package_id}/${artifact.file_name}`;
-  }
-
-  function artifactKindLabel(kind?: ResourceKind) {
-    const map: Record<ResourceKind, string> = {
-      lecture_markdown: '讲义',
-      lecture_pdf: '讲义 PDF',
-      practice_markdown: '练习',
-      practice_pdf: '练习 PDF',
-      mind_map: '思维导图',
-      reading_list: '阅读清单',
-      case_project: '案例项目',
-      video_script: '数字人脚本',
-      quality_checklist: '审查清单',
-    };
-    return kind ? map[kind] || kind : '资料';
   }
 
   async function downloadGeneratedArtifact(
@@ -704,158 +546,17 @@
         <h1>课程资料</h1>
         <p>按章节整理课件、讲义、案例和练习；查看详情后可下载学习包、生成配套或定位图谱。</p>
       </div>
-      <button type="button" @click="openGenerator()">
-        <icon-robot />
-        <span>生成资料</span>
-      </button>
+      <div class="resource-heading__actions">
+        <button type="button" class="ghost" @click="resourceToolDrawerVisible = true">
+          <icon-storage />
+          <span>资料工具</span>
+        </button>
+        <button type="button" @click="openGenerator()">
+          <icon-robot />
+          <span>生成资料</span>
+        </button>
+      </div>
     </header>
-
-    <section class="ai-credit-panel" aria-label="AI 生成试用额度">
-      <div class="ai-credit-panel__main">
-        <span class="ai-credit-panel__eyebrow">AI GENERATION TRIAL</span>
-        <h2>
-          {{
-            aiTrialRemaining
-              ? `剩余 ${aiTrialRemaining} 次试用生成`
-              : '试用额度已用完'
-          }}
-        </h2>
-        <p
-          >优先把高价值资料生成动作交给
-          AI：讲义、练习、笔记骨架和知识卡会带上当前课程上下文。</p
-        >
-        <div class="ai-credit-meter" aria-hidden="true">
-          <i :style="{ width: `${aiTrialPercent}%` }" />
-        </div>
-        <small
-          >已生成 {{ aiTrialUsed }}/{{
-            aiTrialLimit
-          }}，生成成功后计入本地历史。</small
-        >
-      </div>
-      <div class="ai-credit-panel__value">
-        <article v-for="item in aiGenerationValue" :key="item.label">
-          <strong>{{ item.value }}</strong>
-          <span>{{ item.label }}</span>
-          <small>{{ item.desc }}</small>
-        </article>
-      </div>
-      <div class="ai-credit-panel__actions">
-        <button type="button" @click="openGenerator('课程资源生成')">
-          <icon-robot />
-          {{ aiTrialRemaining ? '进入生成工坊' : '查看升级提示' }}
-        </button>
-        <button type="button" @click="showUpgradePrompt">升级后批量生成</button>
-      </div>
-    </section>
-
-    <section
-      v-if="activeMissionResource"
-      class="mobile-resource-action-strip"
-      aria-label="移动端资料闭环快捷操作"
-    >
-      <div>
-        <span>当前资料</span>
-        <strong>{{ activeMissionResource.title }}</strong>
-        <small>{{ activeMissionResource.chapter }} · {{ resourceLearningStatus(activeMissionResource) }}</small>
-      </div>
-      <div>
-        <button type="button" @click="downloadResourceBrief(activeMissionResource)">
-          <icon-download />
-          学习包
-        </button>
-        <button type="button" @click="locateResourceInGraph(activeMissionResource)">
-          <icon-mind-mapping />
-          图谱
-        </button>
-        <button type="button" @click="askAboutResource(activeMissionResource)">
-          <icon-robot />
-          提问
-        </button>
-        <button type="button" @click="generateResourceMaterials(activeMissionResource)">
-          <icon-bulb />
-          生成
-        </button>
-      </div>
-    </section>
-
-    <section
-      v-if="activeMissionResource && activeMissionPlan"
-      class="resource-mission-board"
-      aria-label="今日个性化学习闭环"
-    >
-      <div class="mission-brief">
-        <span class="mission-brief__eyebrow">PERSONAL STUDY LOOP</span>
-        <div class="mission-brief__title">
-          <div>
-            <h2>今日个性化学习闭环</h2>
-            <p
-              >根据当前筛选、课节进度和资料图谱关系，优先完成一份能产生真实交付的学习资料。</p
-            >
-          </div>
-          <strong>{{ resourceLearningStatus(activeMissionResource) }}</strong>
-        </div>
-        <div class="mission-resource-card">
-          <div>
-            <small>推荐资料</small>
-            <h3>{{ activeMissionResource.title }}</h3>
-            <p>{{ activeMissionResource.chapter }} · {{ activeMissionResource.type }}</p>
-          </div>
-          <button type="button" @click="generateResourceMaterials(activeMissionResource)">
-            <icon-robot />
-            {{ aiTrialRemaining ? '生成配套资料' : '查看生成额度' }}
-          </button>
-        </div>
-        <div class="mission-reasons">
-          <span v-for="reason in missionReasons" :key="reason">{{ reason }}</span>
-        </div>
-        <div class="mission-stats">
-          <article v-for="item in resourceCoverageStats" :key="item.label">
-            <strong>{{ item.value }}</strong>
-            <span>{{ item.label }}</span>
-            <small>{{ item.desc }}</small>
-          </article>
-        </div>
-      </div>
-
-      <div class="mission-workflow">
-        <div class="mission-workflow__head">
-          <div>
-            <span>4-STEP EXECUTION</span>
-            <h3>读资料、做练习、问 AI、回图谱</h3>
-          </div>
-          <button type="button" @click="downloadResourceBrief(activeMissionResource)">
-            <icon-download />
-            下载学习包
-          </button>
-        </div>
-        <div class="mission-steps">
-          <article v-for="(step, index) in missionSteps" :key="step.key">
-            <b>{{ String(index + 1).padStart(2, '0') }}</b>
-            <div>
-              <strong>{{ step.title }}</strong>
-              <p>{{ step.desc }}</p>
-            </div>
-            <button type="button" @click="step.handler()">{{ step.action }}</button>
-          </article>
-        </div>
-      </div>
-
-      <div class="material-review-preview">
-        <div class="material-review-preview__head">
-          <span>MATERIAL REVIEW</span>
-          <h3>资料审查预览</h3>
-          <p>生成或下载前先确认目标、内容结构、图谱回流和文件形态。</p>
-        </div>
-        <div class="review-preview-grid">
-          <article v-for="item in materialReviewPreview" :key="item.title">
-            <span>{{ item.title }}</span>
-            <strong>{{ item.value }}</strong>
-            <small>{{ item.desc }}</small>
-          </article>
-        </div>
-      </div>
-    </section>
 
     <div class="resource-overview">
       <article>
@@ -887,136 +588,6 @@
         >
       </article>
     </div>
-
-    <section class="resource-flow">
-      <div>
-        <span>RESOURCE TO GRAPH</span>
-        <h2>把资料接入课程图谱</h2>
-        <p
-          >把章节资料、作业任务和讨论节点统一放进学习路径里，下载、追问、生成和图谱复盘形成同一条闭环。</p
-        >
-      </div>
-      <div class="flow-steps">
-        <button type="button" @click="openKnowledgeMap">
-          <icon-mind-mapping />
-          <strong>查看课程图谱</strong>
-          <small>知识 / 问题 / 能力 / 目标</small>
-        </button>
-        <button type="button" @click="openGenerator('图谱资源生成')">
-          <icon-robot />
-          <strong>{{
-            aiTrialRemaining ? '生成图谱资源' : '升级生成资源'
-          }}</strong>
-          <small>{{
-            aiTrialRemaining ? '生成成功后回流资料页' : '额度用完，查看升级提示'
-          }}</small>
-        </button>
-        <button
-          type="button"
-          @click="askAboutResource(resources[0])"
-          :disabled="!resources[0]"
-        >
-          <icon-file />
-          <strong>资料助手问答</strong>
-          <small>基于当前课程资料追问</small>
-        </button>
-      </div>
-    </section>
-
-    <section class="quality-strip" aria-label="课程资料质量标准">
-      <article v-for="item in resourceQuality" :key="item.label">
-        <icon-bulb />
-        <div>
-          <strong>{{ item.label }}</strong>
-          <span>{{ item.value }}</span>
-          <small>{{ item.desc }}</small>
-        </div>
-      </article>
-    </section>
-
-    <section class="generated-package-panel" aria-label="最近生成资源包">
-      <div class="generated-package-head">
-        <div>
-          <span>GENERATED ASSETS</span>
-          <h2>最近生成资源包</h2>
-          <p
-            >真实生成的讲义、练习、导图和审查清单会沉淀到这里，并可回到图谱核验。</p
-          >
-        </div>
-        <button type="button" :disabled="loadingRecentPackages" @click="loadRecentPackages">
-          {{ loadingRecentPackages ? '同步中...' : '刷新生成记录' }}
-        </button>
-      </div>
-
-      <div v-if="generatedPackagesForCourse.length" class="generated-package-grid">
-        <article
-          v-for="pkg in generatedPackagesForCourse.slice(0, 4)"
-          :key="pkg.package_id"
-          class="generated-package-card"
-        >
-          <div class="generated-package-top">
-            <span>AI 生成包</span>
-            <small>{{ generatedPackageLabel(pkg) }}</small>
-          </div>
-          <h3>{{ pkg.topic }}</h3>
-          <p>{{ pkg.subject }} · {{ pkg.node_label || pkg.resource_id || pkg.package_id }}</p>
-          <div class="generated-trust-tags">
-            <span>本地生成</span>
-            <span>质量清单</span>
-            <span>{{ pkg.node_id ? '图谱已绑定' : '待图谱核验' }}</span>
-          </div>
-          <div class="generated-package-stats">
-            <article>
-              <strong>{{ pkg.artifacts.length }}</strong>
-              <span>文件</span>
-            </article>
-            <article>
-              <strong>{{
-                formatFileSize(
-                  pkg.artifacts.reduce((sum, artifact) => sum + artifact.file_size, 0)
-                )
-              }}</strong>
-              <span>总大小</span>
-            </article>
-            <article>
-              <strong>闭环</strong>
-              <span>资料 + 图谱</span>
-            </article>
-          </div>
-          <div class="generated-artifact-list">
-            <button
-              v-for="artifact in pkg.artifacts.slice(0, 4)"
-              :key="`${pkg.package_id}-${artifact.file_name}`"
-              type="button"
-              @click="downloadGeneratedArtifact(pkg, artifact)"
-            >
-              <span>{{ artifactKindLabel(artifact.kind) }}</span>
-              <b>{{ artifact.title || artifact.file_name }}</b>
-              <small>{{ formatFileSize(artifact.file_size) }}</small>
-            </button>
-          </div>
-          <div class="generated-package-actions">
-            <button type="button" @click="downloadGeneratedArtifact(pkg)">
-              <icon-download /> 下载首个文件
-            </button>
-            <button type="button" @click="askAboutGeneratedPackage(pkg)">
-              <icon-robot /> 资料复核
-            </button>
-            <button type="button" @click="auditGeneratedPackageInGraph(pkg)">
-              <icon-mind-mapping /> 图谱核验
-            </button>
-          </div>
-        </article>
-      </div>
-      <div v-else class="generated-package-empty">
-        <span><icon-storage /></span>
-        <div>
-          <strong>还没有生成资源包回流</strong>
-          <p>建议先围绕“{{ activeMissionResource?.title || course.title }}”生成第一份讲义、练习和图谱核验包。</p>
-        </div>
-        <button type="button" @click="openGenerator('课程资料回流生成')">现在生成</button>
-      </div>
-    </section>
 
     <section class="resource-library-shell" aria-label="课程资料库">
       <div class="resource-library-main">
@@ -1074,14 +645,6 @@
               <span>课程组审核</span>
               <span>v{{ resourceIndex(item) + 1 }}.{{ item.downloads % 10 }}</span>
               <span>{{ resourceLearningStatus(item) }}</span>
-            </div>
-            <div class="resource-actions">
-              <button type="button" class="primary" @click.stop="selectResource(item, true)">
-                <icon-check-circle /> 详情
-              </button>
-              <button type="button" @click.stop="downloadResourceBrief(item)">
-                <icon-download /> 学习包
-              </button>
             </div>
           </article>
         </div>
@@ -1195,6 +758,122 @@
         </div>
       </div>
     </a-drawer>
+
+    <a-drawer
+      v-model:visible="resourceToolDrawerVisible"
+      :width="420"
+      :footer="false"
+      placement="right"
+      unmount-on-close
+    >
+      <template #title>资料工具</template>
+      <div class="resource-tool-drawer">
+        <section class="tool-section">
+          <div class="tool-section__head">
+            <span>闭环操作</span>
+            <p>把当前资料接到生成、问答和图谱核验。</p>
+          </div>
+          <div class="tool-action-grid">
+            <button type="button" @click="openGenerator('课程资料生成')">
+              <icon-robot />
+              <strong>生成配套资料</strong>
+              <small>讲义、练习、导图</small>
+            </button>
+            <button type="button" @click="openKnowledgeMap">
+              <icon-mind-mapping />
+              <strong>查看课程图谱</strong>
+              <small>定位知识节点</small>
+            </button>
+            <button
+              type="button"
+              :disabled="!selectedResource"
+              @click="selectedResource && askAboutResource(selectedResource)"
+            >
+              <icon-file />
+              <strong>资料问答</strong>
+              <small>基于当前资料追问</small>
+            </button>
+            <button
+              type="button"
+              :disabled="!selectedResource"
+              @click="selectedResource && locateResourceInGraph(selectedResource)"
+            >
+              <icon-check-circle />
+              <strong>同步图谱</strong>
+              <small>带上资料上下文</small>
+            </button>
+          </div>
+        </section>
+
+        <section class="tool-section">
+          <div class="tool-section__head">
+            <span>资料状态</span>
+            <p>只展示影响学习决策的关键指标。</p>
+          </div>
+          <div class="tool-stat-grid">
+            <article v-for="item in resourceCoverageStats" :key="item.label">
+              <strong>{{ item.value }}</strong>
+              <span>{{ item.label }}</span>
+            </article>
+          </div>
+        </section>
+
+        <section class="tool-section">
+          <div class="tool-section__head">
+            <span>质量标准</span>
+            <p>资料进入学习路径前应满足这些条件。</p>
+          </div>
+          <div class="tool-quality-list">
+            <article v-for="item in resourceQuality" :key="item.label">
+              <icon-bulb />
+              <div>
+                <strong>{{ item.label }}</strong>
+                <span>{{ item.value }}</span>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="tool-section">
+          <div class="tool-section__head tool-section__head--row">
+            <div>
+              <span>生成记录</span>
+              <p>资源包会沉淀到资料库，并可回到图谱核验。</p>
+            </div>
+            <button type="button" :disabled="loadingRecentPackages" @click="loadRecentPackages">
+              {{ loadingRecentPackages ? '同步中' : '刷新' }}
+            </button>
+          </div>
+          <div v-if="generatedPackagesForCourse.length" class="tool-package-list">
+            <article
+              v-for="pkg in generatedPackagesForCourse.slice(0, 3)"
+              :key="pkg.package_id"
+            >
+              <div>
+                <strong>{{ pkg.topic }}</strong>
+                <span>{{ generatedPackageLabel(pkg) }} · {{ pkg.artifacts.length }} 个文件</span>
+              </div>
+              <div>
+                <button type="button" @click="downloadGeneratedArtifact(pkg)">
+                  <icon-download /> 下载
+                </button>
+                <button type="button" @click="askAboutGeneratedPackage(pkg)">
+                  <icon-robot /> 复核
+                </button>
+                <button type="button" @click="auditGeneratedPackageInGraph(pkg)">
+                  <icon-mind-mapping /> 图谱
+                </button>
+              </div>
+            </article>
+          </div>
+          <div v-else class="tool-empty">
+            <strong>暂无生成资源包</strong>
+            <p>可先围绕当前课程生成第一份讲义、练习和图谱核验包。</p>
+            <button type="button" @click="openGenerator('课程资料回流生成')">现在生成</button>
+          </div>
+        </section>
+      </div>
+    </a-drawer>
   </section>
 </template>
 
@@ -1228,10 +907,18 @@
       font-size: 12px;
     }
 
-    > button {
+    .resource-heading__actions {
       display: flex;
+      flex: 0 0 auto;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .resource-heading__actions button {
+      display: inline-flex;
       gap: 6px;
       align-items: center;
+      justify-content: center;
       height: 36px;
       padding: 0 14px;
       border: 0;
@@ -1251,6 +938,12 @@
         font-size: 10px;
         opacity: 0.88;
       }
+    }
+
+    .resource-heading__actions .ghost {
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      color: #475467;
+      background: #fff;
     }
   }
 
@@ -2615,7 +2308,7 @@
       line-height: 1.65;
     }
 
-    > button {
+    .resource-heading__actions button {
       height: 38px;
       border-radius: 999px;
       background: #6366f1;
@@ -2627,10 +2320,42 @@
         transform: translateY(-1px);
       }
     }
+
+    .resource-heading__actions .ghost {
+      color: #475467;
+      background: #fff;
+      box-shadow: none;
+
+      &:hover {
+        color: #4f46e5;
+        background: #f8faff;
+      }
+    }
   }
 
   .resource-overview {
     margin: 0 0 14px;
+
+    article {
+      min-height: 58px;
+      padding: 10px 14px;
+      border-radius: 16px;
+    }
+
+    .overview-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 12px;
+    }
+
+    small {
+      font-size: 11px;
+    }
+
+    strong {
+      margin-top: 2px;
+      font-size: 18px;
+    }
   }
 
   .generated-package-panel {
@@ -2717,11 +2442,11 @@
   .resource-library-main .resource-card {
     position: relative;
     display: grid;
-    grid-template-columns: 42px minmax(0, 1fr) 156px;
+    grid-template-columns: 42px minmax(0, 1fr) auto;
     gap: 10px 12px;
     align-items: center;
-    min-height: 86px;
-    padding: 10px 12px;
+    min-height: 82px;
+    padding: 10px 14px 10px 12px;
     border-color: transparent;
     border-radius: 14px;
     background: #fbfcff;
@@ -2738,7 +2463,7 @@
   }
 
   .resource-library-main .resource-card__top {
-    grid-column: 2;
+    grid-column: 2 / span 2;
     justify-content: flex-start;
     gap: 8px;
   }
@@ -2763,34 +2488,31 @@
   }
 
   .resource-library-main .resource-path,
-  .resource-library-main .resource-meta {
+  .resource-library-main .resource-trust-row {
     grid-column: 2;
     margin-top: 0;
     padding-top: 0;
     border-top: 0;
   }
 
-  .resource-library-main .resource-checks,
-  .resource-library-main .resource-trust-row {
+  .resource-library-main .resource-meta {
+    grid-column: 3;
+    grid-row: 2 / span 2;
+    display: grid;
+    gap: 4px;
+    justify-items: end;
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+    white-space: nowrap;
+  }
+
+  .resource-library-main .resource-checks {
     display: none;
   }
 
   .resource-library-main .resource-actions {
-    grid-column: 3;
-    grid-row: 1 / span 4;
-    width: 156px;
-    margin-top: 0;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-
-    button {
-      height: 30px;
-      border-radius: 999px;
-      font-size: 11px;
-    }
-
-    button.primary {
-      grid-column: auto;
-    }
+    display: none;
   }
 
   .resource-list-more {
@@ -2948,6 +2670,284 @@
     padding: 0;
   }
 
+  .resource-tool-drawer {
+    display: grid;
+    gap: 14px;
+    color: #101828;
+  }
+
+  .tool-section {
+    padding: 14px;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 16px;
+    background: #fff;
+  }
+
+  .tool-section__head {
+    margin-bottom: 12px;
+
+    span {
+      color: #4f46e5;
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    p {
+      margin: 4px 0 0;
+      color: #667085;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+  }
+
+  .tool-section__head--row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+
+    button {
+      height: 30px;
+      padding: 0 11px;
+      border: 1px solid rgba(99, 102, 241, 0.18);
+      border-radius: 999px;
+      color: #4f46e5;
+      background: #f8faff;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+
+      &:disabled {
+        cursor: wait;
+        opacity: 0.6;
+      }
+    }
+  }
+
+  .tool-action-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+
+    button {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: 30px minmax(0, 1fr);
+      gap: 8px;
+      align-items: center;
+      min-height: 64px;
+      padding: 10px;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      border-radius: 14px;
+      color: #475467;
+      background: #f8fafc;
+      cursor: pointer;
+      text-align: left;
+      transition:
+        transform 150ms ease,
+        border-color 150ms ease,
+        box-shadow 150ms ease;
+
+      &:hover:not(:disabled) {
+        border-color: rgba(99, 102, 241, 0.26);
+        box-shadow: 0 10px 20px rgba(15, 23, 42, 0.06);
+        transform: translateY(-1px);
+      }
+
+      &:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+      }
+    }
+
+    svg {
+      grid-row: 1 / span 2;
+      width: 30px;
+      height: 30px;
+      padding: 7px;
+      border-radius: 10px;
+      color: #4f46e5;
+      background: #eef2ff;
+    }
+
+    strong,
+    small {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    strong {
+      color: #101828;
+      font-size: 12px;
+    }
+
+    small {
+      color: #667085;
+      font-size: 11px;
+    }
+  }
+
+  .tool-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+
+    article {
+      padding: 10px;
+      border-radius: 13px;
+      background: #f8faff;
+    }
+
+    strong,
+    span {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    strong {
+      color: #101828;
+      font-size: 17px;
+    }
+
+    span {
+      margin-top: 3px;
+      color: #667085;
+      font-size: 12px;
+    }
+  }
+
+  .tool-quality-list {
+    display: grid;
+    gap: 8px;
+
+    article {
+      display: grid;
+      grid-template-columns: 32px minmax(0, 1fr);
+      gap: 9px;
+      align-items: center;
+      padding: 9px 10px;
+      border-radius: 13px;
+      background: #f8fafc;
+    }
+
+    svg {
+      width: 32px;
+      height: 32px;
+      padding: 8px;
+      border-radius: 10px;
+      color: #4f46e5;
+      background: #eef2ff;
+    }
+
+    strong,
+    span {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    strong {
+      color: #101828;
+      font-size: 12px;
+    }
+
+    span {
+      margin-top: 3px;
+      color: #667085;
+      font-size: 11px;
+    }
+  }
+
+  .tool-package-list {
+    display: grid;
+    gap: 9px;
+
+    article {
+      display: grid;
+      gap: 9px;
+      padding: 11px;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      border-radius: 14px;
+      background: #f8fafc;
+    }
+
+    strong,
+    span {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    strong {
+      color: #101828;
+      font-size: 13px;
+    }
+
+    span {
+      margin-top: 4px;
+      color: #667085;
+      font-size: 11px;
+    }
+
+    article > div:last-child {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    button {
+      height: 30px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 0 10px;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      border-radius: 999px;
+      color: #475467;
+      background: #fff;
+      cursor: pointer;
+      font-size: 11px;
+    }
+  }
+
+  .tool-empty {
+    padding: 12px;
+    border-radius: 14px;
+    background: #f8fafc;
+
+    strong {
+      color: #101828;
+      font-size: 13px;
+    }
+
+    p {
+      margin: 5px 0 11px;
+      color: #667085;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    button {
+      height: 32px;
+      padding: 0 12px;
+      border: 0;
+      border-radius: 999px;
+      color: #fff;
+      background: #6366f1;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+    }
+  }
+
   @keyframes resource-enter {
     from {
       opacity: 0;
@@ -2974,6 +2974,7 @@
       grid-template-columns: 38px minmax(0, 1fr);
     }
 
+    .resource-library-main .resource-meta,
     .resource-library-main .resource-actions {
       grid-column: 2;
       grid-row: auto;
@@ -2996,15 +2997,17 @@
     }
 
     .resource-library-main .resource-card,
-    .resource-heading > button,
-    .resource-list-more button {
+    .resource-heading__actions button,
+    .resource-list-more button,
+    .tool-action-grid button {
       transition: none;
     }
 
     .resource-library-main .resource-card:hover,
     .resource-library-main .resource-card.active,
-    .resource-heading > button:hover,
-    .resource-list-more button:hover {
+    .resource-heading__actions button:hover,
+    .resource-list-more button:hover,
+    .tool-action-grid button:hover {
       transform: none;
     }
   }
