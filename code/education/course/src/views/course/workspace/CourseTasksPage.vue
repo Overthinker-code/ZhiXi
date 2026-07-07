@@ -85,10 +85,7 @@
 
   function selectTask(taskId: string, openDrawer = false) {
     selectedTaskId.value = taskId;
-    detailDrawerVisible.value =
-      openDrawer &&
-      typeof window !== 'undefined' &&
-      window.matchMedia('(max-width: 1180px)').matches;
+    detailDrawerVisible.value = openDrawer;
   }
 
   function askAgent(taskTitle: string) {
@@ -107,7 +104,7 @@
     <header class="section-heading">
       <div>
         <h1>任务中心</h1>
-        <p>按截止时间查看作业、测验和复习任务，选中任务后在右侧处理下一步。</p>
+        <p>按截止时间查看作业、测验和复习任务；点击任务查看执行步骤和 AI 检查。</p>
       </div>
       <button type="button" @click="assistantDrawerVisible = true">
         <icon-robot /> 任务助手
@@ -180,49 +177,15 @@
               <span>{{ task.progress }}%</span>
               <div><i :style="{ width: `${task.progress}%` }"></i></div>
             </div>
+            <span class="task-row__cta">详情</span>
           </article>
         </div>
       </section>
-
-      <aside v-if="selectedTask" class="task-detail">
-        <div class="task-detail__head">
-          <span>{{ selectedTask.type }} · {{ taskStatusLabel(selectedTask.status) }}</span>
-          <h2>{{ selectedTask.title }}</h2>
-          <p>{{ selectedTask.chapter }}</p>
-        </div>
-        <div class="task-detail__metrics">
-          <span>截止 {{ selectedTask.dueLabel }}</span>
-          <span>预计 {{ selectedTask.duration }} 分钟</span>
-          <span>进度 {{ selectedTask.progress }}%</span>
-        </div>
-        <section>
-          <strong>建议执行步骤</strong>
-          <ol>
-            <li v-for="step in detailSteps" :key="step">{{ step }}</li>
-          </ol>
-        </section>
-        <details class="task-checklist">
-          <summary>提交前检查</summary>
-          <ul>
-            <li>任务要求是否已经明确</li>
-            <li>是否留下可复盘的错因或笔记</li>
-            <li>需要时生成一次结构化检查</li>
-          </ul>
-        </details>
-        <div class="task-detail__actions">
-          <button type="button" class="primary" @click="askAgent(selectedTask.title)">
-            {{ taskActionLabel(selectedTask) }}
-          </button>
-          <button type="button" @click="askAgent(`${selectedTask.title}复盘`)">
-            生成复盘
-          </button>
-        </div>
-      </aside>
     </div>
 
     <a-drawer
       v-model:visible="detailDrawerVisible"
-      :width="360"
+      :width="420"
       :footer="false"
       placement="right"
       unmount-on-close
@@ -452,9 +415,7 @@
   }
 
   .task-board {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 320px;
-    gap: 16px;
+    display: block;
     margin-top: 16px;
     align-items: start;
   }
@@ -520,11 +481,11 @@
 
   .task-row {
     display: grid;
-    grid-template-columns: 34px minmax(0, 1fr) 112px;
+    grid-template-columns: 34px minmax(0, 1fr) 126px 46px;
     align-items: center;
     gap: 12px;
-    min-height: 84px;
-    padding: 12px;
+    min-height: 76px;
+    padding: 10px 12px;
     border: 1px solid transparent;
     border-radius: 14px;
     background: #fbfcff;
@@ -649,6 +610,17 @@
       background: @brand;
       transition: width 220ms ease;
     }
+  }
+
+  .task-row__cta {
+    justify-self: end;
+    padding: 5px 9px;
+    border-radius: 999px;
+    color: #4f46e5;
+    background: rgba(79, 70, 229, 0.08);
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
   }
 
   .task-detail {
