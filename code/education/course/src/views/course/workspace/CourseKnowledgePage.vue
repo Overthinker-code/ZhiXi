@@ -46,7 +46,7 @@
   const activeType = ref<CourseKnowledgeMapType>('knowledge');
   const viewMode = ref<'network' | 'structure'>('network');
   const activeRelation = ref<'全部' | '父子关系' | '前后置关系' | '关联关系' | '资料支撑' | '任务驱动'>('全部');
-  const selectedNodeId = ref('course-root');
+  const selectedNodeId = ref('');
   const showResourceLinks = ref(true);
   const showLearningPath = ref(true);
   const isolateSearchResults = ref(false);
@@ -92,10 +92,12 @@
       const selectedId = selectedNodeId.value || root?.id;
       if (selectedId) ids.add(selectedId);
       const expandSources = new Set<string>([
-        ...(root ? [root.id] : []),
         selectedId,
-        ...Array.from(expandedNodeIds.value),
+        ...Array.from(expandedNodeIds.value).filter((id) => id !== root?.id),
       ].filter(Boolean) as string[]);
+      if (!selectedId || selectedId === root?.id) {
+        if (root) expandSources.add(root.id);
+      }
       expandSources.forEach((id) => {
         ids.add(id);
         directNeighborIds(id, map.links).forEach((neighborId) => ids.add(neighborId));
@@ -325,7 +327,7 @@
     const rootId = root?.id;
     const selectedId = selected?.id || rootId;
     const isRootFocus = !selectedId || selectedId === rootId;
-    const center = { x: 470, y: 230 };
+    const center = { x: 470, y: 222 };
 
     if (isRootFocus) {
       if (root) positions.set(root.id, center);
@@ -350,7 +352,7 @@
     }
 
     if (selected) positions.set(selected.id, center);
-    if (root && root.id !== selectedId) positions.set(root.id, { x: 470, y: 70 });
+    if (root && root.id !== selectedId) positions.set(root.id, { x: 470, y: 62 });
 
     const selectedLinksInMap = map.links.filter(
       (link) => link.source === selectedId || link.target === selectedId
@@ -369,13 +371,13 @@
       .map((id) => map.nodes.find((node) => node.id === id))
       .filter(Boolean) as CourseKnowledgeNode[];
 
-    const placeColumn = (nodes: CourseKnowledgeNode[], x: number, startY = 145, gap = 86) => {
+    const placeColumn = (nodes: CourseKnowledgeNode[], x: number, startY = 124, gap = 74) => {
       const unique = Array.from(new Map(nodes.map((node) => [node.id, node])).values())
         .filter((node) => visible.some((item) => item.id === node.id) && !positions.has(node.id));
       const total = unique.length;
       unique.forEach((node, index) => {
-        const y = total <= 1 ? 230 : startY + index * gap;
-        positions.set(node.id, { x, y: Math.max(72, Math.min(398, y)) });
+        const y = total <= 1 ? 222 : startY + index * gap;
+        positions.set(node.id, { x, y: Math.max(70, Math.min(394, y)) });
       });
     };
 
@@ -386,12 +388,12 @@
     const contextNodes = visible.filter((node) => !positions.has(node.id));
     contextNodes.forEach((node, index) => {
       const slots = [
-        { x: 160, y: 386 },
-        { x: 340, y: 386 },
-        { x: 600, y: 386 },
-        { x: 780, y: 386 },
-        { x: 160, y: 88 },
-        { x: 780, y: 88 },
+        { x: 160, y: 378 },
+        { x: 340, y: 378 },
+        { x: 600, y: 378 },
+        { x: 780, y: 378 },
+        { x: 160, y: 84 },
+        { x: 780, y: 84 },
       ];
       positions.set(node.id, slots[index % slots.length]);
     });
@@ -1077,14 +1079,14 @@
   }
 
   function nodeBoxWidth(node: CourseKnowledgeNode) {
-    if (node.weight >= 4) return 176;
-    if (node.weight >= 3) return 142;
-    if (node.type === 'resource' || node.type === 'task') return 124;
-    return 116;
+    if (node.weight >= 4) return 164;
+    if (node.weight >= 3) return 132;
+    if (node.type === 'resource' || node.type === 'task') return 116;
+    return 108;
   }
 
   function nodeBoxHeight(node: CourseKnowledgeNode) {
-    return node.weight >= 4 ? 64 : node.weight >= 3 ? 48 : 38;
+    return node.weight >= 4 ? 58 : node.weight >= 3 ? 42 : 34;
   }
 
   function nodeFill(node: CourseKnowledgeNode) {
@@ -1158,7 +1160,7 @@
     activeRelation.value = '全部';
     selectedLinkKey.value = '';
     canvasPan.value = { x: 0, y: 0 };
-    expandedNodeIds.value = new Set(['course-root']);
+    expandedNodeIds.value = new Set();
   }
 
   function selectBranch(index: number) {
@@ -1242,12 +1244,16 @@
     const key = selectedNodeStorageKey();
     if (!key || typeof window === 'undefined' || !activeMap.value) return;
     const savedNodeId = window.localStorage.getItem(key);
-    if (savedNodeId && activeMap.value.nodes.some((node) => node.id === savedNodeId)) {
+    const recommended = recommendedNode.value?.node;
+    if (
+      savedNodeId &&
+      savedNodeId !== 'course-root' &&
+      activeMap.value.nodes.some((node) => node.id === savedNodeId)
+    ) {
       selectedNodeId.value = savedNodeId;
       return;
     }
     if (!queryText(route.query.nodeId) && !queryText(route.query.nodeLabel) && !queryText(route.query.topic)) {
-      const recommended = recommendedNode.value?.node;
       if (recommended) selectedNodeId.value = recommended.id;
     }
   }
@@ -2200,6 +2206,7 @@
                   class="map-canvas"
                   :style="{ transform: canvasTransform }"
                   viewBox="40 0 880 460"
+                  preserveAspectRatio="xMidYMin meet"
                   role="img"
                   :aria-label="activeMap.title"
                 >
@@ -6730,5 +6737,155 @@
     .graph-work-area .map-insights {
       max-height: none;
     }
+  }
+
+  /* 2026 demo pass: move the graph itself higher in the first viewport. */
+  .graph-lab-shell .graph-topbar {
+    gap: 10px;
+    margin-bottom: 8px;
+    padding: 11px 14px 10px;
+  }
+
+  .graph-lab-shell .graph-brand {
+    gap: 12px;
+  }
+
+  .graph-pill {
+    height: 30px;
+    padding: 0 11px;
+    border-width: 0;
+    font-size: 12px;
+    box-shadow: 0 6px 14px rgba(68, 97, 225, 0.14);
+  }
+
+  .graph-lab-shell .graph-brand h1 {
+    margin-bottom: 2px;
+    font-size: 20px;
+    line-height: 1.2;
+  }
+
+  .graph-lab-shell .graph-brand p {
+    max-width: 720px;
+    font-size: 12px;
+    line-height: 1.45;
+    -webkit-line-clamp: 1;
+  }
+
+  .graph-lab-shell .graph-search {
+    height: 34px;
+  }
+
+  .graph-top-actions .ghost-action {
+    display: none;
+  }
+
+  .primary-action {
+    height: 34px;
+    padding: 0 12px;
+  }
+
+  .graph-workbench-grid {
+    gap: 8px;
+  }
+
+  .graph-workbench-grid .graph-tabs {
+    gap: 6px;
+  }
+
+  .graph-workbench-grid .graph-tabs button {
+    min-height: 34px;
+    padding: 6px 10px;
+    border-radius: 12px;
+  }
+
+  .graph-workbench-grid .graph-tabs span {
+    font-size: 12px;
+  }
+
+  .graph-workbench-grid .graph-tabs em {
+    display: none;
+  }
+
+  .graph-work-area .graph-filter-row {
+    min-height: 36px;
+    padding: 5px 8px;
+  }
+
+  .relation-filter button,
+  .view-switch button {
+    height: 26px;
+    padding: 0 10px;
+    font-size: 12px;
+  }
+
+  .graph-switches label {
+    font-size: 12px;
+  }
+
+  .graph-work-area .graph-stage {
+    gap: 8px;
+    padding: 6px;
+  }
+
+  .graph-work-area .graph-canvas-head {
+    min-height: 38px;
+    padding: 6px 10px;
+  }
+
+  .graph-work-area .graph-canvas-head strong {
+    font-size: 16px;
+  }
+
+  .graph-work-area .graph-canvas-head p {
+    display: none;
+  }
+
+  .stat-strip {
+    gap: 6px;
+  }
+
+  .stat-strip span {
+    min-width: 50px;
+    padding: 5px 7px;
+  }
+
+  .stat-strip strong {
+    font-size: 15px;
+  }
+
+  .stat-strip small {
+    display: none;
+  }
+
+  .map-canvas-viewport {
+    height: clamp(520px, calc(100vh - 230px), 650px);
+  }
+
+  .canvas-orbit-tools {
+    top: 10px;
+    right: 10px;
+  }
+
+  .canvas-orbit-tools button {
+    width: 44px;
+    height: 26px;
+    font-size: 12px;
+  }
+
+  .graph-work-area .map-insights {
+    max-height: clamp(520px, calc(100vh - 225px), 660px);
+  }
+
+  .graph-work-area .map-canvas-tools {
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    padding: 7px 8px;
+  }
+
+  .graph-work-area .graph-quick-actions button {
+    min-height: 28px;
+    padding: 0 10px;
+    font-size: 12px;
   }
 </style>
