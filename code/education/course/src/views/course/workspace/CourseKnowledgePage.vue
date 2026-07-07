@@ -39,6 +39,12 @@
     x: number;
     y: number;
   };
+  const GRAPH_CANVAS = {
+    width: 960,
+    height: 620,
+    centerX: 480,
+    centerY: 310,
+  };
 
   const route = useRoute();
   const router = useRouter();
@@ -100,7 +106,7 @@
               relationPriority(b.relation) - relationPriority(a.relation) ||
               (b.strength || 0) - (a.strength || 0)
           )
-          .slice(0, 12)
+          .slice(0, 9)
           .forEach((link) => {
             ids.add(link.source);
             ids.add(link.target);
@@ -326,7 +332,7 @@
   const selectedNodeResources = computed(() => selectedNode.value?.resources?.slice(0, 4) || []);
   const canvasTransform = computed(
     () =>
-      `translate(${480 + canvasPan.value.x} ${236 + canvasPan.value.y}) scale(${canvasZoom.value}) translate(-480 -236)`
+      `translate(${GRAPH_CANVAS.centerX + canvasPan.value.x} ${GRAPH_CANVAS.centerY + canvasPan.value.y}) scale(${canvasZoom.value}) translate(-${GRAPH_CANVAS.centerX} -${GRAPH_CANVAS.centerY})`
   );
   const graphNodePositions = computed(() => {
     const map = activeMap.value;
@@ -338,7 +344,7 @@
     const rootId = root?.id;
     const selectedId = selected?.id || rootId;
     const isRootFocus = !selectedId || selectedId === rootId;
-    const center = { x: 480, y: 236 };
+    const center = { x: GRAPH_CANVAS.centerX, y: GRAPH_CANVAS.centerY };
 
     if (isRootFocus) {
       if (root) positions.set(root.id, center);
@@ -347,8 +353,8 @@
       primaryNodes.forEach((node, index) => {
         const angle = -Math.PI / 2 + (Math.PI * 2 * index) / Math.max(primaryNodes.length, 1);
         positions.set(node.id, {
-          x: center.x + Math.cos(angle) * 305,
-          y: center.y + Math.sin(angle) * 168,
+          x: center.x + Math.cos(angle) * 318,
+          y: center.y + Math.sin(angle) * 220,
         });
       });
       secondaryNodes.forEach((node, index) => {
@@ -357,14 +363,14 @@
         const row = Math.floor(index / colCount);
         positions.set(node.id, {
           x: 210 + col * 180,
-          y: 410 - row * 58,
+          y: 548 - row * 64,
         });
       });
       return positions;
     }
 
     if (selected) positions.set(selected.id, center);
-    if (root && root.id !== selectedId) positions.set(root.id, { x: 480, y: 92 });
+    if (root && root.id !== selectedId) positions.set(root.id, { x: GRAPH_CANVAS.centerX, y: 96 });
 
     const selectedLinksInMap = map.links.filter(
       (link) =>
@@ -415,7 +421,7 @@
       const step = (end - start) / (count - 1);
       return Array.from({ length: count }, (_, index) => start + index * step);
     };
-    const placeColumn = (nodes: CourseKnowledgeNode[], x: number, startY = 122, endY = 350) => {
+    const placeColumn = (nodes: CourseKnowledgeNode[], x: number, startY = 142, endY = 470) => {
       const unique = Array.from(new Map(nodes.map((node) => [node.id, node])).values())
         .filter((node) => visible.some((item) => item.id === node.id) && !positions.has(node.id));
       const ySlots = distribute(unique.length, startY, endY);
@@ -423,7 +429,7 @@
         positions.set(node.id, { x, y: ySlots[index] });
       });
     };
-    const placeRail = (nodes: CourseKnowledgeNode[], y: number, startX = 245, endX = 715) => {
+    const placeRail = (nodes: CourseKnowledgeNode[], y: number, startX = 250, endX = 710) => {
       const unique = Array.from(new Map(nodes.map((node) => [node.id, node])).values())
         .filter((node) => visible.some((item) => item.id === node.id) && !positions.has(node.id));
       const xSlots = distribute(unique.length, startX, endX);
@@ -432,19 +438,19 @@
       });
     };
 
-    placeColumn(leftNodes, 250);
-    placeColumn(rightNodes, 700);
-    placeRail(support, 398);
+    placeColumn(leftNodes, 230);
+    placeColumn(rightNodes, 730);
+    placeRail(support, 522);
 
     const contextNodes = visible.filter((node) => !positions.has(node.id));
     contextNodes.forEach((node, index) => {
       const slots = [
-        { x: 255, y: 104 },
-        { x: 705, y: 104 },
-        { x: 255, y: 382 },
-        { x: 705, y: 382 },
-        { x: 120, y: 236 },
-        { x: 840, y: 236 },
+        { x: 112, y: 164 },
+        { x: 848, y: 164 },
+        { x: 112, y: 456 },
+        { x: 848, y: 456 },
+        { x: 480, y: 548 },
+        { x: 480, y: 72 },
       ];
       positions.set(node.id, slots[index % slots.length]);
     });
@@ -896,8 +902,8 @@
     const node = selectedNode.value;
     if (!node) return {};
     const position = nodePosition(node);
-    const baseLeft = ((position.x - 40) / 880) * 100;
-    const baseTop = (position.y / 460) * 100;
+    const baseLeft = (position.x / GRAPH_CANVAS.width) * 100;
+    const baseTop = (position.y / GRAPH_CANVAS.height) * 100;
     const left = Math.max(8, Math.min(92, 50 + (baseLeft - 50) * canvasZoom.value));
     const top = Math.max(14, Math.min(88, 50 + (baseTop - 50) * canvasZoom.value));
     return {
@@ -1095,6 +1101,12 @@
     ];
   }
 
+  function nodeAppearIndex(node: CourseKnowledgeNode) {
+    if (selectedNode.value?.id === node.id) return 0;
+    const index = visibleNodes.value.findIndex((item) => item.id === node.id);
+    return Math.max(index, 0);
+  }
+
   function linkClass(link: CourseKnowledgeMap['links'][number]) {
     const selected = selectedNode.value;
     const selectedId = selected?.id;
@@ -1166,12 +1178,34 @@
     return graphNodePositions.value.get(node.id) || { x: node.x, y: node.y };
   }
 
+  function nodeEdgeAnchor(
+    node: CourseKnowledgeNode,
+    toward: GraphNodePosition
+  ): GraphNodePosition {
+    const position = nodePosition(node);
+    const dx = toward.x - position.x;
+    const dy = toward.y - position.y;
+    if (!dx && !dy) return position;
+    const halfWidth = nodeBoxWidth(node) / 2 + 7;
+    const halfHeight = nodeBoxHeight(node) / 2 + 7;
+    const scale = Math.min(
+      Math.abs(dx) > 0 ? halfWidth / Math.abs(dx) : Number.POSITIVE_INFINITY,
+      Math.abs(dy) > 0 ? halfHeight / Math.abs(dy) : Number.POSITIVE_INFINITY
+    );
+    return {
+      x: position.x + dx * scale,
+      y: position.y + dy * scale,
+    };
+  }
+
   function linkPath(link: CourseKnowledgeMap['links'][number]) {
     const source = activeMap.value?.nodes.find((node) => node.id === link.source);
     const target = activeMap.value?.nodes.find((node) => node.id === link.target);
     if (!source || !target) return '';
-    const sourcePosition = nodePosition(source);
-    const targetPosition = nodePosition(target);
+    const sourceCenter = nodePosition(source);
+    const targetCenter = nodePosition(target);
+    const sourcePosition = nodeEdgeAnchor(source, targetCenter);
+    const targetPosition = nodeEdgeAnchor(target, sourceCenter);
     const dx = targetPosition.x - sourcePosition.x;
     const dy = targetPosition.y - sourcePosition.y;
     const pull = Math.max(50, Math.min(118, Math.abs(dx) * 0.22 + Math.abs(dy) * 0.14));
@@ -1402,8 +1436,8 @@
     if (!node) return;
     const position = nodePosition(node);
     canvasPan.value = {
-      x: Math.round((480 - position.x) * pull),
-      y: Math.round((236 - position.y) * pull),
+      x: Math.round((GRAPH_CANVAS.centerX - position.x) * pull),
+      y: Math.round((GRAPH_CANVAS.centerY - position.y) * pull),
     };
   }
 
@@ -2255,7 +2289,7 @@
               >
                 <svg
                   class="map-canvas"
-                  viewBox="40 0 880 460"
+                  :viewBox="`0 0 ${GRAPH_CANVAS.width} ${GRAPH_CANVAS.height}`"
                   preserveAspectRatio="xMidYMin meet"
                   role="img"
                   :aria-label="activeMap.title"
@@ -2293,6 +2327,7 @@
                       :key="node.id"
                       :transform="`translate(${nodePosition(node).x - nodeBoxWidth(node) / 2} ${nodePosition(node).y - nodeBoxHeight(node) / 2})`"
                       :class="nodeClass(node)"
+                      :style="{ '--node-delay': `${nodeAppearIndex(node) * 22}ms` }"
                       class="graph-node"
                       tabindex="0"
                       role="button"
@@ -3283,12 +3318,15 @@
     cursor: pointer;
     outline: none;
     transition: opacity 0.18s ease;
-    animation: graph-node-pop 160ms ease both;
+    animation: graph-node-pop 180ms ease both;
+    animation-delay: var(--node-delay, 0ms);
 
     .node-body {
-      transition: filter 0.18s ease, stroke-width 0.18s ease;
+      transition: filter 0.18s ease, stroke-width 0.18s ease, transform 0.18s ease;
       transform-box: fill-box;
       transform-origin: center;
+      animation: graph-node-body-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+      animation-delay: var(--node-delay, 0ms);
     }
 
     .node-track {
@@ -3360,6 +3398,7 @@
     &.selected .node-body {
       stroke: #255fe8;
       stroke-width: 3;
+      filter: drop-shadow(0 12px 14px rgba(65, 109, 244, 0.18));
     }
 
     &.package-target .node-body {
@@ -6712,9 +6751,20 @@
     }
   }
 
+  @keyframes graph-node-body-in {
+    from {
+      transform: translateY(5px);
+    }
+
+    to {
+      transform: translateY(0);
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .knowledge-page,
     .graph-node,
+    .graph-node .node-body,
     .graph-workbench-grid .graph-tabs button,
     .ghost-action,
     .primary-action {
