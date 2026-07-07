@@ -465,7 +465,10 @@
 </script>
 
 <template>
-  <div class="tutor-chat-layout">
+  <div
+    class="tutor-chat-layout"
+    :class="{ 'tutor-chat-layout--sidebar-collapsed': sidebarCollapsed }"
+  >
     <ChatSidebar
       :conversations="conversations"
       :current-id="chatStore.currentConversationId"
@@ -526,10 +529,16 @@
 
 <style scoped lang="scss">
   .tutor-chat-layout {
+    --tutor-sidebar-width: 280px;
+
     display: flex;
     height: calc(100vh - 64px);
     overflow: hidden;
     background: #fff;
+  }
+
+  .tutor-chat-layout--sidebar-collapsed {
+    --tutor-sidebar-width: 56px;
   }
 
   .tutor-chat-layout__main {

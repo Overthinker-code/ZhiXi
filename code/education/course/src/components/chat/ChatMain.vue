@@ -54,9 +54,11 @@
 
   .chat-empty {
     position: absolute;
-    inset: 0;
+    top: 0;
+    bottom: 0;
+    left: calc(var(--tutor-sidebar-width, 280px) * -1);
     display: grid;
-    width: min(820px, calc(100% - 48px));
+    width: calc(100% + var(--tutor-sidebar-width, 280px));
     margin: 0 auto;
     place-items: center;
     justify-content: center;
@@ -137,22 +139,10 @@
     }
   }
 
-  @keyframes enter-centered {
-    from {
-      opacity: 0;
-      transform: translateX(-50%) translateY(8px);
-    }
-    to {
-      opacity: 1;
-      transform: translateX(-50%) translateY(0);
-    }
-  }
-
   @media (max-width: 1280px) {
     .chat-main {
       padding-inline: 20px;
     }
-
   }
 
   @media (prefers-reduced-motion: reduce) {

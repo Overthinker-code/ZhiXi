@@ -218,30 +218,13 @@
 
   // 处理代码块主题切换
   const handleThemeToggle = (event) => {
-    // 确保我们获取到正确的元素
     const codeBlock = event.target.closest('.code-block');
-    // 修改获取图标元素的方式
     const themeBtn = event.target.closest('[data-action="theme"]');
-    const themeIcon = themeBtn.querySelector('img');
-    // const lightIcon = themeIcon.dataset.lightIcon;
-    // const darkIcon = themeIcon.dataset.darkIcon;
-    const { lightIcon, darkIcon } = themeIcon.dataset;
-
-    // 添加调试日志
-    // console.log('切换主题', {
-    //   codeBlock,
-    //   themeIcon,
-    //   lightIcon,
-    //   darkIcon,
-    //   isDark: codeBlock.classList.contains('dark-theme'),
-    // })
-
-    codeBlock.classList.toggle('dark-theme');
-
-    // 切换图标
-    themeIcon.src = codeBlock.classList.contains('dark-theme')
-      ? lightIcon
-      : darkIcon;
+    const themeIcon = themeBtn?.querySelector('img');
+    codeBlock?.classList.remove('dark-theme');
+    if (themeIcon?.dataset?.darkIcon) {
+      themeIcon.src = themeIcon.dataset.darkIcon;
+    }
   };
 
   // 修改事件监听的方式
@@ -958,24 +941,24 @@
           }
 
           &.dark-theme {
-            box-shadow: 0 0 0 1px rgba(34, 59, 102, 0.86);
+            box-shadow: 0 0 0 1px rgba(214, 226, 241, 0.78);
 
             .code-header {
-              background: #10233f;
-              border-color: rgba(34, 59, 102, 0.78);
+              background: #eff5ff;
+              border-color: rgba(214, 226, 241, 0.65);
 
               .code-lang {
-                color: #c8d9f5;
+                color: #4f6382;
               }
 
               .code-action-btn:hover {
-                background: rgba(255, 255, 255, 0.13);
+                background: rgba(20, 92, 196, 0.12);
               }
             }
 
             pre.hljs {
-              background: #0f172a;
-              color: #d7e3ff;
+              background: #f8fbff;
+              color: #1b2e4a;
             }
           }
         }

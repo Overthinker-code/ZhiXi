@@ -44,9 +44,9 @@
   );
 
   const trustBadges = [
-    { icon: ShieldCheck, label: '安全可靠' },
-    { icon: LockKeyhole, label: '隐私保护' },
-    { icon: GraduationCap, label: '教育专属优化' },
+    { icon: ShieldCheck, label: '证据可追溯' },
+    { icon: LockKeyhole, label: '画像可更新' },
+    { icon: GraduationCap, label: '路径可回写' },
   ];
 
   const statsBar = [
@@ -220,13 +220,13 @@
 
         <div class="hero-left">
           <h1 class="hero-title">
-            在知识的岛屿上<br />
-            <span>开启智慧航行</span>
+            你的 AI 学习伙伴<br />
+            <span>串联个性化学习闭环</span>
           </h1>
 
           <p class="hero-desc">
-            智屿连接课程资料、学习画像与行为分析，<br />
-            为每位学生提供有证据、有反馈、有下一步的学习路径。
+            从课程证据、问答诊断到资源生成、图谱核验和路径回写，<br />
+            让每一次学习都可追踪、可解释、可继续。
           </p>
 
           <div class="hero-actions">
@@ -270,8 +270,8 @@
                 <Bot :size="18" />
               </span>
               <div>
-                <strong>AI 伴学助手</strong>
-                <small>智能问答 · 个性推荐</small>
+                <strong>证据问答</strong>
+                <small>课程引用 · 精准解释</small>
               </div>
             </div>
 
@@ -280,8 +280,8 @@
                 <LineChart :size="18" />
               </span>
               <div class="analysis-body">
-                <strong>学习行为分析</strong>
-                <small>专注度 92%</small>
+                <strong>路径推荐</strong>
+                <small>薄弱点优先</small>
                 <div class="mini-chart" aria-hidden="true">
                   <i />
                   <i />
@@ -298,8 +298,8 @@
                 <Bot :size="18" />
               </span>
               <div>
-                <strong>课程证据检索</strong>
-                <small>知识检索 · 精准回答</small>
+                <strong>资料入库</strong>
+                <small>资源同步 · 图谱关联</small>
               </div>
             </div>
           </div>
@@ -484,7 +484,7 @@
   .hero-title {
     margin: 0;
     color: #111a33;
-    font-size: 45px;
+    font-size: 43px;
     font-weight: 800;
     line-height: 1.22;
 
@@ -590,7 +590,23 @@
     object-fit: cover;
     border: 3px solid rgba(255, 255, 255, 0.92);
     box-shadow: 0 22px 46px rgba(25, 37, 73, 0.16);
+    translate: 0 0;
     transition: transform 0.28s ease, box-shadow 0.28s ease;
+  }
+
+  .hero-photo--library,
+  .floating-card--analysis {
+    animation: hero-drift-up 6.4s ease-in-out infinite alternate;
+  }
+
+  .hero-photo--console,
+  .floating-card--assistant {
+    animation: hero-drift-side 7.2s ease-in-out infinite alternate;
+  }
+
+  .hero-photo--team,
+  .floating-card--rag {
+    animation: hero-drift-soft 6.8s ease-in-out infinite alternate;
   }
 
   .visual-stage:hover .hero-photo {
@@ -614,7 +630,7 @@
     left: 133px;
     width: 294px;
     height: 168px;
-    border-radius: 18px 18px 5px 5px;
+    border-radius: 20px;
   }
 
   .hero-photo--console {
@@ -622,7 +638,7 @@
     left: 0;
     width: 220px;
     height: 126px;
-    border-radius: 14px;
+    border-radius: 18px;
     z-index: 2;
   }
 
@@ -631,7 +647,7 @@
     bottom: 0;
     width: 316px;
     height: 181px;
-    border-radius: 4px 18px 18px 18px;
+    border-radius: 20px;
     z-index: 3;
   }
 
@@ -730,13 +746,15 @@
       width: 3px;
       border-radius: 4px;
       background: #4c63ff;
+      transform-origin: bottom;
+      animation: chart-breathe 1.9s ease-in-out infinite;
 
       &:nth-child(1) { height: 17px; opacity: 0.7; }
-      &:nth-child(2) { height: 12px; opacity: 0.48; }
-      &:nth-child(3) { height: 10px; opacity: 0.42; }
-      &:nth-child(4) { height: 22px; opacity: 0.88; }
-      &:nth-child(5) { height: 15px; opacity: 0.62; }
-      &:nth-child(6) { height: 26px; }
+      &:nth-child(2) { height: 12px; opacity: 0.48; animation-delay: 0.1s; }
+      &:nth-child(3) { height: 10px; opacity: 0.42; animation-delay: 0.2s; }
+      &:nth-child(4) { height: 22px; opacity: 0.88; animation-delay: 0.3s; }
+      &:nth-child(5) { height: 15px; opacity: 0.62; animation-delay: 0.4s; }
+      &:nth-child(6) { height: 26px; animation-delay: 0.5s; }
     }
   }
 
@@ -748,6 +766,31 @@
     to {
       opacity: 1;
       transform: translateY(0);
+    }
+  }
+
+  @keyframes hero-drift-up {
+    from { translate: 0 0; }
+    to { translate: 0 -5px; }
+  }
+
+  @keyframes hero-drift-side {
+    from { translate: 0 0; }
+    to { translate: 4px 3px; }
+  }
+
+  @keyframes hero-drift-soft {
+    from { translate: 0 0; }
+    to { translate: -3px -4px; }
+  }
+
+  @keyframes chart-breathe {
+    0%,
+    100% {
+      transform: scaleY(0.72);
+    }
+    50% {
+      transform: scaleY(1);
     }
   }
 
@@ -1187,6 +1230,9 @@
   @media (prefers-reduced-motion: reduce) {
     .hero-left > *,
     .visual-stage,
+    .hero-photo,
+    .floating-card,
+    .mini-chart i,
     .feature-card,
     .course-cat-card {
       animation: none;
