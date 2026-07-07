@@ -692,14 +692,11 @@
     <header class="resource-heading">
       <div>
         <h1>课程资料</h1>
-        <p>按章节整理课件、讲义、案例和练习；需要生成、追问或图谱核验时从右侧详情执行。</p>
+        <p>按章节整理课件、讲义、案例和练习；查看详情后可下载学习包、生成配套或定位图谱。</p>
       </div>
       <button type="button" @click="openGenerator()">
         <icon-robot />
-        <span>AI 生成课程资源</span>
-        <small>{{
-          aiTrialRemaining ? `剩余 ${aiTrialRemaining} 次` : '升级解锁'
-        }}</small>
+        <span>生成资料</span>
       </button>
     </header>
 
@@ -868,7 +865,7 @@
       <article>
         <span class="overview-icon"><icon-download /></span>
         <div
-          ><small>AI 生成包</small
+          ><small>生成回流</small
           ><strong>{{ generatedPackagesForCourse.length }}</strong></div
         >
       </article>
@@ -1070,7 +1067,7 @@
             </div>
             <div class="resource-actions">
               <button type="button" class="primary" @click.stop="selectResource(item, true)">
-                <icon-check-circle /> 查看详情
+                <icon-check-circle /> 详情
               </button>
               <button type="button" @click.stop="downloadResourceBrief(item)">
                 <icon-download /> 学习包
@@ -2696,10 +2693,10 @@
   .resource-library-main .resource-card {
     position: relative;
     display: grid;
-    grid-template-columns: 42px minmax(0, 1fr) auto;
+    grid-template-columns: 42px minmax(0, 1fr) 156px;
     gap: 10px 12px;
     align-items: center;
-    min-height: 108px;
+    min-height: 96px;
     padding: 12px;
     border-color: transparent;
     border-radius: 14px;
@@ -2757,13 +2754,18 @@
   .resource-library-main .resource-actions {
     grid-column: 3;
     grid-row: 1 / span 4;
-    width: 176px;
+    width: 156px;
     margin-top: 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
 
     button {
       height: 30px;
       border-radius: 999px;
       font-size: 11px;
+    }
+
+    button.primary {
+      grid-column: auto;
     }
   }
 
