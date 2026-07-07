@@ -51,16 +51,15 @@
               </ul>
             </div>
           </div>
-          <div class="diag-banner__deco" aria-hidden="true">
-            <div class="magnifier">
-              <div class="magnifier__glass" />
-              <div class="magnifier__handle" />
-            </div>
-            <div class="dim-overlay">
-              <span v-for="dim in radarDimensions" :key="dim.label">
-                {{ dim.label }} {{ dim.value }}%
-              </span>
-            </div>
+          <div class="diag-evidence" aria-label="关键画像指标">
+            <article
+              v-for="dim in radarDimensions.slice(0, 4)"
+              :key="dim.label"
+            >
+              <span>{{ dim.label }}</span>
+              <strong>{{ dim.value }}%</strong>
+              <i><b :style="{ width: `${dim.value}%` }" /></i>
+            </article>
           </div>
         </template>
         <ZyEmptyGuide
@@ -472,53 +471,61 @@
     white-space: nowrap;
   }
 
-  .diag-banner__deco {
+  .diag-evidence {
     position: relative;
-    width: 200px;
-    flex-shrink: 0;
-  }
-
-  .magnifier {
-    position: absolute;
-    top: 10px;
-    right: 20px;
-    width: 80px;
-    height: 80px;
-  }
-
-  .magnifier__glass {
-    width: 56px;
-    height: 56px;
-    border: 6px solid #6366f1;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.5);
-    box-shadow: inset 0 0 12px rgba(99, 102, 241, 0.2);
-  }
-
-  .magnifier__handle {
-    position: absolute;
-    width: 28px;
-    height: 8px;
-    bottom: 8px;
-    right: -4px;
-    border-radius: 4px;
-    background: linear-gradient(90deg, #8b5cf6, #6366f1);
-    transform: rotate(45deg);
-  }
-
-  .dim-overlay {
-    position: absolute;
-    bottom: 0;
-    right: 0;
+    z-index: 1;
     display: grid;
-    gap: 4px;
+    width: 238px;
+    flex-shrink: 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    align-self: center;
+  }
+
+  .diag-evidence article {
+    min-width: 0;
     padding: 10px;
-    border-radius: 12px;
-    background: rgba(255, 255, 255, 0.85);
     border: 1px solid rgba(99, 102, 241, 0.12);
-    font-size: 10px;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.78);
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.045);
+  }
+
+  .diag-evidence span,
+  .diag-evidence strong {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .diag-evidence span {
     color: var(--zy-color-text-secondary);
-    box-shadow: var(--zy-shadow-card);
+    font-size: 11px;
+  }
+
+  .diag-evidence strong {
+    margin-top: 4px;
+    color: var(--zy-color-text-primary);
+    font-size: 18px;
+  }
+
+  .diag-evidence i {
+    display: block;
+    height: 4px;
+    margin-top: 8px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(99, 102, 241, 0.12);
+  }
+
+  .diag-evidence b {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #4f46e5, #38bdf8);
+    transition: width 220ms ease;
   }
 
   .triple-grid {
@@ -739,8 +746,9 @@
       flex: 1 1 30%;
     }
 
-    .diag-banner__deco {
-      width: 160px;
+    .diag-evidence {
+      width: 210px;
+      grid-template-columns: 1fr;
     }
 
     .triple-grid,
@@ -764,16 +772,18 @@
       flex-direction: column;
     }
 
-    .diag-banner__deco {
+    .diag-evidence {
       width: 100%;
-      height: 100px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
 
   @media (prefers-reduced-motion: reduce) {
     .diag-banner::after,
+    .diag-evidence b,
     .diag-marker i {
       animation: none;
+      transition: none;
     }
 
     .panel-card {
