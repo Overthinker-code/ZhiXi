@@ -68,7 +68,7 @@
   function taskActionLabel(task: { status: CourseTaskStatus; type: string }) {
     if (task.status === 'done') return '复盘';
     if (task.type === 'AI 任务') return '开始';
-    return 'AI 辅导';
+    return '处理';
   }
 
   function selectTask(taskId: string, openDrawer = false) {
@@ -95,10 +95,10 @@
     <header class="section-heading">
       <div>
         <h1>任务中心</h1>
-        <p>把作业、测验、复习和 AI 学习任务收束成一条可执行的课程节奏。</p>
+        <p>按截止时间查看作业、测验和复习任务，选中任务后在右侧处理下一步。</p>
       </div>
       <button type="button" @click="askAgent('根据课程进度规划本周任务')">
-        <icon-robot /> AI 规划本周任务
+        <icon-robot /> 生成任务计划
       </button>
     </header>
 
@@ -193,14 +193,14 @@
             <li v-for="step in detailSteps" :key="step">{{ step }}</li>
           </ol>
         </section>
-        <section>
-          <strong>提交前检查</strong>
+        <details class="task-checklist">
+          <summary>提交前检查</summary>
           <ul>
             <li>任务要求是否已经明确</li>
             <li>是否留下可复盘的错因或笔记</li>
-            <li>需要时可让 AI 做一次结构化检查</li>
+            <li>需要时生成一次结构化检查</li>
           </ul>
-        </section>
+        </details>
         <div class="task-detail__actions">
           <button type="button" class="primary" @click="askAgent(selectedTask.title)">
             {{ taskActionLabel(selectedTask) }}
@@ -237,14 +237,14 @@
             <li v-for="step in detailSteps" :key="step">{{ step }}</li>
           </ol>
         </section>
-        <section>
-          <strong>提交前检查</strong>
+        <details class="task-checklist">
+          <summary>提交前检查</summary>
           <ul>
             <li>任务要求是否已经明确</li>
             <li>是否留下可复盘的错因或笔记</li>
-            <li>需要时可让 AI 做一次结构化检查</li>
+            <li>需要时生成一次结构化检查</li>
           </ul>
-        </section>
+        </details>
         <div class="task-detail__actions">
           <button type="button" class="primary" @click="askAgent(selectedTask.title)">
             {{ taskActionLabel(selectedTask) }}
@@ -320,11 +320,18 @@
     gap: 12px;
 
     article {
-      padding: 15px 16px;
+      padding: 14px 16px;
       border: 1px solid @line;
       border-radius: 14px;
       background: #fff;
       box-shadow: 0 8px 24px rgba(15, 23, 42, 0.035);
+      transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+
+      &:hover {
+        border-color: rgba(99, 102, 241, 0.18);
+        box-shadow: 0 12px 26px rgba(15, 23, 42, 0.055);
+        transform: translateY(-1px);
+      }
     }
 
     span,
@@ -337,9 +344,9 @@
 
     strong {
       display: block;
-      margin: 6px 0 4px;
+      margin: 5px 0 4px;
       color: @text-primary;
-      font-size: 26px;
+      font-size: 25px;
       line-height: 1;
 
       small {
@@ -438,6 +445,7 @@
     background: #fbfcff;
     cursor: pointer;
     transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+    animation: task-row-enter 0.22s ease both;
 
     &:hover,
     &.active {
@@ -447,6 +455,14 @@
       transform: translateY(-1px);
     }
   }
+
+  .task-row:nth-child(2) { animation-delay: 0.025s; }
+  .task-row:nth-child(3) { animation-delay: 0.05s; }
+  .task-row:nth-child(4) { animation-delay: 0.075s; }
+  .task-row:nth-child(5) { animation-delay: 0.1s; }
+  .task-row:nth-child(6) { animation-delay: 0.125s; }
+  .task-row:nth-child(7) { animation-delay: 0.15s; }
+  .task-row:nth-child(8) { animation-delay: 0.175s; }
 
   .task-status {
     display: grid;
@@ -546,6 +562,7 @@
       height: 100%;
       border-radius: inherit;
       background: @brand;
+      transition: width 220ms ease;
     }
   }
 
@@ -632,6 +649,51 @@
     }
   }
 
+  .task-checklist {
+    overflow: hidden;
+    border: 1px solid @line;
+    border-radius: 13px;
+    background: #fbfcff;
+
+    summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 38px;
+      padding: 0 12px;
+      color: @text-primary;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 700;
+      list-style: none;
+
+      &::-webkit-details-marker {
+        display: none;
+      }
+
+      &::after {
+        color: #98a2b3;
+        font-size: 12px;
+        content: '+';
+        transition: transform 160ms ease;
+      }
+    }
+
+    &[open] summary::after {
+      transform: rotate(45deg);
+    }
+
+    ul {
+      display: grid;
+      gap: 7px;
+      margin: 0;
+      padding: 0 14px 13px 30px;
+      color: @text-secondary;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+  }
+
   .task-detail__actions {
     display: flex;
     gap: 8px;
@@ -666,6 +728,17 @@
     from {
       opacity: 0;
       transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes task-row-enter {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
     }
     to {
       opacity: 1;
@@ -728,14 +801,21 @@
       animation: none;
     }
 
+    .task-row {
+      animation: none;
+    }
+
     .task-row,
-    .section-heading > button {
+    .section-heading > button,
+    .task-summary article,
+    .task-checklist summary::after {
       transition: none;
     }
 
     .task-row:hover,
     .task-row.active,
-    .section-heading > button:hover {
+    .section-heading > button:hover,
+    .task-summary article:hover {
       transform: none;
     }
   }
