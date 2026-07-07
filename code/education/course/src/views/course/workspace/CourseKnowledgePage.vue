@@ -46,7 +46,7 @@
   const showResourceLinks = ref(true);
   const showLearningPath = ref(true);
   const isolateSearchResults = ref(false);
-  const canvasZoom = ref(1.08);
+  const canvasZoom = ref(1.24);
   const canvasPan = ref({ x: 0, y: 0 });
   const isPanning = ref(false);
   const panStart = ref({ pointerX: 0, pointerY: 0, x: 0, y: 0 });
@@ -1327,7 +1327,7 @@
   }
 
   function resetCanvas() {
-    canvasZoom.value = 1.08;
+    canvasZoom.value = 1.24;
     canvasPan.value = { x: 0, y: 0 };
   }
 
@@ -1690,7 +1690,7 @@
             <icon-mind-mapping /> 课程图谱
           </span>
           <div>
-            <h1>{{ course.title }}知识图谱</h1>
+            <h1>{{ course.title }} · 知识图谱</h1>
             <p>{{ activeMap.description }}</p>
           </div>
         </div>
@@ -1701,7 +1701,7 @@
           </label>
           <button type="button" class="ghost-action" @click="goCourseContent">课堂笔记</button>
           <button type="button" class="primary-action" @click="goResourceGenerator">
-            <icon-file /> 生成资源
+            <icon-file /> 生成资料
           </button>
         </div>
       </header>
@@ -6165,7 +6165,7 @@
 
   .graph-lab-shell {
     overflow: visible;
-    padding: 18px;
+    padding: 16px;
     border-color: var(--zy-border);
     border-radius: 20px;
     background: #f7f9ff;
@@ -6173,7 +6173,7 @@
   }
 
   .graph-topbar {
-    margin-bottom: 14px;
+    margin-bottom: 12px;
   }
 
   .graph-lab-shell .graph-brand {
@@ -6193,7 +6193,7 @@
 
   .graph-lab-shell .graph-brand h1 {
     color: var(--zy-text);
-    font-size: 24px;
+    font-size: 23px;
     font-weight: 800;
   }
 
@@ -6247,7 +6247,7 @@
   }
 
   .graph-workbench-grid {
-    grid-template-columns: 220px minmax(0, 1fr);
+    grid-template-columns: 210px minmax(0, 1fr);
     gap: 14px;
   }
 
@@ -6341,9 +6341,9 @@
   }
 
   .graph-work-area .graph-stage {
-    grid-template-columns: minmax(0, 1fr) 320px;
+    grid-template-columns: minmax(0, 1fr) 310px;
     min-height: 0;
-    padding: 14px;
+    padding: 12px;
     background: #f7f9ff;
   }
 
@@ -6355,8 +6355,8 @@
   }
 
   .graph-work-area .graph-canvas-head {
-    min-height: 70px;
-    padding: 14px 16px;
+    min-height: 62px;
+    padding: 12px 14px;
   }
 
   .graph-work-area .graph-canvas-head strong {
@@ -6375,7 +6375,7 @@
   }
 
   .map-canvas-viewport {
-    height: clamp(520px, calc(100vh - 290px), 680px);
+    height: clamp(500px, calc(100vh - 270px), 660px);
     background:
       linear-gradient(rgba(79, 70, 229, 0.04) 1px, transparent 1px),
       linear-gradient(90deg, rgba(79, 70, 229, 0.04) 1px, transparent 1px),
@@ -6416,8 +6416,8 @@
   }
 
   .graph-work-area .map-insights {
-    max-height: clamp(540px, calc(100vh - 260px), 720px);
-    padding: 14px;
+    max-height: clamp(520px, calc(100vh - 240px), 700px);
+    padding: 13px;
     overflow: auto;
     background: #ffffff;
   }
@@ -6492,7 +6492,7 @@
     }
   }
 
-  @media (max-width: 1320px) {
+  @media (max-width: 1180px) {
     .graph-workbench-grid {
       grid-template-columns: 200px minmax(0, 1fr);
     }
