@@ -5,7 +5,7 @@
       <div class="course-hero__content">
         <div class="course-hero__text">
           <h1>课程中心</h1>
-          <p>回到正在推进的课程，继续学习、资料、图谱和 AI 伴学从这里进入。</p>
+          <p>查看在学课程、续学进度和 AI 学习工具，快速回到下一节该学的内容。</p>
           <div class="course-hero__metrics">
             <span><strong>{{ totalCourses }}</strong> 门课程</span>
             <span><strong>{{ learningCount }}</strong> 门学习中</span>
@@ -16,7 +16,7 @@
           <div>
             <span>继续学习</span>
             <strong>数据库系统原理</strong>
-            <small>第 3 章 ER 模型 · 已完成 58%</small>
+            <small>第 3 章 ER 模型 · 58% · 下一步复习关系模型</small>
           </div>
           <div class="resume-progress">
             <i style="width: 58%" />
@@ -1224,6 +1224,224 @@
     .course-card:hover .course-card__cover-art,
     .course-hero__resume button:hover {
       transform: none;
+    }
+  }
+
+  /* 2026 refinement: course center as a compact learning dashboard, not decorative cards. */
+  .course-hero {
+    min-height: 96px;
+    border-radius: 18px;
+  }
+
+  .course-hero__content {
+    min-height: 96px;
+    padding: 14px 18px 14px 20px;
+  }
+
+  .course-hero__text h1 {
+    font-size: 25px;
+  }
+
+  .course-hero__text p {
+    margin: 4px 0 8px;
+    font-size: 13px;
+  }
+
+  .course-hero__metrics span {
+    min-height: 25px;
+    padding: 0 9px;
+    font-size: 11px;
+  }
+
+  .course-hero__resume {
+    width: 390px;
+    flex-basis: 390px;
+    padding: 10px 12px;
+    border-radius: 14px;
+  }
+
+  .course-hero__resume strong {
+    font-size: 15px;
+  }
+
+  .course-hero__resume button {
+    height: 31px;
+    padding: 0 12px;
+    font-size: 12px;
+  }
+
+  .course-catalog {
+    margin-top: 12px;
+    padding: 13px;
+    border-radius: 18px;
+  }
+
+  .catalog-header {
+    margin-bottom: 9px;
+  }
+
+  .catalog-header strong {
+    font-size: 17px;
+  }
+
+  .catalog-header span {
+    margin-top: 2px;
+    font-size: 12px;
+  }
+
+  .filter-panel {
+    min-height: 42px;
+    margin-bottom: 12px;
+    padding: 5px;
+    border-radius: 14px;
+  }
+
+  .category-tab {
+    height: 30px;
+    padding: 0 12px;
+    font-size: 12px;
+  }
+
+  :deep(.toolbar-select.arco-select .arco-select-view) {
+    height: 30px;
+    font-size: 12px;
+  }
+
+  .course-card-grid {
+    gap: 10px;
+  }
+
+  .course-card {
+    position: relative;
+    display: grid;
+    min-height: 168px;
+    grid-template-columns: 104px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    border-radius: 15px;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.035);
+  }
+
+  .course-card::after {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(120deg, transparent 0%, rgba(99, 102, 241, 0.08) 45%, transparent 62%);
+    content: '';
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(-16%);
+    transition: opacity 180ms ease, transform 240ms ease;
+  }
+
+  .course-card:hover::after {
+    opacity: 1;
+    transform: translateX(18%);
+  }
+
+  .course-card__cover {
+    height: auto;
+    min-height: 100%;
+    grid-row: 1 / span 2;
+    border-right: 1px solid rgba(255, 255, 255, 0.52);
+  }
+
+  .course-card__cover span {
+    top: 10px;
+    left: 9px;
+    max-width: calc(100% - 18px);
+    overflow: hidden;
+    padding: 3px 7px;
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .course-card__cover strong {
+    right: 9px;
+    bottom: 13px;
+    left: 9px;
+    max-width: none;
+    font-size: 19px;
+    line-height: 1.06;
+  }
+
+  .course-card__cover::before {
+    background-size: 18px 18px;
+    opacity: 0.34;
+  }
+
+  .course-card__cover-art i:nth-child(1) {
+    width: 92px;
+    height: 92px;
+    top: -40px;
+    left: -28px;
+  }
+
+  .course-card__cover-art i:nth-child(2) {
+    width: 68px;
+    height: 68px;
+    right: -18px;
+    bottom: -22px;
+  }
+
+  .course-card__cover-art i:nth-child(3) {
+    right: 42px;
+    bottom: 18px;
+    height: 54px;
+  }
+
+  .course-card__body {
+    padding: 12px 13px 7px;
+  }
+
+  .course-card__title strong {
+    font-size: 15px;
+    line-height: 1.35;
+  }
+
+  .course-card__title small {
+    padding: 3px 7px;
+    font-size: 10px;
+  }
+
+  .course-card__body p {
+    margin: 6px 0 8px;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .course-card__meta {
+    gap: 5px 8px;
+  }
+
+  .course-card__meta span {
+    font-size: 11px;
+  }
+
+  .course-card__footer {
+    grid-column: 2;
+    grid-template-columns: 42px minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 0 13px 12px;
+  }
+
+  .course-card__progress span {
+    font-size: 16px;
+  }
+
+  .course-card__footer button {
+    height: 29px;
+    padding: 0 10px;
+    font-size: 11px;
+  }
+
+  .progress-track {
+    height: 5px;
+  }
+
+  @media (max-width: 1120px) {
+    .course-card-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
 </style>
