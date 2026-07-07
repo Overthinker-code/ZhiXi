@@ -2,7 +2,6 @@
   import { computed, ref } from 'vue';
   import { useRoute, useRouter } from 'vue-router';
   import {
-    IconArrowRight,
     IconCalendar,
     IconCheckCircle,
     IconClockCircle,
@@ -19,6 +18,7 @@
   const activeFilter = ref<TaskFilter>('active');
   const selectedTaskId = ref('');
   const detailDrawerVisible = ref(false);
+  const assistantDrawerVisible = ref(false);
   const course = computed(() => getClassroomCourse(String(route.params.courseId || '')));
   const tasks = computed(() => (course.value ? buildCourseTasks(course.value) : []));
   const taskStatusRank: Record<CourseTaskStatus, number> = {
@@ -109,8 +109,8 @@
         <h1>任务中心</h1>
         <p>按截止时间查看作业、测验和复习任务，选中任务后在右侧处理下一步。</p>
       </div>
-      <button type="button" @click="askAgent('根据课程进度规划本周任务')">
-        <icon-robot /> 生成任务计划
+      <button type="button" @click="assistantDrawerVisible = true">
+        <icon-robot /> 任务助手
       </button>
     </header>
 
@@ -180,10 +180,6 @@
               <span>{{ task.progress }}%</span>
               <div><i :style="{ width: `${task.progress}%` }"></i></div>
             </div>
-            <button class="task-action" type="button" @click.stop="askAgent(task.title)">
-              {{ taskActionLabel(task) }}
-              <icon-arrow-right />
-            </button>
           </article>
         </div>
       </section>
@@ -267,6 +263,82 @@
         </div>
       </div>
     </a-drawer>
+
+    <a-drawer
+      v-model:visible="assistantDrawerVisible"
+      :width="400"
+      :footer="false"
+      placement="right"
+      unmount-on-close
+    >
+      <template #title>任务助手</template>
+      <div class="task-assistant-drawer">
+        <section class="assistant-panel">
+          <div class="assistant-panel__head">
+            <span>本周任务</span>
+            <p>只保留能推动行动的辅助能力，默认不占用主屏。</p>
+          </div>
+          <div class="assistant-stats">
+            <article>
+              <strong>{{ activeCount }}</strong>
+              <span>进行中</span>
+            </article>
+            <article>
+              <strong>{{ completedCount }}</strong>
+              <span>已完成</span>
+            </article>
+            <article>
+              <strong>{{ completionRate }}%</strong>
+              <span>完成率</span>
+            </article>
+          </div>
+        </section>
+
+        <section class="assistant-panel">
+          <div class="assistant-panel__head">
+            <span>快捷处理</span>
+            <p>围绕当前选中任务生成计划、复盘或检查。</p>
+          </div>
+          <div class="assistant-actions">
+            <button type="button" @click="askAgent('根据课程进度规划本周任务')">
+              <icon-calendar />
+              <strong>生成本周计划</strong>
+              <small>按截止时间排序</small>
+            </button>
+            <button
+              type="button"
+              :disabled="!selectedTask"
+              @click="selectedTask && askAgent(selectedTask.title)"
+            >
+              <icon-robot />
+              <strong>处理当前任务</strong>
+              <small>{{ selectedTask?.title || '先选择任务' }}</small>
+            </button>
+            <button
+              type="button"
+              :disabled="!selectedTask"
+              @click="selectedTask && askAgent(`${selectedTask.title}复盘`)"
+            >
+              <icon-check-circle />
+              <strong>生成复盘</strong>
+              <small>整理错因和下一步</small>
+            </button>
+          </div>
+        </section>
+
+        <section class="assistant-panel">
+          <div class="assistant-panel__head">
+            <span>提交检查</span>
+            <p>保持任务完成质量，不在列表中堆额外说明。</p>
+          </div>
+          <ul class="assistant-checklist">
+            <li>任务要求是否已经明确</li>
+            <li>是否留下可复盘的错因或笔记</li>
+            <li>是否需要生成一次结构化检查</li>
+          </ul>
+        </section>
+      </div>
+    </a-drawer>
   </section>
 </template>
 
@@ -332,9 +404,10 @@
     gap: 12px;
 
     article {
-      padding: 14px 16px;
+      min-height: 70px;
+      padding: 12px 15px;
       border: 1px solid @line;
-      border-radius: 14px;
+      border-radius: 16px;
       background: #fff;
       box-shadow: 0 8px 24px rgba(15, 23, 42, 0.035);
       transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
@@ -356,9 +429,9 @@
 
     strong {
       display: block;
-      margin: 5px 0 4px;
+      margin: 4px 0 3px;
       color: @text-primary;
-      font-size: 25px;
+      font-size: 23px;
       line-height: 1;
 
       small {
@@ -447,10 +520,10 @@
 
   .task-row {
     display: grid;
-    grid-template-columns: 34px minmax(0, 1fr) 112px 88px;
+    grid-template-columns: 34px minmax(0, 1fr) 112px;
     align-items: center;
     gap: 12px;
-    min-height: 88px;
+    min-height: 84px;
     padding: 12px;
     border: 1px solid transparent;
     border-radius: 14px;
@@ -575,26 +648,6 @@
       border-radius: inherit;
       background: @brand;
       transition: width 220ms ease;
-    }
-  }
-
-  .task-action {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    height: 32px;
-    border: 1px solid rgba(99, 102, 241, 0.2);
-    border-radius: 999px;
-    color: @brand;
-    background: #f7f9ff;
-    font-size: 12px;
-    font-weight: 650;
-    cursor: pointer;
-
-    &:hover {
-      border-color: rgba(99, 102, 241, 0.34);
-      background: #eef2ff;
     }
   }
 
@@ -736,6 +789,156 @@
     padding: 0;
   }
 
+  .task-assistant-drawer {
+    display: grid;
+    gap: 14px;
+  }
+
+  .assistant-panel {
+    padding: 14px;
+    border: 1px solid @line;
+    border-radius: 16px;
+    background: #fff;
+  }
+
+  .assistant-panel__head {
+    margin-bottom: 12px;
+
+    span {
+      color: @brand;
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    p {
+      margin: 4px 0 0;
+      color: @text-secondary;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+  }
+
+  .assistant-stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+
+    article {
+      padding: 10px;
+      border-radius: 13px;
+      background: #f8faff;
+    }
+
+    strong,
+    span {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    strong {
+      color: @text-primary;
+      font-size: 18px;
+    }
+
+    span {
+      margin-top: 3px;
+      color: @text-secondary;
+      font-size: 12px;
+    }
+  }
+
+  .assistant-actions {
+    display: grid;
+    gap: 8px;
+
+    button {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: 32px minmax(0, 1fr);
+      gap: 9px;
+      align-items: center;
+      min-height: 60px;
+      padding: 10px;
+      border: 1px solid @line;
+      border-radius: 14px;
+      color: #475467;
+      background: #f8fafc;
+      cursor: pointer;
+      text-align: left;
+      transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+
+      &:hover:not(:disabled) {
+        border-color: rgba(99, 102, 241, 0.24);
+        box-shadow: 0 10px 20px rgba(15, 23, 42, 0.06);
+        transform: translateY(-1px);
+      }
+
+      &:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+      }
+    }
+
+    svg {
+      grid-row: 1 / span 2;
+      width: 32px;
+      height: 32px;
+      padding: 8px;
+      border-radius: 11px;
+      color: @brand;
+      background: #eef2ff;
+    }
+
+    strong,
+    small {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    strong {
+      color: @text-primary;
+      font-size: 13px;
+    }
+
+    small {
+      color: @text-secondary;
+      font-size: 11px;
+    }
+  }
+
+  .assistant-checklist {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+
+    li {
+      position: relative;
+      padding: 9px 10px 9px 28px;
+      border-radius: 12px;
+      color: #475467;
+      background: #f8fafc;
+      font-size: 12px;
+      line-height: 1.45;
+
+      &::before {
+        position: absolute;
+        top: 15px;
+        left: 12px;
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: @brand;
+        content: '';
+      }
+    }
+  }
+
   @keyframes task-enter {
     from {
       opacity: 0;
@@ -770,7 +973,7 @@
 
   @media (max-width: 980px) {
     .task-row {
-      grid-template-columns: 34px minmax(0, 1fr) 88px;
+      grid-template-columns: 34px minmax(0, 1fr);
     }
 
     .task-progress {
@@ -800,12 +1003,6 @@
     .task-row {
       grid-template-columns: 32px minmax(0, 1fr);
     }
-
-    .task-action {
-      grid-column: 2;
-      justify-self: start;
-      padding: 0 10px;
-    }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -820,14 +1017,16 @@
     .task-row,
     .section-heading > button,
     .task-summary article,
-    .task-checklist summary::after {
+    .task-checklist summary::after,
+    .assistant-actions button {
       transition: none;
     }
 
     .task-row:hover,
     .task-row.active,
     .section-heading > button:hover,
-    .task-summary article:hover {
+    .task-summary article:hover,
+    .assistant-actions button:hover {
       transform: none;
     }
   }
