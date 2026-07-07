@@ -35,6 +35,8 @@
   const activeMissionResourceId = ref('');
   const selectedResourceId = ref('');
   const resourceDrawerVisible = ref(false);
+  const showAllResources = ref(false);
+  const defaultResourcePreviewCount = 6;
   const aiTrialLimit = 3;
   const aiTrialStorageKey = 'zhixi-course-resource-ai-trial-v1';
   type AiTrialUsage = Record<string, number>;
@@ -105,6 +107,14 @@
       return typeMatches && searchMatches;
     });
   });
+  const displayedResources = computed(() =>
+    showAllResources.value
+      ? visibleResources.value
+      : visibleResources.value.slice(0, defaultResourcePreviewCount)
+  );
+  const hiddenResourceCount = computed(() =>
+    Math.max(visibleResources.value.length - displayedResources.value.length, 0)
+  );
   const resourceQuality = computed(() => [
     {
       label: '资料定位',
@@ -1030,7 +1040,7 @@
 
         <div class="resource-grid">
           <article
-            v-for="item in visibleResources"
+            v-for="item in displayedResources"
             :key="item.id"
             class="resource-card"
             :class="{ active: selectedResource?.id === item.id }"
@@ -1074,6 +1084,20 @@
               </button>
             </div>
           </article>
+        </div>
+
+        <div
+          v-if="visibleResources.length > defaultResourcePreviewCount"
+          class="resource-list-more"
+        >
+          <span>
+            当前显示 {{ displayedResources.length }} / {{ visibleResources.length }} 份资料<span
+              v-if="hiddenResourceCount"
+            >，还有 {{ hiddenResourceCount }} 份未展开</span>
+          </span>
+          <button type="button" @click="showAllResources = !showAllResources">
+            {{ showAllResources ? '收起资料列表' : `展开全部 ${visibleResources.length} 份` }}
+          </button>
         </div>
 
         <a-empty v-if="!visibleResources.length" description="没有匹配的课程资料" />
@@ -2696,8 +2720,8 @@
     grid-template-columns: 42px minmax(0, 1fr) 156px;
     gap: 10px 12px;
     align-items: center;
-    min-height: 96px;
-    padding: 12px;
+    min-height: 86px;
+    padding: 10px 12px;
     border-color: transparent;
     border-radius: 14px;
     background: #fbfcff;
@@ -2766,6 +2790,45 @@
 
     button.primary {
       grid-column: auto;
+    }
+  }
+
+  .resource-list-more {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 10px;
+    padding: 10px;
+    border: 1px dashed rgba(99, 102, 241, 0.22);
+    border-radius: 14px;
+    background: #f8faff;
+
+    span {
+      color: #667085;
+      font-size: 12px;
+    }
+
+    button {
+      height: 32px;
+      padding: 0 13px;
+      border: 1px solid rgba(99, 102, 241, 0.22);
+      border-radius: 999px;
+      color: #4f46e5;
+      background: #fff;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+      transition:
+        transform 150ms ease,
+        border-color 150ms ease,
+        box-shadow 150ms ease;
+
+      &:hover {
+        border-color: rgba(99, 102, 241, 0.42);
+        box-shadow: 0 8px 18px rgba(99, 102, 241, 0.1);
+        transform: translateY(-1px);
+      }
     }
   }
 
@@ -2916,6 +2979,15 @@
       grid-row: auto;
       width: 100%;
     }
+
+    .resource-list-more {
+      align-items: stretch;
+      flex-direction: column;
+
+      button {
+        width: 100%;
+      }
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -2924,13 +2996,15 @@
     }
 
     .resource-library-main .resource-card,
-    .resource-heading > button {
+    .resource-heading > button,
+    .resource-list-more button {
       transition: none;
     }
 
     .resource-library-main .resource-card:hover,
     .resource-library-main .resource-card.active,
-    .resource-heading > button:hover {
+    .resource-heading > button:hover,
+    .resource-list-more button:hover {
       transform: none;
     }
   }
