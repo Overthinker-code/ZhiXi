@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { computed } from 'vue';
+  import { computed, ref } from 'vue';
   import { useRoute, useRouter } from 'vue-router';
   import {
     IconArrowRight,
@@ -15,6 +15,7 @@
 
   const route = useRoute();
   const router = useRouter();
+  const detailDrawerVisible = ref(false);
   const course = computed(() => getClassroomCourse(String(route.params.courseId || '')));
   const allLessons = computed(
     () => course.value?.chapters.flatMap((chapter) => chapter.lessons) || []
@@ -67,6 +68,12 @@
       desc: '适合先看证据，再做检查题',
     },
   ]);
+  const topWeakPoints = computed(() => weakPoints.value.slice(0, 3));
+  const priorityTask = computed(() => nextTasks.value[0]);
+
+  function openDetailDrawer() {
+    detailDrawerVisible.value = true;
+  }
 
   function askForPlan() {
     if (!course.value) return;
@@ -101,11 +108,11 @@
         <small>课程进度</small>
       </div>
       <div class="profile-signals">
-        <article v-for="item in profileSignals" :key="item.label">
+        <div v-for="item in profileSignals" :key="item.label">
           <span>{{ item.label }}</span>
           <strong>{{ item.value }}</strong>
           <p>{{ item.desc }}</p>
-        </article>
+        </div>
       </div>
     </section>
 
@@ -141,21 +148,28 @@
         </div>
       </section>
 
-      <section class="panel weak-panel">
+      <section class="panel focus-panel">
         <div class="panel-title">
-          <div><icon-bulb /><strong>优先巩固</strong></div>
-          <span>建议从低负担任务开始</span>
+          <div><icon-bulb /><strong>本周优先行动</strong></div>
+          <span>从低负担任务开始</span>
+        </div>
+        <div class="focus-brief">
+          <strong>{{ priorityTask?.title || '完成一次章节复盘' }}</strong>
+          <p>{{ priorityTask?.chapter || '围绕薄弱知识点补齐证据、练习和错因记录。' }}</p>
+          <button type="button" @click="askForPlan">生成复习计划 <icon-arrow-right /></button>
         </div>
         <div class="weak-list">
-          <article v-for="(item, index) in weakPoints" :key="item">
+          <div v-for="(item, index) in topWeakPoints" :key="item">
             <span>{{ index + 1 }}</span>
             <div>
               <strong>{{ item }}</strong>
               <small>{{ index < 2 ? '需要结合例题再练习' : '建议回看课堂笔记' }}</small>
             </div>
-            <button type="button" @click="askForPlan"><icon-arrow-right /></button>
-          </article>
+          </div>
         </div>
+        <button type="button" class="ghost-action" @click="openDetailDrawer">
+          查看薄弱点与任务详情 <icon-arrow-right />
+        </button>
       </section>
 
       <section class="panel rhythm-panel">
@@ -173,20 +187,73 @@
 
       <section class="panel next-panel">
         <div class="panel-title">
-          <div><icon-check-circle /><strong>下一步行动</strong></div>
+          <div><icon-check-circle /><strong>学习闭环</strong></div>
           <span>预计 45 分钟完成</span>
         </div>
-        <div class="next-list">
-          <article v-for="task in nextTasks" :key="task.id">
-            <span>{{ task.type }}</span>
-            <div><strong>{{ task.title }}</strong><small>{{ task.dueLabel }}</small></div>
-          </article>
+        <div class="loop-steps">
+          <div>
+            <span>01</span>
+            <div>
+              <strong>补证据</strong>
+              <small>回看章节资料与课堂笔记</small>
+            </div>
+          </div>
+          <div>
+            <span>02</span>
+            <div>
+              <strong>做练习</strong>
+              <small>围绕薄弱点完成检查题</small>
+            </div>
+          </div>
+          <div>
+            <span>03</span>
+            <div>
+              <strong>问小智</strong>
+              <small>把错因写回学习画像</small>
+            </div>
+          </div>
         </div>
         <button type="button" @click="router.push(courseWorkspaceLocation(course.id, 'tasks'))">
-          查看全部课程任务 <icon-arrow-right />
+          查看课程任务 <icon-arrow-right />
         </button>
       </section>
     </div>
+
+    <a-drawer
+      v-model:visible="detailDrawerVisible"
+      :width="420"
+      :footer="false"
+      placement="right"
+      unmount-on-close
+    >
+      <template #title>学情行动详情</template>
+      <div class="analytics-drawer">
+        <section>
+          <span>薄弱知识点</span>
+          <div class="drawer-list">
+            <div v-for="(item, index) in weakPoints" :key="item">
+              <strong>{{ index + 1 }}. {{ item }}</strong>
+              <p>{{ index < 2 ? '建议先看概念证据，再完成 2 道检查题。' : '建议回看课堂笔记并向 AI 伴学追问。' }}</p>
+            </div>
+          </div>
+        </section>
+        <section>
+          <span>待处理任务</span>
+          <div class="drawer-list">
+            <div v-for="task in nextTasks" :key="task.id">
+              <strong>{{ task.title }}</strong>
+              <p>{{ task.chapter }} · {{ task.dueLabel }} · {{ task.duration }} 分钟</p>
+            </div>
+          </div>
+        </section>
+        <div class="drawer-actions">
+          <button type="button" class="primary" @click="askForPlan">生成个性化计划</button>
+          <button type="button" @click="router.push(courseWorkspaceLocation(course.id, 'tasks'))">
+            打开任务中心
+          </button>
+        </div>
+      </div>
+    </a-drawer>
   </section>
 </template>
 
@@ -363,63 +430,6 @@
     }
   }
 
-  .weak-list,
-  .next-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding-top: 13px;
-  }
-
-  .weak-list article {
-    display: grid;
-    grid-template-columns: 26px 1fr 26px;
-    align-items: center;
-    gap: 8px;
-    padding: 9px;
-    border-radius: 9px;
-    background: #f8f9fc;
-
-    > span {
-      display: grid;
-      width: 24px;
-      height: 24px;
-      border-radius: 7px;
-      color: #5367f8;
-      background: #e9edff;
-      font-size: 9px;
-      place-items: center;
-    }
-
-    strong,
-    small {
-      display: block;
-    }
-
-    strong {
-      color: #445068;
-      font-size: 10px;
-    }
-
-    small {
-      margin-top: 2px;
-      color: #929bad;
-      font-size: 8px;
-    }
-
-    button {
-      display: grid;
-      width: 24px;
-      height: 24px;
-      border: 0;
-      border-radius: 7px;
-      color: #6877e9;
-      background: #fff;
-      cursor: pointer;
-      place-items: center;
-    }
-  }
-
   .rhythm-chart {
     height: 170px;
     display: flex;
@@ -449,40 +459,6 @@
       margin: 7px 0 8px;
       color: #919aac;
       font-size: 9px;
-    }
-  }
-
-  .next-list article {
-    display: grid;
-    grid-template-columns: 40px 1fr;
-    align-items: center;
-    gap: 9px;
-    padding: 8px 0;
-    border-bottom: 1px solid #eff1f5;
-
-    > span {
-      padding: 4px 6px;
-      border-radius: 6px;
-      color: #5a6cec;
-      background: #eef1ff;
-      font-size: 8px;
-      text-align: center;
-    }
-
-    strong,
-    small {
-      display: block;
-    }
-
-    strong {
-      color: #48546a;
-      font-size: 10px;
-    }
-
-    small {
-      margin-top: 3px;
-      color: #969faf;
-      font-size: 8px;
     }
   }
 
@@ -636,7 +612,7 @@
     gap: 9px;
   }
 
-  .profile-signals article {
+  .profile-signals > div {
     min-width: 0;
     padding: 12px;
     border: 1px solid var(--zy-border);
@@ -704,8 +680,8 @@
     background: linear-gradient(180deg, #6366f1, #4f46e5);
   }
 
-  .weak-list article,
-  .next-list article {
+  .weak-list > div,
+  .loop-steps > div {
     border: 1px solid transparent;
     transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
 
@@ -716,8 +692,8 @@
     }
   }
 
-  .weak-list article > span,
-  .next-list article > span {
+  .weak-list > div > span,
+  .loop-steps > div > span {
     color: var(--zy-brand);
     background: #eef2ff;
   }
@@ -732,6 +708,214 @@
     background: #fff;
     font-size: 12px;
     font-weight: 800;
+  }
+
+  .weak-list {
+    display: grid;
+    gap: 8px;
+    padding-top: 12px;
+  }
+
+  .weak-list > div {
+    display: grid;
+    grid-template-columns: 26px 1fr;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 0;
+    border-bottom: 1px solid #eff1f5;
+    border-radius: 10px;
+
+    > span {
+      display: grid;
+      width: 24px;
+      height: 24px;
+      border-radius: 8px;
+      font-size: 10px;
+      font-weight: 800;
+      place-items: center;
+    }
+
+    strong,
+    small {
+      display: block;
+    }
+
+    strong {
+      color: #344054;
+      font-size: 12px;
+    }
+
+    small {
+      margin-top: 3px;
+      color: #98a2b3;
+      font-size: 10px;
+    }
+  }
+
+  .focus-brief {
+    margin-top: 14px;
+    padding: 14px;
+    border: 1px solid rgba(99, 102, 241, 0.12);
+    border-radius: 14px;
+    background: #f8f9ff;
+
+    strong,
+    p {
+      display: block;
+      margin: 0;
+    }
+
+    strong {
+      color: var(--zy-text);
+      font-size: 14px;
+    }
+
+    p {
+      margin-top: 6px;
+      color: var(--zy-muted);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    button {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      height: 30px;
+      margin-top: 10px;
+      padding: 0 11px;
+      border: 0;
+      border-radius: 999px;
+      color: #fff;
+      background: var(--zy-brand);
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+  }
+
+  .ghost-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 30px;
+    margin-top: 12px;
+    padding: 0;
+    border: 0;
+    color: var(--zy-brand);
+    background: transparent;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+  }
+
+  .loop-steps {
+    display: grid;
+    gap: 8px;
+    padding-top: 14px;
+
+    > div {
+      display: grid;
+      grid-template-columns: 34px 1fr;
+      column-gap: 10px;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid #eff1f5;
+      border-radius: 10px;
+    }
+
+    span {
+      display: grid;
+      width: 30px;
+      height: 30px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 800;
+      place-items: center;
+    }
+
+    strong,
+    small {
+      display: block;
+    }
+
+    strong {
+      color: #344054;
+      font-size: 12px;
+    }
+
+    small {
+      margin-top: 3px;
+      color: #98a2b3;
+      font-size: 10px;
+    }
+  }
+
+  .analytics-drawer {
+    display: grid;
+    gap: 18px;
+
+    section > span {
+      display: block;
+      margin-bottom: 10px;
+      color: #98a2b3;
+      font-size: 12px;
+      font-weight: 800;
+    }
+  }
+
+  .drawer-list {
+    display: grid;
+    gap: 10px;
+
+    > div {
+      padding: 12px;
+      border: 1px solid var(--zy-border);
+      border-radius: 14px;
+      background: #fbfdff;
+    }
+
+    strong,
+    p {
+      display: block;
+      margin: 0;
+    }
+
+    strong {
+      color: var(--zy-text);
+      font-size: 13px;
+    }
+
+    p {
+      margin-top: 6px;
+      color: var(--zy-muted);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+  }
+
+  .drawer-actions {
+    display: flex;
+    gap: 10px;
+    padding-top: 4px;
+
+    button {
+      height: 34px;
+      padding: 0 13px;
+      border: 1px solid rgba(99, 102, 241, 0.16);
+      border-radius: 999px;
+      color: var(--zy-brand);
+      background: #fff;
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+
+      &.primary {
+        border-color: transparent;
+        color: #fff;
+        background: var(--zy-brand);
+      }
+    }
   }
 
   @keyframes analytics-enter {
@@ -749,8 +933,8 @@
   @media (prefers-reduced-motion: reduce) {
     .course-analytics,
     .analytics-heading > button,
-    .weak-list article,
-    .next-list article {
+    .weak-list > div,
+    .loop-steps > div {
       animation: none;
       transition: none;
     }
