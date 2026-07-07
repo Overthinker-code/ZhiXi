@@ -133,9 +133,6 @@
                   </template>
                   {{ isFavorite ? '已收藏' : '收藏' }}
                 </a-button>
-                <a-button size="small" @click="studyToolsDrawerVisible = true">
-                  <template #icon><icon-apps /></template>学习工具
-                </a-button>
                 <a-button size="small" type="primary" @click="completeCurrentLesson">
                   <template #icon><icon-check-circle-fill /></template>
                   {{ currentLessonCompleted ? '已完成' : '完成本节' }}
@@ -203,8 +200,8 @@
             </button>
             <button type="button" @click="studyToolsDrawerVisible = true">
               <icon-apps />
-              <span>学习工具</span>
-              <small>笔记、专注度与导出</small>
+              <span>更多工具</span>
+              <small>笔记、导出与专注度</small>
             </button>
           </section>
 
@@ -477,11 +474,8 @@
             <button type="button" class="primary" @click="completeCurrentLesson">
               <icon-check-circle-fill /> {{ currentLessonCompleted ? '保存进度' : '完成学习' }}
             </button>
-            <button type="button" @click="generateFromNotes">
-              <icon-file /> 生成配套资料
-            </button>
-            <button type="button" @click="askMindMapTutor">
-              <icon-robot /> 提问本节内容
+            <button type="button" @click="studyToolsDrawerVisible = true">
+              <icon-apps /> 打开学习工具
             </button>
           </section>
         </aside>
