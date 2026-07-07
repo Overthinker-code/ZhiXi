@@ -62,7 +62,7 @@
     justify-content: center;
     text-align: center;
     pointer-events: none;
-    transform: translate(-50%, -50%);
+    transform: translate(calc(-50% + var(--chat-empty-offset-x, 0px)), -50%);
     animation: empty-enter 0.18s ease both;
 
     h1 {
@@ -141,11 +141,11 @@
   @keyframes empty-enter {
     from {
       opacity: 0;
-      transform: translate(-50%, calc(-50% + 8px));
+      transform: translate(calc(-50% + var(--chat-empty-offset-x, 0px)), calc(-50% + 8px));
     }
     to {
       opacity: 1;
-      transform: translate(-50%, -50%);
+      transform: translate(calc(-50% + var(--chat-empty-offset-x, 0px)), -50%);
     }
   }
 

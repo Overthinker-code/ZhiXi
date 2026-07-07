@@ -609,11 +609,22 @@
   }
 
   .reasoning-menu {
-    left: 50%;
-    bottom: 150px;
-    width: 250px;
-    transform: translateX(-50%);
+    right: 0;
+    bottom: 48px;
+    width: 190px;
+    padding: 10px;
+    border-radius: 18px;
+    transform: none;
     animation: reasoning-enter 0.16s ease both;
+
+    &::before {
+      content: '思考强度';
+      display: block;
+      padding: 4px 12px 8px;
+      color: #98a2b3;
+      font-size: 13px;
+      font-weight: 650;
+    }
 
     button {
       display: flex;
@@ -621,10 +632,10 @@
       justify-content: space-between;
       gap: 12px;
       width: 100%;
-      min-height: 48px;
-      padding: 9px 12px;
+      min-height: 42px;
+      padding: 7px 12px;
       border: 0;
-      border-radius: 14px;
+      border-radius: 12px;
       color: #101828;
       background: transparent;
       text-align: left;
@@ -645,8 +656,8 @@
     }
 
     strong {
-      font-size: 15px;
-      font-weight: 720;
+      font-size: 14px;
+      font-weight: 680;
     }
 
     b {
@@ -686,11 +697,11 @@
   @keyframes reasoning-enter {
     from {
       opacity: 0;
-      transform: translateX(-50%) translateY(6px);
+      transform: translateY(6px);
     }
     to {
       opacity: 1;
-      transform: translateX(-50%) translateY(0);
+      transform: translateY(0);
     }
   }
 
@@ -704,8 +715,7 @@
     }
 
     .reasoning-menu {
-      left: 0;
-      transform: none;
+      right: 0;
       animation-name: menu-enter;
     }
   }

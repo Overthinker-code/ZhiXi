@@ -467,7 +467,10 @@
 <template>
   <div
     class="tutor-chat-layout"
-    :class="{ 'tutor-chat-layout--sidebar-collapsed': sidebarCollapsed }"
+    :class="{
+      'tutor-chat-layout--sidebar-collapsed': sidebarCollapsed,
+      'tutor-chat-layout--empty': !messages.length,
+    }"
   >
     <ChatSidebar
       :conversations="conversations"
@@ -553,6 +556,10 @@
     overflow: hidden;
   }
 
+  .tutor-chat-layout--empty .chat-main-scroll {
+    --chat-empty-offset-x: calc(var(--tutor-sidebar-width) / -2);
+  }
+
   .chat-main-actions {
     position: absolute;
     top: 16px;
@@ -582,10 +589,15 @@
     left: 0;
     z-index: 10;
     pointer-events: none;
+    transition: transform 0.18s ease;
 
     :deep(.chat-composer) {
       pointer-events: auto;
     }
+  }
+
+  .tutor-chat-layout--empty .composer-dock {
+    transform: translateX(calc(var(--tutor-sidebar-width) / -2));
   }
 
   @media (max-width: 1100px) {

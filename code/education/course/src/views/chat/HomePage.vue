@@ -61,7 +61,7 @@
       icon: Brain,
       tone: 'violet',
       title: '课程证据问答',
-      desc: '自动检索课程资料和引用证据，回答有出处，解释不过度发散。',
+      desc: '自动检索课程证据，回答有出处。',
       link: '/tutor',
       action: '进入 AI 伴学',
     },
@@ -69,7 +69,7 @@
       icon: Target,
       tone: 'green',
       title: '个性化学习路径',
-      desc: '把画像、掌握度和薄弱点转成下一步任务，明确今天该学什么。',
+      desc: '按掌握度生成今天的学习任务。',
       link: '/profile/learning-data',
       action: '查看学习路径',
     },
@@ -77,7 +77,7 @@
       icon: SearchCheck,
       tone: 'blue',
       title: '学情画像更新',
-      desc: '从问答、练习和课程行为中沉淀目标、基础、偏好与易错点。',
+      desc: '从问答和练习更新薄弱点画像。',
       link: '/profile/learning-data',
       action: '打开学情档案',
     },
@@ -85,7 +85,7 @@
       icon: Layers3,
       tone: 'amber',
       title: '多智能体资源生成',
-      desc: '讲义、练习、导图、案例和阅读清单一并生成，并回流课程资料。',
+      desc: '讲义、练习、导图和案例可入库。',
       link: '/course/resource-generation',
       action: '进入资源工坊',
     },
@@ -93,7 +93,7 @@
       icon: Zap,
       tone: 'cyan',
       title: '可控研究深度',
-      desc: '轻量问答保持迅速，复杂任务再启用检索、推理和报告生成。',
+      desc: '复杂任务启用深度检索与报告。',
       link: '/tutor',
       action: '选择思考强度',
     },
@@ -101,7 +101,7 @@
       icon: Bell,
       tone: 'rose',
       title: '智能预警',
-      desc: '提前识别薄弱知识点、拖延和复习断点，及时调整资源与路径。',
+      desc: '提前发现风险，回写路径和提醒。',
       link: '/profile/messages',
       action: '查看提醒',
     },
@@ -595,6 +595,20 @@
     margin-left: auto;
   }
 
+  .visual-stage::after {
+    content: '';
+    position: absolute;
+    top: 22px;
+    right: 28px;
+    z-index: 6;
+    width: 210px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.78), transparent);
+    opacity: 0.42;
+    transform-origin: center;
+    animation: stage-scan 4.8s ease-in-out infinite;
+  }
+
   .hero-photo {
     position: absolute;
     object-fit: cover;
@@ -826,6 +840,34 @@
     }
   }
 
+  @keyframes stage-scan {
+    0%,
+    100% {
+      opacity: 0;
+      transform: translate3d(-80px, 24px, 0) rotate(-12deg) scaleX(0.55);
+    }
+    42%,
+    58% {
+      opacity: 0.58;
+      transform: translate3d(82px, 142px, 0) rotate(-12deg) scaleX(1);
+    }
+  }
+
+  @keyframes loop-sweep {
+    0% {
+      transform: translateX(-34%);
+      opacity: 0;
+    }
+    18%,
+    70% {
+      opacity: 0.55;
+    }
+    100% {
+      transform: translateX(34%);
+      opacity: 0;
+    }
+  }
+
   .stats-section {
     max-width: 1232px;
     margin: 0 auto;
@@ -912,7 +954,7 @@
   .features-section {
     max-width: 1232px;
     margin: 0 auto;
-    padding: 40px 24px 16px;
+    padding: 32px 24px 12px;
   }
 
   .section-header {
@@ -942,69 +984,66 @@
     position: relative;
     overflow: hidden;
     display: grid;
-    grid-template-columns: 0.88fr 1.12fr 1.12fr;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 0;
-    padding: 8px;
+    padding: 18px 20px 22px;
     border: 1px solid rgba(80, 95, 150, 0.13);
-    border-radius: 28px;
+    border-radius: 26px;
     background:
-      radial-gradient(circle at 12% 18%, rgba(99, 102, 241, 0.11), transparent 30%),
-      linear-gradient(135deg, #ffffff 0%, #fbfcff 48%, #f7f9ff 100%);
-    box-shadow: 0 22px 58px rgba(31, 41, 85, 0.06);
+      radial-gradient(circle at 11% 16%, rgba(99, 102, 241, 0.1), transparent 28%),
+      linear-gradient(135deg, #ffffff 0%, #fcfdff 52%, #f8faff 100%);
+    box-shadow: 0 18px 46px rgba(31, 41, 85, 0.055);
     animation: home-reveal 0.32s ease both;
   }
 
   .feature-loop::before {
     content: '';
     position: absolute;
-    top: 42px;
-    right: 34px;
-    left: 34px;
+    top: 134px;
+    right: 42px;
+    left: 42px;
     height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.22), transparent);
+    background: linear-gradient(90deg, rgba(99, 102, 241, 0.06), rgba(99, 102, 241, 0.36), rgba(99, 102, 241, 0.06));
     transform-origin: left;
     animation: loop-line 3.8s ease-in-out infinite;
+  }
+
+  .feature-loop::after {
+    content: '';
+    position: absolute;
+    top: 120px;
+    left: 0;
+    width: 44%;
+    height: 30px;
+    background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.13), transparent);
+    filter: blur(10px);
+    animation: loop-sweep 5.4s ease-in-out infinite;
   }
 
   .feature-loop__intro {
     position: relative;
     z-index: 1;
     display: flex;
-    grid-row: span 3;
-    min-height: 300px;
-    flex-direction: column;
-    justify-content: center;
-    padding: 28px 34px 28px 28px;
+    grid-column: 1 / -1;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    min-height: 0;
+    padding: 4px 6px 26px;
     color: #111a33;
   }
 
   .feature-loop__intro::before {
-    content: '';
-    position: absolute;
-    top: 42px;
-    bottom: 42px;
-    left: 0;
-    width: 3px;
-    border-radius: 999px;
-    background: linear-gradient(180deg, #6366f1, rgba(99, 102, 241, 0.08));
+    display: none;
   }
 
   .feature-loop__intro::after {
-    content: '';
-    position: absolute;
-    top: 42px;
-    left: -3px;
-    width: 9px;
-    height: 38px;
-    border-radius: 999px;
-    background: #6366f1;
-    box-shadow: 0 0 0 8px rgba(99, 102, 241, 0.1);
-    animation: loop-marker 3.8s ease-in-out infinite;
+    display: none;
   }
 
   .feature-loop__eyebrow {
     width: fit-content;
-    margin-bottom: 22px;
+    margin-bottom: 12px;
     padding: 5px 11px;
     border: 1px solid rgba(99, 102, 241, 0.16);
     border-radius: 999px;
@@ -1016,18 +1055,19 @@
 
   .feature-loop__intro h3 {
     margin: 0;
-    max-width: 300px;
-    font-size: 27px;
+    max-width: 420px;
+    font-size: 25px;
     font-weight: 820;
     line-height: 1.28;
   }
 
   .feature-loop__intro p {
-    margin: 18px 0 0;
-    max-width: 330px;
+    margin: 0;
+    max-width: 520px;
     color: #6b778d;
     font-size: 14px;
-    line-height: 1.85;
+    line-height: 1.7;
+    text-align: right;
   }
 
   .feature-step:nth-child(3),
@@ -1044,13 +1084,13 @@
   .feature-step {
     position: relative;
     z-index: 1;
-    display: grid;
-    grid-template-columns: 34px 46px minmax(0, 1fr) auto;
-    align-items: center;
-    min-height: 96px;
+    display: flex;
+    min-height: 154px;
+    flex-direction: column;
+    align-items: flex-start;
     gap: 12px;
-    padding: 16px 20px;
-    border-radius: 22px;
+    padding: 20px 15px 8px;
+    border-radius: 18px;
     color: inherit;
     text-decoration: none;
     transition:
@@ -1062,25 +1102,31 @@
     &::before {
       content: '';
       position: absolute;
-      inset: 12px auto 12px 0;
-      width: 3px;
+      top: 36px;
+      left: 32px;
+      width: 10px;
+      height: 10px;
       border-radius: 999px;
-      background: transparent;
-      transition: background-color 0.18s ease;
+      background: #fff;
+      box-shadow: 0 0 0 5px rgba(99, 102, 241, 0.1);
+      transition: box-shadow 0.18s ease, background-color 0.18s ease;
     }
 
     &:hover {
-      transform: translateX(3px);
-      background: rgba(255, 255, 255, 0.86);
-      box-shadow: 0 12px 30px rgba(31, 41, 85, 0.06);
+      transform: translateY(-2px);
+      background: rgba(255, 255, 255, 0.76);
+      box-shadow: 0 14px 30px rgba(31, 41, 85, 0.06);
     }
 
     &:hover::before {
       background: #6366f1;
+      box-shadow: 0 0 0 7px rgba(99, 102, 241, 0.13);
     }
   }
 
   .feature-step__index {
+    order: -2;
+    margin-left: 38px;
     color: #a2acc1;
     font-size: 12px;
     font-weight: 800;
@@ -1092,6 +1138,7 @@
     justify-content: center;
     width: 42px;
     height: 42px;
+    order: -1;
     border-radius: 50%;
     transition:
       transform 0.18s ease,
@@ -1099,7 +1146,7 @@
   }
 
   .feature-step:hover .feat-icon {
-    transform: translateY(-1px) rotate(-5deg);
+    transform: translateY(-1px) rotate(-4deg);
     box-shadow: 0 10px 22px rgba(79, 70, 229, 0.12);
   }
 
@@ -1113,7 +1160,7 @@
   .feature-step__body {
     display: grid;
     min-width: 0;
-    gap: 5px;
+    gap: 7px;
   }
 
   .feature-step__body strong {
@@ -1127,11 +1174,13 @@
     color: #6f7c92;
     font-size: 13px;
     line-height: 1.55;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
   }
 
   .feat-link {
+    margin-top: auto;
     color: #5162f5;
     font-size: 12px;
     font-weight: 700;
@@ -1182,8 +1231,8 @@
 
   .course-cat-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 10px;
   }
 
   .course-cat-card {
@@ -1191,11 +1240,11 @@
     overflow: hidden;
     display: flex;
     align-items: center;
-    gap: 12px;
-    min-height: 78px;
-    padding: 14px 16px;
+    gap: 10px;
+    min-height: 66px;
+    padding: 11px 12px;
     border: 1px solid #e9edf7;
-    border-radius: 18px;
+    border-radius: 999px;
     color: inherit;
     text-decoration: none;
     transition:
@@ -1211,13 +1260,7 @@
     }
 
     &::before {
-      content: '';
-      position: absolute;
-      inset: 10px auto 10px 0;
-      width: 3px;
-      border-radius: 999px;
-      background: currentColor;
-      opacity: 0.18;
+      display: none;
     }
 
     strong,
@@ -1236,13 +1279,15 @@
     small {
       margin-top: 5px;
       color: #69758b;
-      font-size: 12px;
+      font-size: 11px;
       line-height: 1.3;
       white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     em {
-      margin-top: 5px;
+      display: none;
       color: #7a86a0;
       font-size: 12px;
       font-style: normal;
@@ -1312,17 +1357,23 @@
 
     .feature-loop,
     .course-cat-grid {
-      grid-template-columns: repeat(6, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
     .feature-loop__intro {
       grid-column: 1 / -1;
       grid-row: auto;
-      min-height: 220px;
+      min-height: 0;
+      align-items: flex-start;
+      flex-direction: column;
+
+      p {
+        text-align: left;
+      }
     }
 
     .feature-step {
-      grid-column: span 3;
+      min-height: 150px;
     }
   }
 
@@ -1360,11 +1411,10 @@
     }
 
     .feature-step {
-      grid-template-columns: 28px 42px minmax(0, 1fr);
+      min-height: 138px;
     }
 
     .feature-step .feat-link {
-      grid-column: 3;
       justify-self: start;
     }
   }
@@ -1419,10 +1469,13 @@
   @media (prefers-reduced-motion: reduce) {
     .hero-left > *,
     .visual-stage,
+    .visual-stage::after,
     .hero-photo,
     .floating-card,
     .mini-chart i,
     .feature-loop,
+    .feature-loop::before,
+    .feature-loop::after,
     .feature-loop__intro::after,
     .feature-step,
     .course-cat-card {
