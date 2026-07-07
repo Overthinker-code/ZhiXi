@@ -175,7 +175,7 @@
                     <icon-play-arrow-fill />
                   </button>
                   <strong>{{ currentLesson.title }}</strong>
-                  <span>课程资源预览 · 可载入本地教学视频</span>
+                  <span>课件预览 · 支持载入本地教学视频</span>
                 </div>
                 <button
                   type="button"
@@ -195,19 +195,19 @@
               <small>基于本节笔记</small>
             </button>
             <button type="button" @click="askMindMapTutor">
+              <icon-robot />
+              <span>提问本节</span>
+              <small>结合章节上下文</small>
+            </button>
+            <button type="button" @click="openArtifact('mind')">
               <icon-mind-mapping />
-              <span>导图解读</span>
+              <span>查看导图</span>
               <small>梳理前后置关系</small>
             </button>
             <button type="button" @click="openArtifact('notes')">
               <icon-edit />
               <span>课堂笔记</span>
               <small>放大阅读</small>
-            </button>
-            <button type="button" @click="completeCurrentLesson">
-              <icon-check-circle-fill />
-              <span>{{ currentLessonCompleted ? '已完成' : '完成本节' }}</span>
-              <small>同步学习进度</small>
             </button>
           </section>
 
@@ -485,9 +485,6 @@
             </button>
             <button type="button" @click="askMindMapTutor">
               <icon-robot /> 提问本节内容
-            </button>
-            <button type="button" @click="openArtifact('mind')">
-              <icon-mind-mapping /> 查看思维导图
             </button>
           </section>
         </aside>
@@ -3172,8 +3169,8 @@ onBeforeRouteLeave(() => {
 }
 
 .learning-layout {
-  grid-template-columns: 236px minmax(0, 1fr) 292px;
-  gap: 14px;
+  grid-template-columns: 204px minmax(0, 1fr) 252px;
+  gap: 12px;
   align-items: start;
   margin-top: 0;
 }
@@ -3184,8 +3181,8 @@ onBeforeRouteLeave(() => {
   min-height: calc(100vh - 110px);
   max-height: calc(100vh - 92px);
   border-color: var(--zy-border);
-  border-radius: 18px;
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.05);
+  border-radius: 16px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.045);
 }
 
 .learning-main {
@@ -3198,7 +3195,7 @@ onBeforeRouteLeave(() => {
   top: 78px;
   order: 3;
   display: grid;
-  gap: 12px;
+  gap: 10px;
   max-height: calc(100vh - 92px);
   overflow-y: auto;
   scrollbar-width: thin;
@@ -3208,13 +3205,14 @@ onBeforeRouteLeave(() => {
 .quick-study-actions,
 .inspector-card {
   border: 1px solid var(--zy-border);
-  border-radius: 18px;
+  border-radius: 16px;
   background: var(--zy-surface);
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.05);
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.045);
 }
 
 .video-card {
   overflow: hidden;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.06);
 }
 
 .video-toolbar {
@@ -3241,6 +3239,7 @@ onBeforeRouteLeave(() => {
 .video-actions {
   flex-wrap: wrap;
   justify-content: flex-end;
+  max-width: 420px;
 
   :deep(.arco-btn) {
     height: 32px;
@@ -3255,7 +3254,7 @@ onBeforeRouteLeave(() => {
 }
 
 .video-stage {
-  aspect-ratio: 16 / 9;
+  aspect-ratio: 16 / 8.8;
   background: #0b1220;
 }
 
@@ -3273,10 +3272,16 @@ onBeforeRouteLeave(() => {
   }
 }
 
+.media-frame > img {
+  transform: scale(1.015);
+  animation: classroom-cover-drift 16s ease-in-out infinite alternate;
+}
+
 .media-play {
   width: 66px;
   height: 66px;
   background: rgba(79, 70, 229, 0.78);
+  box-shadow: 0 14px 34px rgba(79, 70, 229, 0.26);
 }
 
 .upload-video-btn {
@@ -3286,18 +3291,18 @@ onBeforeRouteLeave(() => {
 .quick-study-actions {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  padding: 10px;
+  gap: 7px;
+  padding: 8px;
 }
 
 .quick-study-actions button {
   min-width: 0;
-  min-height: 70px;
+  min-height: 64px;
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
-  gap: 3px 9px;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 2px 8px;
   align-items: center;
-  padding: 10px;
+  padding: 9px;
   border: 1px solid transparent;
   border-radius: 14px;
   color: #344054;
@@ -3312,12 +3317,16 @@ onBeforeRouteLeave(() => {
     transform: translateY(-1px);
   }
 
+  &:active {
+    transform: translateY(0) scale(0.99);
+  }
+
   svg {
     grid-row: span 2;
-    width: 34px;
-    height: 34px;
-    padding: 8px;
-    border-radius: 12px;
+    width: 30px;
+    height: 30px;
+    padding: 7px;
+    border-radius: 11px;
     color: var(--zy-brand);
     background: #eef2ff;
   }
@@ -3332,25 +3341,25 @@ onBeforeRouteLeave(() => {
 
   span {
     color: var(--zy-text);
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 800;
   }
 
   small {
     color: var(--zy-muted);
-    font-size: 11px;
+    font-size: 10px;
   }
 }
 
 .inspector-card {
   min-width: 0;
-  padding: 14px;
+  padding: 12px;
 }
 
 .inspector-card--hero {
   position: relative;
   overflow: hidden;
-  min-height: 166px;
+  min-height: 132px;
   background:
     radial-gradient(circle at 100% 0, rgba(99, 102, 241, 0.12), transparent 30%),
     #ffffff;
@@ -3362,27 +3371,27 @@ onBeforeRouteLeave(() => {
   }
 
   h2 {
-    margin: 8px 0 4px;
+    margin: 7px 0 4px;
     color: var(--zy-text);
-    font-size: 22px;
+    font-size: 18px;
     line-height: 1.2;
   }
 
   p {
-    max-width: 210px;
+    max-width: 146px;
     margin: 0;
     color: var(--zy-muted);
-    font-size: 12px;
+    font-size: 11px;
     line-height: 1.65;
   }
 }
 
 .lesson-progress-ring {
   position: absolute;
-  right: 14px;
-  bottom: 14px;
-  width: 72px;
-  height: 72px;
+  right: 12px;
+  bottom: 12px;
+  width: 62px;
+  height: 62px;
   display: grid;
   place-items: center;
   border-radius: 50%;
@@ -3398,15 +3407,15 @@ onBeforeRouteLeave(() => {
   }
 
   strong {
-    margin-top: -8px;
+    margin-top: -7px;
     color: var(--zy-brand);
-    font-size: 17px;
+    font-size: 15px;
   }
 
   small {
-    margin-top: 28px;
+    margin-top: 24px;
     color: #98a2b3;
-    font-size: 9px;
+    font-size: 8px;
   }
 }
 
@@ -3417,7 +3426,7 @@ onBeforeRouteLeave(() => {
 
   article {
     min-width: 0;
-    padding: 10px;
+    padding: 8px;
     border: 1px solid var(--zy-border);
     border-radius: 12px;
     background: #fbfdff;
@@ -3438,7 +3447,7 @@ onBeforeRouteLeave(() => {
   }
 
   strong {
-    margin-top: 5px;
+    margin-top: 4px;
     color: var(--zy-text);
     font-size: 15px;
   }
@@ -3453,12 +3462,12 @@ onBeforeRouteLeave(() => {
 
 .next-step-list {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   margin: 0;
   padding-left: 18px;
   color: var(--zy-muted);
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: 11px;
+  line-height: 1.55;
 }
 
 .inspector-actions {
@@ -3467,7 +3476,7 @@ onBeforeRouteLeave(() => {
 }
 
 .inspector-actions button {
-  min-height: 36px;
+  min-height: 34px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3493,15 +3502,28 @@ onBeforeRouteLeave(() => {
 }
 
 .chapter-header {
-  padding: 14px 15px 10px;
+  padding: 12px 13px 9px;
 }
 
 .chapter-title {
-  min-height: 42px;
+  min-height: 38px;
+  padding-inline: 11px;
 }
 
 .lesson-list button {
+  min-height: 34px;
+  padding: 6px 8px 6px 22px;
   border-radius: 10px;
+}
+
+@keyframes classroom-cover-drift {
+  from {
+    transform: scale(1.015) translate3d(0, 0, 0);
+  }
+
+  to {
+    transform: scale(1.045) translate3d(-8px, -4px, 0);
+  }
 }
 
 @keyframes classroom-enter {
@@ -3518,6 +3540,7 @@ onBeforeRouteLeave(() => {
 
 @media (prefers-reduced-motion: reduce) {
   .classroom-page,
+  .media-frame > img,
   .quick-study-actions button,
   .inspector-actions button,
   .video-actions :deep(.arco-btn) {
