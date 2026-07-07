@@ -60,50 +60,50 @@
     {
       icon: Brain,
       tone: 'violet',
-      title: 'AI 智能问答',
-      desc: '基于课程资料与引用证据回答问题，减少无效搜索和泛泛解释。',
+      title: '课程证据问答',
+      desc: '围绕课程资料、引用证据和章节上下文回答问题，解释来源清楚，避免泛泛而谈。',
       link: '/tutor',
-      action: '立即体验',
+      action: '进入 AI 伴学',
     },
     {
       icon: Target,
       tone: 'green',
       title: '个性化学习路径',
-      desc: '基于画像与掌握度的专属推荐，让每位同学走适合自己的路。',
+      desc: '根据学习画像、掌握度和薄弱点生成下一步计划，把“学什么、怎么学”落到具体任务。',
       link: '/profile/learning-data',
-      action: '了解更多',
+      action: '查看学习路径',
     },
     {
       icon: SearchCheck,
       tone: 'blue',
-      title: '学习画像分析',
-      desc: '通过对话抽取目标、基础、风格与薄弱点，随学随新。',
+      title: '学情画像更新',
+      desc: '从问答、练习和课程行为中沉淀目标、基础、偏好与易错点，持续更新学生档案。',
       link: '/profile/learning-data',
-      action: '查看示例',
+      action: '打开学情档案',
     },
     {
       icon: Layers3,
       tone: 'amber',
-      title: '多模态资源',
-      desc: '讲解、文档、题库、导图与案例统一生成，跨格式知识触手可得。',
+      title: '多智能体资源生成',
+      desc: '把讲义、练习、导图、案例和阅读清单打包生成，并回流到课程资料与图谱节点。',
       link: '/course/resource-generation',
-      action: '探索资源',
+      action: '进入资源工坊',
     },
     {
       icon: Zap,
       tone: 'cyan',
-      title: '可控思考强度',
-      desc: '普通提问保持轻量，复杂任务可启用更深入的推理与研究过程。',
+      title: '可控研究深度',
+      desc: '普通问题保持轻量，复杂学习任务可启用更深入的检索、推理和报告生成过程。',
       link: '/tutor',
-      action: '了解模式',
+      action: '选择思考强度',
     },
     {
       icon: Bell,
       tone: 'rose',
       title: '智能预警',
-      desc: '学习风险提前识别，及时调整资源与计划，不让问题持续积累。',
+      desc: '提前识别薄弱知识点、任务拖延和复习断点，及时给出资源与路径调整建议。',
       link: '/profile/messages',
-      action: '了解预警',
+      action: '查看提醒',
     },
   ];
 
@@ -328,7 +328,7 @@
       <section class="features-section">
         <div class="section-header section-header--center">
           <h2 class="section-title">为什么选择智屿？</h2>
-          <p class="section-subtitle">AI 驱动教育创新，助力每一位学习者成长</p>
+          <p class="section-subtitle">围绕课程证据、画像、资源生成和图谱核验，形成可执行的学习闭环</p>
         </div>
 
         <div class="features-grid">
@@ -353,7 +353,7 @@
         <div class="section-header section-header--course">
           <div class="course-title-center">
             <h2 class="section-title">课程资源中心</h2>
-            <p class="section-subtitle">覆盖多学科领域，满足不同学习需求</p>
+          <p class="section-subtitle">按学科组织课程入口，先找到课程，再进入资料、问答和学习路径</p>
           </div>
           <router-link to="/course/list" class="section-link">
             浏览全部课程
@@ -837,11 +837,11 @@
   .features-section {
     max-width: 1232px;
     margin: 0 auto;
-    padding: 39px 24px 10px;
+    padding: 44px 24px 18px;
   }
 
   .section-header {
-    margin-bottom: 21px;
+    margin-bottom: 24px;
   }
 
   .section-header--center {
@@ -860,21 +860,24 @@
     margin: 9px 0 0;
     color: #7a879c;
     font-size: 14px;
+    line-height: 1.7;
   }
 
   .features-grid {
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 16px;
   }
 
   .feature-card {
+    position: relative;
+    overflow: hidden;
     display: flex;
-    min-height: 178px;
+    min-height: 192px;
     flex-direction: column;
-    padding: 20px 18px 18px;
+    padding: 22px 22px 20px;
     border: 1px solid #e9edf7;
-    border-radius: 12px;
+    border-radius: 16px;
     background: #fff;
     color: inherit;
     text-decoration: none;
@@ -883,13 +886,39 @@
       transform 0.18s ease,
       border-color 0.18s ease,
       box-shadow 0.18s ease;
+    animation: home-reveal 0.28s ease both;
 
     &:hover {
-      transform: translateY(-3px);
+      transform: translateY(-2px);
       border-color: rgba(99, 102, 241, 0.28);
       box-shadow: 0 20px 42px rgba(45, 55, 93, 0.09);
     }
+
+    &::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), transparent 38%);
+      opacity: 0;
+      transition: opacity 0.18s ease;
+    }
+
+    &:hover::after {
+      opacity: 1;
+    }
   }
+
+  .feature-card:nth-child(2),
+  .course-cat-card:nth-child(2) { animation-delay: 0.03s; }
+  .feature-card:nth-child(3),
+  .course-cat-card:nth-child(3) { animation-delay: 0.06s; }
+  .feature-card:nth-child(4),
+  .course-cat-card:nth-child(4) { animation-delay: 0.09s; }
+  .feature-card:nth-child(5),
+  .course-cat-card:nth-child(5) { animation-delay: 0.12s; }
+  .feature-card:nth-child(6),
+  .course-cat-card:nth-child(6) { animation-delay: 0.15s; }
 
   .feat-icon {
     display: inline-flex;
@@ -909,9 +938,9 @@
   .feature-card--rose .feat-icon { background: #ffedf3; color: #ef4d79; }
 
   .feat-title {
-    margin: 0 0 13px;
+    margin: 0 0 10px;
     color: #1a2440;
-    font-size: 15px;
+    font-size: 17px;
     font-weight: 800;
   }
 
@@ -919,21 +948,21 @@
     flex: 1;
     margin: 0;
     color: #6f7c92;
-    font-size: 12px;
-    line-height: 1.78;
+    font-size: 13px;
+    line-height: 1.72;
   }
 
   .feat-link {
-    margin-top: 13px;
+    margin-top: 16px;
     color: #5162f5;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 700;
   }
 
   .course-hub-section {
     max-width: 1232px;
     margin: 0 auto;
-    padding: 3px 24px 29px;
+    padding: 20px 24px 40px;
   }
 
   .section-header--course {
@@ -966,7 +995,7 @@
 
   .course-cat-grid {
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 12px;
   }
 
@@ -974,16 +1003,17 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    min-height: 72px;
-    padding: 13px 14px;
+    min-height: 82px;
+    padding: 15px 16px;
     border: 1px solid #e9edf7;
-    border-radius: 9px;
+    border-radius: 14px;
     color: inherit;
     text-decoration: none;
     transition:
       transform 0.18s ease,
       box-shadow 0.18s ease,
       border-color 0.18s ease;
+    animation: home-reveal 0.28s ease both;
 
     &:hover {
       transform: translateY(-2px);
@@ -999,7 +1029,7 @@
 
     strong {
       color: #202a44;
-      font-size: 13px;
+      font-size: 15px;
       font-weight: 800;
       line-height: 1.2;
     }
@@ -1007,15 +1037,15 @@
     small {
       margin-top: 5px;
       color: #69758b;
-      font-size: 11px;
-      line-height: 1.2;
+      font-size: 12px;
+      line-height: 1.3;
       white-space: nowrap;
     }
 
     em {
       margin-top: 5px;
       color: #7a86a0;
-      font-size: 11px;
+      font-size: 12px;
       font-style: normal;
     }
   }
@@ -1156,7 +1186,9 @@
 
   @media (prefers-reduced-motion: reduce) {
     .hero-left > *,
-    .visual-stage {
+    .visual-stage,
+    .feature-card,
+    .course-cat-card {
       animation: none;
     }
 

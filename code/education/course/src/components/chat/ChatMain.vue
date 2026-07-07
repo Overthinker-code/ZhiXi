@@ -54,14 +54,15 @@
 
   .chat-empty {
     position: absolute;
-    top: clamp(130px, 28vh, 200px);
-    left: 50%;
-    display: flex;
+    inset: 0;
+    display: grid;
     width: min(820px, calc(100% - 48px));
+    margin: 0 auto;
+    place-items: center;
     justify-content: center;
     text-align: center;
-    transform: translateX(-50%);
-    animation: enter-centered 0.18s ease both;
+    pointer-events: none;
+    animation: enter 0.18s ease both;
 
     h1 {
       margin: 0;

@@ -35,8 +35,6 @@
     { label: '免责声明', route: 'MarketingAbout' },
   ];
 
-  const socialPlaceholders = ['微信', '微博', 'GitHub'];
-
   const navigate = (name: string) => {
     router.push({ name });
   };
@@ -64,15 +62,6 @@
           <p class="site-footer__slogan">
             智能教育平台 · 因材施教数字化落地
           </p>
-          <div class="site-footer__social">
-            <span
-              v-for="item in socialPlaceholders"
-              :key="item"
-              class="site-footer__social-btn"
-              :title="item"
-              aria-hidden="true"
-            />
-          </div>
         </div>
 
         <!-- 列2：产品服务 -->
@@ -136,7 +125,6 @@
     <div class="site-footer__bottom">
       <div class="site-footer__bottom-inner">
         <span>© {{ new Date().getFullYear() }} 智屿智能教育 保留所有权利</span>
-        <span class="site-footer__icp">京ICP备XXXXXXXX号-1</span>
         <div class="site-footer__legal">
           <button
             v-for="link in legalLinks"
@@ -201,27 +189,6 @@
     line-height: 1.65;
     color: #68758d;
     max-width: 220px;
-  }
-
-  .site-footer__social {
-    display: flex;
-    gap: 10px;
-  }
-
-  .site-footer__social-btn {
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    background: #fff;
-    border: 1px solid #e1e7f3;
-    cursor: default;
-    box-shadow: 0 8px 18px rgba(58, 72, 112, 0.05);
-    transition: background 0.2s, border-color 0.2s;
-
-    &:hover {
-      background: #f3f6ff;
-      border-color: #cbd6ff;
-    }
   }
 
   .site-footer__heading {
@@ -328,10 +295,6 @@
     flex-wrap: wrap;
     gap: 12px 24px;
     font-size: 12px;
-    color: #7b879c;
-  }
-
-  .site-footer__icp {
     color: #7b879c;
   }
 
