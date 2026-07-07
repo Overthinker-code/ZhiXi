@@ -122,9 +122,6 @@
                 <strong>{{ currentLesson.label }}</strong>
               </div>
               <div class="video-actions">
-                <a-button size="small" @click="openArtifact('notes')">
-                  <template #icon><icon-edit /></template>笔记
-                </a-button>
                 <a-button
                   size="small"
                   :class="{ favorite: isFavorite }"
@@ -136,8 +133,8 @@
                   </template>
                   {{ isFavorite ? '已收藏' : '收藏' }}
                 </a-button>
-                <a-button size="small" @click="downloadCurrentLesson">
-                  <template #icon><icon-download /></template>下载
+                <a-button size="small" @click="studyToolsDrawerVisible = true">
+                  <template #icon><icon-apps /></template>学习工具
                 </a-button>
                 <a-button size="small" type="primary" @click="completeCurrentLesson">
                   <template #icon><icon-check-circle-fill /></template>
@@ -204,10 +201,10 @@
               <span>查看导图</span>
               <small>梳理前后置关系</small>
             </button>
-            <button type="button" @click="openArtifact('notes')">
-              <icon-edit />
-              <span>课堂笔记</span>
-              <small>放大阅读</small>
+            <button type="button" @click="studyToolsDrawerVisible = true">
+              <icon-apps />
+              <span>学习工具</span>
+              <small>笔记、专注度与导出</small>
             </button>
           </section>
 
@@ -542,6 +539,93 @@
       </div>
     </div>
 
+    <a-drawer
+      v-model:visible="studyToolsDrawerVisible"
+      :width="420"
+      :footer="false"
+      placement="right"
+      unmount-on-close
+      drawer-class="study-tools-drawer-shell"
+    >
+      <template #title>学习工具</template>
+      <div v-if="currentCourse" class="study-tools-drawer">
+        <section class="tool-panel tool-panel--hero">
+          <span>{{ currentLesson.label || '当前课节' }}</span>
+          <strong>{{ currentLesson.title || currentCourse.shortTitle }}</strong>
+          <p>把本节内容沉淀成笔记、导图、检查题和可下载资料，默认不占用课堂主屏。</p>
+        </section>
+
+        <section class="tool-panel">
+          <div class="tool-panel__head">
+            <strong>课堂笔记</strong>
+            <button type="button" @click="openArtifact('notes')">放大阅读</button>
+          </div>
+          <div class="tool-action-list">
+            <button type="button" @click="organizeNotes">
+              <icon-mind-mapping />
+              <span>{{ notesOrganized ? '已智能整理' : 'AI 智能整理' }}</span>
+              <small>按定义、证据、误区和检查题重排</small>
+            </button>
+            <button type="button" @click="generateFromNotes">
+              <icon-robot />
+              <span>生成配套资料</span>
+              <small>讲义、知识卡和自测题</small>
+            </button>
+            <button type="button" :disabled="notesGenerating" @click="generateNotesPdfArtifact">
+              <icon-download />
+              <span>{{ notesGenerating ? '生成中' : '生成 PDF' }}</span>
+              <small>调用资源生成链路</small>
+            </button>
+          </div>
+        </section>
+
+        <section class="tool-panel">
+          <div class="tool-panel__head">
+            <strong>知识导图</strong>
+            <button type="button" @click="openArtifact('mind')">高清查看</button>
+          </div>
+          <div class="tool-metrics">
+            <article v-for="item in mindMapStats" :key="item.label">
+              <strong>{{ item.value }}</strong>
+              <span>{{ item.label }}</span>
+            </article>
+          </div>
+          <div v-if="mindNodeProfile" class="tool-node-summary">
+            <span>{{ mindNodeProfile.kind }}</span>
+            <strong>{{ mindNodeProfile.title }}</strong>
+            <p>{{ mindNodeProfile.detail }}</p>
+          </div>
+          <div class="tool-action-list">
+            <button type="button" @click="askMindMapTutor">
+              <icon-robot />
+              <span>AI 解读导图</span>
+              <small>解释前后置关系和易错点</small>
+            </button>
+            <button type="button" @click="downloadMindNodePack">
+              <icon-download />
+              <span>节点学习单</span>
+              <small>下载当前节点复习材料</small>
+            </button>
+          </div>
+        </section>
+
+        <section class="tool-panel">
+          <div class="tool-panel__head">
+            <strong>专注度与导出</strong>
+            <button type="button" @click="downloadCurrentLesson">下载本节</button>
+          </div>
+          <div class="tool-focus-mini">
+            <VideoInfo />
+          </div>
+          <div class="tool-export-row">
+            <button type="button" @click="exportNotesDoc">Word</button>
+            <button type="button" @click="exportNotes">Markdown</button>
+            <button type="button" @click="downloadAllLessons">全部资料</button>
+          </div>
+        </section>
+      </div>
+    </a-drawer>
+
     <a-modal
       v-model:visible="artifactVisible"
       :footer="false"
@@ -754,6 +838,7 @@ const openChapters = ref(new Set<string>());
 const artifactVisible = ref(false);
 const artifactType = ref<ArtifactType>('notes');
 const artifactZoom = ref(1);
+const studyToolsDrawerVisible = ref(false);
 const mindCanvas = ref<CanvasExpose | null>(null);
 const modalCanvas = ref<CanvasExpose | null>(null);
 const selectedMindNodeText = ref('');
@@ -3498,6 +3583,239 @@ onBeforeRouteLeave(() => {
     border-color: transparent;
     color: #ffffff;
     background: var(--zy-brand);
+  }
+}
+
+.study-tools-drawer {
+  --zy-brand: #4f46e5;
+  --zy-brand-2: #6366f1;
+  --zy-text: #101828;
+  --zy-muted: #667085;
+  --zy-border: rgba(15, 23, 42, 0.08);
+  display: grid;
+  gap: 12px;
+  padding: 2px 2px 14px;
+  color: var(--zy-text);
+}
+
+.tool-panel {
+  overflow: hidden;
+  border: 1px solid var(--zy-border);
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.045);
+}
+
+.tool-panel--hero {
+  padding: 16px;
+  background:
+    radial-gradient(circle at 96% 0, rgba(99, 102, 241, 0.11), transparent 32%),
+    #fbfdff;
+
+  span,
+  strong,
+  p {
+    display: block;
+  }
+
+  span {
+    color: var(--zy-brand);
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  strong {
+    margin-top: 6px;
+    color: var(--zy-text);
+    font-size: 18px;
+    line-height: 1.35;
+  }
+
+  p {
+    margin: 8px 0 0;
+    color: var(--zy-muted);
+    font-size: 12px;
+    line-height: 1.7;
+  }
+}
+
+.tool-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--zy-border);
+
+  strong {
+    color: var(--zy-text);
+    font-size: 14px;
+  }
+
+  button {
+    height: 28px;
+    padding: 0 10px;
+    border: 1px solid rgba(99, 102, 241, 0.16);
+    border-radius: 999px;
+    color: var(--zy-brand);
+    background: #f5f7ff;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+  }
+}
+
+.tool-action-list {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.tool-action-list button {
+  display: grid;
+  min-height: 56px;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 2px 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--zy-border);
+  border-radius: 14px;
+  color: #344054;
+  background: #fbfdff;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+
+  &:hover {
+    border-color: rgba(99, 102, 241, 0.22);
+    background: #ffffff;
+    transform: translateY(-1px);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.58;
+    transform: none;
+  }
+
+  svg {
+    grid-row: span 2;
+    width: 34px;
+    height: 34px;
+    padding: 8px;
+    border-radius: 12px;
+    color: var(--zy-brand);
+    background: #eef2ff;
+  }
+
+  span,
+  small {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  span {
+    color: var(--zy-text);
+    font-size: 13px;
+    font-weight: 850;
+  }
+
+  small {
+    color: var(--zy-muted);
+    font-size: 11px;
+  }
+}
+
+.tool-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px 10px 0;
+
+  article {
+    padding: 10px;
+    border: 1px solid var(--zy-border);
+    border-radius: 13px;
+    background: #fbfdff;
+    text-align: center;
+  }
+
+  strong,
+  span {
+    display: block;
+  }
+
+  strong {
+    color: var(--zy-brand);
+    font-size: 18px;
+  }
+
+  span {
+    margin-top: 3px;
+    color: #98a2b3;
+    font-size: 11px;
+  }
+}
+
+.tool-node-summary {
+  margin: 10px;
+  padding: 12px;
+  border: 1px solid rgba(99, 102, 241, 0.13);
+  border-radius: 14px;
+  background: #f7f8ff;
+
+  span,
+  strong,
+  p {
+    display: block;
+  }
+
+  span {
+    color: var(--zy-brand);
+    font-size: 11px;
+    font-weight: 800;
+  }
+
+  strong {
+    margin-top: 4px;
+    color: var(--zy-text);
+    font-size: 15px;
+  }
+
+  p {
+    margin: 7px 0 0;
+    color: var(--zy-muted);
+    font-size: 12px;
+    line-height: 1.65;
+  }
+}
+
+.tool-focus-mini {
+  height: 180px;
+  overflow: hidden;
+  margin: 10px;
+  border: 1px solid var(--zy-border);
+  border-radius: 14px;
+  background: #fbfdff;
+}
+
+.tool-export-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 0 10px 10px;
+
+  button {
+    min-height: 32px;
+    border: 1px solid var(--zy-border);
+    border-radius: 999px;
+    color: #344054;
+    background: #ffffff;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
   }
 }
 
