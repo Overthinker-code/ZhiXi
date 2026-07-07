@@ -60,7 +60,7 @@
             <strong>智屿</strong>
           </div>
           <p class="site-footer__slogan">
-            智能教育平台 · 因材施教数字化落地
+            智能教育平台 · 让因材施教可落地
           </p>
         </div>
 
@@ -141,13 +141,6 @@
 </template>
 
 <style scoped lang="less">
-  .site-footer {
-    margin-top: 0;
-    border-top: 1px solid #e1e7f3;
-    background: rgba(248, 251, 255, 0.94);
-    color: #4c5a73;
-  }
-
   .site-footer__main {
     max-width: 1232px;
     margin: 0 auto;

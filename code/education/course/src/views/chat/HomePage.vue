@@ -29,6 +29,7 @@
   const userStore = useUserStore();
   const route = useRoute();
   const router = useRouter();
+  let revealObserver = null;
   const isTeacher = computed(() => userStore.role === 'teacher');
   const primaryAction = computed(() =>
     isTeacher.value ? '/dashboard/workplace' : '/tutor'
@@ -203,11 +204,29 @@
   onMounted(() => {
     document.addEventListener('click', handleClickOutside);
     document.addEventListener('keydown', handleKeydown);
+    const targets = Array.from(document.querySelectorAll('.reveal-on-scroll'));
+    if (!targets.length) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      targets.forEach((item) => item.classList.add('is-visible'));
+      return;
+    }
+    revealObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          entry.target.classList.add('is-visible');
+          revealObserver?.unobserve(entry.target);
+        });
+      },
+      { rootMargin: '0px 0px -12% 0px', threshold: 0.12 }
+    );
+    targets.forEach((item) => revealObserver?.observe(item));
   });
 
   onUnmounted(() => {
     document.removeEventListener('click', handleClickOutside);
     document.removeEventListener('keydown', handleKeydown);
+    revealObserver?.disconnect();
   });
 </script>
 
@@ -306,7 +325,7 @@
         </div>
       </section>
 
-      <section class="stats-section" aria-label="平台数据">
+      <section class="stats-section reveal-on-scroll" aria-label="平台数据">
         <div class="stats-card">
           <div
             v-for="stat in statsBar"
@@ -325,7 +344,7 @@
         </div>
       </section>
 
-      <section class="features-section">
+      <section class="features-section reveal-on-scroll">
         <div class="section-header section-header--center">
           <h2 class="section-title">为什么选择智屿？</h2>
           <p class="section-subtitle">把问答、画像、资源、图谱和路径放进同一条可验证学习链路</p>
@@ -359,7 +378,7 @@
         </div>
       </section>
 
-      <section class="course-hub-section">
+      <section class="course-hub-section reveal-on-scroll">
         <div class="section-header section-header--course">
           <div class="course-title-center">
             <h2 class="section-title">课程资源中心</h2>
@@ -425,6 +444,19 @@
   .main-content {
     width: 100%;
     overflow: hidden;
+  }
+
+  .reveal-on-scroll {
+    opacity: 0;
+    transform: translateY(12px);
+    transition:
+      opacity 0.42s ease,
+      transform 0.42s ease;
+  }
+
+  .reveal-on-scroll.is-visible {
+    opacity: 1;
+    transform: translateY(0);
   }
 
   .hero-section {
@@ -1231,8 +1263,8 @@
 
   .course-cat-grid {
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 10px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
   }
 
   .course-cat-card {
@@ -1240,11 +1272,12 @@
     overflow: hidden;
     display: flex;
     align-items: center;
-    gap: 10px;
-    min-height: 66px;
-    padding: 11px 12px;
+    gap: 12px;
+    min-width: 0;
+    min-height: 78px;
+    padding: 14px 16px;
     border: 1px solid #e9edf7;
-    border-radius: 999px;
+    border-radius: 18px;
     color: inherit;
     text-decoration: none;
     transition:
@@ -1263,6 +1296,11 @@
       display: none;
     }
 
+    > div {
+      min-width: 0;
+      flex: 1;
+    }
+
     strong,
     small,
     em {
@@ -1270,16 +1308,19 @@
     }
 
     strong {
+      overflow: hidden;
       color: #202a44;
       font-size: 15px;
       font-weight: 800;
       line-height: 1.2;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     small {
       margin-top: 5px;
       color: #69758b;
-      font-size: 11px;
+      font-size: 12px;
       line-height: 1.3;
       white-space: nowrap;
       overflow: hidden;
@@ -1287,7 +1328,7 @@
     }
 
     em {
-      display: none;
+      margin-top: 5px;
       color: #7a86a0;
       font-size: 12px;
       font-style: normal;
@@ -1467,6 +1508,12 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
+    .reveal-on-scroll {
+      opacity: 1;
+      transform: none;
+      transition: none;
+    }
+
     .hero-left > *,
     .visual-stage,
     .visual-stage::after,
