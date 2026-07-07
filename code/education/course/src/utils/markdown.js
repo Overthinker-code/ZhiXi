@@ -4,9 +4,7 @@ import mdLinkAttributes from 'markdown-it-link-attributes';
 import { full as emoji } from 'markdown-it-emoji';
 import { katex as mditKatex } from '@mdit/plugin-katex';
 import copyIcon from '@/assets/photo/复制.png';
-import darkIcon from '@/assets/photo/暗黑模式.png';
-import lightIcon from '@/assets/photo/明亮模式.png';
-import 'highlight.js/styles/atom-one-dark.css';
+import 'highlight.js/styles/github.css';
 import 'katex/dist/katex.min.css';
 
 const md = new MarkdownIt({
@@ -20,7 +18,7 @@ const md = new MarkdownIt({
           language: lang,
           ignoreIllegals: true,
         }).value;
-        return `<div class="code-block"><div class="code-header"><span class="code-lang">${lang}</span><div class="code-actions"><button class="code-action-btn" data-action="copy" data-tooltip="复制"><img src="${copyIcon}" alt="copy" /></button><button class="code-action-btn" data-action="theme" data-tooltip="切换主题"><img src="${darkIcon}" alt="theme" data-light-icon="${lightIcon}" data-dark-icon="${darkIcon}" /></button></div></div><pre class="hljs"><code>${highlighted}</code></pre></div>`;
+        return `<div class="code-block"><div class="code-header"><span class="code-lang">${lang}</span><div class="code-actions"><button class="code-action-btn" data-action="copy" data-tooltip="复制"><img src="${copyIcon}" alt="copy" /></button></div></div><pre class="hljs"><code>${highlighted}</code></pre></div>`;
       } catch {
         /* ignore */
       }

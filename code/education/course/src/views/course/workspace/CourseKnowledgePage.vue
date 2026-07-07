@@ -35,6 +35,10 @@
     updatedAt?: string;
   };
   type ClosureActionKey = 'reviewed' | 'practice' | 'resource';
+  type GraphNodePosition = {
+    x: number;
+    y: number;
+  };
 
   const route = useRoute();
   const router = useRouter();
@@ -46,12 +50,13 @@
   const showResourceLinks = ref(true);
   const showLearningPath = ref(true);
   const isolateSearchResults = ref(false);
-  const canvasZoom = ref(1.24);
+  const canvasZoom = ref(1);
   const canvasPan = ref({ x: 0, y: 0 });
   const isPanning = ref(false);
   const panStart = ref({ pointerX: 0, pointerY: 0, x: 0, y: 0 });
   const selectedLinkKey = ref('');
   const nodeStatuses = ref<Record<string, NodeStudyStatus>>({});
+  const expandedNodeIds = ref<Set<string>>(new Set(['course-root']));
 
   const course = computed(() => getClassroomCourse(String(route.params.courseId || '')));
   const maps = computed(() => (course.value ? buildCourseKnowledgeMaps(course.value) : []));
@@ -65,11 +70,38 @@
     '全部' as const,
     ...Array.from(new Set(activeMap.value?.links.map((link) => link.relation) || [])),
   ]);
+  const directNeighborIds = (nodeId: string, links: CourseKnowledgeMap['links']) => {
+    const ids = new Set<string>();
+    links.forEach((link) => {
+      if (link.source === nodeId) ids.add(link.target);
+      if (link.target === nodeId) ids.add(link.source);
+    });
+    return ids;
+  };
   const visibleNodes = computed(() => {
     const map = activeMap.value;
     const key = keyword.value.trim().toLowerCase();
     if (!map) return [];
-    if (!key || !isolateSearchResults.value) return map.nodes;
+    if (!key || !isolateSearchResults.value) {
+      const ids = new Set<string>();
+      const root = map.nodes.find((node) => node.id === 'course-root') || map.nodes[0];
+      if (root) ids.add(root.id);
+      map.nodes.forEach((node) => {
+        if (node.weight >= 3) ids.add(node.id);
+      });
+      const selectedId = selectedNodeId.value || root?.id;
+      if (selectedId) ids.add(selectedId);
+      const expandSources = new Set<string>([
+        ...(root ? [root.id] : []),
+        selectedId,
+        ...Array.from(expandedNodeIds.value),
+      ].filter(Boolean) as string[]);
+      expandSources.forEach((id) => {
+        ids.add(id);
+        directNeighborIds(id, map.links).forEach((neighborId) => ids.add(neighborId));
+      });
+      return map.nodes.filter((node) => ids.has(node.id));
+    }
     const matchIds = searchMatchNodeIds.value;
     const relatedIds = new Set<string>(matchIds);
     map.links.forEach((link) => {
@@ -94,6 +126,12 @@
     if (!map) return undefined;
     return map.nodes.find((node) => node.id === selectedNodeId.value) || map.nodes[0];
   });
+  const selectedAllLinks = computed(() => {
+    const map = activeMap.value;
+    const selectedId = selectedNode.value?.id;
+    if (!map || !selectedId) return [];
+    return map.links.filter((link) => link.source === selectedId || link.target === selectedId);
+  });
   const selectedLinks = computed(() =>
     visibleLinks.value.filter(
       (link) => link.source === selectedNode.value?.id || link.target === selectedNode.value?.id
@@ -102,7 +140,7 @@
   const selectedNeighborIds = computed(
     () =>
       new Set(
-        selectedLinks.value.flatMap((link) => [link.source, link.target])
+        selectedAllLinks.value.flatMap((link) => [link.source, link.target])
       )
   );
   const selectedNeighbors = computed(() => {
@@ -277,6 +315,88 @@
   const canvasTransform = computed(
     () => `translate(${canvasPan.value.x}px, ${canvasPan.value.y}px) scale(${canvasZoom.value})`
   );
+  const graphNodePositions = computed(() => {
+    const map = activeMap.value;
+    const selected = selectedNode.value;
+    const positions = new Map<string, GraphNodePosition>();
+    if (!map) return positions;
+    const root = map.nodes.find((node) => node.id === 'course-root') || map.nodes[0];
+    const visible = visibleNodes.value;
+    const rootId = root?.id;
+    const selectedId = selected?.id || rootId;
+    const isRootFocus = !selectedId || selectedId === rootId;
+    const center = { x: 470, y: 230 };
+
+    if (isRootFocus) {
+      if (root) positions.set(root.id, center);
+      const primaryNodes = visible.filter((node) => node.id !== rootId && node.weight >= 3);
+      const secondaryNodes = visible.filter((node) => node.id !== rootId && node.weight < 3);
+      primaryNodes.forEach((node, index) => {
+        const angle = -Math.PI / 2 + (Math.PI * 2 * index) / Math.max(primaryNodes.length, 1);
+        positions.set(node.id, {
+          x: center.x + Math.cos(angle) * 260,
+          y: center.y + Math.sin(angle) * 145,
+        });
+      });
+      secondaryNodes.forEach((node, index) => {
+        const col = index % 2;
+        const row = Math.floor(index / 2);
+        positions.set(node.id, {
+          x: col ? 735 : 205,
+          y: 110 + row * 76,
+        });
+      });
+      return positions;
+    }
+
+    if (selected) positions.set(selected.id, center);
+    if (root && root.id !== selectedId) positions.set(root.id, { x: 470, y: 70 });
+
+    const selectedLinksInMap = map.links.filter(
+      (link) => link.source === selectedId || link.target === selectedId
+    );
+    const incoming = selectedLinksInMap
+      .filter((link) => link.target === selectedId)
+      .map((link) => map.nodes.find((node) => node.id === link.source))
+      .filter(Boolean) as CourseKnowledgeNode[];
+    const outgoing = selectedLinksInMap
+      .filter((link) => link.source === selectedId)
+      .map((link) => map.nodes.find((node) => node.id === link.target))
+      .filter(Boolean) as CourseKnowledgeNode[];
+    const lateral = selectedLinksInMap
+      .filter((link) => link.source !== selectedId && link.target !== selectedId)
+      .flatMap((link) => [link.source, link.target])
+      .map((id) => map.nodes.find((node) => node.id === id))
+      .filter(Boolean) as CourseKnowledgeNode[];
+
+    const placeColumn = (nodes: CourseKnowledgeNode[], x: number, startY = 145, gap = 86) => {
+      const unique = Array.from(new Map(nodes.map((node) => [node.id, node])).values())
+        .filter((node) => visible.some((item) => item.id === node.id) && !positions.has(node.id));
+      const total = unique.length;
+      unique.forEach((node, index) => {
+        const y = total <= 1 ? 230 : startY + index * gap;
+        positions.set(node.id, { x, y: Math.max(72, Math.min(398, y)) });
+      });
+    };
+
+    placeColumn(incoming, 210);
+    placeColumn(outgoing, 730);
+    placeColumn(lateral, 730);
+
+    const contextNodes = visible.filter((node) => !positions.has(node.id));
+    contextNodes.forEach((node, index) => {
+      const slots = [
+        { x: 160, y: 386 },
+        { x: 340, y: 386 },
+        { x: 600, y: 386 },
+        { x: 780, y: 386 },
+        { x: 160, y: 88 },
+        { x: 780, y: 88 },
+      ];
+      positions.set(node.id, slots[index % slots.length]);
+    });
+    return positions;
+  });
   const graphStats = computed(() => [
     { label: '节点', value: String(visibleNodes.value.length) },
     { label: '关系', value: String(visibleLinks.value.length) },
@@ -722,8 +842,9 @@
   const selectedNodePopoverStyle = computed(() => {
     const node = selectedNode.value;
     if (!node) return {};
-    const baseLeft = ((node.x - 40) / 880) * 100;
-    const baseTop = (node.y / 460) * 100;
+    const position = nodePosition(node);
+    const baseLeft = ((position.x - 40) / 880) * 100;
+    const baseTop = (position.y / 460) * 100;
     const left = Math.max(8, Math.min(92, 50 + (baseLeft - 50) * canvasZoom.value));
     const top = Math.max(14, Math.min(88, 50 + (baseTop - 50) * canvasZoom.value));
     return {
@@ -956,14 +1077,14 @@
   }
 
   function nodeBoxWidth(node: CourseKnowledgeNode) {
-    if (node.weight >= 4) return 190;
-    if (node.weight >= 3) return 154;
-    if (node.type === 'resource' || node.type === 'task') return 140;
-    return 128;
+    if (node.weight >= 4) return 176;
+    if (node.weight >= 3) return 142;
+    if (node.type === 'resource' || node.type === 'task') return 124;
+    return 116;
   }
 
   function nodeBoxHeight(node: CourseKnowledgeNode) {
-    return node.weight >= 4 ? 70 : node.weight >= 3 ? 52 : 42;
+    return node.weight >= 4 ? 64 : node.weight >= 3 ? 48 : 38;
   }
 
   function nodeFill(node: CourseKnowledgeNode) {
@@ -988,18 +1109,24 @@
     return node.weight >= 4 ? '#ffffff' : '#26334d';
   }
 
+  function nodePosition(node: CourseKnowledgeNode): GraphNodePosition {
+    return graphNodePositions.value.get(node.id) || { x: node.x, y: node.y };
+  }
+
   function linkPath(link: CourseKnowledgeMap['links'][number]) {
     const source = activeMap.value?.nodes.find((node) => node.id === link.source);
     const target = activeMap.value?.nodes.find((node) => node.id === link.target);
     if (!source || !target) return '';
-    const dx = target.x - source.x;
-    const dy = target.y - source.y;
+    const sourcePosition = nodePosition(source);
+    const targetPosition = nodePosition(target);
+    const dx = targetPosition.x - sourcePosition.x;
+    const dy = targetPosition.y - sourcePosition.y;
     const pull = Math.max(50, Math.min(118, Math.abs(dx) * 0.22 + Math.abs(dy) * 0.14));
-    const c1x = source.x + dx * 0.34;
-    const c2x = target.x - dx * 0.34;
-    const c1y = source.y + dy * 0.16 - pull * Math.sign(dx || 1) * 0.12;
-    const c2y = target.y - dy * 0.16 + pull * Math.sign(dx || 1) * 0.12;
-    return `M ${source.x} ${source.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${target.x} ${target.y}`;
+    const c1x = sourcePosition.x + dx * 0.34;
+    const c2x = targetPosition.x - dx * 0.34;
+    const c1y = sourcePosition.y + dy * 0.16 - pull * Math.sign(dx || 1) * 0.12;
+    const c2y = targetPosition.y - dy * 0.16 + pull * Math.sign(dx || 1) * 0.12;
+    return `M ${sourcePosition.x} ${sourcePosition.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${targetPosition.x} ${targetPosition.y}`;
   }
 
   function linkKey(link: CourseKnowledgeMap['links'][number]) {
@@ -1013,6 +1140,7 @@
   function selectNode(node: CourseKnowledgeNode) {
     selectedNodeId.value = node.id;
     selectedLinkKey.value = '';
+    expandedNodeIds.value = new Set([...expandedNodeIds.value, node.id]);
     persistSelectedNode();
   }
 
@@ -1030,6 +1158,7 @@
     activeRelation.value = '全部';
     selectedLinkKey.value = '';
     canvasPan.value = { x: 0, y: 0 };
+    expandedNodeIds.value = new Set(['course-root']);
   }
 
   function selectBranch(index: number) {
@@ -1214,9 +1343,10 @@
 
   function centerNodeInCanvas(node = selectedNode.value, pull = 0.46) {
     if (!node) return;
+    const position = nodePosition(node);
     canvasPan.value = {
-      x: Math.round((480 - node.x) * pull),
-      y: Math.round((236 - node.y) * pull),
+      x: Math.round((480 - position.x) * pull),
+      y: Math.round((236 - position.y) * pull),
     };
   }
 
@@ -1323,11 +1453,11 @@
   }
 
   function changeZoom(delta: number) {
-    canvasZoom.value = Math.min(1.58, Math.max(0.78, Number((canvasZoom.value + delta).toFixed(2))));
+    canvasZoom.value = Math.min(1.34, Math.max(0.74, Number((canvasZoom.value + delta).toFixed(2))));
   }
 
   function resetCanvas() {
-    canvasZoom.value = 1.24;
+    canvasZoom.value = 1;
     canvasPan.value = { x: 0, y: 0 };
   }
 
@@ -1997,7 +2127,7 @@
                 <div>
                   <span class="canvas-eyebrow">{{ activeMap.title }}</span>
                   <strong>{{ selectedNode?.label || course.shortTitle }}</strong>
-                  <p>{{ visibleNodes.length }} 个节点 · {{ visibleLinks.length }} 条关系 · 当前聚焦 {{ nodeTypeLabel(selectedNode?.type) }}</p>
+                  <p>{{ visibleNodes.length }} 个节点 · {{ visibleLinks.length }} 条关系 · 点击节点展开关联知识点</p>
                 </div>
                 <div class="canvas-head-right">
                   <div class="stat-strip">
@@ -2103,7 +2233,7 @@
                   <g
                     v-for="node in visibleNodes"
                     :key="node.id"
-                    :transform="`translate(${node.x - nodeBoxWidth(node) / 2} ${node.y - nodeBoxHeight(node) / 2})`"
+                    :transform="`translate(${nodePosition(node).x - nodeBoxWidth(node) / 2} ${nodePosition(node).y - nodeBoxHeight(node) / 2})`"
                     :class="nodeClass(node)"
                     class="graph-node"
                     tabindex="0"
@@ -3094,6 +3224,7 @@
     cursor: pointer;
     outline: none;
     transition: opacity 0.16s ease;
+    animation: graph-node-pop 180ms ease both;
 
     .node-body {
       transition: transform 0.16s ease, filter 0.16s ease, stroke-width 0.16s ease;
@@ -6512,8 +6643,19 @@
     }
   }
 
+  @keyframes graph-node-pop {
+    from {
+      opacity: 0;
+    }
+
+    to {
+      opacity: 1;
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .knowledge-page,
+    .graph-node,
     .graph-workbench-grid .graph-tabs button,
     .ghost-action,
     .primary-action {

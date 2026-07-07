@@ -182,7 +182,14 @@ export function buildCourseKnowledgeMaps(
 ): CourseKnowledgeMap[] {
   const chapters = course.chapters.slice(0, 5);
   const conceptNodes = course.concepts
-    .flatMap((group) => group.points.map((point) => ({ group: group.title, point })))
+    .flatMap((group, groupIndex) =>
+      group.points.map((point, pointIndex) => ({
+        group: group.title,
+        groupIndex,
+        point,
+        pointIndex,
+      }))
+    )
     .slice(0, 14);
   const resources = buildCourseResources(course).slice(0, 6);
   const tasks = buildCourseTasks(course).slice(0, 5);
@@ -219,14 +226,16 @@ export function buildCourseKnowledgeMaps(
   });
 
   const conceptGraphNodes: CourseKnowledgeNode[] = conceptNodes.map((item, index) => {
-    const angle = -Math.PI / 2 + (Math.PI * 2 * index) / Math.max(conceptNodes.length, 1);
+    const chapterIndex = Math.min(item.groupIndex, Math.max(chapters.length - 1, 0));
+    const chapterAnchor = chapterNodes[chapterIndex];
+    const localOffset = item.pointIndex - 1;
     const concept = course.concepts.find((entry) => entry.title === item.group);
     return {
       id: `concept-${index}`,
       label: item.point,
       type: 'concept',
-      x: baseX + Math.cos(angle) * (ring + (index % 2 ? 72 : 34)),
-      y: baseY + Math.sin(angle) * (ring * 0.75 + (index % 3) * 18),
+      x: (chapterAnchor?.x ?? baseX) + 112 + localOffset * 28,
+      y: (chapterAnchor?.y ?? baseY) + localOffset * 58,
       weight: index < 5 ? 2 : 1,
       mastery: Math.max(42, Math.min(92, course.progress - 18 + index * 4)),
       detail: `${item.point} 属于「${item.group}」主题。学习时要同时说明定义、触发条件、相邻概念边界和在题目中的证据。`,
@@ -320,19 +329,42 @@ export function buildCourseKnowledgeMaps(
     recommendedAction: '用项目案例或综合题验证能力达成',
   }));
 
-  const chapterLinks: CourseKnowledgeLink[] = chapterNodes.map((node, index) => ({
-    source: index === 0 ? centerNode.id : chapterNodes[index - 1].id,
-    target: node.id,
-    relation: index === 0 ? '父子关系' : '前后置关系',
-    strength: index === 0 ? 96 : 82 - index * 4,
-  }));
+  const chapterLinks: CourseKnowledgeLink[] = [
+    ...chapterNodes.map((node) => ({
+      source: centerNode.id,
+      target: node.id,
+      relation: '父子关系' as const,
+      strength: 92,
+    })),
+    ...chapterNodes.slice(1).map((node, index) => ({
+      source: chapterNodes[index].id,
+      target: node.id,
+      relation: '前后置关系' as const,
+      strength: 82 - index * 4,
+    })),
+  ];
 
-  const conceptLinks: CourseKnowledgeLink[] = conceptGraphNodes.map((node, index) => ({
-    source: index % 3 === 0 ? centerNode.id : `concept-${Math.max(index - 1, 0)}`,
-    target: node.id,
-    relation: index % 4 === 0 ? '前后置关系' : '关联关系',
-    strength: index < 5 ? 88 : 64,
-  }));
+  const conceptLinks: CourseKnowledgeLink[] = conceptGraphNodes.flatMap((node, index) => {
+    const meta = conceptNodes[index];
+    const chapterId = `chapter-${Math.min(meta.groupIndex, Math.max(chapterNodes.length - 1, 0))}`;
+    const links: CourseKnowledgeLink[] = [
+      {
+        source: chapterId,
+        target: node.id,
+        relation: meta.pointIndex === 0 ? '父子关系' : '关联关系',
+        strength: index < 5 ? 88 : 66,
+      },
+    ];
+    if (meta.pointIndex > 0) {
+      links.push({
+        source: `concept-${index - 1}`,
+        target: node.id,
+        relation: '前后置关系',
+        strength: 76 - meta.pointIndex * 4,
+      });
+    }
+    return links;
+  });
 
   return [
     {
