@@ -140,19 +140,13 @@
           class="course-card"
           @click="goToCourseDetail(course.id)"
         >
-          <div class="course-card__cover" :class="courseVisualClass(course)">
-            <div class="course-card__cover-art" aria-hidden="true">
-              <i />
-              <i />
-              <i />
-            </div>
-            <span>{{ course.course_type || '专业课程' }}</span>
-            <strong>{{ coverShortTitle(course) }}</strong>
-          </div>
           <div class="course-card__body">
+            <div class="course-card__head">
+              <span>{{ course.course_type || '专业课程' }}</span>
+              <small>{{ courseProgressPercent(course) > 0 ? '学习中' : '未开始' }}</small>
+            </div>
             <div class="course-card__title">
               <strong>{{ course.name }}</strong>
-              <small>{{ courseProgressPercent(course) > 0 ? '学习中' : '未开始' }}</small>
             </div>
             <p>{{ course.description || '围绕课程核心概念、资料证据和学习任务持续推进。' }}</p>
             <div class="course-card__meta">
@@ -185,7 +179,6 @@
           :page-size="pagination.pageSize"
           :total="pagination.total"
           show-total
-          show-jumper
           @change="handlePageChange"
           @page-size-change="handlePageSizeChange"
         />
@@ -243,25 +236,6 @@
     }).length;
     return count || 12;
   });
-
-  function courseVisualClass(course: Course) {
-    const n = course.name || '';
-    const ident = (course.identifier || '').toUpperCase();
-    if (n.includes('数据库') || ident.includes('DB')) return 'course-card__cover--data';
-    if (n.includes('数据结构') || ident.includes('DS')) return 'course-card__cover--structure';
-    if (n.includes('人工智能') || n.includes('智能') || ident.includes('AI')) return 'course-card__cover--ai';
-    if (n.includes('宏观') || ident.includes('MAC')) return 'course-card__cover--economy';
-    if (n.includes('审计') || ident.includes('AUD')) return 'course-card__cover--audit';
-    if (n.includes('金融') || ident.includes('FIN')) return 'course-card__cover--finance';
-    const index =
-      Math.abs(n.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)) %
-      6;
-    return `course-card__cover--tone-${index}`;
-  }
-
-  function coverShortTitle(course: Course) {
-    return course.name.replace(/系统原理|导论|学/g, '').slice(0, 8) || course.name;
-  }
 
   function applyScenarioCoursesPage() {
     const q = (searchQuery.value || '').trim().toLowerCase();
@@ -768,153 +742,6 @@
     }
   }
 
-  .course-card__cover {
-    position: relative;
-    overflow: hidden;
-    height: 100px;
-    background:
-      radial-gradient(circle at 84% 20%, rgba(255, 255, 255, 0.52), transparent 28%),
-      linear-gradient(135deg, #eff6ff 0%, #e0e7ff 100%);
-
-    span {
-      position: absolute;
-      top: 12px;
-      left: 12px;
-      padding: 4px 8px;
-      border: 1px solid rgba(255, 255, 255, 0.72);
-      border-radius: 999px;
-      color: #fff;
-      background: rgba(15, 23, 42, 0.48);
-      backdrop-filter: blur(8px);
-      font-size: 11px;
-      font-weight: 700;
-    }
-
-    strong {
-      position: absolute;
-      right: 16px;
-      bottom: 14px;
-      z-index: 1;
-      max-width: 72%;
-      color: rgba(15, 23, 42, 0.8);
-      font-family: var(--zy-font-display);
-      font-size: 22px;
-      font-weight: 800;
-      letter-spacing: 0;
-      line-height: 1;
-    }
-  }
-
-  .course-card__cover::before {
-    position: absolute;
-    inset: 0;
-    background-image:
-      linear-gradient(rgba(255, 255, 255, 0.4) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.34) 1px, transparent 1px);
-    background-size: 22px 22px;
-    content: '';
-    mask-image: linear-gradient(90deg, transparent 0%, #000 30%, #000 100%);
-    opacity: 0.45;
-  }
-
-  .course-card__cover-art {
-    position: absolute;
-    inset: 0;
-    transition: transform 300ms ease;
-
-    i {
-      position: absolute;
-      display: block;
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.48);
-      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.32);
-
-      &:nth-child(1) {
-        width: 130px;
-        height: 130px;
-        top: -64px;
-        left: -26px;
-      }
-
-      &:nth-child(2) {
-        width: 82px;
-        height: 82px;
-        right: 38px;
-        bottom: -46px;
-      }
-
-      &:nth-child(3) {
-        width: 6px;
-        height: 76px;
-        right: 112px;
-        bottom: 10px;
-        border-radius: 4px;
-        transform: rotate(48deg);
-      }
-    }
-  }
-
-  .course-card:hover .course-card__cover-art {
-    transform: translate3d(4px, -2px, 0);
-  }
-
-  .course-card__cover--data {
-    background:
-      radial-gradient(circle at 78% 20%, rgba(147, 197, 253, 0.5), transparent 26%),
-      linear-gradient(135deg, #dbeafe 0%, #eef2ff 48%, #e0f2fe 100%);
-  }
-
-  .course-card__cover--structure {
-    background:
-      radial-gradient(circle at 80% 24%, rgba(34, 197, 94, 0.2), transparent 28%),
-      linear-gradient(135deg, #ecfdf5 0%, #e0f2fe 100%);
-  }
-
-  .course-card__cover--ai {
-    background:
-      radial-gradient(circle at 76% 20%, rgba(99, 102, 241, 0.22), transparent 30%),
-      linear-gradient(135deg, #eef2ff 0%, #f5f3ff 52%, #fdf2f8 100%);
-  }
-
-  .course-card__cover--economy {
-    background:
-      radial-gradient(circle at 78% 20%, rgba(251, 191, 36, 0.24), transparent 28%),
-      linear-gradient(135deg, #fff7ed 0%, #eff6ff 100%);
-  }
-
-  .course-card__cover--audit {
-    background:
-      radial-gradient(circle at 78% 18%, rgba(20, 184, 166, 0.2), transparent 26%),
-      linear-gradient(135deg, #f0fdfa 0%, #f8fafc 50%, #eef2ff 100%);
-  }
-
-  .course-card__cover--finance {
-    background:
-      radial-gradient(circle at 80% 22%, rgba(244, 63, 94, 0.18), transparent 27%),
-      linear-gradient(135deg, #fff1f2 0%, #fff7ed 48%, #eef2ff 100%);
-  }
-
-  .course-card__cover--tone-0,
-  .course-card__cover--tone-3 {
-    background:
-      radial-gradient(circle at 78% 22%, rgba(96, 165, 250, 0.2), transparent 28%),
-      linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%);
-  }
-
-  .course-card__cover--tone-1,
-  .course-card__cover--tone-4 {
-    background:
-      radial-gradient(circle at 78% 22%, rgba(16, 185, 129, 0.18), transparent 28%),
-      linear-gradient(135deg, #ecfdf5 0%, #f8fafc 100%);
-  }
-
-  .course-card__cover--tone-2,
-  .course-card__cover--tone-5 {
-    background:
-      radial-gradient(circle at 78% 22%, rgba(168, 85, 247, 0.18), transparent 28%),
-      linear-gradient(135deg, #faf5ff 0%, #f8fafc 100%);
-  }
-
   .course-card__body {
     min-width: 0;
     padding: 13px 14px 8px;
@@ -1213,7 +1040,6 @@
 
   @media (prefers-reduced-motion: reduce) {
     .course-card,
-    .course-card__cover-art,
     .progress-track i,
     .resume-progress i {
       animation: none;
@@ -1221,7 +1047,6 @@
     }
 
     .course-card:hover,
-    .course-card:hover .course-card__cover-art,
     .course-hero__resume button:hover {
       transform: none;
     }
@@ -1313,10 +1138,9 @@
 
   .course-card {
     position: relative;
-    display: grid;
-    min-height: 168px;
-    grid-template-columns: 104px minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) auto;
+    display: flex;
+    min-height: 188px;
+    flex-direction: column;
     border-radius: 15px;
     box-shadow: 0 8px 20px rgba(15, 23, 42, 0.035);
   }
@@ -1338,70 +1162,49 @@
     transform: translateX(18%);
   }
 
-  .course-card__cover {
-    height: auto;
-    min-height: 100%;
-    grid-row: 1 / span 2;
-    border-right: 1px solid rgba(255, 255, 255, 0.52);
-  }
-
-  .course-card__cover span {
-    top: 10px;
-    left: 9px;
-    max-width: calc(100% - 18px);
-    overflow: hidden;
-    padding: 3px 7px;
-    font-size: 10px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .course-card__cover strong {
-    right: 9px;
-    bottom: 13px;
-    left: 9px;
-    max-width: none;
-    font-size: 19px;
-    line-height: 1.06;
-  }
-
-  .course-card__cover::before {
-    background-size: 18px 18px;
-    opacity: 0.34;
-  }
-
-  .course-card__cover-art i:nth-child(1) {
-    width: 92px;
-    height: 92px;
-    top: -40px;
-    left: -28px;
-  }
-
-  .course-card__cover-art i:nth-child(2) {
-    width: 68px;
-    height: 68px;
-    right: -18px;
-    bottom: -22px;
-  }
-
-  .course-card__cover-art i:nth-child(3) {
-    right: 42px;
-    bottom: 18px;
-    height: 54px;
-  }
-
   .course-card__body {
-    padding: 12px 13px 7px;
+    display: flex;
+    min-height: 0;
+    flex: 1;
+    flex-direction: column;
+    padding: 14px 15px 8px;
+  }
+
+  .course-card__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 0;
+    margin-bottom: 10px;
+
+    span,
+    small {
+      min-width: 0;
+      max-width: 58%;
+      overflow: hidden;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    span {
+      color: #475569;
+      background: #f1f5f9;
+    }
+
+    small {
+      color: @brand;
+      background: #eef2ff;
+    }
   }
 
   .course-card__title strong {
     font-size: 15px;
     line-height: 1.35;
-  }
-
-  .course-card__title small {
-    padding: 3px 7px;
-    font-size: 10px;
   }
 
   .course-card__body p {
@@ -1419,10 +1222,9 @@
   }
 
   .course-card__footer {
-    grid-column: 2;
     grid-template-columns: 42px minmax(0, 1fr) auto;
     gap: 8px;
-    padding: 0 13px 12px;
+    padding: 0 15px 14px;
   }
 
   .course-card__progress span {

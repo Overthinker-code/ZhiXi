@@ -24,9 +24,8 @@ const COURSE: AppRouteRecordRaw = {
   name: 'course',
   component: DEFAULT_LAYOUT,
   meta: {
-    locale: '课程资源管理',
+    locale: '课程中心',
     requiresAuth: true,
-    icon: 'icon-link',
     order: 2,
   },
   children: [
