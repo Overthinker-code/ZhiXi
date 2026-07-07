@@ -236,6 +236,11 @@
     }
   }
 
+  function openResourceDetails(item: CourseResourceItem) {
+    selectResource(item);
+    resourceDrawerVisible.value = true;
+  }
+
   type RouteQueryPayload = Record<string, string | number | undefined>;
 
   function compactRouteQuery(payload: RouteQueryPayload) {
@@ -615,7 +620,7 @@
             :key="item.id"
             class="resource-card"
             :class="{ active: selectedResource?.id === item.id }"
-            @click="selectResource(item, true)"
+            @click="openResourceDetails(item)"
           >
             <div class="resource-card__top">
               <span class="resource-type">{{ item.type }}</span>
@@ -641,6 +646,7 @@
               <span>{{ item.size }}</span>
               <span>{{ item.downloads }} 次使用</span>
             </div>
+            <span class="resource-card__cta">详情</span>
             <div class="resource-trust-row">
               <span>课程组审核</span>
               <span>v{{ resourceIndex(item) + 1 }}.{{ item.downloads % 10 }}</span>
@@ -665,8 +671,17 @@
 
         <a-empty v-if="!visibleResources.length" description="没有匹配的课程资料" />
       </div>
+    </section>
 
-      <aside v-if="selectedResource && selectedResourcePlan" class="resource-inspector">
+    <a-drawer
+      v-model:visible="resourceDrawerVisible"
+      :width="440"
+      :footer="false"
+      placement="right"
+      unmount-on-close
+    >
+      <template #title>资料详情</template>
+      <div v-if="selectedResource && selectedResourcePlan" class="resource-inspector resource-inspector--drawer">
         <div class="resource-inspector__head">
           <span>{{ selectedResource.type }}</span>
           <h2>{{ selectedResource.title }}</h2>
@@ -696,51 +711,6 @@
           >
             {{ prompt }}
           </button>
-        </section>
-        <div class="resource-inspector__actions">
-          <button type="button" class="primary" @click="downloadResourceBrief(selectedResource)">
-            <icon-download /> 生成学习包
-          </button>
-          <button type="button" @click="generateResourceMaterials(selectedResource)">
-            <icon-bulb /> 生成配套
-          </button>
-          <button type="button" @click="locateResourceInGraph(selectedResource)">
-            <icon-mind-mapping /> 图谱定位
-          </button>
-          <button type="button" @click="askAboutResource(selectedResource)">
-            <icon-robot /> 资料问答
-          </button>
-        </div>
-      </aside>
-    </section>
-
-    <a-drawer
-      v-model:visible="resourceDrawerVisible"
-      :width="380"
-      :footer="false"
-      placement="right"
-      unmount-on-close
-    >
-      <template #title>资料详情</template>
-      <div v-if="selectedResource && selectedResourcePlan" class="resource-inspector resource-inspector--drawer">
-        <div class="resource-inspector__head">
-          <span>{{ selectedResource.type }}</span>
-          <h2>{{ selectedResource.title }}</h2>
-          <p>{{ selectedResource.chapter }} · {{ selectedResource.size }} · {{ selectedResource.downloads }} 次使用</p>
-        </div>
-        <div class="resource-inspector__nodes">
-          <strong>关联知识点</strong>
-          <div>
-            <span v-for="node in selectedResourcePlan.graphNodes.slice(0, 4)" :key="node">
-              {{ node }}
-            </span>
-          </div>
-        </div>
-        <section>
-          <strong>建议使用顺序</strong>
-          <ol>
-            <li v-for="task in selectedResourcePlan.tasks" :key="task">{{ task }}</li>
-          </ol>
         </section>
         <div class="resource-inspector__actions">
           <button type="button" class="primary" @click="downloadResourceBrief(selectedResource)">
@@ -1428,15 +1398,17 @@
   .resource-overview {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 12px;
+    gap: 10px;
+    margin-bottom: 14px;
 
     article {
       display: flex;
       align-items: center;
-      gap: 12px;
-      padding: 15px 16px;
+      gap: 10px;
+      min-height: 56px;
+      padding: 10px 12px;
       border: 1px solid #e4e8f1;
-      border-radius: 12px;
+      border-radius: 14px;
       background: #fff;
     }
 
@@ -1451,9 +1423,9 @@
     }
 
     strong {
-      margin-top: 4px;
+      margin-top: 2px;
       color: #29364d;
-      font-size: 20px;
+      font-size: 18px;
     }
   }
 
@@ -2384,9 +2356,7 @@
   }
 
   .resource-library-shell {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 336px;
-    gap: 16px;
+    display: block;
     align-items: start;
   }
 
@@ -2399,7 +2369,7 @@
   }
 
   .resource-library-main {
-    padding: 12px;
+    padding: 14px;
   }
 
   .resource-library-main .resource-toolbar {
@@ -2436,19 +2406,19 @@
 
   .resource-library-main .resource-grid {
     grid-template-columns: 1fr;
-    gap: 8px;
+    gap: 7px;
   }
 
   .resource-library-main .resource-card {
     position: relative;
     display: grid;
-    grid-template-columns: 42px minmax(0, 1fr) auto;
-    gap: 10px 12px;
+    grid-template-columns: 40px minmax(0, 1fr) minmax(108px, auto) 46px;
+    gap: 6px 12px;
     align-items: center;
-    min-height: 82px;
-    padding: 10px 14px 10px 12px;
+    min-height: 66px;
+    padding: 9px 12px;
     border-color: transparent;
-    border-radius: 14px;
+    border-radius: 13px;
     background: #fbfcff;
     cursor: pointer;
     box-shadow: none;
@@ -2463,7 +2433,7 @@
   }
 
   .resource-library-main .resource-card__top {
-    grid-column: 2 / span 2;
+    grid-column: 2 / span 3;
     justify-content: flex-start;
     gap: 8px;
   }
@@ -2479,20 +2449,32 @@
     margin: 0;
     color: #101828;
     font-size: 14px;
+    line-height: 1.25;
   }
 
   .resource-library-main .resource-card p {
     grid-column: 2;
     min-height: 0;
+    overflow: hidden;
     font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .resource-library-main .resource-path,
   .resource-library-main .resource-trust-row {
-    grid-column: 2;
+    grid-column: 2 / span 2;
     margin-top: 0;
     padding-top: 0;
     border-top: 0;
+  }
+
+  .resource-library-main .resource-path {
+    min-height: 0;
+  }
+
+  .resource-library-main .resource-trust-row {
+    display: none;
   }
 
   .resource-library-main .resource-meta {
@@ -2505,6 +2487,18 @@
     padding-top: 0;
     border-top: 0;
     white-space: nowrap;
+  }
+
+  .resource-card__cta {
+    grid-column: 4;
+    grid-row: 2 / span 2;
+    justify-self: end;
+    padding: 5px 9px;
+    border-radius: 999px;
+    color: #4f46e5;
+    background: rgba(79, 70, 229, 0.08);
+    font-size: 12px;
+    font-weight: 700;
   }
 
   .resource-library-main .resource-checks {
