@@ -53,9 +53,9 @@
   }
 
   .chat-empty {
-    position: fixed;
-    top: 50vh;
-    left: 50vw;
+    position: absolute;
+    top: calc(50% - 78px);
+    left: 50%;
     z-index: 1;
     display: flex;
     align-items: center;

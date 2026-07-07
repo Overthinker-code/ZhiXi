@@ -328,22 +328,32 @@
       <section class="features-section">
         <div class="section-header section-header--center">
           <h2 class="section-title">为什么选择智屿？</h2>
-          <p class="section-subtitle">围绕课程证据、画像、资源生成和图谱核验，形成可执行的学习闭环</p>
+          <p class="section-subtitle">把问答、画像、资源、图谱和路径放进同一条可验证学习链路</p>
         </div>
 
-        <div class="features-grid">
+        <div class="feature-loop">
+          <div class="feature-loop__intro">
+            <span class="feature-loop__eyebrow">学习闭环</span>
+            <h3>从一次提问开始，持续沉淀学习证据</h3>
+            <p>
+              智屿不把 AI 能力拆成孤立入口，而是让课程证据、资源生成、知识图谱与学情更新互相回写。
+            </p>
+          </div>
           <router-link
             v-for="(feat, index) in features"
             :key="feat.title"
             :to="feat.link"
-            class="feature-card"
-            :class="[`feature-card--${feat.tone}`, { 'feature-card--wide': index < 2 }]"
+            class="feature-step"
+            :class="`feature-step--${feat.tone}`"
           >
-            <div class="feat-icon">
-              <component :is="feat.icon" :size="28" :stroke-width="1.8" />
-            </div>
-            <h3 class="feat-title">{{ feat.title }}</h3>
-            <p class="feat-desc">{{ feat.desc }}</p>
+            <span class="feature-step__index">{{ String(index + 1).padStart(2, '0') }}</span>
+            <span class="feat-icon">
+              <component :is="feat.icon" :size="21" :stroke-width="1.9" />
+            </span>
+            <span class="feature-step__body">
+              <strong>{{ feat.title }}</strong>
+              <small>{{ feat.desc }}</small>
+            </span>
             <span class="feat-link">{{ feat.action }} →</span>
           </router-link>
         </div>
@@ -794,6 +804,28 @@
     }
   }
 
+  @keyframes loop-line {
+    0%,
+    100% {
+      opacity: 0.48;
+      transform: scaleX(0.82);
+    }
+    50% {
+      opacity: 1;
+      transform: scaleX(1);
+    }
+  }
+
+  @keyframes loop-marker {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(164px);
+    }
+  }
+
   .stats-section {
     max-width: 1232px;
     margin: 0 auto;
@@ -906,128 +938,210 @@
     line-height: 1.7;
   }
 
-  .features-grid {
-    display: grid;
-    grid-template-columns: repeat(12, minmax(0, 1fr));
-    align-items: start;
-    gap: 14px;
-  }
-
-  .feature-card {
+  .feature-loop {
     position: relative;
     overflow: hidden;
-    display: flex;
-    grid-column: span 3;
-    min-height: 142px;
-    flex-direction: column;
-    padding: 20px;
-    border: 1px solid #e9edf7;
-    border-radius: 20px;
+    display: grid;
+    grid-template-columns: 0.88fr 1.12fr 1.12fr;
+    gap: 0;
+    padding: 8px;
+    border: 1px solid rgba(80, 95, 150, 0.13);
+    border-radius: 28px;
     background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.92)),
-      radial-gradient(circle at 18% 4%, rgba(99, 102, 241, 0.12), transparent 28%);
+      radial-gradient(circle at 12% 18%, rgba(99, 102, 241, 0.11), transparent 30%),
+      linear-gradient(135deg, #ffffff 0%, #fbfcff 48%, #f7f9ff 100%);
+    box-shadow: 0 22px 58px rgba(31, 41, 85, 0.06);
+    animation: home-reveal 0.32s ease both;
+  }
+
+  .feature-loop::before {
+    content: '';
+    position: absolute;
+    top: 42px;
+    right: 34px;
+    left: 34px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.22), transparent);
+    transform-origin: left;
+    animation: loop-line 3.8s ease-in-out infinite;
+  }
+
+  .feature-loop__intro {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    grid-row: span 3;
+    min-height: 300px;
+    flex-direction: column;
+    justify-content: center;
+    padding: 28px 34px 28px 28px;
+    color: #111a33;
+  }
+
+  .feature-loop__intro::before {
+    content: '';
+    position: absolute;
+    top: 42px;
+    bottom: 42px;
+    left: 0;
+    width: 3px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, #6366f1, rgba(99, 102, 241, 0.08));
+  }
+
+  .feature-loop__intro::after {
+    content: '';
+    position: absolute;
+    top: 42px;
+    left: -3px;
+    width: 9px;
+    height: 38px;
+    border-radius: 999px;
+    background: #6366f1;
+    box-shadow: 0 0 0 8px rgba(99, 102, 241, 0.1);
+    animation: loop-marker 3.8s ease-in-out infinite;
+  }
+
+  .feature-loop__eyebrow {
+    width: fit-content;
+    margin-bottom: 22px;
+    padding: 5px 11px;
+    border: 1px solid rgba(99, 102, 241, 0.16);
+    border-radius: 999px;
+    color: #5865f2;
+    background: rgba(99, 102, 241, 0.06);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .feature-loop__intro h3 {
+    margin: 0;
+    max-width: 300px;
+    font-size: 27px;
+    font-weight: 820;
+    line-height: 1.28;
+  }
+
+  .feature-loop__intro p {
+    margin: 18px 0 0;
+    max-width: 330px;
+    color: #6b778d;
+    font-size: 14px;
+    line-height: 1.85;
+  }
+
+  .feature-step:nth-child(3),
+  .course-cat-card:nth-child(2) { animation-delay: 0.03s; }
+  .feature-step:nth-child(4),
+  .course-cat-card:nth-child(3) { animation-delay: 0.06s; }
+  .feature-step:nth-child(5),
+  .course-cat-card:nth-child(4) { animation-delay: 0.09s; }
+  .feature-step:nth-child(6),
+  .course-cat-card:nth-child(5) { animation-delay: 0.12s; }
+  .feature-step:nth-child(7),
+  .course-cat-card:nth-child(6) { animation-delay: 0.15s; }
+
+  .feature-step {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: 34px 46px minmax(0, 1fr) auto;
+    align-items: center;
+    min-height: 96px;
+    gap: 12px;
+    padding: 16px 20px;
+    border-radius: 22px;
     color: inherit;
     text-decoration: none;
-    box-shadow: 0 14px 34px rgba(45, 55, 93, 0.035);
     transition:
       transform 0.18s ease,
-      border-color 0.18s ease,
+      background-color 0.18s ease,
       box-shadow 0.18s ease;
     animation: home-reveal 0.32s ease both;
 
-    &:hover {
-      transform: translateY(-3px);
-      border-color: rgba(99, 102, 241, 0.28);
-      box-shadow: 0 20px 46px rgba(45, 55, 93, 0.085);
-    }
-
-    &::after {
+    &::before {
       content: '';
       position: absolute;
-      inset: 0;
-      pointer-events: none;
-      background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), transparent 38%);
-      opacity: 0;
-      transition: opacity 0.18s ease;
+      inset: 12px auto 12px 0;
+      width: 3px;
+      border-radius: 999px;
+      background: transparent;
+      transition: background-color 0.18s ease;
     }
 
-    &:hover::after {
-      opacity: 1;
+    &:hover {
+      transform: translateX(3px);
+      background: rgba(255, 255, 255, 0.86);
+      box-shadow: 0 12px 30px rgba(31, 41, 85, 0.06);
+    }
+
+    &:hover::before {
+      background: #6366f1;
     }
   }
 
-  .feature-card--wide {
-    grid-column: span 6;
-    min-height: 158px;
-    padding: 22px 24px;
+  .feature-step__index {
+    color: #a2acc1;
+    font-size: 12px;
+    font-weight: 800;
   }
-
-  .feature-card:nth-child(2),
-  .course-cat-card:nth-child(2) { animation-delay: 0.03s; }
-  .feature-card:nth-child(3),
-  .course-cat-card:nth-child(3) { animation-delay: 0.06s; }
-  .feature-card:nth-child(4),
-  .course-cat-card:nth-child(4) { animation-delay: 0.09s; }
-  .feature-card:nth-child(5),
-  .course-cat-card:nth-child(5) { animation-delay: 0.12s; }
-  .feature-card:nth-child(6),
-  .course-cat-card:nth-child(6) { animation-delay: 0.15s; }
 
   .feat-icon {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 40px;
-    height: 40px;
-    margin-bottom: 13px;
+    width: 42px;
+    height: 42px;
     border-radius: 50%;
     transition:
       transform 0.18s ease,
       box-shadow 0.18s ease;
   }
 
-  .feature-card:hover .feat-icon {
-    transform: translateY(-1px) rotate(-4deg);
+  .feature-step:hover .feat-icon {
+    transform: translateY(-1px) rotate(-5deg);
     box-shadow: 0 10px 22px rgba(79, 70, 229, 0.12);
   }
 
-  .feature-card--violet .feat-icon { background: #f0edff; color: #745cff; }
-  .feature-card--green .feat-icon { background: #e9faef; color: #1fbf67; }
-  .feature-card--blue .feat-icon { background: #eaf1ff; color: #3b6dff; }
-  .feature-card--amber .feat-icon { background: #fff3df; color: #f59a23; }
-  .feature-card--cyan .feat-icon { background: #e8fbff; color: #17a9d5; }
-  .feature-card--rose .feat-icon { background: #ffedf3; color: #ef4d79; }
+  .feature-step--violet .feat-icon { background: #f0edff; color: #745cff; }
+  .feature-step--green .feat-icon { background: #e9faef; color: #1fbf67; }
+  .feature-step--blue .feat-icon { background: #eaf1ff; color: #3b6dff; }
+  .feature-step--amber .feat-icon { background: #fff3df; color: #f59a23; }
+  .feature-step--cyan .feat-icon { background: #e8fbff; color: #17a9d5; }
+  .feature-step--rose .feat-icon { background: #ffedf3; color: #ef4d79; }
 
-  .feat-title {
-    margin: 0 0 10px;
+  .feature-step__body {
+    display: grid;
+    min-width: 0;
+    gap: 5px;
+  }
+
+  .feature-step__body strong {
     color: #1a2440;
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 800;
   }
 
-  .feature-card--wide .feat-title {
-    font-size: 18px;
-  }
-
-  .feat-desc {
-    flex: 0 1 auto;
-    margin: 0;
+  .feature-step__body small {
+    overflow: hidden;
     color: #6f7c92;
     font-size: 13px;
-    line-height: 1.72;
+    line-height: 1.55;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .feat-link {
-    margin-top: 16px;
     color: #5162f5;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 700;
+    white-space: nowrap;
     transition:
       color 0.18s ease,
       transform 0.18s ease;
   }
 
-  .feature-card:hover .feat-link {
+  .feature-step:hover .feat-link {
     color: #3f4ee8;
     transform: translateX(2px);
   }
@@ -1196,13 +1310,18 @@
       margin: 0 auto;
     }
 
-    .features-grid,
+    .feature-loop,
     .course-cat-grid {
       grid-template-columns: repeat(6, minmax(0, 1fr));
     }
 
-    .feature-card,
-    .feature-card--wide {
+    .feature-loop__intro {
+      grid-column: 1 / -1;
+      grid-row: auto;
+      min-height: 220px;
+    }
+
+    .feature-step {
       grid-column: span 3;
     }
   }
@@ -1230,14 +1349,23 @@
       position: static;
     }
 
-    .features-grid,
+    .feature-loop,
     .course-cat-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .feature-card,
-    .feature-card--wide {
-      grid-column: span 1;
+    .feature-loop__intro,
+    .feature-step {
+      grid-column: 1 / -1;
+    }
+
+    .feature-step {
+      grid-template-columns: 28px 42px minmax(0, 1fr);
+    }
+
+    .feature-step .feat-link {
+      grid-column: 3;
+      justify-self: start;
     }
   }
 
@@ -1269,14 +1397,18 @@
     }
 
     .stats-card,
-    .features-grid,
+    .feature-loop,
     .course-cat-grid {
       grid-template-columns: 1fr;
     }
 
-    .feature-card,
-    .feature-card--wide {
-      grid-column: span 1;
+    .feature-loop {
+      border-radius: 22px;
+    }
+
+    .feature-loop__intro,
+    .feature-step {
+      grid-column: 1;
     }
 
     .stats-card__item::before {
@@ -1290,14 +1422,16 @@
     .hero-photo,
     .floating-card,
     .mini-chart i,
-    .feature-card,
+    .feature-loop,
+    .feature-loop__intro::after,
+    .feature-step,
     .course-cat-card {
       animation: none;
     }
 
     .hero-photo,
     .floating-card,
-    .feature-card,
+    .feature-step,
     .course-cat-card,
     .btn-primary,
     .btn-outline {
@@ -1307,7 +1441,8 @@
     .visual-stage:hover .hero-photo--library,
     .visual-stage:hover .hero-photo--console,
     .visual-stage:hover .hero-photo--team,
-    .floating-card:hover {
+    .floating-card:hover,
+    .feature-step:hover {
       transform: none;
     }
   }
