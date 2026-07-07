@@ -4,9 +4,8 @@
       <div class="course-hero__bg" />
       <div class="course-hero__content">
         <div class="course-hero__text">
-          <span class="course-hero__eyebrow">我的学习空间</span>
           <h1>课程中心</h1>
-          <p>按学习状态回到正在推进的课程，课程资料、AI 伴学和学习路径都从这里进入。</p>
+          <p>回到正在推进的课程，继续学习、资料、图谱和 AI 伴学从这里进入。</p>
           <div class="course-hero__metrics">
             <span><strong>{{ totalCourses }}</strong> 门课程</span>
             <span><strong>{{ learningCount }}</strong> 门学习中</span>
@@ -23,7 +22,7 @@
             <i style="width: 58%" />
           </div>
           <button type="button" @click="goToCourseDetail('c1111111-1111-4111-9111-111111111101')">
-            继续学习
+            进入课程
           </button>
         </div>
       </div>
@@ -141,9 +140,14 @@
           class="course-card"
           @click="goToCourseDetail(course.id)"
         >
-          <div class="course-card__cover">
-            <img :src="getCourseImage(course)" :alt="course.name" />
+          <div class="course-card__cover" :class="courseVisualClass(course)">
+            <div class="course-card__cover-art" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </div>
             <span>{{ course.course_type || '专业课程' }}</span>
+            <strong>{{ coverShortTitle(course) }}</strong>
           </div>
           <div class="course-card__body">
             <div class="course-card__title">
@@ -203,13 +207,6 @@
   import ErrorState from '@/components/state/ErrorState.vue';
   import ZyPageShell from '@/components/zy/ZyPageShell.vue';
 
-  import AIImg from '@/assets/images/AI.jpg';
-  import EcoImg from '@/assets/images/宏观经济学.jpg';
-  import ShenImg from '@/assets/images/审计学.jpg';
-  import DatabaseImg from '@/assets/images/数据库图片.png';
-  import DatastructureImg from '@/assets/images/数据结构.jpg';
-  import YuanImg from '@/assets/images/金融学.jpg';
-
   const router = useRouter();
 
   const loading = ref(false);
@@ -247,29 +244,23 @@
     return count || 12;
   });
 
-  const courseImages = [
-    AIImg,
-    EcoImg,
-    ShenImg,
-    DatabaseImg,
-    DatastructureImg,
-    YuanImg,
-  ];
-
-  function getCourseImage(course: Course) {
+  function courseVisualClass(course: Course) {
     const n = course.name || '';
     const ident = (course.identifier || '').toUpperCase();
-    if (n.includes('数据库') || ident.includes('DB')) return DatabaseImg;
-    if (n.includes('数据结构') || ident.includes('DS')) return DatastructureImg;
-    if (n.includes('人工智能') || n.includes('智能') || ident.includes('AI'))
-      return AIImg;
-    if (n.includes('宏观') || ident.includes('MAC')) return EcoImg;
-    if (n.includes('审计') || ident.includes('AUD')) return ShenImg;
-    if (n.includes('金融') || ident.includes('FIN')) return YuanImg;
+    if (n.includes('数据库') || ident.includes('DB')) return 'course-card__cover--data';
+    if (n.includes('数据结构') || ident.includes('DS')) return 'course-card__cover--structure';
+    if (n.includes('人工智能') || n.includes('智能') || ident.includes('AI')) return 'course-card__cover--ai';
+    if (n.includes('宏观') || ident.includes('MAC')) return 'course-card__cover--economy';
+    if (n.includes('审计') || ident.includes('AUD')) return 'course-card__cover--audit';
+    if (n.includes('金融') || ident.includes('FIN')) return 'course-card__cover--finance';
     const index =
       Math.abs(n.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)) %
-      courseImages.length;
-    return courseImages[index];
+      6;
+    return `course-card__cover--tone-${index}`;
+  }
+
+  function coverShortTitle(course: Course) {
+    return course.name.replace(/系统原理|导论|学/g, '').slice(0, 8) || course.name;
   }
 
   function applyScenarioCoursesPage() {
@@ -351,10 +342,10 @@
   async function refreshCoursesFromServer() {
     error.value = '';
     try {
-    const response = await fetchCourses({
-      skip: 0,
-      limit: 100,
-    });
+      const response = await fetchCourses({
+        skip: 0,
+        limit: 100,
+      });
       if (response.data?.length) {
         sourceCourses.value = response.data;
         applyScenarioCoursesPage();
@@ -440,44 +431,30 @@
 
   .course-hero {
     position: relative;
-    min-height: 154px;
+    min-height: 112px;
     overflow: hidden;
     border: 1px solid @line;
-    border-radius: 22px;
+    border-radius: 20px;
     background: #fff;
-    box-shadow: 0 16px 42px rgba(15, 23, 42, 0.045);
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04);
   }
 
   .course-hero__bg {
     position: absolute;
     inset: 0;
     background:
-      radial-gradient(circle at 86% 12%, rgba(99, 102, 241, 0.14), transparent 24%),
-      linear-gradient(135deg, #ffffff 0%, #f7f9ff 62%, #eef4ff 100%);
+      radial-gradient(circle at 88% 8%, rgba(99, 102, 241, 0.12), transparent 24%),
+      linear-gradient(135deg, #ffffff 0%, #f9fbff 64%, #f2f6ff 100%);
   }
 
   .course-hero__content {
     position: relative;
     display: flex;
-    min-height: 154px;
+    min-height: 112px;
     align-items: center;
     justify-content: space-between;
-    gap: 28px;
-    padding: 22px 28px 22px 30px;
-  }
-
-  .course-hero__eyebrow {
-    display: inline-flex;
-    align-items: center;
-    min-height: 26px;
-    margin-bottom: 8px;
-    padding: 0 10px;
-    border: 1px solid rgba(99, 102, 241, 0.16);
-    border-radius: 999px;
-    color: @brand;
-    background: rgba(99, 102, 241, 0.06);
-    font-size: 12px;
-    font-weight: 700;
+    gap: 22px;
+    padding: 18px 22px 18px 24px;
   }
 
   .course-hero__text {
@@ -485,17 +462,17 @@
       margin: 0;
       color: @text-primary;
       font-family: var(--zy-font-display);
-      font-size: 32px;
+      font-size: 28px;
       font-weight: 700;
       letter-spacing: 0;
     }
 
     p {
       max-width: 620px;
-      margin: 9px 0 14px;
+      margin: 6px 0 10px;
       color: @text-secondary;
-      font-size: 15px;
-      line-height: 1.6;
+      font-size: 14px;
+      line-height: 1.5;
     }
   }
 
@@ -510,8 +487,8 @@
       gap: 6px;
       min-height: 28px;
       padding: 0 10px;
-      border: 1px solid rgba(15, 23, 42, 0.08);
-      border-radius: 8px;
+      border: 1px solid rgba(15, 23, 42, 0.07);
+      border-radius: 999px;
       color: @text-secondary;
       background: rgba(255, 255, 255, 0.72);
       font-size: 12px;
@@ -526,14 +503,16 @@
 
   .course-hero__resume {
     display: grid;
-    width: 330px;
-    flex: 0 0 330px;
-    gap: 10px;
-    padding: 16px;
+    width: 360px;
+    flex: 0 0 360px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px 14px;
+    padding: 12px 14px;
     border: 1px solid rgba(99, 102, 241, 0.14);
-    border-radius: 18px;
+    border-radius: 16px;
     background: rgba(255, 255, 255, 0.9);
-    box-shadow: 0 12px 30px rgba(79, 70, 229, 0.08);
+    box-shadow: 0 10px 24px rgba(79, 70, 229, 0.06);
 
     span {
       color: @brand;
@@ -554,7 +533,9 @@
     }
 
     button {
-      justify-self: start;
+      grid-row: 1 / span 2;
+      grid-column: 2;
+      justify-self: end;
       height: 34px;
       padding: 0 14px;
       border: 0;
@@ -577,7 +558,8 @@
   }
 
   .resume-progress {
-    height: 7px;
+    grid-column: 1;
+    height: 6px;
     overflow: hidden;
     border-radius: 999px;
     background: #edf0f7;
@@ -633,7 +615,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 18px;
-    margin-bottom: 14px;
+    margin-bottom: 12px;
 
     strong,
     span {
@@ -642,7 +624,7 @@
 
     strong {
       color: @text-primary;
-      font-size: 20px;
+      font-size: 19px;
     }
 
     span {
@@ -688,11 +670,11 @@
   }
 
   .course-catalog {
-    padding: 18px;
+    padding: 16px;
     border: 1px solid @line;
     border-radius: 22px;
     background: #fff;
-    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.045);
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.04);
   }
 
   .filter-panel {
@@ -701,8 +683,8 @@
     align-items: center;
     justify-content: space-between;
     gap: 14px;
-    margin-bottom: 16px;
-    padding: 7px;
+    margin-bottom: 14px;
+    padding: 6px;
     border: 1px solid rgba(15, 23, 42, 0.06);
     border-radius: 16px;
     background: #f8faff;
@@ -759,17 +741,17 @@
   .course-card-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 14px;
+    gap: 12px;
   }
 
   .course-card {
     overflow: hidden;
     display: flex;
     min-width: 0;
-    min-height: 302px;
+    min-height: 254px;
     flex-direction: column;
     border: 1px solid rgba(15, 23, 42, 0.08);
-    border-radius: 18px;
+    border-radius: 16px;
     background: #fff;
     cursor: pointer;
     box-shadow: 0 10px 28px rgba(15, 23, 42, 0.035);
@@ -789,21 +771,16 @@
   .course-card__cover {
     position: relative;
     overflow: hidden;
-    height: 136px;
-    background: #eef2ff;
-
-    img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      transition: transform 300ms ease;
-    }
+    height: 100px;
+    background:
+      radial-gradient(circle at 84% 20%, rgba(255, 255, 255, 0.52), transparent 28%),
+      linear-gradient(135deg, #eff6ff 0%, #e0e7ff 100%);
 
     span {
       position: absolute;
       top: 12px;
       left: 12px;
-      padding: 5px 9px;
+      padding: 4px 8px;
       border: 1px solid rgba(255, 255, 255, 0.72);
       border-radius: 999px;
       color: #fff;
@@ -812,15 +789,135 @@
       font-size: 11px;
       font-weight: 700;
     }
+
+    strong {
+      position: absolute;
+      right: 16px;
+      bottom: 14px;
+      z-index: 1;
+      max-width: 72%;
+      color: rgba(15, 23, 42, 0.8);
+      font-family: var(--zy-font-display);
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: 0;
+      line-height: 1;
+    }
   }
 
-  .course-card:hover .course-card__cover img {
-    transform: scale(1.035);
+  .course-card__cover::before {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.4) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.34) 1px, transparent 1px);
+    background-size: 22px 22px;
+    content: '';
+    mask-image: linear-gradient(90deg, transparent 0%, #000 30%, #000 100%);
+    opacity: 0.45;
+  }
+
+  .course-card__cover-art {
+    position: absolute;
+    inset: 0;
+    transition: transform 300ms ease;
+
+    i {
+      position: absolute;
+      display: block;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.48);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.32);
+
+      &:nth-child(1) {
+        width: 130px;
+        height: 130px;
+        top: -64px;
+        left: -26px;
+      }
+
+      &:nth-child(2) {
+        width: 82px;
+        height: 82px;
+        right: 38px;
+        bottom: -46px;
+      }
+
+      &:nth-child(3) {
+        width: 6px;
+        height: 76px;
+        right: 112px;
+        bottom: 10px;
+        border-radius: 4px;
+        transform: rotate(48deg);
+      }
+    }
+  }
+
+  .course-card:hover .course-card__cover-art {
+    transform: translate3d(4px, -2px, 0);
+  }
+
+  .course-card__cover--data {
+    background:
+      radial-gradient(circle at 78% 20%, rgba(147, 197, 253, 0.5), transparent 26%),
+      linear-gradient(135deg, #dbeafe 0%, #eef2ff 48%, #e0f2fe 100%);
+  }
+
+  .course-card__cover--structure {
+    background:
+      radial-gradient(circle at 80% 24%, rgba(34, 197, 94, 0.2), transparent 28%),
+      linear-gradient(135deg, #ecfdf5 0%, #e0f2fe 100%);
+  }
+
+  .course-card__cover--ai {
+    background:
+      radial-gradient(circle at 76% 20%, rgba(99, 102, 241, 0.22), transparent 30%),
+      linear-gradient(135deg, #eef2ff 0%, #f5f3ff 52%, #fdf2f8 100%);
+  }
+
+  .course-card__cover--economy {
+    background:
+      radial-gradient(circle at 78% 20%, rgba(251, 191, 36, 0.24), transparent 28%),
+      linear-gradient(135deg, #fff7ed 0%, #eff6ff 100%);
+  }
+
+  .course-card__cover--audit {
+    background:
+      radial-gradient(circle at 78% 18%, rgba(20, 184, 166, 0.2), transparent 26%),
+      linear-gradient(135deg, #f0fdfa 0%, #f8fafc 50%, #eef2ff 100%);
+  }
+
+  .course-card__cover--finance {
+    background:
+      radial-gradient(circle at 80% 22%, rgba(244, 63, 94, 0.18), transparent 27%),
+      linear-gradient(135deg, #fff1f2 0%, #fff7ed 48%, #eef2ff 100%);
+  }
+
+  .course-card__cover--tone-0,
+  .course-card__cover--tone-3 {
+    background:
+      radial-gradient(circle at 78% 22%, rgba(96, 165, 250, 0.2), transparent 28%),
+      linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%);
+  }
+
+  .course-card__cover--tone-1,
+  .course-card__cover--tone-4 {
+    background:
+      radial-gradient(circle at 78% 22%, rgba(16, 185, 129, 0.18), transparent 28%),
+      linear-gradient(135deg, #ecfdf5 0%, #f8fafc 100%);
+  }
+
+  .course-card__cover--tone-2,
+  .course-card__cover--tone-5 {
+    background:
+      radial-gradient(circle at 78% 22%, rgba(168, 85, 247, 0.18), transparent 28%),
+      linear-gradient(135deg, #faf5ff 0%, #f8fafc 100%);
   }
 
   .course-card__body {
     min-width: 0;
-    padding: 15px 16px 10px;
+    padding: 13px 14px 8px;
     flex: 1;
   }
 
@@ -835,7 +932,7 @@
       display: -webkit-box;
       overflow: hidden;
       color: @text-primary;
-      font-size: 17px;
+      font-size: 16px;
       font-weight: 750;
       line-height: 1.35;
       -webkit-box-orient: vertical;
@@ -856,11 +953,11 @@
 
   .course-card__body p {
     display: -webkit-box;
-    margin: 9px 0 12px;
+    margin: 7px 0 9px;
     overflow: hidden;
     color: @text-secondary;
     font-size: 13px;
-    line-height: 1.6;
+    line-height: 1.5;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
   }
@@ -889,20 +986,25 @@
 
   .course-card__footer {
     display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
     gap: 10px;
-    padding: 0 16px 16px;
+    padding: 0 14px 13px;
 
     button {
-      height: 38px;
-      border: 0;
+      height: 32px;
+      padding: 0 12px;
+      border: 1px solid rgba(99, 102, 241, 0.18);
       border-radius: 999px;
-      color: #fff;
-      background: @brand;
+      color: @brand;
+      background: #eef2ff;
       cursor: pointer;
+      font-size: 12px;
       font-weight: 700;
       transition: transform 150ms ease, background 150ms ease;
 
       &:hover {
+        color: #fff;
         background: #4f46e5;
       }
 
@@ -920,12 +1022,13 @@
 
     span {
       color: @text-primary;
-      font-size: 22px;
+      font-size: 18px;
       font-weight: 750;
       line-height: 1;
     }
 
     small {
+      display: none;
       color: @text-secondary;
       font-size: 12px;
     }
@@ -933,7 +1036,7 @@
 
   .progress-track {
     position: relative;
-    height: 7px;
+    height: 6px;
     overflow: hidden;
     border-radius: 999px;
     background: #edf0f7;
@@ -1037,8 +1140,8 @@
     }
 
     .course-hero__content {
-      min-height: 230px;
-      padding: 26px 22px;
+      min-height: auto;
+      padding: 20px 18px;
     }
 
     .course-hero__text h1 {
@@ -1078,6 +1181,26 @@
     }
   }
 
+  .course-card:nth-child(2) {
+    animation-delay: 30ms;
+  }
+
+  .course-card:nth-child(3) {
+    animation-delay: 60ms;
+  }
+
+  .course-card:nth-child(4) {
+    animation-delay: 90ms;
+  }
+
+  .course-card:nth-child(5) {
+    animation-delay: 120ms;
+  }
+
+  .course-card:nth-child(6) {
+    animation-delay: 150ms;
+  }
+
   @keyframes progress-reveal {
     from {
       transform: scaleX(0);
@@ -1090,7 +1213,7 @@
 
   @media (prefers-reduced-motion: reduce) {
     .course-card,
-    .course-card__cover img,
+    .course-card__cover-art,
     .progress-track i,
     .resume-progress i {
       animation: none;
@@ -1098,7 +1221,7 @@
     }
 
     .course-card:hover,
-    .course-card:hover .course-card__cover img,
+    .course-card:hover .course-card__cover-art,
     .course-hero__resume button:hover {
       transform: none;
     }
