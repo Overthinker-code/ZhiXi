@@ -1,5 +1,8 @@
 <template>
-  <div class="resource-workshop-page">
+  <div
+    class="resource-workshop-page"
+    :class="{ 'resource-workshop-page--course': isCourseScoped }"
+  >
     <Breadcrumb :items="['menu.resourceWorkshop', 'menu.resourceGeneration']" />
 
     <section class="workshop-hero">
@@ -785,6 +788,9 @@
   const mode = computed(() => String(route.name || 'ResourcePackageBuilder'));
   const isUnifiedWorkbench = computed(
     () => mode.value === 'CourseResourceGeneration'
+  );
+  const isCourseScoped = computed(
+    () => mode.value === 'StudentCourseResourceGenerator'
   );
   const isPackageMode = computed(() => activeMode.value === 'package');
   const isExerciseMode = computed(() => activeMode.value === 'exercise');
@@ -3161,6 +3167,220 @@
     50% {
       transform: rotateY(-8deg) rotateX(3deg) translateY(-7px);
     }
+  }
+
+  /* Demo refinement: keep the workshop focused on configuration -> agent flow -> package preview. */
+  .workshop-hero {
+    min-height: 164px;
+    padding: 16px 20px;
+  }
+
+  .hero-visual {
+    height: 118px;
+  }
+
+  .folder-box {
+    width: 88px;
+    height: 72px;
+  }
+
+  .folder-sheet {
+    width: 46px;
+    height: 60px;
+  }
+
+  .folder-sheet--two {
+    width: 42px;
+    height: 48px;
+    font-size: 18px;
+  }
+
+  .hero-title-line h1 {
+    font-size: clamp(24px, 1.7vw, 28px);
+    letter-spacing: 0;
+  }
+
+  .hero-main > p {
+    display: -webkit-box;
+    max-width: 820px;
+    margin: 8px 0 12px;
+    overflow: hidden;
+    font-size: 13px;
+    line-height: 1.62;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .hero-metrics {
+    gap: 9px;
+  }
+
+  .hero-metric {
+    min-height: 56px;
+    padding: 9px 10px;
+  }
+
+  .hero-metric p {
+    display: -webkit-box;
+    margin-top: 3px;
+    overflow: hidden;
+    font-size: 12px;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .profile-state {
+    padding: 13px;
+  }
+
+  .profile-state > strong {
+    margin-top: 8px;
+    font-size: 18px;
+  }
+
+  .profile-state > p {
+    display: -webkit-box;
+    min-height: 0;
+    margin: 6px 0 12px;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .profile-state :deep(.arco-btn) {
+    height: 30px;
+  }
+
+  .mode-dock {
+    grid-template-columns: 70px repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+    padding: 6px 8px;
+  }
+
+  .mode-card {
+    min-height: 44px;
+    grid-template-columns: 28px minmax(0, 1fr) 18px;
+    gap: 8px;
+    padding: 7px 9px;
+  }
+
+  .mode-card__icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 9px;
+  }
+
+  .mode-card__copy strong {
+    font-size: 13px;
+  }
+
+  .mode-card__copy em {
+    display: none;
+  }
+
+  .workbench-grid {
+    grid-template-columns: minmax(292px, 0.72fr) minmax(560px, 1.62fr);
+    margin-top: 10px;
+  }
+
+  .work-card {
+    padding: 12px;
+    border-radius: 15px;
+  }
+
+  .settings-card {
+    min-height: 0;
+  }
+
+  .flow-card {
+    min-height: 126px;
+  }
+
+  .result-preview-card {
+    min-height: 264px;
+  }
+
+  .card-heading {
+    margin-bottom: 10px;
+  }
+
+  .compact-form :deep(.arco-form-item) {
+    margin-bottom: 8px;
+  }
+
+  .resource-workshop-page--course {
+    padding-top: 0;
+  }
+
+  .resource-workshop-page--course .workshop-hero {
+    grid-template-columns: minmax(0, 1fr) 220px;
+    min-height: 116px;
+    margin-top: 8px;
+    padding: 14px 18px;
+  }
+
+  .resource-workshop-page--course .hero-visual {
+    display: none;
+  }
+
+  .resource-workshop-page--course .hero-title-line h1 {
+    font-size: 24px;
+  }
+
+  .resource-workshop-page--course .hero-main > p {
+    max-width: 760px;
+    -webkit-line-clamp: 1;
+  }
+
+  .resource-workshop-page--course .hero-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .resource-workshop-page--course .hero-metric {
+    min-height: 48px;
+    grid-template-columns: 28px minmax(0, 1fr);
+    padding: 8px 9px;
+  }
+
+  .resource-workshop-page--course .metric-icon {
+    width: 26px;
+    height: 26px;
+  }
+
+  .resource-workshop-page--course .hero-metric strong {
+    font-size: 12px;
+  }
+
+  .resource-workshop-page--course .hero-metric p {
+    font-size: 11px;
+    -webkit-line-clamp: 1;
+  }
+
+  .resource-workshop-page--course .profile-state {
+    align-self: stretch;
+    padding: 12px;
+  }
+
+  .resource-workshop-page--course .workbench-grid {
+    grid-template-columns: minmax(300px, 0.78fr) minmax(0, 1.35fr);
+    gap: 10px;
+  }
+
+  .resource-workshop-page--course .course-seed-card {
+    margin-bottom: 10px;
+    padding: 9px;
+  }
+
+  .resource-workshop-page--course .seed-links button {
+    min-height: 37px;
+    padding: 6px 8px;
+  }
+
+  .resource-workshop-page--course .seed-links small {
+    display: -webkit-box;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
   }
 
   @media (max-width: 1280px) {
