@@ -38,7 +38,7 @@ export function fetchCourses(params: CourseQueryParams = {}) {
   if (params.ud_id) queryParams.append('ud_id', params.ud_id);
 
   const queryString = queryParams.toString();
-  const url = `/api/education/courses${queryString ? `?${queryString}` : ''}`;
+  const url = `/api/education/courses/${queryString ? `?${queryString}` : ''}`;
 
   return axios
     .get(url, { timeout: READ_TIMEOUT_MS })
@@ -62,7 +62,7 @@ export interface TeachingClass {
 
 export function fetchTeachingClasses(courseId: string) {
   return axios
-    .get(`/api/education/tc?course_id=${courseId}`, { timeout: READ_TIMEOUT_MS })
+    .get(`/api/education/tc/?course_id=${courseId}`, { timeout: READ_TIMEOUT_MS })
     .then((res) => res.data as { data: TeachingClass[]; count: number });
 }
 

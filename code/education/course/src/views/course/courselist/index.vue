@@ -5,35 +5,11 @@
       <div class="course-hero__content">
         <div class="course-hero__text">
           <h1>课程中心</h1>
-          <p>管理正在学习的课程、收藏与最近访问记录，快速回到下一节内容。</p>
-          <div class="course-hero__stats">
-            <div class="stat-box">
-              <span class="stat-box__icon">
-                <icon-apps />
-              </span>
-              <span class="stat-box__content">
-                <span class="stat-box__label">全部课程</span>
-                <span class="stat-box__value"
-                  >{{ totalCourses }}<small> 门</small></span
-                >
-              </span>
-            </div>
-            <div class="stat-box">
-              <span class="stat-box__icon stat-box__icon--learning">学</span>
-              <span class="stat-box__content">
-                <span class="stat-box__label">正在学习</span>
-                <span class="stat-box__value"
-                  >{{ learningCount }}<small> 门</small></span
-                >
-              </span>
-            </div>
-            <div class="stat-box">
-              <span class="stat-box__icon stat-box__icon--todo">续</span>
-              <span class="stat-box__content">
-                <span class="stat-box__label">推荐继续</span>
-                <span class="stat-box__value stat-box__value--text">数据库系统</span>
-              </span>
-            </div>
+          <p>从课程进度、待学章节和资料证据出发，快速回到下一次学习。</p>
+          <div class="course-hero__metrics">
+            <span>全部课程 <strong>{{ totalCourses }}</strong></span>
+            <span>学习中 <strong>{{ learningCount }}</strong></span>
+            <span>推荐续学 <strong>数据库系统</strong></span>
           </div>
         </div>
         <div class="course-hero__resume">
@@ -47,8 +23,30 @@
       </div>
     </section>
 
-    <!-- 学院 Tabs + 搜索 -->
-    <div class="filter-section">
+    <section class="course-catalog">
+      <div class="catalog-header">
+        <div>
+          <strong>我的课程</strong>
+          <span>按学习状态、课程类型和进度筛选</span>
+        </div>
+        <div class="search-row">
+          <a-input
+            v-model="searchQuery"
+            placeholder="搜索课程名称、教师或关键词"
+            class="search-input"
+            allow-clear
+            @press-enter="handleSearch"
+          >
+            <template #prefix>
+              <icon-search />
+            </template>
+          </a-input>
+          <a-button type="primary" class="search-btn" @click="handleSearch"
+            >搜索</a-button
+          >
+        </div>
+      </div>
+
       <div class="category-tabs">
         <button
           v-for="category in categories"
@@ -62,26 +60,6 @@
         </button>
       </div>
 
-      <div class="search-row">
-        <a-input
-          v-model="searchQuery"
-          placeholder="搜索课程名称、教师或关键词..."
-          class="search-input"
-          allow-clear
-          @press-enter="handleSearch"
-        >
-          <template #prefix>
-            <icon-search />
-          </template>
-        </a-input>
-        <a-button type="primary" class="search-btn" @click="handleSearch"
-          >搜索</a-button
-        >
-      </div>
-    </div>
-
-    <section class="course-catalog">
-      <!-- 列表工具栏 -->
       <div class="list-toolbar">
         <span class="list-toolbar__count">
           共 <strong>{{ pagination.total || courses.length }}</strong> 门课程
@@ -116,28 +94,6 @@
             <a-option value="rating">评分最高</a-option>
             <a-option value="newest">最新发布</a-option>
           </a-select>
-          <div class="view-toggle">
-            <button
-              type="button"
-              class="view-toggle__btn"
-              :class="{ 'view-toggle__btn--active': viewMode === 'grid' }"
-              :aria-pressed="viewMode === 'grid'"
-              aria-label="网格视图"
-              @click="viewMode = 'grid'"
-            >
-              <icon-apps />
-            </button>
-            <button
-              type="button"
-              class="view-toggle__btn"
-              :class="{ 'view-toggle__btn--active': viewMode === 'list' }"
-              :aria-pressed="viewMode === 'list'"
-              aria-label="列表视图"
-              @click="viewMode = 'list'"
-            >
-              <icon-unordered-list />
-            </button>
-          </div>
         </div>
       </div>
 
@@ -176,16 +132,37 @@
         <div class="empty-desc">尝试切换学院、学习状态或搜索关键词</div>
       </a-empty>
 
-      <div
-        v-else
-        :class="viewMode === 'grid' ? 'courses-grid' : 'courses-list'"
-      >
-        <CourseCard
+      <div v-else class="course-directory">
+        <article
           v-for="course in displayCourses"
           :key="course.id"
-          :course="adaptCourse(course)"
+          class="course-row"
           @click="goToCourseDetail(course.id)"
-        />
+        >
+          <img :src="getCourseImage(course)" :alt="course.name" />
+          <div class="course-row__main">
+            <div class="course-row__title">
+              <strong>{{ course.name }}</strong>
+              <span>{{ course.course_type || '专业课程' }}</span>
+            </div>
+            <p>{{ course.description || '围绕课程核心概念、资料证据和学习任务持续推进。' }}</p>
+            <div class="course-row__meta">
+              <span>{{ courseDepartment(course) }}</span>
+              <span>{{ courseTeacher(course) }}</span>
+              <span>{{ courseRating(course) }} 分</span>
+            </div>
+          </div>
+          <div class="course-row__progress">
+            <span>{{ courseProgressPercent(course) }}%</span>
+            <div class="progress-track">
+              <i :style="{ width: `${courseProgressPercent(course)}%` }" />
+            </div>
+            <small>{{ courseProgressPercent(course) > 0 ? '继续学习' : '开始学习' }}</small>
+          </div>
+          <button type="button" @click.stop="goToCourseDetail(course.id)">
+            进入课程
+          </button>
+        </article>
       </div>
 
       <div
@@ -209,11 +186,7 @@
 <script setup lang="ts">
   import { ref, computed, onMounted, watch } from 'vue';
   import { useRouter } from 'vue-router';
-  import {
-    IconSearch,
-    IconApps,
-    IconUnorderedList,
-  } from '@arco-design/web-vue/es/icon';
+  import { IconSearch } from '@arco-design/web-vue/es/icon';
   import { fetchCourses, type Course } from '@/api/course';
   import {
     scenarioCourseDepartments,
@@ -221,7 +194,6 @@
     scenarioCourses,
   } from '@/data/teachingScenario';
   import ErrorState from '@/components/state/ErrorState.vue';
-  import CourseCard from '@/components/CourseCard.vue';
   import ZyPageShell from '@/components/zy/ZyPageShell.vue';
 
   import AIImg from '@/assets/images/AI.jpg';
@@ -239,7 +211,6 @@
   const courses = ref<Course[]>(scenarioCourses.slice(0, 6));
   const searchQuery = ref('');
   const selectedCategory = ref('全部');
-  const viewMode = ref<'grid' | 'list'>('grid');
   const statusFilter = ref('all');
   const typeFilter = ref('all');
   const sortBy = ref('recommend');
@@ -420,22 +391,27 @@
     });
   }
 
-  function adaptCourse(course: Course) {
+  function courseProgressPercent(course: Course) {
     const c = course as any;
     const metrics = scenarioCourseMetrics[course.id];
     const rawProgress = c.progress ?? metrics?.progress ?? 0;
-    const progress = rawProgress > 1 ? rawProgress / 100 : rawProgress;
-    return {
-      id: course.id,
-      name: course.name,
-      category: course.course_type || '专业课程',
-      coverImage: getCourseImage(course),
-      teacher: c.teacher_name || metrics?.teacher || '智屿教师',
-      teacherAvatar: undefined,
-      progress,
-      rating: c.rating || metrics?.rating || '4.6',
-      reviewCount: c.review_count || metrics?.learners || 0,
-    };
+    const progress = rawProgress > 1 ? rawProgress : rawProgress * 100;
+    if (!Number.isFinite(progress)) return 0;
+    return Math.max(0, Math.min(100, Math.round(progress)));
+  }
+
+  function courseTeacher(course: Course) {
+    const c = course as any;
+    return c.teacher_name || scenarioCourseMetrics[course.id]?.teacher || '智屿教师';
+  }
+
+  function courseRating(course: Course) {
+    const c = course as any;
+    return c.rating || scenarioCourseMetrics[course.id]?.rating || '4.6';
+  }
+
+  function courseDepartment(course: Course) {
+    return scenarioCourseDepartments[course.id] || course.course_type || '课程中心';
   }
 
   onMounted(() => {
@@ -457,30 +433,30 @@
 
   .course-hero {
     position: relative;
-    min-height: 172px;
+    min-height: 164px;
     overflow: hidden;
     border: 1px solid rgba(15, 23, 42, 0.06);
-    border-radius: 16px;
+    border-radius: 18px;
     background: #fff;
-    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.055);
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.045);
   }
 
   .course-hero__bg {
     position: absolute;
     inset: 0;
     background:
-      radial-gradient(circle at 82% 18%, rgba(99, 102, 241, 0.13), transparent 28%),
+      radial-gradient(circle at 82% 18%, rgba(99, 102, 241, 0.1), transparent 28%),
       linear-gradient(135deg, #ffffff 0%, #f7f9ff 100%);
   }
 
   .course-hero__content {
     position: relative;
     display: flex;
-    min-height: 172px;
+    min-height: 164px;
     align-items: center;
     justify-content: space-between;
     gap: 24px;
-    padding: 24px 28px;
+    padding: 22px 28px;
   }
 
   .course-hero__text {
@@ -495,85 +471,42 @@
 
     p {
       max-width: 560px;
-      margin: 9px 0 20px;
+      margin: 9px 0 16px;
       color: @text-secondary;
       font-size: 15px;
       line-height: 1.6;
     }
   }
 
-  .course-hero__stats {
+  .course-hero__metrics {
     display: flex;
-    gap: 14px;
-  }
+    flex-wrap: wrap;
+    gap: 8px;
 
-  .stat-box {
-    display: flex;
-    min-width: 132px;
-    align-items: center;
-    gap: 11px;
-    padding: 10px 12px;
-    border: 1px solid rgba(15, 23, 42, 0.06);
-    border-radius: 12px;
-    background: rgba(255, 255, 255, 0.74);
-    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.035);
-
-    &__icon {
+    span {
       display: inline-flex;
-      width: 32px;
-      height: 32px;
       align-items: center;
-      justify-content: center;
-      border-radius: 9px;
-      background: #eef2ff;
-      color: @brand;
-      font-size: 16px;
-
-      &--learning {
-        color: @brand;
-        font-size: 12px;
-      }
-
-      &--todo {
-        color: #0f766e;
-        background: #ecfdf3;
-        font-size: 16px;
-      }
-    }
-
-    &__content {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-
-    &__label {
+      gap: 6px;
+      min-height: 30px;
+      padding: 0 11px;
+      border: 1px solid rgba(99, 102, 241, 0.12);
+      border-radius: 999px;
       color: @text-secondary;
-      font-size: 11px;
+      background: rgba(255, 255, 255, 0.78);
+      font-size: 12px;
+      font-weight: 600;
     }
 
-    &__value {
+    strong {
       color: @text-primary;
-      font-size: 20px;
       font-weight: 700;
-      line-height: 1;
-
-      small {
-        font-size: 11px;
-        font-weight: 500;
-      }
-
-      &--text {
-        font-size: 15px;
-        white-space: nowrap;
-      }
     }
   }
 
   .course-hero__resume {
     display: grid;
-    width: 280px;
-    flex: 0 0 280px;
+    width: 300px;
+    flex: 0 0 300px;
     gap: 6px;
     padding: 18px;
     border: 1px solid rgba(99, 102, 241, 0.12);
@@ -619,19 +552,13 @@
     }
   }
 
-  .filter-section {
-    display: flex;
-    min-height: 48px;
-    align-items: center;
-    justify-content: space-between;
-    gap: 24px;
-  }
-
   .category-tabs {
     display: flex;
     min-width: 0;
     align-items: center;
     gap: 8px;
+    overflow-x: auto;
+    padding: 2px 0 12px;
   }
 
   .category-tab {
@@ -662,10 +589,34 @@
     }
   }
 
+  .catalog-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 14px;
+
+    strong,
+    span {
+      display: block;
+    }
+
+    strong {
+      color: @text-primary;
+      font-size: 18px;
+    }
+
+    span {
+      margin-top: 4px;
+      color: @text-secondary;
+      font-size: 13px;
+    }
+  }
+
   .search-row {
     display: flex;
-    width: 390px;
-    flex: 0 0 390px;
+    width: min(430px, 42vw);
+    flex: 0 0 auto;
     align-items: center;
   }
 
@@ -698,20 +649,20 @@
   }
 
   .course-catalog {
-    padding: 14px 16px 16px;
+    padding: 18px 18px 16px;
     border: 1px solid @line;
-    border-radius: 12px;
+    border-radius: 18px;
     background: #fff;
     box-shadow: 0 6px 20px rgba(15, 23, 42, 0.045);
   }
 
   .list-toolbar {
     display: flex;
-    min-height: 42px;
+    min-height: 38px;
     align-items: center;
     justify-content: space-between;
     gap: 16px;
-    margin-bottom: 14px;
+    margin-bottom: 12px;
 
     &__count {
       color: @text-secondary;
@@ -749,70 +700,10 @@
     box-shadow: none;
   }
 
-  .view-toggle {
-    display: flex;
-    height: 36px;
-    overflow: hidden;
-    border: 1px solid #e0e4ed;
-    border-radius: 8px;
-    background: #fff;
-
-    &__btn {
-      display: flex;
-      width: 40px;
-      height: 34px;
-      align-items: center;
-      justify-content: center;
-      border: 0;
-      border-right: 1px solid #edf0f5;
-      background: #fff;
-      color: #94a3b8;
-      cursor: pointer;
-      transition: color 160ms ease, background 160ms ease;
-
-      &:last-child {
-        border-right: 0;
-      }
-
-      &:hover {
-        color: @brand;
-      }
-
-      &--active {
-        background: #f2f3ff;
-        color: @brand;
-      }
-    }
-  }
-
-  .skeleton-grid,
-  .courses-grid {
+  .skeleton-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 18px;
-  }
-
-  .courses-list {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-
-    :deep(.course-card) {
-      min-height: 164px;
-      flex-direction: row;
-
-      .card-cover {
-        width: 280px;
-        flex: 0 0 280px;
-        aspect-ratio: auto;
-        border-radius: 12px 0 0 12px;
-      }
-
-      .card-body {
-        justify-content: center;
-        padding: 18px 20px;
-      }
-    }
   }
 
   .skeleton-card {
@@ -829,6 +720,155 @@
 
   .skeleton-body {
     padding: 14px 16px 18px;
+  }
+
+  .course-directory {
+    display: grid;
+    gap: 10px;
+  }
+
+  .course-row {
+    display: grid;
+    grid-template-columns: 180px minmax(0, 1fr) 150px auto;
+    gap: 18px;
+    align-items: center;
+    min-height: 128px;
+    padding: 12px;
+    border: 1px solid #e7eaf2;
+    border-radius: 16px;
+    background: #fff;
+    cursor: pointer;
+    transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+
+    &:hover {
+      border-color: rgba(99, 102, 241, 0.26);
+      box-shadow: 0 12px 28px rgba(15, 23, 42, 0.07);
+      transform: translateY(-1px);
+    }
+
+    > img {
+      width: 100%;
+      height: 104px;
+      border-radius: 12px;
+      object-fit: cover;
+      background: #eef2ff;
+    }
+
+    > button {
+      height: 38px;
+      padding: 0 16px;
+      border: 0;
+      border-radius: 999px;
+      color: #fff;
+      background: @brand;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 150ms ease, background 150ms ease;
+
+      &:hover {
+        background: #4f46e5;
+      }
+
+      &:active {
+        transform: scale(0.98);
+      }
+    }
+  }
+
+  .course-row__main {
+    min-width: 0;
+
+    p {
+      display: -webkit-box;
+      margin: 8px 0 10px;
+      overflow: hidden;
+      color: @text-secondary;
+      font-size: 13px;
+      line-height: 1.6;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+    }
+  }
+
+  .course-row__title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+
+    strong {
+      overflow: hidden;
+      color: @text-primary;
+      font-size: 17px;
+      font-weight: 700;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    span {
+      flex: 0 0 auto;
+      padding: 4px 9px;
+      border-radius: 999px;
+      color: @brand;
+      background: #eef2ff;
+      font-size: 11px;
+      font-weight: 700;
+    }
+  }
+
+  .course-row__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+
+    span {
+      color: #667085;
+      font-size: 12px;
+
+      &::before {
+        display: inline-block;
+        width: 4px;
+        height: 4px;
+        margin-right: 6px;
+        border-radius: 50%;
+        background: #cbd5e1;
+        vertical-align: middle;
+        content: '';
+      }
+    }
+  }
+
+  .course-row__progress {
+    display: grid;
+    gap: 7px;
+    min-width: 0;
+
+    span {
+      color: @text-primary;
+      font-size: 22px;
+      font-weight: 750;
+      line-height: 1;
+    }
+
+    small {
+      color: @text-secondary;
+      font-size: 12px;
+    }
+  }
+
+  .progress-track {
+    position: relative;
+    height: 7px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #edf0f7;
+
+    i {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #6366f1, #60a5fa);
+    }
   }
 
   .skeleton-line {
@@ -872,15 +912,10 @@
   }
 
   @media (max-width: 1120px) {
-    .filter-section {
+    .catalog-header {
       align-items: stretch;
       flex-direction: column;
       gap: 10px;
-    }
-
-    .category-tabs {
-      overflow-x: auto;
-      padding-bottom: 2px;
     }
 
     .search-row {
@@ -888,9 +923,17 @@
       flex-basis: auto;
     }
 
-    .skeleton-grid,
-    .courses-grid {
+    .skeleton-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .course-row {
+      grid-template-columns: 150px minmax(0, 1fr) 130px;
+
+      > button {
+        grid-column: 2 / 4;
+        justify-self: start;
+      }
     }
   }
 
@@ -920,42 +963,38 @@
       flex: 1 1 120px;
     }
 
-    .skeleton-grid,
-    .courses-grid {
+    .skeleton-grid {
       grid-template-columns: 1fr;
     }
 
-    .courses-list :deep(.course-card) {
-      flex-direction: column;
+    .course-row {
+      grid-template-columns: 1fr;
+      gap: 12px;
 
-      .card-cover {
-        width: 100%;
-        aspect-ratio: 2.35 / 1;
-        border-radius: 12px 12px 0 0;
+      > img {
+        height: 150px;
       }
+
+      > button {
+        grid-column: auto;
+        justify-self: stretch;
+      }
+    }
+
+    .course-row__title {
+      align-items: flex-start;
+      flex-direction: column;
+      gap: 6px;
     }
   }
 
   @media (max-width: 480px) {
-    .course-hero__stats {
+    .course-hero__metrics {
       width: 100%;
-    }
-
-    .stat-box {
-      min-width: 0;
-      flex: 1;
     }
 
     .course-catalog {
       padding: 12px;
-    }
-
-    .view-toggle {
-      width: 100%;
-    }
-
-    .view-toggle__btn {
-      flex: 1;
     }
   }
 </style>
