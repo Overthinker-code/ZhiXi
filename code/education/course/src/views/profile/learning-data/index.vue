@@ -1,5 +1,14 @@
 <template>
   <ZyPageShell title="学情档案" subtitle="基于课堂行为、练习与对话的多维学习诊断">
+    <template #actions>
+      <div class="page-actions">
+        <a-button type="primary" :loading="loadingDiagnosis" @click="handleRunDiagnosis">
+          更新诊断
+        </a-button>
+        <a-button :loading="loadingPlan" @click="handleGeneratePlan">复习计划</a-button>
+        <a-button :loading="loadingMistakes" @click="handleGenerateMistakes">错题复盘</a-button>
+      </div>
+    </template>
     <ZyPageEnter>
       <div class="zy-stagger-child kpi-bar">
         <div class="kpi-item" :class="`kpi-item--${riskTone}`">
@@ -21,13 +30,6 @@
             <MetricCountUp :value="kpiTodos" suffix=" 项" />
           </strong>
         </div>
-        <div class="kpi-actions">
-          <a-button type="primary" :loading="loadingDiagnosis" @click="handleRunDiagnosis">
-            更新诊断
-          </a-button>
-          <a-button :loading="loadingPlan" @click="handleGeneratePlan">复习计划</a-button>
-          <a-button :loading="loadingMistakes" @click="handleGenerateMistakes">错题复盘</a-button>
-        </div>
       </div>
 
       <section
@@ -36,7 +38,10 @@
       >
         <template v-if="diagnosis">
           <div class="diag-banner__main">
-            <a-avatar :size="56" class="diag-avatar">{{ displayName.slice(0, 1) }}</a-avatar>
+            <div class="diag-marker" aria-hidden="true">
+              <span>AI</span>
+              <i />
+            </div>
             <div class="diag-copy">
               <span class="diag-badge">诊断结论</span>
               <h2>{{ diagnosis.weak_points?.[0] ? `优先巩固：${diagnosis.weak_points[0]}` : '学情诊断' }}</h2>
@@ -65,7 +70,7 @@
           primary-text="开始学情诊断"
           secondary-text="去伴学中心"
           @primary="handleRunDiagnosis"
-          @secondary="jumpTo('/assistant/chat')"
+          @secondary="jumpTo('/tutor')"
         />
       </section>
 
@@ -213,11 +218,7 @@
 
 <script lang="ts" setup>
   import { computed, onMounted } from 'vue';
-  import { useUserStore } from '@/store';
   import { useLearningData } from '@/composables/useLearningData';
-
-  const userStore = useUserStore();
-  const displayName = computed(() => userStore.name || '同学');
 
   const {
     diagnosis,
@@ -310,30 +311,39 @@
 </script>
 
 <style scoped lang="less">
-  .kpi-bar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 16px;
-    padding: 18px 22px;
-    background: #fff;
-    border: 1px solid rgba(99, 102, 241, 0.12);
-    border-radius: var(--zy-radius-card);
-    box-shadow: var(--zy-shadow-card);
-  }
-
-  .kpi-item {
-    flex: 1;
-    min-width: 100px;
-    padding: 4px 8px;
-  }
-
-  .kpi-actions {
+  .page-actions {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
-    margin-left: auto;
+  }
+
+  .kpi-bar {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin-bottom: 14px;
+    padding: 14px 18px;
+    background: #fff;
+    border: 1px solid rgba(99, 102, 241, 0.12);
+    border-radius: 18px;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.05);
+  }
+
+  .kpi-item {
+    position: relative;
+    flex: 1;
+    min-width: 100px;
+    padding: 2px 22px;
+  }
+
+  .kpi-item + .kpi-item::before {
+    position: absolute;
+    top: 8px;
+    bottom: 8px;
+    left: 0;
+    width: 1px;
+    background: rgba(15, 23, 42, 0.08);
+    content: '';
   }
 
   .kpi-label {
@@ -344,8 +354,8 @@
 
   .kpi-value {
     display: block;
-    margin-top: 4px;
-    font-size: 24px;
+    margin-top: 2px;
+    font-size: 25px;
     font-weight: 800;
     color: var(--zy-color-text-primary);
   }
@@ -360,13 +370,27 @@
     display: flex;
     align-items: stretch;
     justify-content: space-between;
-    gap: 20px;
-    margin-bottom: 16px;
-    padding: 24px 28px;
+    gap: 18px;
+    margin-bottom: 14px;
+    padding: 21px 24px;
     border-radius: 20px;
-    background: linear-gradient(135deg, #eef2ff 0%, #f5f3ff 50%, #ecfeff 100%);
+    background:
+      linear-gradient(135deg, rgba(248, 250, 255, 0.98), rgba(240, 253, 255, 0.94)),
+      radial-gradient(circle at 100% 20%, rgba(99, 102, 241, 0.12), transparent 28%);
     border: 1px solid rgba(99, 102, 241, 0.12);
     overflow: hidden;
+  }
+
+  .diag-banner::after {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -18%;
+    width: 18%;
+    background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.08), transparent);
+    content: '';
+    transform: skewX(-14deg);
+    animation: profile-scan 4.8s ease-in-out infinite;
   }
 
   .diag-banner__main {
@@ -376,11 +400,33 @@
     min-width: 0;
   }
 
-  .diag-avatar {
-    flex-shrink: 0;
-    background: var(--zy-gradient-brand);
-    color: #fff;
-    font-weight: 800;
+  .diag-marker {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 54px;
+    height: 54px;
+    flex: 0 0 auto;
+    border-radius: 18px;
+    color: #ffffff;
+    background: linear-gradient(135deg, #4f46e5, #6366f1);
+    box-shadow: 0 14px 30px rgba(79, 70, 229, 0.2);
+  }
+
+  .diag-marker span {
+    position: relative;
+    z-index: 1;
+    font-size: 15px;
+    font-weight: 900;
+    letter-spacing: 0.02em;
+  }
+
+  .diag-marker i {
+    position: absolute;
+    inset: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.48);
+    border-radius: 14px;
+    animation: marker-pulse 2.4s ease-in-out infinite;
   }
 
   .diag-badge {
@@ -402,10 +448,14 @@
   }
 
   .diag-copy p {
-    margin: 0 0 12px;
+    display: -webkit-box;
+    margin: 0 0 10px;
+    overflow: hidden;
     color: var(--zy-color-text-secondary);
-    line-height: 1.7;
+    line-height: 1.65;
     font-size: 14px;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
   }
 
   .suggestion-list {
@@ -413,7 +463,13 @@
     padding-left: 1.2em;
     color: #475569;
     font-size: 13px;
-    line-height: 1.8;
+    line-height: 1.7;
+  }
+
+  .suggestion-list li {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .diag-banner__deco {
@@ -469,7 +525,7 @@
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 14px;
-    margin-bottom: 16px;
+    margin-bottom: 14px;
   }
 
   .panel-card {
@@ -478,6 +534,16 @@
     background: #fff;
     border: 1px solid rgba(99, 102, 241, 0.1);
     box-shadow: var(--zy-shadow-card);
+    transition:
+      transform 160ms ease,
+      border-color 160ms ease,
+      box-shadow 160ms ease;
+
+    &:hover {
+      transform: translateY(-2px);
+      border-color: rgba(99, 102, 241, 0.2);
+      box-shadow: 0 16px 34px rgba(15, 23, 42, 0.07);
+    }
 
     h3 {
       margin: 0 0 14px;
@@ -639,6 +705,55 @@
     color: var(--zy-color-text-secondary);
   }
 
+  @keyframes profile-scan {
+    0%,
+    70%,
+    100% {
+      transform: translateX(0) skewX(-14deg);
+      opacity: 0;
+    }
+    35% {
+      transform: translateX(760%) skewX(-14deg);
+      opacity: 1;
+    }
+  }
+
+  @keyframes marker-pulse {
+    0%,
+    100% {
+      opacity: 0.72;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(0.9);
+    }
+  }
+
+  @media (max-width: 1120px) {
+    .kpi-bar {
+      flex-wrap: wrap;
+    }
+
+    .kpi-item {
+      flex: 1 1 30%;
+    }
+
+    .diag-banner__deco {
+      width: 160px;
+    }
+
+    .triple-grid,
+    .bottom-row {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .bottom-col--wide {
+      grid-column: span 2;
+      order: 3;
+    }
+  }
+
   @media (max-width: 900px) {
     .triple-grid,
     .bottom-row {
@@ -653,10 +768,20 @@
       width: 100%;
       height: 100px;
     }
+  }
 
-    .kpi-actions {
-      width: 100%;
-      margin-left: 0;
+  @media (prefers-reduced-motion: reduce) {
+    .diag-banner::after,
+    .diag-marker i {
+      animation: none;
+    }
+
+    .panel-card {
+      transition: none;
+
+      &:hover {
+        transform: none;
+      }
     }
   }
 </style>

@@ -123,13 +123,13 @@ export function useLearningData() {
       {
         label: '薄弱知识点',
         value: diagnosis.value?.weak_points?.[0] || '—',
-        link: '/assistant/chat',
+        link: '/tutor',
         linkText: '去伴学追问',
       },
       {
         label: '下一步方向',
         value: diagnosis.value?.follow_up_questions?.[0] || '—',
-        link: '/assistant/chat',
+        link: '/tutor',
         linkText: '继续学习',
       },
     ];
@@ -200,7 +200,7 @@ export function useLearningData() {
 
   function jumpToAssistant(topic: string) {
     router.push({
-      path: '/assistant/chat',
+      path: '/tutor',
       query: {
         source: 'learning-data',
         prompt: `我现在在"${topic}"这个知识点上比较薄弱，请先帮我讲清核心概念，再给我两道循序渐进的练习。`,
