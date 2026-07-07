@@ -16,15 +16,27 @@
 
   const route = useRoute();
   const router = useRouter();
-  const activeFilter = ref<TaskFilter>('all');
+  const activeFilter = ref<TaskFilter>('active');
   const selectedTaskId = ref('');
   const detailDrawerVisible = ref(false);
   const course = computed(() => getClassroomCourse(String(route.params.courseId || '')));
   const tasks = computed(() => (course.value ? buildCourseTasks(course.value) : []));
+  const taskStatusRank: Record<CourseTaskStatus, number> = {
+    active: 0,
+    upcoming: 1,
+    done: 2,
+  };
+  const sortedTasks = computed(() =>
+    [...tasks.value].sort((a, b) => {
+      const rankDiff = taskStatusRank[a.status] - taskStatusRank[b.status];
+      if (rankDiff) return rankDiff;
+      return b.progress - a.progress;
+    })
+  );
   const visibleTasks = computed(() =>
     activeFilter.value === 'all'
-      ? tasks.value
-      : tasks.value.filter((task) => task.status === activeFilter.value)
+      ? sortedTasks.value
+      : sortedTasks.value.filter((task) => task.status === activeFilter.value)
   );
   const completedCount = computed(
     () => tasks.value.filter((task) => task.status === 'done').length
@@ -33,9 +45,9 @@
     () => tasks.value.filter((task) => task.status === 'active').length
   );
   const filters: Array<{ key: TaskFilter; label: string }> = [
-    { key: 'all', label: '全部任务' },
     { key: 'active', label: '进行中' },
     { key: 'upcoming', label: '待开始' },
+    { key: 'all', label: '全部任务' },
     { key: 'done', label: '已完成' },
   ];
   const selectedTask = computed(() => {
