@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { computed, ref, watch } from 'vue';
+  import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
   import type { ChatToolPayload, ReasoningLevel, ResourceRequestPayload, TutorMode } from '@/api/ai-chat';
   import { DEFAULT_RESOURCE_TYPES, type TutorPanel } from './tutorActions';
 
@@ -24,6 +24,8 @@
   const input = ref('');
   const files = ref<File[]>([]);
   const composing = ref(false);
+  const rootRef = ref<HTMLElement | null>(null);
+  const textareaRef = ref<HTMLTextAreaElement | null>(null);
   const fileInput = ref<HTMLInputElement | null>(null);
   const toolMenuOpen = ref(false);
   const resourceTypeOpen = ref(false);
@@ -57,6 +59,13 @@
       props.tools.deepResearch ||
       files.value.length > 0
   );
+  const composerWidth = computed(() => {
+    const lengthScore = Math.min(input.value.length * 2.2, 180);
+    const lineScore = Math.max(0, input.value.split(/\r?\n/).length - 1) * 36;
+    const toolScore = files.value.length ? 80 : 0;
+    const activeScore = hasActiveTools.value ? 32 : 0;
+    return Math.round(Math.min(880, 650 + lengthScore + lineScore + toolScore + activeScore));
+  });
   const selectedReasoning = computed(
     () =>
       reasoningOptions.find((item) => item.id === selectedReasoningId.value) ||
@@ -77,6 +86,25 @@
     fileInput.value?.click();
   };
 
+  const resizeTextarea = () => {
+    const textarea = textareaRef.value;
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(180, Math.max(34, textarea.scrollHeight))}px`;
+  };
+
+  const closeFloatingPanels = () => {
+    toolMenuOpen.value = false;
+    resourceTypeOpen.value = false;
+    reasoningMenuOpen.value = false;
+  };
+
+  const handleDocumentPointerDown = (event: PointerEvent) => {
+    const root = rootRef.value;
+    if (!root || root.contains(event.target as Node)) return;
+    closeFloatingPanels();
+  };
+
   const onFileChange = (event: Event) => {
     const target = event.target as HTMLInputElement;
     const next = Array.from(target.files || []);
@@ -93,9 +121,8 @@
     emit('send', { text: input.value.trim(), files: [...files.value] });
     input.value = '';
     files.value = [];
-    toolMenuOpen.value = false;
-    resourceTypeOpen.value = false;
-    reasoningMenuOpen.value = false;
+    closeFloatingPanels();
+    void nextTick(resizeTextarea);
   };
 
   const onKeydown = (event: KeyboardEvent) => {
@@ -142,13 +169,29 @@
     { immediate: true }
   );
 
+  watch(input, () => nextTick(resizeTextarea));
+
+  onMounted(() => {
+    document.addEventListener('pointerdown', handleDocumentPointerDown);
+    resizeTextarea();
+  });
+
+  onUnmounted(() => {
+    document.removeEventListener('pointerdown', handleDocumentPointerDown);
+  });
+
   defineExpose({
     openUpload: chooseFiles,
   });
 </script>
 
 <template>
-  <section class="chat-composer" data-testid="tutor-composer">
+  <section
+    ref="rootRef"
+    class="chat-composer"
+    data-testid="tutor-composer"
+    :style="{ '--composer-width': `${composerWidth}px` }"
+  >
     <div class="composer-box" :class="{ 'has-tools': hasActiveTools }">
       <div v-if="files.length" class="composer-files">
         <button
@@ -163,11 +206,13 @@
       </div>
 
       <textarea
+        ref="textareaRef"
         v-model="input"
         placeholder="有问题，尽管问"
-        rows="2"
+        rows="1"
         @compositionstart="composing = true"
         @compositionend="composing = false"
+        @input="resizeTextarea"
         @keydown="onKeydown"
       />
 
@@ -199,7 +244,7 @@
                 <span class="menu-icon">+</span>
                 <span class="menu-copy">
                   <strong>添加照片和文件</strong>
-                  <em>从电脑上传</em>
+                  <em>上传后用于本轮 RAG 检索</em>
                 </span>
               </button>
               <button
@@ -209,8 +254,8 @@
               >
                 <span class="menu-icon">@</span>
                 <span class="menu-copy">
-                  <strong>课程上下文</strong>
-                  <em>需要时手动指定</em>
+                  <strong>指定课程资料</strong>
+                  <em>只在需要课程问答时启用</em>
                 </span>
               </button>
               <button
@@ -336,13 +381,14 @@
 
 <style scoped lang="scss">
   .chat-composer {
-    width: min(780px, calc(100vw - 500px));
+    width: min(var(--composer-width, 680px), calc(100vw - 500px));
     margin: 0 auto;
+    transition: width 180ms ease;
   }
 
   .composer-box {
     border: 1px solid rgba(15, 23, 42, 0.08);
-    border-radius: 24px;
+    border-radius: 26px;
     background: #fff;
     box-shadow: 0 14px 42px rgba(15, 23, 42, 0.07);
     transition: border-color 0.18s ease, box-shadow 0.18s ease;
@@ -387,10 +433,10 @@
 
   textarea {
     width: 100%;
-    min-height: 54px;
-    max-height: 240px;
-    resize: vertical;
-    padding: 15px 20px 4px;
+    min-height: 34px;
+    max-height: 180px;
+    resize: none;
+    padding: 13px 18px 0;
     border: 0;
     outline: none;
     color: #101828;
@@ -408,7 +454,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 6px 10px 10px;
+    padding: 6px 9px 9px;
   }
 
   .tool-wrap,
@@ -419,7 +465,7 @@
   .icon-button,
   .send-button,
   .reasoning-button {
-    height: 40px;
+    height: 36px;
     border: 1px solid rgba(15, 23, 42, 0.08);
     border-radius: 999px;
     color: #344054;
@@ -429,10 +475,10 @@
   }
 
   .icon-button {
-    width: 38px;
-    height: 38px;
-    padding: 0;
-    font-size: 22px;
+    width: 36px;
+    height: 36px;
+    padding: 0 0 2px;
+    font-size: 24px;
     line-height: 1;
     cursor: pointer;
 
@@ -452,12 +498,12 @@
     display: inline-flex;
     align-items: center;
     gap: 7px;
-    min-width: 76px;
-    height: 38px;
-    padding: 0 12px 0 14px;
+    min-width: 72px;
+    height: 36px;
+    padding: 0 13px 0 15px;
     border-color: transparent;
     color: #8a8f98;
-    background: transparent;
+    background: #f2f4f7;
     font-size: 15px;
     font-weight: 560;
     cursor: pointer;
@@ -486,7 +532,7 @@
 
   .send-button {
     min-width: 58px;
-    height: 38px;
+    height: 36px;
     padding: 0 16px;
     color: #fff;
     border-color: transparent;
@@ -516,21 +562,20 @@
   .tool-menu,
   .reasoning-menu {
     position: absolute;
-    bottom: 50px;
+    bottom: 46px;
     z-index: 30;
-    max-height: min(620px, calc(100vh - 220px));
+    max-height: min(420px, calc(100vh - 190px));
     overflow: auto;
-    padding: 8px;
-    border: 1px solid rgba(15, 23, 42, 0.08);
-    border-radius: 18px;
+    padding: 7px;
+    border: 1px solid rgba(15, 23, 42, 0.1);
+    border-radius: 16px;
     background: rgba(255, 255, 255, 0.98);
-    box-shadow: 0 20px 56px rgba(15, 23, 42, 0.16);
+    box-shadow: 0 18px 46px rgba(15, 23, 42, 0.14);
   }
 
   .tool-menu {
     left: 0;
-    bottom: 150px;
-    width: 320px;
+    width: 286px;
     animation: menu-enter 0.16s ease both;
 
     section + section {
@@ -544,8 +589,8 @@
       align-items: center;
       gap: 10px;
       width: 100%;
-      min-height: 46px;
-      padding: 8px 10px;
+      min-height: 42px;
+      padding: 7px 9px;
       border: 0;
       border-radius: 13px;
       background: transparent;
@@ -569,7 +614,7 @@
       }
 
       &.compact {
-        min-height: 42px;
+        min-height: 38px;
       }
     }
 
@@ -584,7 +629,7 @@
       display: block;
       margin-top: 2px;
       color: #8a94a6;
-      font-size: 12px;
+      font-size: 11.5px;
       font-style: normal;
       line-height: 1.35;
     }
@@ -611,8 +656,8 @@
   .reasoning-menu {
     right: 0;
     bottom: 48px;
-    width: 190px;
-    padding: 10px;
+    width: 166px;
+    padding: 9px;
     border-radius: 18px;
     transform: none;
     animation: reasoning-enter 0.16s ease both;
@@ -620,7 +665,7 @@
     &::before {
       content: '思考强度';
       display: block;
-      padding: 4px 12px 8px;
+      padding: 4px 10px 8px;
       color: #98a2b3;
       font-size: 13px;
       font-weight: 650;
@@ -632,10 +677,10 @@
       justify-content: space-between;
       gap: 12px;
       width: 100%;
-      min-height: 42px;
-      padding: 7px 12px;
+      min-height: 38px;
+      padding: 6px 10px;
       border: 0;
-      border-radius: 12px;
+      border-radius: 11px;
       color: #101828;
       background: transparent;
       text-align: left;
@@ -656,7 +701,7 @@
     }
 
     strong {
-      font-size: 14px;
+      font-size: 13.5px;
       font-weight: 680;
     }
 
@@ -670,8 +715,8 @@
   .resource-types {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 6px;
-    padding: 2px 10px 8px;
+    gap: 4px 6px;
+    padding: 0 8px 7px 38px;
 
     label {
       display: flex;
@@ -679,7 +724,7 @@
       gap: 6px;
       min-height: 30px;
       color: #475467;
-      font-size: 12px;
+      font-size: 11.5px;
     }
   }
 
@@ -707,11 +752,11 @@
 
   @media (max-width: 1280px) {
     .chat-composer {
-      width: min(720px, calc(100vw - 420px));
+      width: min(var(--composer-width, 660px), calc(100vw - 420px));
     }
 
     .tool-menu {
-      width: 300px;
+      width: 280px;
     }
 
     .reasoning-menu {

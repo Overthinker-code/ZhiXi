@@ -240,12 +240,12 @@
         <div class="hero-left">
           <h1 class="hero-title">
             你的 AI 学习伙伴<br />
-            <span>串联个性化学习闭环</span>
+            <span>让学习更有依据</span>
           </h1>
 
           <p class="hero-desc">
-            从课程证据、问答诊断到资源生成、图谱核验和路径回写，<br />
-            让每一次学习都可追踪、可解释、可继续。
+            自动理解课程资料、作业和学习记录，<br />
+            把提问、练习、资料与复习建议整理成清晰的下一步。
           </p>
 
           <div class="hero-actions">
@@ -347,16 +347,14 @@
       <section class="features-section reveal-on-scroll">
         <div class="section-header section-header--center">
           <h2 class="section-title">为什么选择智屿？</h2>
-          <p class="section-subtitle">把问答、画像、资源、图谱和路径放进同一条可验证学习链路</p>
+          <p class="section-subtitle">把课程证据、AI 辅导和个性化复习组织成稳定的学习工作流</p>
         </div>
 
         <div class="feature-loop">
           <div class="feature-loop__intro">
-            <span class="feature-loop__eyebrow">学习闭环</span>
-            <h3>从一次提问开始，持续沉淀学习证据</h3>
-            <p>
-              智屿不把 AI 能力拆成孤立入口，而是让课程证据、资源生成、知识图谱与学情更新互相回写。
-            </p>
+            <span class="feature-loop__eyebrow">学习工作流</span>
+            <h3>从一次提问开始，形成可复用的学习记录</h3>
+            <p>围绕课程、作业和资料持续整理证据，让学生知道下一步该学什么、为什么这样学。</p>
           </div>
           <router-link
             v-for="(feat, index) in features"
@@ -630,13 +628,13 @@
   .visual-stage::after {
     content: '';
     position: absolute;
-    top: 22px;
-    right: 28px;
+    top: 36px;
+    right: 42px;
     z-index: 6;
-    width: 210px;
+    width: 176px;
     height: 1px;
     background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.78), transparent);
-    opacity: 0.42;
+    opacity: 0.28;
     transform-origin: center;
     animation: stage-scan 4.8s ease-in-out infinite;
   }
@@ -652,17 +650,17 @@
 
   .hero-photo--library,
   .floating-card--analysis {
-    animation: hero-drift-up 6.4s ease-in-out infinite alternate;
+    animation: hero-drift-up 5.6s ease-in-out infinite alternate;
   }
 
   .hero-photo--console,
   .floating-card--assistant {
-    animation: hero-drift-side 7.2s ease-in-out infinite alternate;
+    animation: hero-drift-side 6.2s ease-in-out infinite alternate;
   }
 
   .hero-photo--team,
   .floating-card--rag {
-    animation: hero-drift-soft 6.8s ease-in-out infinite alternate;
+    animation: hero-drift-soft 5.9s ease-in-out infinite alternate;
   }
 
   .visual-stage:hover .hero-photo {
@@ -775,7 +773,7 @@
   }
 
   .floating-card--analysis {
-    top: 22px;
+    top: 38px;
     right: 0;
     width: 183px;
     align-items: flex-start;
@@ -876,12 +874,12 @@
     0%,
     100% {
       opacity: 0;
-      transform: translate3d(-80px, 24px, 0) rotate(-12deg) scaleX(0.55);
+      transform: translate3d(-92px, 34px, 0) rotate(-12deg) scaleX(0.5);
     }
     42%,
     58% {
-      opacity: 0.58;
-      transform: translate3d(82px, 142px, 0) rotate(-12deg) scaleX(1);
+      opacity: 0.38;
+      transform: translate3d(70px, 158px, 0) rotate(-12deg) scaleX(0.9);
     }
   }
 
@@ -1031,7 +1029,7 @@
   .feature-loop::before {
     content: '';
     position: absolute;
-    top: 134px;
+    top: 154px;
     right: 42px;
     left: 42px;
     height: 1px;
@@ -1043,7 +1041,7 @@
   .feature-loop::after {
     content: '';
     position: absolute;
-    top: 120px;
+    top: 140px;
     left: 0;
     width: 44%;
     height: 30px;
@@ -1121,7 +1119,7 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 12px;
-    padding: 20px 15px 8px;
+    padding: 30px 15px 8px;
     border-radius: 18px;
     color: inherit;
     text-decoration: none;
@@ -1134,7 +1132,7 @@
     &::before {
       content: '';
       position: absolute;
-      top: 36px;
+      top: 52px;
       left: 32px;
       width: 10px;
       height: 10px;
@@ -1159,6 +1157,7 @@
   .feature-step__index {
     order: -2;
     margin-left: 38px;
+    margin-bottom: 6px;
     color: #a2acc1;
     font-size: 12px;
     font-weight: 800;

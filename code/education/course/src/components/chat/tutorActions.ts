@@ -29,6 +29,23 @@ export const CHAT_DEFAULT_RESOURCE_TYPES = ['lecture_note', 'mind_map', 'quiz'];
 
 export const TUTOR_ACTIONS: TutorAction[] = [
   {
+    id: 'general_chat',
+    label: '普通问答',
+    description: '作为通用学习助手直接回答问题，必要时再自动接入资料',
+    mode: 'tutor',
+    requestPatch: {
+      courseContext: { knowledgePointIds: [], useCourseRag: false },
+      tools: {
+        webSearch: false,
+        deepResearch: false,
+        homeworkReview: false,
+        resourceGeneration: false,
+        citationRequired: false,
+      },
+      reasoning: { level: 'balanced' as ReasoningLevel, showSummary: true },
+    },
+  },
+  {
     id: 'course_qa',
     label: '课程问答',
     description: '基于课程资料与引用证据回答问题',

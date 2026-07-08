@@ -33,7 +33,7 @@
   const sidebarCollapsed = ref(false);
   const drawerVisible = ref(false);
   const composerRef = ref<InstanceType<typeof ChatComposer> | null>(null);
-  const activeAction = ref<TutorAction>(getTutorAction('course_qa'));
+  const activeAction = ref<TutorAction>(getTutorAction('general_chat'));
   const mode = ref<TutorMode>('tutor');
   const tools = ref<ChatToolPayload>({
     webSearch: false,
@@ -47,7 +47,7 @@
     courseId: 'c1111111-1111-4111-9111-111111111101',
     chapterId: 'ch3',
     knowledgePointIds: ['er-model'],
-    useCourseRag: true,
+    useCourseRag: false,
   });
   const resourceRequest = ref<ResourceRequestPayload>({
     types: [...CHAT_DEFAULT_RESOURCE_TYPES],
@@ -112,6 +112,14 @@
     if (action.openPanel === 'upload') openPanel('upload');
   }
 
+  function shouldUseCourseContext(text: string) {
+    if (activeAction.value.id !== 'general_chat') return Boolean(courseContext.value.useCourseRag);
+    const normalized = text.toLowerCase();
+    return /课程|章节|本章|本节|课件|讲义|数据库|关系模型|er\s*模型|sql|事务|索引|范式|数据结构|二叉树|算法/.test(
+      normalized
+    );
+  }
+
   function handleAction(actionId: string) {
     patchFromAction(getTutorAction(actionId));
   }
@@ -160,6 +168,38 @@
       list.push(next);
     }
     assistant.toolEvents = [...list];
+  }
+
+  function appendProcessEvent(assistant: Record<string, any>, next: Record<string, any>) {
+    const list = Array.isArray(assistant.processEvents) ? assistant.processEvents : [];
+    const stage = String(next.stage || '');
+    const status = String(next.status || 'running');
+    const normalized = {
+      ...next,
+      stage,
+      status,
+      timestamp: next.timestamp || new Date().toISOString(),
+    };
+    const index = list.findIndex(
+      (item: Record<string, any>) =>
+        String(item.stage || '') === stage &&
+        String(item.status || '') === status &&
+        String(item.title || '') === String(next.title || '') &&
+        String(item.log || '') === String(next.log || '')
+    );
+    if (index >= 0) {
+      list[index] = { ...list[index], ...normalized };
+    } else {
+      list.push(normalized);
+    }
+    assistant.processEvents = [...list].slice(-40);
+  }
+
+  function hasProcessStage(assistant: Record<string, any>, stage: string, status?: string) {
+    const list = Array.isArray(assistant.processEvents) ? assistant.processEvents : [];
+    return list.some((item: Record<string, any>) =>
+      String(item.stage || '') === stage && (!status || String(item.status || '') === status)
+    );
   }
 
   const INTERNAL_REASONING_LINE_RE =
@@ -225,13 +265,17 @@
   }
 
   function buildPayload(text: string, attachments: ChatAttachmentPayload[]): AIChatStreamPayload {
+    const autoCourseRag = shouldUseCourseContext(text);
     return {
       sessionId: chatStore.currentConversationId || undefined,
       message: text,
       mode: mode.value,
       actionId: activeAction.value.id,
-      courseContext: { ...courseContext.value },
-      tools: { ...tools.value },
+      courseContext: { ...courseContext.value, useCourseRag: autoCourseRag },
+      tools: {
+        ...tools.value,
+        citationRequired: tools.value.citationRequired || autoCourseRag || Boolean(attachments.length),
+      },
       reasoning: {
         level: reasoningLevel.value,
         showSummary: true,
@@ -264,12 +308,15 @@
         actionId: payload.actionId,
         citations: [],
         toolEvents: [],
+        processEvents: [],
         artifacts: [],
         resourcePackage: null,
       });
       await nextTick();
       mainScroller.value?.scrollTo({ top: mainScroller.value.scrollHeight, behavior: 'smooth' });
       abortController.value = new AbortController();
+      let streamedAnswerChars = 0;
+      let lastProcessCharMark = 0;
       await streamAIChat(
         payload,
         ({ event, data }) => {
@@ -277,6 +324,8 @@
           if (!assistant) return;
           if (event === 'session_created' && data.sessionId && data.sessionId !== chatStore.currentConversationId) {
             chatStore.currentConversationId = String(data.sessionId);
+          } else if (event === 'process_update') {
+            appendProcessEvent(assistant, data);
           } else if (event === 'agent_started') {
             appendToolEvent(assistant, {
               agent: data.agent || 'agent',
@@ -290,12 +339,29 @@
               status: 'done',
             });
           } else if (event === 'retrieval_started') {
+            appendProcessEvent(assistant, {
+              stage: 'retrieve',
+              title: '检索依据',
+              detail: data.label || '正在检索资料',
+              status: 'running',
+              log: data.label || '正在检索资料',
+            });
             appendToolEvent(assistant, {
               agent: data.source || 'course_retriever',
               label: data.label || '正在检索资料',
               status: 'running',
             });
           } else if (event === 'retrieval_result') {
+            appendProcessEvent(assistant, {
+              stage: 'retrieve',
+              title: '检索依据',
+              detail: `已准备 ${Array.isArray(data.items) ? data.items.length : 0} 条引用证据`,
+              status: 'done',
+              log: `检索完成，返回 ${Array.isArray(data.items) ? data.items.length : 0} 条候选证据`,
+              items: Array.isArray(data.items)
+                ? data.items.map((item: Record<string, any>) => item.title || item.file_name || item.source || item.chunk || item.content).filter(Boolean).slice(0, 5)
+                : [],
+            });
             appendToolEvent(assistant, {
               agent: data.source || 'course_retriever',
               label: `已检索 ${Array.isArray(data.items) ? data.items.length : 0} 条资料`,
@@ -307,6 +373,26 @@
           } else if (event === 'reasoning_summary_delta') {
             appendReasoningDelta(assistant, data);
           } else if (event === 'answer_delta') {
+            streamedAnswerChars += String(data.text || '').length;
+            if (!hasProcessStage(assistant, 'compose', 'running')) {
+              appendProcessEvent(assistant, {
+                stage: 'compose',
+                title: '组织回答',
+                detail: '模型正在流式生成正文',
+                status: 'running',
+                log: '开始接收 answer_delta',
+              });
+            }
+            if (streamedAnswerChars - lastProcessCharMark >= 420) {
+              lastProcessCharMark = streamedAnswerChars;
+              appendProcessEvent(assistant, {
+                stage: 'compose',
+                title: '组织回答',
+                detail: '模型正在持续输出正文',
+                status: 'running',
+                log: `已接收约 ${streamedAnswerChars} 个字符，继续流式生成`,
+              });
+            }
             assistant.content = `${assistant.content || ''}${data.text || ''}`;
           } else if (event === 'citation') {
             assistant.citations = [...(assistant.citations || []), data];
@@ -319,6 +405,10 @@
           } else if (event === 'artifact_finished') {
             assistant.resourcePackage = data;
             assistant.artifacts = data.artifacts || [];
+            assistant.metrics = {
+              ...(assistant.metrics || {}),
+              resourcePackage: data,
+            };
             appendToolEvent(assistant, {
               agent: 'resource_generator',
               label: `资源包已生成：${data.package_id || ''}`,
@@ -337,8 +427,36 @@
               label: data.status === 'passed' ? '引用与安全校验通过' : '已完成安全校验',
               status: 'done',
             });
+          } else if (event === 'suggestions') {
+            assistant.suggestions = Array.isArray(data.items)
+              ? data.items
+              : Array.isArray(data.suggestions)
+                ? data.suggestions
+                : Array.isArray(data.data)
+                  ? data.data
+                  : [];
           } else if (event === 'done') {
-            assistant.metrics = data.usage || assistant.metrics || {};
+            appendProcessEvent(assistant, {
+              stage: 'compose',
+              title: '组织回答',
+              detail: '正文回答已生成完成',
+              status: 'done',
+              log: '回答流已结束',
+            });
+            appendProcessEvent(assistant, {
+              stage: 'verify',
+              title: '校验输出',
+              detail: '本轮回答已完成引用、安全和后续建议检查',
+              status: 'done',
+              log: '处理完成',
+            });
+            assistant.metrics = {
+              ...(assistant.metrics || {}),
+              ...(data.usage || {}),
+            };
+            if (Array.isArray(data.suggestions)) {
+              assistant.suggestions = data.suggestions;
+            }
             assistant.loading = false;
           } else if (event === 'error') {
             const code = String(data.code || '');
@@ -347,12 +465,26 @@
                 ? '当前课程资料不足，可切换联网搜索或上传资料。'
                 : String(data.message || data.content || '后端生成失败');
             if (code === 'RESOURCE_GENERATION_FAILED' && assistant.content) {
+              appendProcessEvent(assistant, {
+                stage: 'compose',
+                title: '生成资源',
+                detail: message,
+                status: 'error',
+                log: message,
+              });
               appendToolEvent(assistant, {
                 agent: 'resource_generator',
                 label: message,
                 status: 'error',
               });
             } else {
+              appendProcessEvent(assistant, {
+                stage: 'verify',
+                title: '处理失败',
+                detail: message,
+                status: 'error',
+                log: message,
+              });
               assistant.content = message;
               assistant.errorCode = code;
             }
@@ -410,9 +542,12 @@
           loading: false,
           mode: 'tutor',
           citations: record.citations || [],
+          suggestions: record.suggestions || record.metrics?.suggestions || [],
           metrics: record.metrics || {},
           toolEvents: [],
-          artifacts: [],
+          processEvents: [],
+          artifacts: record.metrics?.resourcePackage?.artifacts || [],
+          resourcePackage: record.metrics?.resourcePackage || null,
         });
       });
       chatStore.setConversationMessages(threadId, next);
@@ -488,11 +623,12 @@
         <button type="button" @click="drawerVisible = true">上下文</button>
       </div>
       <div ref="mainScroller" class="chat-main-scroll">
-        <ChatMain
-          :messages="messages"
-          :loading="chatStore.isLoading"
-          @retry="retry"
-        />
+      <ChatMain
+        :messages="messages"
+        :loading="chatStore.isLoading"
+        @retry="retry"
+        @send-suggestion="send({ text: $event, files: [] })"
+      />
       </div>
       <div class="composer-dock">
         <ChatComposer

@@ -1115,6 +1115,13 @@ def _build_rag_context(request: ChatRequest) -> tuple[SystemMessage, list[dict[s
         user_id=request.user_id,
         is_admin=request.is_admin,
     )
+    controller = get_reasoning_controller()
+    if controller is not None:
+        controller.on_knowledge_retrieve(
+            request.user_input,
+            len(general_results),
+            [str(item.get("content") or "")[:120] for item in general_results[:4]],
+        )
     document_results: list[dict[str, Any]] = []
     current_file_id = (request.current_file_id or "").strip()
     if current_file_id:
@@ -1145,7 +1152,6 @@ def _build_rag_context(request: ChatRequest) -> tuple[SystemMessage, list[dict[s
                     top_k=6,
                 )
             )
-        controller = get_reasoning_controller()
         if controller is not None:
             controller.on_document_retrieve(
                 request.user_input,

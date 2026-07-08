@@ -140,6 +140,10 @@
           class="course-card"
           @click="goToCourseDetail(course.id)"
         >
+          <div class="course-card__cover">
+            <img :src="courseCover(course)" :alt="course.name" />
+            <span>{{ courseDepartment(course) }}</span>
+          </div>
           <div class="course-card__body">
             <div class="course-card__head">
               <span>{{ course.course_type || '专业课程' }}</span>
@@ -197,6 +201,7 @@
     scenarioCourseMetrics,
     scenarioCourses,
   } from '@/data/teachingScenario';
+  import { classroomCourses } from '@/data/classroomCourses';
   import ErrorState from '@/components/state/ErrorState.vue';
   import ZyPageShell from '@/components/zy/ZyPageShell.vue';
 
@@ -384,6 +389,10 @@
 
   function courseDepartment(course: Course) {
     return scenarioCourseDepartments[course.id] || course.course_type || '课程中心';
+  }
+
+  function courseCover(course: Course) {
+    return classroomCourses.find((item) => item.id === course.id)?.cover || classroomCourses[0]?.cover || '';
   }
 
   onMounted(() => {
@@ -722,7 +731,7 @@
     overflow: hidden;
     display: flex;
     min-width: 0;
-    min-height: 254px;
+    min-height: 318px;
     flex-direction: column;
     border: 1px solid rgba(15, 23, 42, 0.08);
     border-radius: 16px;
@@ -740,6 +749,49 @@
       box-shadow: 0 16px 34px rgba(15, 23, 42, 0.08);
       transform: translateY(-2px);
     }
+  }
+
+  .course-card__cover {
+    position: relative;
+    height: 122px;
+    overflow: hidden;
+    background: #eef2ff;
+
+    img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scale(1.01);
+      transition: transform 220ms ease, filter 220ms ease;
+    }
+
+    &::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, rgba(15, 23, 42, 0.04), rgba(15, 23, 42, 0.34));
+    }
+
+    span {
+      position: absolute;
+      right: 12px;
+      bottom: 10px;
+      z-index: 1;
+      padding: 4px 9px;
+      border: 1px solid rgba(255, 255, 255, 0.32);
+      border-radius: 999px;
+      color: #fff;
+      background: rgba(15, 23, 42, 0.28);
+      font-size: 11px;
+      font-weight: 700;
+      backdrop-filter: blur(6px);
+    }
+  }
+
+  .course-card:hover .course-card__cover img {
+    filter: saturate(1.06);
+    transform: scale(1.045);
   }
 
   .course-card__body {

@@ -1506,21 +1506,20 @@ function generateFromNotes() {
 function askMindMapTutor() {
   if (!currentCourse.value) return;
   recordLearningAction('generate');
-  router.push(
-    courseWorkspaceLocation(currentCourse.value.id, 'agent', incomingNodeContext({
-      task: 'graph',
-      source: 'classroom-mind-map',
-      forceAgent: 'tutor_agent',
-      prompt: [
-        `当前课程：${currentCourse.value.title}`,
-        `当前课节：${currentLesson.value.label} ${currentLesson.value.title}`,
-        `当前课堂节点：${selectedMindNodeText.value || currentLesson.value.title}`,
-        `思维导图节点：${currentCourse.value.concepts
-          .map((item) => `${item.title}（${item.points.join('、')}）`)
-          .join('；')}`,
-        '请按“核心概念-前后置关系-易错提醒-练习建议”的结构解读这张课堂思维导图。',
-      ].join('\n'),
-    }))
+  window.dispatchEvent(
+    new CustomEvent('open-classroom-ai', {
+      detail: {
+        prompt: [
+          `请讲解本节内容：${currentLesson.value.label} ${currentLesson.value.title}`,
+          `当前课程：${currentCourse.value.title}`,
+          `当前课堂节点：${selectedMindNodeText.value || currentLesson.value.title}`,
+          `相关概念：${currentCourse.value.concepts
+            .map((item) => `${item.title}（${item.points.join('、')}）`)
+            .join('；')}`,
+          '请先给结论，再解释核心概念、前后置关系、易错点，并给一个可立即练习的小题。',
+        ].join('\n'),
+      },
+    })
   );
 }
 

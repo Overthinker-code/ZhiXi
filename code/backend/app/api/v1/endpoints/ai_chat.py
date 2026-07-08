@@ -75,6 +75,43 @@ COURSES = [
         "chapters": [
             {"chapterId": "ch1", "title": "第1章 线性结构", "knowledgePointIds": ["list", "stack", "queue"]},
             {"chapterId": "ch2", "title": "第2章 树结构", "knowledgePointIds": ["tree", "heap", "bst"]},
+            {"chapterId": "ch3", "title": "第3章 图结构", "knowledgePointIds": ["graph", "dfs", "shortest-path"]},
+        ],
+    },
+    {
+        "courseId": "c1111111-1111-4111-9111-111111111103",
+        "title": "人工智能导论",
+        "chapters": [
+            {"chapterId": "ch1", "title": "第1章 智能搜索", "knowledgePointIds": ["search", "heuristic", "a-star"]},
+            {"chapterId": "ch2", "title": "第2章 机器学习基础", "knowledgePointIds": ["supervised-learning", "classification", "regression"]},
+            {"chapterId": "ch3", "title": "第3章 神经网络", "knowledgePointIds": ["neural-network", "backpropagation", "optimization"]},
+        ],
+    },
+    {
+        "courseId": "c1111111-1111-4111-9111-111111111104",
+        "title": "宏观经济学",
+        "chapters": [
+            {"chapterId": "ch1", "title": "第1章 国民收入核算", "knowledgePointIds": ["gdp", "national-income"]},
+            {"chapterId": "ch2", "title": "第2章 IS-LM 模型", "knowledgePointIds": ["is-lm", "interest-rate"]},
+            {"chapterId": "ch3", "title": "第3章 货币与财政政策", "knowledgePointIds": ["monetary-policy", "fiscal-policy"]},
+        ],
+    },
+    {
+        "courseId": "c1111111-1111-4111-9111-111111111105",
+        "title": "审计学",
+        "chapters": [
+            {"chapterId": "ch1", "title": "第1章 审计目标与证据", "knowledgePointIds": ["audit-evidence", "audit-objective"]},
+            {"chapterId": "ch2", "title": "第2章 风险评估", "knowledgePointIds": ["audit-risk", "material-misstatement"]},
+            {"chapterId": "ch3", "title": "第3章 内部控制", "knowledgePointIds": ["internal-control", "control-test"]},
+        ],
+    },
+    {
+        "courseId": "c1111111-1111-4111-9111-111111111106",
+        "title": "金融学",
+        "chapters": [
+            {"chapterId": "ch1", "title": "第1章 金融市场", "knowledgePointIds": ["financial-market", "asset"]},
+            {"chapterId": "ch2", "title": "第2章 资产定价", "knowledgePointIds": ["risk-return", "capm"]},
+            {"chapterId": "ch3", "title": "第3章 公司金融", "knowledgePointIds": ["capital-structure", "valuation"]},
         ],
     },
 ]
@@ -130,6 +167,74 @@ class AIChatStreamRequest(CamelModel):
 
 def _sse(event: str, payload: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _mode_label(req: AIChatStreamRequest) -> str:
+    if req.mode == "homework_review" or req.tools.homework_review:
+        return "作业批改"
+    if req.mode == "resource_generation" or req.tools.resource_generation:
+        return "资料生成"
+    if req.mode == "deep_research" or req.tools.deep_research:
+        return "深度研究"
+    if req.course_context.use_course_rag:
+        return "课程问答"
+    return "通用问答"
+
+
+def _visible_tools(req: AIChatStreamRequest) -> list[str]:
+    tools: list[str] = []
+    if req.course_context.use_course_rag:
+        tools.append("课程资料")
+    if req.attachments:
+        tools.append("上传附件")
+    if req.tools.web_search:
+        tools.append("联网搜索")
+    if req.tools.deep_research:
+        tools.append("深度研究")
+    if req.tools.homework_review:
+        tools.append("批改")
+    if req.tools.resource_generation:
+        tools.append("资料生成")
+    if req.reasoning.level == "deep":
+        tools.append("深度思考")
+    return tools or ["模型回答"]
+
+
+def _process_payload(
+    stage: str,
+    title: str,
+    detail: str,
+    *,
+    status: str = "running",
+    log: str | None = None,
+    items: list[str] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "stage": stage,
+        "title": title,
+        "detail": detail,
+        "status": status,
+        "log": log or detail,
+        "timestamp": datetime.utcnow().isoformat(timespec="milliseconds") + "Z",
+    }
+    if items:
+        payload["items"] = [str(item)[:180] for item in items[:5] if str(item).strip()]
+    return payload
+
+
+def _process_sse(
+    stage: str,
+    title: str,
+    detail: str,
+    *,
+    status: str = "running",
+    log: str | None = None,
+    items: list[str] | None = None,
+) -> str:
+    return _sse(
+        "process_update",
+        _process_payload(stage, title, detail, status=status, log=log, items=items),
+    )
 
 
 def _read_attachment_index() -> dict[str, Any]:
@@ -233,10 +338,12 @@ def _system_prompt(req: AIChatStreamRequest) -> str:
     parts = [
         "你是智屿 AI 学习助手。所有回答必须面向学生，先给结论，再解释，再给例子、常见错误和下一步建议。",
         f"当前模式：{req.mode}；actionId：{req.action_id or 'none'}。",
-        f"课程上下文：{course}{(' / ' + chapter) if chapter else ''}。",
     ]
     if req.course_context.use_course_rag:
+        parts.append(f"课程上下文：{course}{(' / ' + chapter) if chapter else ''}。")
         parts.append("已启用课程 RAG：优先引用课程资料或上传资料，证据不足时要明确说明。")
+    else:
+        parts.append("默认作为通用学习助手回答；除非用户问题明确指向课程、章节或上传资料，不要强行套入课程上下文。")
     if req.mode == "homework_review":
         parts.append("作业批改必须输出：评分、错因、正确解法、同类练习和掌握度反馈。")
     if req.mode == "deep_research":
@@ -259,17 +366,63 @@ def _message_for_model(req: AIChatStreamRequest) -> str:
 
 def _legacy_event_to_ai_events(payload: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     kind = payload.get("type")
+    if kind == "reasoning_action":
+        action = str(payload.get("action") or "")
+        title = str(payload.get("title") or "工具完成")
+        detail = str(payload.get("detail") or title)
+        items = [str(item) for item in list(payload.get("items") or [])[:5]]
+        if action in {"retrieve", "web_search", "vision"}:
+            stage = "retrieve"
+            visible_title = {
+                "retrieve": title,
+                "web_search": "联网搜索",
+                "vision": "解析图片",
+            }.get(action, title)
+        elif action == "code":
+            stage = "verify"
+            visible_title = "代码验证"
+        else:
+            stage = "route"
+            visible_title = title
+        return [
+            (
+                "process_update",
+                _process_payload(
+                    stage,
+                    visible_title,
+                    detail,
+                    status="done",
+                    log=detail,
+                    items=items,
+                ),
+            )
+        ]
     if kind == "phase":
         status = str(payload.get("status") or "running")
         event = "agent_finished" if status in {"done", "finished", "success"} else "agent_started"
         return [(event, {"agent": payload.get("agent") or payload.get("phase") or "agent", "label": payload.get("summary") or ""})]
     if kind == "thought":
         text = str(payload.get("content") or "")
+        if text.startswith("【") or "系统消息" in text or "上下文注入" in text or "协作线程" in text:
+            return []
         if "检索" in text or "知识库" in text:
             return [("retrieval_started", {"source": "course", "label": text[:120]})]
         return [("agent_started", {"agent": payload.get("stage") or "orchestrator", "label": text[:160]})]
     if kind == "reasoning_token":
-        return [("reasoning_summary_delta", {"text": payload.get("content") or ""})]
+        if not str(payload.get("content") or "").strip():
+            return []
+        return [
+            (
+                "process_update",
+                _process_payload(
+                    "compose",
+                    "模型推理",
+                    "正在形成回答结构",
+                    status="running",
+                    log="模型正在推理并压缩回答结构",
+                ),
+            )
+        ]
     if kind == "token":
         return [("answer_delta", {"text": payload.get("content") or ""})]
     if kind == "citations":
@@ -280,6 +433,9 @@ def _legacy_event_to_ai_events(payload: dict[str, Any]) -> list[tuple[str, dict[
         for item in citations:
             events.append(("citation", item if isinstance(item, dict) else {"title": str(item)}))
         return events
+    if kind == "suggestions":
+        items = payload.get("data") or payload.get("suggestions") or []
+        return [("suggestions", {"items": items[:3] if isinstance(items, list) else []})]
     if kind == "error":
         return [("error", {"code": "MODEL_PROVIDER_ERROR", "message": payload.get("content") or "后端生成失败"})]
     return []
@@ -468,7 +624,20 @@ def ai_chat_stream(
         try:
             yield _sse("session_created", {"sessionId": session_id, "created": created})
             yield _sse("message_started", {"sessionId": session_id, "mode": request.mode, "actionId": request.action_id})
+            yield _process_sse(
+                "understand",
+                "理解问题",
+                "已接收你的问题，正在判断任务类型和回答边界",
+                log=f"收到问题：{(request.message or '附件/资料任务')[:80]}",
+            )
             if request.mode == "homework_review" and not request.message.strip() and not request.attachments:
+                yield _process_sse(
+                    "understand",
+                    "理解问题",
+                    "作业批改缺少题目、答案或附件",
+                    status="error",
+                    log="需要先上传材料或粘贴题目文本",
+                )
                 yield _sse(
                     "error",
                     {
@@ -482,14 +651,35 @@ def ai_chat_stream(
             current_file_id: str | None = None
             file_name: str | None = None
             index = _read_attachment_index()
+            if request.attachments:
+                yield _process_sse(
+                    "retrieve",
+                    "解析上传材料",
+                    f"正在检查 {len(request.attachments)} 个上传附件",
+                    log="将附件加入本轮可检索上下文",
+                )
             for item in request.attachments:
                 if item.type == "image":
                     meta = index.get(item.file_id)
                     if not meta:
+                        yield _process_sse(
+                            "retrieve",
+                            "解析上传材料",
+                            f"图片附件 {item.file_id} 不存在",
+                            status="error",
+                            log="附件索引缺失，停止本轮生成",
+                        )
                         yield _sse("error", {"code": "ATTACHMENT_PARSE_FAILED", "message": f"图片附件 {item.file_id} 不存在"})
                         return
                     path = Path(str(meta.get("path") or ""))
                     if not path.exists():
+                        yield _process_sse(
+                            "retrieve",
+                            "解析上传材料",
+                            f"图片附件 {item.file_id} 已丢失",
+                            status="error",
+                            log="附件文件不存在，停止本轮生成",
+                        )
                         yield _sse("error", {"code": "ATTACHMENT_PARSE_FAILED", "message": f"图片附件 {item.file_id} 已丢失"})
                         return
                     encoded = base64.b64encode(path.read_bytes()).decode("ascii")
@@ -498,15 +688,69 @@ def ai_chat_stream(
                     current_file_id = item.file_id
                     file_name = item.name or item.file_id
 
+            if request.attachments:
+                yield _process_sse(
+                    "retrieve",
+                    "解析上传材料",
+                    "上传附件已挂载到本轮上下文",
+                    status="done",
+                    log=f"已挂载：{file_name or f'{len(request.attachments)} 个附件'}",
+                )
+
+            yield _process_sse(
+                "understand",
+                "理解问题",
+                f"识别为：{_mode_label(request)}",
+                status="done",
+                log=f"任务类型确认：{_mode_label(request)}",
+            )
+            visible_tools = _visible_tools(request)
+            yield _process_sse(
+                "route",
+                "选择工具",
+                "根据问题和开关选择本轮可用能力",
+                log=f"启用能力：{'、'.join(visible_tools)}",
+                items=visible_tools,
+            )
+            yield _process_sse(
+                "route",
+                "选择工具",
+                "工具路由已确认",
+                status="done",
+                log="已完成能力选择，开始准备上下文",
+                items=visible_tools,
+            )
+
             yield _sse("agent_started", {"agent": "intent_classifier", "label": "正在识别学习任务"})
             yield _sse("agent_finished", {"agent": "intent_classifier", "label": request.mode})
             yield _sse("agent_started", {"agent": "course_context", "label": "正在读取课程上下文与学习画像"})
             yield _sse("agent_finished", {"agent": "course_context", "label": _course_title(request.course_context.course_id)})
             if request.course_context.use_course_rag:
+                yield _process_sse(
+                    "retrieve",
+                    "检索依据",
+                    f"正在检索《{_course_title(request.course_context.course_id)}》课程资料",
+                    log="课程 RAG 已启用，正在准备引用证据",
+                )
                 yield _sse("retrieval_started", {"source": "course", "label": "正在检索课程资料"})
+            elif not request.attachments and not request.tools.web_search:
+                yield _process_sse(
+                    "retrieve",
+                    "检索依据",
+                    "本轮不强制检索课程资料",
+                    status="skipped",
+                    log="未命中课程/附件/联网需求，直接进入模型回答",
+                )
 
             if request.mode == "resource_generation" or request.tools.resource_generation:
                 yield _sse("agent_started", {"agent": "resource_planner", "label": "正在规划资源类型与难度"})
+                yield _process_sse(
+                    "compose",
+                    "生成资源",
+                    "正在规划资源类型、难度和资料包结构",
+                    log="调用资源规划与生成服务",
+                    items=request.resource_request.types or ["lecture_note", "mind_map", "quiz"],
+                )
                 yield _sse(
                     "agent_finished",
                     {
@@ -517,6 +761,13 @@ def ai_chat_stream(
                 yield _sse("artifact_started", {"label": "正在生成资源包"})
                 try:
                     package = _generate_resource_package(request)
+                    yield _process_sse(
+                        "compose",
+                        "生成资源",
+                        f"资源包已生成，包含 {len(package.get('artifacts') or [])} 类内容",
+                        status="done",
+                        log=f"资源包 ID：{package.get('package_id')}",
+                    )
                     yield _sse("artifact_finished", package)
                     final_text = (
                         f"已围绕“{request.resource_request.target or request.message or '当前主题'}”生成资源包 "
@@ -531,8 +782,20 @@ def ai_chat_stream(
                         "confidence": "medium",
                         "grounding_mode": "tool",
                         "suggestions": ["查看资源包", "同步知识图谱", "生成 20 分钟练习"],
-                        "metrics": {"route_trace": ["resource_planner", "resource_generator"]},
+                        "metrics": {
+                            "route_trace": ["resource_planner", "resource_generator"],
+                            "resourcePackage": package,
+                            "suggestions": ["查看资源包", "同步知识图谱", "生成 20 分钟练习"],
+                        },
                     }
+                    yield _sse("suggestions", {"items": final_payload["suggestions"]})
+                    yield _process_sse(
+                        "verify",
+                        "校验输出",
+                        "已完成资源包结构与后续建议检查",
+                        status="done",
+                        log="资源包可预览、入库或继续同步图谱",
+                    )
                     yield _sse("safety_check", {"status": "passed", "citationRequired": request.tools.citation_required})
                     yield _sse("profile_update", {"status": "queued"})
                     if user_id:
@@ -562,11 +825,24 @@ def ai_chat_stream(
                             "messageId": uuid4().hex,
                             "usage": final_payload["metrics"],
                         },
-                    )
+                        )
                 except Exception as exc:
+                    yield _process_sse(
+                        "compose",
+                        "生成资源",
+                        "资源生成服务返回错误",
+                        status="error",
+                        log=str(exc)[:180],
+                    )
                     yield _sse("error", {"code": "RESOURCE_GENERATION_FAILED", "message": str(exc)})
                 return
 
+            yield _process_sse(
+                "compose",
+                "组织回答",
+                "上下文准备完成，正在调用模型生成回答",
+                log="模型请求已发出，等待首个输出",
+            )
             chat_request = ChatRequest(
                 user_input=_message_for_model(request),
                 thread_id=session_id,
@@ -604,8 +880,28 @@ def ai_chat_stream(
                         final_text = str(payload.get("content") or final_text)
                     for event_name, event_payload in _legacy_event_to_ai_events(payload):
                         yield _sse(event_name, event_payload)
+            yield _process_sse(
+                "compose",
+                "组织回答",
+                "正文回答已生成完成",
+                status="done",
+                log="回答正文已流式输出完成",
+            )
+            yield _process_sse(
+                "verify",
+                "校验输出",
+                "正在检查引用、安全和后续追问建议",
+                log="进入输出校验阶段",
+            )
             yield _sse("safety_check", {"status": "passed", "citationRequired": request.tools.citation_required})
             yield _sse("profile_update", {"status": "queued"})
+            yield _process_sse(
+                "verify",
+                "校验输出",
+                "引用、安全和学习画像更新已完成",
+                status="done",
+                log="本轮处理完成",
+            )
             if final_text and user_id:
                 try:
                     chat_provider.save_stream_turn(

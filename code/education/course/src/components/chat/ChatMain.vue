@@ -8,6 +8,7 @@
 
   const emit = defineEmits<{
     (e: 'retry'): void;
+    (e: 'send-suggestion', text: string): void;
   }>();
 
   const isLastAssistant = (index: number) =>
@@ -32,6 +33,7 @@
           v-else-if="message.role === 'assistant'"
           :message="message"
           :is-last="isLastAssistant(index)"
+          @send-suggestion="emit('send-suggestion', $event)"
         />
         <div v-else-if="message.role === 'error'" class="error-message">
           <strong>{{ message.content }}</strong>

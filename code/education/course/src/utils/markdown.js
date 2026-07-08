@@ -18,7 +18,7 @@ const md = new MarkdownIt({
           language: lang,
           ignoreIllegals: true,
         }).value;
-        return `<div class="code-block"><div class="code-header"><span class="code-lang">${lang}</span><div class="code-actions"><button class="code-action-btn" data-action="copy" data-tooltip="复制"><img src="${copyIcon}" alt="copy" /></button></div></div><pre class="hljs"><code>${highlighted}</code></pre></div>`;
+        return `<pre class="code-block hljs" data-lang="${md.utils.escapeHtml(lang)}"><button class="code-action-btn code-action-btn--floating" data-action="copy" data-tooltip="复制"><img src="${copyIcon}" alt="copy" /></button><code>${highlighted}</code></pre>`;
       } catch {
         /* ignore */
       }

@@ -8,8 +8,8 @@
       @mousedown="startDragRobot"
     >
       <a-button type="primary" class="float-btn__inner" @click="handleClick">
-        <icon-robot :style="{ fontSize: '28px' }" />
-        <span class="float-btn__label">AI 小智</span>
+        <icon-robot :style="{ fontSize: '24px' }" />
+        <span class="float-btn__label">小智</span>
       </a-button>
     </div>
     <div
@@ -70,7 +70,7 @@
 
   const visible = ref(false);
   const quickChatRef = ref<any>(null);
-  const PANEL_MIN_WIDTH = 320;
+  const PANEL_MIN_WIDTH = 340;
   const PANEL_MIN_HEIGHT = 480;
   const PANEL_MAX_WIDTH = 760;
   const PANEL_MAX_HEIGHT = 900;
@@ -80,8 +80,8 @@
     Math.max(PANEL_MIN_HEIGHT, Math.min(PANEL_MAX_HEIGHT, window.innerHeight - 76));
   const robotPos = ref({ x: window.innerWidth - 100, y: window.innerHeight - 120 });
   const panelSize = ref({
-    width: Math.min(520, panelViewportMaxWidth()),
-    height: Math.min(760, panelViewportMaxHeight()),
+    width: Math.min(468, panelViewportMaxWidth()),
+    height: Math.min(700, panelViewportMaxHeight()),
   });
   const panelPos = ref({
     x: window.innerWidth - panelSize.value.width - 24,
@@ -124,11 +124,11 @@
     panelSize.value = {
       width:
         window.innerWidth >= 720
-          ? Math.min(520, panelViewportMaxWidth())
+          ? Math.min(468, panelViewportMaxWidth())
           : panelViewportMaxWidth(),
       height:
         window.innerHeight >= 760
-          ? Math.min(760, panelViewportMaxHeight())
+          ? Math.min(700, panelViewportMaxHeight())
           : panelViewportMaxHeight(),
     };
     panelPos.value = {
@@ -150,6 +150,14 @@
     }
     router.push({ name: 'TutorChat' });
   };
+  const openClassroomAi = (event?: Event) => {
+    preparePanelForOpen();
+    visible.value = true;
+    const detail = (event as CustomEvent<{ prompt?: string }> | undefined)?.detail;
+    if (detail?.prompt) {
+      setTimeout(() => quickChatRef.value?.prefillPrompt?.(detail.prompt), 0);
+    }
+  };
   const handleCancel = () => {
     visible.value = false;
   };
@@ -166,7 +174,6 @@
     () =>
       route.path.startsWith('/assistant') ||
       route.path.startsWith('/tutor') ||
-      route.name === 'StudentCourseContent' ||
       route.name === 'StudentCourseResources' ||
       route.name === 'StudentCourseKnowledge' ||
       route.name === 'StudentCourseAnalytics' ||
@@ -242,11 +249,13 @@
     window.addEventListener('mousemove', onDragMove);
     window.addEventListener('mouseup', onDragEnd);
     window.addEventListener('resize', fitFloatingUiToViewport);
+    window.addEventListener('open-classroom-ai', openClassroomAi as EventListener);
   });
   onUnmounted(() => {
     window.removeEventListener('mousemove', onDragMove);
     window.removeEventListener('mouseup', onDragEnd);
     window.removeEventListener('resize', fitFloatingUiToViewport);
+    window.removeEventListener('open-classroom-ai', openClassroomAi as EventListener);
   });
 </script>
 
@@ -273,24 +282,55 @@
   }
 
   .float-btn__inner {
-    height: auto !important;
-    min-width: 72px;
-    padding: 12px 14px 10px !important;
-    border-radius: 20px !important;
+    position: relative;
+    width: 58px !important;
+    height: 58px !important;
+    min-width: 58px !important;
+    padding: 0 !important;
+    border-radius: 50% !important;
     display: flex !important;
-    flex-direction: column;
     align-items: center;
-    gap: 4px;
-    background: var(--zy-gradient-brand, linear-gradient(135deg, #6366f1, #8b5cf6)) !important;
-    border: none !important;
-    box-shadow: 0 12px 32px rgba(99, 102, 241, 0.42);
+    justify-content: center;
+    overflow: visible;
+    background:
+      radial-gradient(circle at 30% 24%, rgba(255, 255, 255, 0.95), transparent 18%),
+      linear-gradient(135deg, #4f46e5, #7c3aed) !important;
+    border: 1px solid rgba(255, 255, 255, 0.72) !important;
+    box-shadow: 0 16px 34px rgba(79, 70, 229, 0.32);
+    transition:
+      transform 0.16s ease,
+      box-shadow 0.16s ease;
+
+    &:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 20px 40px rgba(79, 70, 229, 0.38);
+    }
+
+    &::after {
+      content: '';
+      position: absolute;
+      inset: -5px;
+      border: 1px solid rgba(99, 102, 241, 0.18);
+      border-radius: inherit;
+      pointer-events: none;
+    }
   }
 
   .float-btn__label {
-    font-size: 11px;
-    line-height: 1;
-    color: #fff;
-    font-weight: 600;
+    position: absolute;
+    right: 50px;
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 5px 9px;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.94);
+    color: #4f46e5;
+    font-size: 12px;
+    line-height: 1.1;
+    font-weight: 760;
+    white-space: nowrap;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
   }
 
   .float-ai-panel {
@@ -298,16 +338,16 @@
     z-index: 10001;
     display: flex;
     flex-direction: column;
-    border-radius: 18px;
+    border-radius: 22px;
     overflow: hidden;
-    box-shadow: 0 20px 40px rgba(15, 23, 42, 0.25);
-    border: 1px solid rgba(99, 102, 241, 0.18);
-    background: linear-gradient(180deg, #eef2ff 0%, #e0e7ff 55%, #f8fafc 100%);
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    background: #fff;
   }
 
   @media (min-width: 720px) {
     .float-ai-panel {
-      min-width: 500px;
+      min-width: 420px;
     }
   }
 
@@ -319,12 +359,12 @@
   }
 
   .panel-header {
-    height: 44px;
-    padding: 0 12px;
+    height: 48px;
+    padding: 0 14px 0 16px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    background: rgba(255, 255, 255, 0.72);
+    background: rgba(255, 255, 255, 0.94);
     border-bottom: 1px solid rgba(15, 23, 42, 0.06);
     cursor: move;
     span {
@@ -336,6 +376,17 @@
   .panel-body {
     flex: 1;
     min-height: 0;
+    background: #fbfcff;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .float-btn__inner {
+      transition: none;
+
+      &:hover {
+        transform: none;
+      }
+    }
   }
 
   .resize-handle {

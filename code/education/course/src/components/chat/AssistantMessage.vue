@@ -1,16 +1,22 @@
 <script setup lang="ts">
-  import { computed, ref } from 'vue';
+  import { computed, onUnmounted, ref, watch } from 'vue';
   import { renderMarkdown } from '@/utils/markdown';
   import ArtifactCards from './ArtifactCards.vue';
   import CitationList from './CitationList.vue';
-  import ToolTrace from './ToolTrace.vue';
 
   const props = defineProps<{
     message: Record<string, any>;
     isLast?: boolean;
   }>();
 
-  const reasoningOpen = ref(false);
+  const emit = defineEmits<{
+    (e: 'send-suggestion', text: string): void;
+  }>();
+
+  const processOpen = ref(false);
+  const processCollapsed = ref(false);
+  const liveNow = ref(Date.now());
+  let liveTimer: ReturnType<typeof window.setInterval> | null = null;
   const rendered = computed(() => renderMarkdown(String(props.message.content || ''), {
     streaming: Boolean(props.message.loading),
   }));
@@ -29,29 +35,252 @@
       )
       .filter((line) => line && !INTERNAL_REASONING_RE.test(line) && !INTERNAL_REASONING_TEXT_RE.test(line))
       .join('\n')
-      .trim()
+    .trim()
   );
+  const suggestions = computed(() =>
+    (Array.isArray(props.message.suggestions) ? props.message.suggestions : [])
+      .map((item: unknown) => String(item || '').trim())
+      .filter(Boolean)
+      .slice(0, 3)
+  );
+  type ProcessStatus = 'pending' | 'running' | 'done' | 'skipped' | 'error';
+  type ProcessStage = 'understand' | 'route' | 'retrieve' | 'compose' | 'verify';
+  const processEvents = computed<Record<string, any>[]>(() =>
+    Array.isArray(props.message.processEvents) ? props.message.processEvents : []
+  );
+  const processExpanded = computed(() =>
+    Boolean((props.message.loading && !processCollapsed.value) || processOpen.value)
+  );
+  const stageDefs: Array<{ id: ProcessStage; title: string; fallback: string }> = [
+    { id: 'understand', title: '理解问题', fallback: '等待接收问题' },
+    { id: 'route', title: '选择工具', fallback: '等待选择能力' },
+    { id: 'retrieve', title: '检索依据', fallback: '按需检索资料' },
+    { id: 'compose', title: '组织回答', fallback: '等待模型生成' },
+    { id: 'verify', title: '校验输出', fallback: '等待检查结果' },
+  ];
+  const statusWeight: Record<ProcessStatus, number> = {
+    pending: 0,
+    skipped: 1,
+    running: 2,
+    done: 3,
+    error: 4,
+  };
+  const formatTime = (value: unknown) => {
+    if (!value) return '';
+    const date = new Date(String(value));
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleTimeString('zh-CN', {
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+  };
+  const eventsForStage = (stage: ProcessStage) =>
+    processEvents.value.filter((event) => String(event.stage || '') === stage);
+  const latestEventForStage = (stage: ProcessStage) => {
+    const list = eventsForStage(stage);
+    return list[list.length - 1] || null;
+  };
+  const statusForStage = (stage: ProcessStage): ProcessStatus => {
+    const list = eventsForStage(stage);
+    if (!list.length) return 'pending';
+    return list
+      .map((event) => String(event.status || 'running') as ProcessStatus)
+      .filter((status) => status in statusWeight)
+      .sort((a, b) => statusWeight[b] - statusWeight[a])[0] || 'running';
+  };
+  const processSteps = computed(() => {
+    const firstPending = stageDefs.findIndex((stage) => statusForStage(stage.id) === 'pending');
+    const hasExplicitRunning = processEvents.value.some(
+      (event) => String(event.status || 'running') === 'running'
+    );
+    return stageDefs.map((stage, index) => {
+      const latest = latestEventForStage(stage.id);
+      let status = statusForStage(stage.id);
+      if (status === 'pending' && props.message.loading && !hasExplicitRunning && index === Math.max(firstPending, 0)) {
+        status = 'running';
+      }
+      return {
+        id: stage.id,
+        title: String(latest?.title || stage.title),
+        detail: String(latest?.detail || latest?.log || stage.fallback),
+        status,
+        items: Array.isArray(latest?.items) ? latest.items : [],
+      };
+    });
+  });
+  const activeStepIndex = computed(() => {
+    const runningIndex = processSteps.value.findIndex((item) => item.status === 'running');
+    if (runningIndex >= 0) return runningIndex + 1;
+    const doneCount = processSteps.value.filter((item) => item.status === 'done' || item.status === 'skipped').length;
+    return Math.max(1, Math.min(processSteps.value.length, doneCount || 1));
+  });
+  const activeProcessStep = computed(() =>
+    [...processSteps.value].reverse().find((item) => item.status === 'running') ||
+    [...processSteps.value].reverse().find((item) => item.status === 'done') ||
+    processSteps.value[0]
+  );
+  const processLogs = computed(() => {
+    const eventLogs = processEvents.value
+      .map((event) => ({
+        id: `${event.stage || 'stage'}-${event.status || 'running'}-${event.timestamp || ''}-${event.log || event.detail || ''}`,
+        time: formatTime(event.timestamp),
+        status: String(event.status || 'running') as ProcessStatus,
+        title: String(event.title || '处理事件'),
+        text: String(event.log || event.detail || '').trim(),
+        items: Array.isArray(event.items) ? event.items.slice(0, 3) : [],
+      }))
+      .filter((item) => item.text);
+    const lines = reasoning.value
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line, index) => ({
+        id: `reasoning-${index}-${line}`,
+        time: '',
+        status: 'running' as ProcessStatus,
+        title: '模型摘要',
+        text: line,
+        items: [],
+      }));
+    return [...eventLogs, ...lines].slice(-9).reverse();
+  });
+  const firstProcessAt = computed(() => {
+    const first = processEvents.value.find((event) => event.timestamp);
+    const time = first ? new Date(String(first.timestamp)).getTime() : 0;
+    return Number.isFinite(time) ? time : 0;
+  });
+  const liveElapsedLabel = computed(() => {
+    if (!props.message.loading || !firstProcessAt.value) return '';
+    const seconds = Math.max(0, Math.floor((liveNow.value - firstProcessAt.value) / 1000));
+    return `${seconds}s`;
+  });
+  const waitingForFirstToken = computed(() =>
+    Boolean(props.message.loading && processEvents.value.some((event) =>
+      String(event.stage || '') === 'compose' && String(event.status || '') === 'running'
+    ) && !String(props.message.content || '').trim())
+  );
+  const liveWaitingText = computed(() => {
+    if (!waitingForFirstToken.value) return '';
+    return `等待首个输出 ${liveElapsedLabel.value || '0s'}`;
+  });
+  const processSummary = computed(() => {
+    if (props.message.loading) return `正在处理步骤 ${activeStepIndex.value}`;
+    if (processEvents.value.length || props.message.content) return '已完成处理';
+    return '查看处理过程';
+  });
+  const processSubtitle = computed(() =>
+    props.message.loading
+      ? activeProcessStep.value?.title || '实时处理'
+      : activeProcessStep.value?.detail || '处理完成'
+  );
+  function toggleProcess() {
+    if (processExpanded.value) {
+      processCollapsed.value = true;
+      processOpen.value = false;
+      return;
+    }
+    processCollapsed.value = false;
+    processOpen.value = true;
+  }
+  watch(
+    () => Boolean(props.message.loading),
+    (loading) => {
+      if (loading && !liveTimer) {
+        liveNow.value = Date.now();
+        liveTimer = window.setInterval(() => {
+          liveNow.value = Date.now();
+        }, 1000);
+      } else if (!loading && liveTimer) {
+        window.clearInterval(liveTimer);
+        liveTimer = null;
+      }
+    },
+    { immediate: true }
+  );
+  onUnmounted(() => {
+    if (liveTimer) window.clearInterval(liveTimer);
+  });
 </script>
 
 <template>
   <article class="assistant-message">
-    <ToolTrace
-      :events="message.toolEvents || message.agentPhases || []"
-      :loading="Boolean(message.loading)"
-    />
-
     <button
-      v-if="reasoning || message.loading"
+      v-if="message.loading || reasoning || processEvents.length || message.content"
       type="button"
-      class="reasoning-toggle"
-      @click="reasoningOpen = !reasoningOpen"
+      class="process-toggle"
+      @click="toggleProcess"
     >
-      {{ reasoningOpen ? '收起思考' : '查看思考' }}
+      <span class="process-toggle__dot" />
+      <span class="process-toggle__main">{{ processSummary }}</span>
+      <span class="process-toggle__sub">{{ processSubtitle }}</span>
+      <span>{{ processExpanded ? '收起' : '查看过程' }}</span>
       <span v-if="message.loading" class="streaming-dots"><i /><i /><i /></span>
     </button>
-    <div v-if="reasoningOpen && (reasoning || message.loading)" class="reasoning-box" aria-live="polite">
-      {{ reasoning || '正在整理思考过程...' }}
-    </div>
+    <section v-if="processExpanded" class="process-panel" aria-live="polite">
+      <div class="process-panel__head">
+        <div>
+          <strong>{{ message.loading ? '实时处理过程' : '处理过程记录' }}</strong>
+          <span>根据后端 SSE 事件实时更新</span>
+        </div>
+        <b>{{ activeProcessStep?.title }}<small v-if="liveElapsedLabel"> · {{ liveElapsedLabel }}</small></b>
+      </div>
+      <div class="process-monitor">
+        <div class="process-steps">
+          <div
+            v-for="step in processSteps"
+            :key="step.id"
+            class="process-step"
+            :class="`is-${step.status}`"
+          >
+            <span class="process-step__marker" />
+            <div>
+              <strong>{{ step.title }}</strong>
+              <span>{{ step.status === 'skipped' ? '按需跳过' : step.detail }}</span>
+              <div v-if="step.items?.length" class="process-step__items">
+                <em v-for="item in step.items" :key="item">{{ item }}</em>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="process-stream">
+          <div class="process-stream__head">
+            <span class="process-stream__label">{{ message.loading ? '实时动态' : '执行记录' }}</span>
+            <span v-if="message.loading" class="process-stream__live">LIVE</span>
+          </div>
+          <div class="process-log-list">
+            <div v-if="liveWaitingText" class="process-log is-running is-live-waiting">
+              <time>{{ liveElapsedLabel || '0s' }}</time>
+              <div>
+                <strong>模型正在工作</strong>
+                <p>{{ liveWaitingText }}，连接保持活跃。</p>
+              </div>
+            </div>
+            <div
+              v-for="log in processLogs"
+              :key="log.id"
+              class="process-log"
+              :class="`is-${log.status}`"
+            >
+              <time>{{ log.time || 'now' }}</time>
+              <div>
+                <strong>{{ log.title }}</strong>
+                <p>{{ log.text }}</p>
+                <span v-for="item in log.items" :key="item">{{ item }}</span>
+              </div>
+            </div>
+            <div v-if="!processLogs.length" class="process-log is-running">
+              <time>now</time>
+              <div>
+                <strong>等待事件</strong>
+                <p>正在建立流式连接，准备接收后端处理状态。</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
 
     <div v-if="message.content" class="assistant-message__body markdown-body" v-html="rendered" />
     <div v-else-if="message.loading" class="assistant-message__loading">
@@ -66,11 +295,21 @@
       :package-id="message.resourcePackage?.package_id"
     />
 
+    <section v-if="!message.loading && suggestions.length" class="follow-up-capsules">
+      <button
+        v-for="item in suggestions"
+        :key="item"
+        type="button"
+        @click="emit('send-suggestion', item)"
+      >
+        {{ item }}
+      </button>
+    </section>
+
     <footer v-if="!message.loading && message.content" class="assistant-message__actions">
       <button type="button">生成练习</button>
       <button type="button">加入笔记</button>
       <button type="button">同步图谱</button>
-      <button type="button">继续追问</button>
     </footer>
   </article>
 </template>
@@ -133,8 +372,43 @@
       overflow: hidden;
       border: 1px solid rgba(15, 23, 42, 0.1);
       border-radius: 14px;
-      background: #fff !important;
+      background: #ffffff !important;
       box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+    }
+
+    :deep(pre.code-block.hljs) {
+      position: relative;
+      padding: 0;
+      background: #ffffff !important;
+      color: #344054 !important;
+      text-shadow: none !important;
+      white-space: normal;
+    }
+
+    :deep(pre.code-block.hljs::before) {
+      display: flex;
+      min-height: 34px;
+      align-items: center;
+      padding: 0 44px 0 12px;
+      border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+      background: #f8fafc;
+      color: #667085;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      content: attr(data-lang);
+    }
+
+    :deep(.code-block > code) {
+      display: block;
+      padding: 14px 16px;
+      overflow-x: auto;
+      background: transparent !important;
+      color: #344054 !important;
+      font-size: 13px;
+      line-height: 1.65;
+      white-space: pre;
     }
 
     :deep(.code-header) {
@@ -183,8 +457,15 @@
       }
     }
 
-    :deep(pre),
-    :deep(pre.hljs) {
+    :deep(.code-action-btn--floating) {
+      position: absolute;
+      top: 5px;
+      right: 8px;
+      z-index: 1;
+    }
+
+    :deep(pre:not(.code-block)),
+    :deep(pre.hljs:not(.code-block)) {
       margin: 14px 0;
       padding: 14px 16px;
       border: 1px solid rgba(15, 23, 42, 0.1);
@@ -195,14 +476,6 @@
       font-size: 13px;
       line-height: 1.65;
       text-shadow: none !important;
-    }
-
-    :deep(.code-block pre),
-    :deep(.code-block pre.hljs) {
-      margin: 0;
-      border: 0;
-      border-radius: 0;
-      box-shadow: none;
     }
 
     :deep(pre code),
@@ -284,17 +557,53 @@
     }
   }
 
-  .reasoning-toggle {
+  .process-toggle {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    margin: 10px 0;
-    padding: 0;
-    border: 0;
+    gap: 8px;
+    margin: 8px 0 6px;
+    max-width: 100%;
+    padding: 6px 10px;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 999px;
     color: #4f46e5;
-    background: transparent;
-    font-size: 13px;
+    background: #fff;
+    font-size: 12px;
+    font-weight: 760;
     cursor: pointer;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
+    transition:
+      border-color 0.16s ease,
+      box-shadow 0.16s ease,
+      transform 0.16s ease;
+
+    &:hover {
+      border-color: rgba(99, 102, 241, 0.24);
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+      transform: translateY(-1px);
+    }
+  }
+
+  .process-toggle__main {
+    color: #4f46e5;
+  }
+
+  .process-toggle__sub {
+    max-width: 220px;
+    overflow: hidden;
+    color: #667085;
+    font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .process-toggle__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: #6366f1;
+    box-shadow: 0 0 0 6px rgba(99, 102, 241, 0.1);
+    animation: reasoning-pulse 1.35s ease-in-out infinite;
   }
 
   .streaming-dots {
@@ -318,16 +627,353 @@
     }
   }
 
-  .reasoning-box {
-    margin-bottom: 12px;
+  .process-panel {
+    margin: 0 0 14px;
     padding: 12px;
-    border-left: 3px solid #6366f1;
-    border-radius: 12px;
-    background: #f7f9ff;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 20px;
+    background:
+      radial-gradient(circle at 0 0, rgba(99, 102, 241, 0.08), transparent 34%),
+      #fbfcff;
+    box-shadow: 0 14px 36px rgba(15, 23, 42, 0.05);
+  }
+
+  .process-panel__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+    padding: 2px 2px 0;
+
+    strong {
+      display: block;
+      color: #101828;
+      font-size: 13px;
+      line-height: 1.2;
+    }
+
+    span {
+      display: block;
+      margin-top: 3px;
+      color: #98a2b3;
+      font-size: 12px;
+    }
+
+    b {
+      max-width: 210px;
+      padding: 4px 9px;
+      overflow: hidden;
+      border: 1px solid rgba(99, 102, 241, 0.13);
+      border-radius: 999px;
+      background: #fff;
+      color: #4f46e5;
+      font-size: 12px;
+      font-weight: 760;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+
+      small {
+        color: #667085;
+        font-size: 11px;
+        font-weight: 720;
+      }
+    }
+  }
+
+  .process-monitor {
+    display: grid;
+    grid-template-columns: minmax(210px, 0.44fr) minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .process-steps {
+    display: grid;
+    align-content: start;
+    gap: 10px;
+    padding: 10px 10px 10px 8px;
+    border: 1px solid rgba(15, 23, 42, 0.06);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.72);
+  }
+
+  .process-step {
+    position: relative;
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr);
+    gap: 10px;
     color: #667085;
+
+    &:not(:last-child)::after {
+      content: '';
+      position: absolute;
+      top: 18px;
+      left: 7px;
+      width: 1px;
+      height: calc(100% + 4px);
+      background: rgba(99, 102, 241, 0.16);
+    }
+
+    strong {
+      display: block;
+      color: #344054;
+      font-size: 13px;
+      line-height: 1.25;
+    }
+
+    span:not(.process-step__marker) {
+      display: block;
+      margin-top: 3px;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    &.is-pending {
+      opacity: 0.62;
+    }
+
+    &.is-running {
+      color: #475467;
+
+      .process-step__marker {
+        background: #6366f1;
+        box-shadow: 0 0 0 6px rgba(99, 102, 241, 0.12);
+        animation: reasoning-pulse 1.2s ease-in-out infinite;
+      }
+    }
+
+    &.is-done {
+      .process-step__marker {
+        background: #4f46e5;
+
+        &::after {
+          content: '';
+          position: absolute;
+          top: 3px;
+          left: 5px;
+          width: 4px;
+          height: 7px;
+          border: solid #fff;
+          border-width: 0 1.5px 1.5px 0;
+          transform: rotate(45deg);
+        }
+      }
+    }
+
+    &.is-skipped {
+      opacity: 0.72;
+    }
+
+    &.is-error {
+      .process-step__marker {
+        background: #f04438;
+      }
+    }
+  }
+
+  .process-step__items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+
+    em {
+      max-width: 100%;
+      padding: 2px 6px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #eef2ff;
+      color: #475467;
+      font-size: 11px;
+      font-style: normal;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .process-step__marker {
+    position: relative;
+    z-index: 1;
+    width: 14px;
+    height: 14px;
+    margin-top: 2px;
+    border-radius: 999px;
+    background: #d0d5dd;
+    box-shadow: inset 0 0 0 3px #fff;
+  }
+
+  .process-stream {
+    min-width: 0;
+    padding: 10px;
+    border: 1px solid rgba(15, 23, 42, 0.06);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.74);
+    color: #475467;
     font-size: 13px;
-    line-height: 1.7;
-    white-space: pre-wrap;
+    line-height: 1.65;
+  }
+
+  .process-stream__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+
+  .process-stream__label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #4f46e5;
+    font-weight: 760;
+
+    &::after {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: #a4a7ff;
+      box-shadow: 10px 0 0 #b9bbff, 20px 0 0 #ced0ff;
+      animation: reasoning-dot 1s ease-in-out infinite;
+    }
+  }
+
+  .process-stream__live {
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: #eef2ff;
+    color: #4f46e5;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+  }
+
+  .process-log-list {
+    display: grid;
+    gap: 7px;
+    max-height: 230px;
+    overflow: auto;
+    padding-right: 2px;
+  }
+
+  .process-log {
+    display: grid;
+    grid-template-columns: 56px minmax(0, 1fr);
+    gap: 9px;
+    padding: 8px 9px;
+    border-radius: 12px;
+    background: #f8faff;
+    color: #667085;
+
+    time {
+      color: #98a2b3;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    strong {
+      display: block;
+      color: #344054;
+      font-size: 12px;
+      line-height: 1.25;
+    }
+
+    p {
+      margin: 3px 0 0;
+      color: #667085;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    span {
+      display: inline-block;
+      max-width: 100%;
+      margin: 6px 5px 0 0;
+      padding: 2px 6px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #fff;
+      color: #667085;
+      font-size: 11px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    &.is-running {
+      background: #f3f5ff;
+      box-shadow: inset 2px 0 0 #6366f1;
+    }
+
+    &.is-live-waiting {
+      background:
+        linear-gradient(90deg, rgba(99, 102, 241, 0.08), transparent 48%),
+        #f3f5ff;
+
+      p::after {
+        content: '';
+        display: inline-block;
+        width: 4px;
+        height: 4px;
+        margin-left: 6px;
+        border-radius: 999px;
+        background: #6366f1;
+        box-shadow: 8px 0 0 #a4a7ff, 16px 0 0 #ced0ff;
+        vertical-align: middle;
+        animation: reasoning-dot 1s ease-in-out infinite;
+      }
+    }
+
+    &.is-done {
+      background: #f8fafc;
+    }
+
+    &.is-error {
+      background: #fff7f7;
+      box-shadow: inset 2px 0 0 #f04438;
+    }
+  }
+
+  @media (max-width: 900px) {
+    .process-monitor {
+      grid-template-columns: 1fr;
+    }
+
+    .process-log-list {
+      max-height: 180px;
+    }
+  }
+
+  .follow-up-capsules {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 14px;
+
+    button {
+      max-width: 100%;
+      min-height: 34px;
+      padding: 0 13px;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      border-radius: 999px;
+      color: #344054;
+      background: #f8fafc;
+      cursor: pointer;
+      font-size: 13px;
+      line-height: 1.3;
+      transition:
+        border-color 0.16s ease,
+        color 0.16s ease,
+        background 0.16s ease,
+        transform 0.16s ease;
+
+      &:hover {
+        border-color: rgba(99, 102, 241, 0.28);
+        color: #4f46e5;
+        background: #eef2ff;
+        transform: translateY(-1px);
+      }
+    }
   }
 
   .assistant-message__actions {
@@ -372,9 +1018,25 @@
     }
   }
 
+  @keyframes reasoning-pulse {
+    0%,
+    100% {
+      transform: scale(0.92);
+      opacity: 0.72;
+    }
+    50% {
+      transform: scale(1);
+      opacity: 1;
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .assistant-message__loading span,
-    .streaming-dots i {
+    .streaming-dots i,
+    .process-toggle__dot,
+    .process-step__marker,
+    .process-stream__label::after,
+    .process-log.is-live-waiting p::after {
       animation: none;
     }
   }

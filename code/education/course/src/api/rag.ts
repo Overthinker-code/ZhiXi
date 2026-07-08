@@ -454,13 +454,22 @@ export interface ChatStreamEvent {
 }
 
 function normalizeChatRecord(raw: any): ChatRecord {
+  let metrics = raw?.metrics;
+  if (typeof metrics === 'string') {
+    try {
+      metrics = JSON.parse(metrics);
+    } catch {
+      metrics = {};
+    }
+  }
   return {
     ...raw,
+    metrics: metrics || {},
     citations: normalizeCitationItems(raw?.citations),
     citation_hints: normalizeCitationItems(
       raw?.citation_hints || raw?.citationHints
     ),
-    suggestions: normalizeSuggestionList(raw?.suggestions || []),
+    suggestions: normalizeSuggestionList(raw?.suggestions || metrics?.suggestions || []),
   } as ChatRecord;
 }
 

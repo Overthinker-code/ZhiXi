@@ -1,5 +1,6 @@
 <template>
   <div
+    ref="rootRef"
     class="classroom-ai"
     :class="{ 'is-dragging': dragActive }"
   >
@@ -28,21 +29,23 @@
     <div ref="messagePanel" class="message-panel" @scroll="handlePanelScroll">
       <div class="assistant-card">
         <div class="xiaozhi-head">
-          <div class="xiaozhi-avatar">智</div>
+          <div class="xiaozhi-avatar">
+            <icon-robot />
+          </div>
           <div>
-            <strong>小智</strong>
-            <span>课堂 AI 助教</span>
+            <strong>小智 · 课堂即时答疑</strong>
+            <span>结合当前课节、笔记和上传材料回答</span>
           </div>
         </div>
         <p class="intro-lead">
-          Hi，我是小智！在{{ currentCourse?.shortTitle || '当前课程' }}中，我可以帮你：
+          你可以随时问当前视频、练习或图片里的问题；我会优先使用本课节上下文，不确定的地方会明确说明。
         </p>
-        <ul class="feature-list">
-          <li><icon-book /> 讲解知识点与考试要点</li>
-          <li><icon-edit /> 批改练习与测验作答</li>
-          <li><icon-image /> 解析图片题目与 ER 图</li>
-          <li><icon-bulb /> 生成复习提纲与易错提醒</li>
-        </ul>
+        <div class="feature-chips">
+          <span><icon-book /> 知识讲解</span>
+          <span><icon-edit /> 练习批改</span>
+          <span><icon-image /> 图片题目</span>
+          <span><icon-bulb /> 复习提纲</span>
+        </div>
       </div>
       <div v-for="item in messages" :key="item.id" class="bubble-row">
         <div :class="item.role === 'user' ? 'bubble user' : 'bubble assistant'">
@@ -218,7 +221,7 @@
     type CitationItem,
   } from '@/api/rag';
   import { Message } from '@arco-design/web-vue';
-  import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
+  import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
   import { useRoute } from 'vue-router';
   import CitationArea from '@/views/chat/components/CitationArea.vue';
   import { renderMarkdown, stripMarkdownCodeToolbar } from '@/utils/markdown';
@@ -399,6 +402,7 @@
   const activeMode = ref<'chat' | 'exercise_grading'>('chat');
   const fileInputRef = ref<HTMLInputElement | null>(null);
   const imageInputRef = ref<HTMLInputElement | null>(null);
+  const rootRef = ref<HTMLElement | null>(null);
   let abortController: AbortController | null = null;
   const streamAssistId = ref<number | null>(null);
   const streamContentLen = ref(0);
@@ -496,10 +500,21 @@
     }
   };
 
+  const prefillPrompt = (prompt: string) => {
+    inputValue.value = prompt;
+    void nextTick(() => {
+      messagePanel.value?.scrollTo({
+        top: messagePanel.value.scrollHeight,
+        behavior: 'smooth',
+      });
+    });
+  };
+
   defineExpose({
     handleDrop,
     handleDragOver,
     handleDragLeave,
+    prefillPrompt,
   });
 
   const handleFileRemove = (file: any) => {
@@ -601,6 +616,21 @@
       clearInterval(streamChaseTimer);
       streamChaseTimer = null;
     }
+  });
+
+  const handleDocumentPointerDown = (event: PointerEvent) => {
+    if (!menuOpen.value) return;
+    const target = event.target as Element | null;
+    if (target?.closest?.('.quick-add-wrap')) return;
+    menuOpen.value = false;
+  };
+
+  onMounted(() => {
+    document.addEventListener('pointerdown', handleDocumentPointerDown);
+  });
+
+  onUnmounted(() => {
+    document.removeEventListener('pointerdown', handleDocumentPointerDown);
   });
 
   const scrollToBottom = async (force = false) => {
@@ -890,8 +920,10 @@
     height: 100%;
     display: flex;
     flex-direction: column;
-    background: linear-gradient(180deg, #f5f3ff 0%, #eef2ff 40%, #f8fafc 100%);
-    border-radius: 20px;
+    background:
+      radial-gradient(circle at 18% 0%, rgba(99, 102, 241, 0.09), transparent 32%),
+      linear-gradient(180deg, #f8f9ff 0%, #f5f7ff 42%, #fbfcff 100%);
+    border-radius: 18px;
     overflow: hidden;
 
     &.is-dragging {
@@ -918,7 +950,7 @@
   }
 
   .mobile-topbar {
-    display: flex;
+    display: none;
     align-items: center;
     gap: 10px;
     padding: 12px 14px;
@@ -955,17 +987,17 @@
   }
 
   .course-card {
-    margin: 10px 12px 0;
-    padding: 12px 14px;
-    border-radius: 14px;
+    margin: 12px 14px 0;
+    padding: 11px 13px;
+    border-radius: 16px;
     background: #fff;
-    border: 1px solid rgba(99, 102, 241, 0.12);
-    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.08);
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
 
     strong {
       display: block;
-      margin: 4px 0 2px;
-      font-size: 16px;
+      margin: 4px 0 1px;
+      font-size: 15px;
       color: #1e293b;
     }
   }
@@ -1028,28 +1060,28 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    padding: 10px 12px;
+    padding: 12px 14px;
   }
 
   .assistant-card {
     background: #fff;
-    border-radius: 16px;
-    padding: 16px;
-    margin-bottom: 8px;
-    box-shadow: 0 8px 24px rgba(99, 102, 241, 0.12);
-    border: 1px solid rgba(99, 102, 241, 0.08);
+    border-radius: 18px;
+    padding: 15px;
+    margin-bottom: 10px;
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.05);
+    border: 1px solid rgba(15, 23, 42, 0.08);
   }
 
   .xiaozhi-head {
     display: flex;
     align-items: center;
     gap: 12px;
-    margin-bottom: 12px;
+    margin-bottom: 10px;
 
     strong {
       display: block;
-      font-size: 18px;
-      color: #312e81;
+      font-size: 16px;
+      color: #101828;
     }
 
     span {
@@ -1059,46 +1091,46 @@
   }
 
   .xiaozhi-avatar {
-    width: 44px;
-    height: 44px;
-    border-radius: 14px;
-    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    background:
+      radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.9), transparent 22%),
+      linear-gradient(135deg, #4f46e5, #7c3aed);
     color: #fff;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 18px;
-    font-weight: 800;
-    box-shadow: 0 6px 16px rgba(99, 102, 241, 0.3);
+    font-size: 20px;
+    box-shadow: 0 10px 24px rgba(79, 70, 229, 0.26);
   }
 
   .intro-lead {
-    margin: 0 0 10px;
-    font-size: 14px;
-    line-height: 1.5;
-    color: #334155;
+    margin: 0 0 12px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #475467;
   }
 
-  .feature-list {
-    margin: 0;
-    padding: 0;
-    list-style: none;
+  .feature-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
 
-    li {
-      display: flex;
+    span {
+      display: inline-flex;
       align-items: center;
-      gap: 8px;
-      padding: 7px 0;
-      font-size: 13px;
-      color: #475569;
-      border-bottom: 1px solid #f1f5f9;
-
-      &:last-child {
-        border-bottom: none;
-      }
+      gap: 5px;
+      min-height: 28px;
+      padding: 0 9px;
+      border: 1px solid rgba(99, 102, 241, 0.13);
+      border-radius: 999px;
+      background: #f7f8ff;
+      color: #4f46e5;
+      font-size: 12px;
+      font-weight: 700;
 
       svg {
-        color: #6366f1;
         flex-shrink: 0;
       }
     }
