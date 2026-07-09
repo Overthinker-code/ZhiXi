@@ -37,6 +37,7 @@
   const mode = ref<TutorMode>('tutor');
   const tools = ref<ChatToolPayload>({
     webSearch: false,
+    courseRag: false,
     deepResearch: false,
     homeworkReview: false,
     resourceGeneration: false,
@@ -195,6 +196,191 @@
     assistant.processEvents = [...list].slice(-40);
   }
 
+  function timeLabel(value = Date.now()) {
+    return new Date(value).toLocaleTimeString('zh-CN', {
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+  }
+
+  function ensureLiveProcess(assistant: Record<string, any>) {
+    if (!assistant.liveProcess) {
+      assistant.liveProcess = {
+        status: 'idle',
+        collapsed: false,
+        currentSummary: '',
+        phases: [],
+        tools: [],
+        reasoningText: '',
+        citations: [],
+        safetyStatus: undefined,
+        logs: [],
+      };
+    }
+    return assistant.liveProcess as Record<string, any>;
+  }
+
+  function appendLiveLog(process: Record<string, any>, text: string, status = 'running') {
+    const clean = String(text || '').trim();
+    if (!clean) return;
+    const logs = Array.isArray(process.logs) ? process.logs : [];
+    const last = logs[logs.length - 1];
+    if (last?.text === clean && last?.status === status) return;
+    process.logs = [
+      ...logs,
+      {
+        id: `${Date.now()}-${logs.length}-${clean.slice(0, 20)}`,
+        text: clean,
+        status,
+        time: timeLabel(),
+        timestamp: Date.now(),
+      },
+    ].slice(-80);
+  }
+
+  function upsertPhase(process: Record<string, any>, phase: Record<string, any>) {
+    const phases = Array.isArray(process.phases) ? process.phases : [];
+    const id = String(phase.id || phase.phaseId || 'phase');
+    const index = phases.findIndex((item: Record<string, any>) => String(item.id) === id);
+    const current = index >= 0 ? phases[index] : { id, title: phase.title || '处理阶段', status: 'pending', text: '' };
+    const next = {
+      ...current,
+      ...phase,
+      id,
+      title: phase.title || current.title || '处理阶段',
+      status: phase.status || current.status || 'running',
+      text: [current.text, phase.text].filter(Boolean).join(current.text && phase.text ? '\n' : ''),
+      summary: phase.summary || current.summary,
+      startedAt: current.startedAt || phase.startedAt || Date.now(),
+      finishedAt: phase.finishedAt || current.finishedAt,
+    };
+    if (index >= 0) phases[index] = next;
+    else phases.push(next);
+    process.phases = [...phases];
+    process.currentSummary = phase.summary || phase.text || process.currentSummary;
+  }
+
+  function upsertTool(process: Record<string, any>, tool: Record<string, any>) {
+    const toolsList = Array.isArray(process.tools) ? process.tools : [];
+    const key = String(tool.tool || tool.id || 'tool');
+    const index = toolsList.findIndex((item: Record<string, any>) => String(item.tool) === key);
+    const current = index >= 0 ? toolsList[index] : { tool: key, title: tool.title || '工具调用', status: 'running', text: '' };
+    const next = {
+      ...current,
+      ...tool,
+      tool: key,
+      title: tool.title || current.title || '工具调用',
+      status: tool.status || current.status || 'running',
+      text: [current.text, tool.text].filter(Boolean).join(current.text && tool.text ? '\n' : ''),
+      resultSummary: tool.summary || tool.resultSummary || current.resultSummary,
+      items: Array.isArray(tool.items) ? tool.items : current.items || [],
+      startedAt: current.startedAt || tool.startedAt || Date.now(),
+      finishedAt: tool.finishedAt || current.finishedAt,
+    };
+    if (index >= 0) toolsList[index] = next;
+    else toolsList.push(next);
+    process.tools = [...toolsList];
+    process.currentSummary = tool.summary || tool.text || process.currentSummary;
+  }
+
+  function handleLiveProcessEvent(assistant: Record<string, any>, event: string, data: Record<string, any>) {
+    const process = ensureLiveProcess(assistant);
+    if (event === 'run_started') {
+      assistant.liveProcess = {
+        runId: data.runId,
+        status: 'running',
+        collapsed: false,
+        currentSummary: data.title || '开始处理问题',
+        phases: [],
+        tools: [],
+        reasoningText: '',
+        citations: [],
+        safetyStatus: undefined,
+        startedAt: Date.now(),
+        logs: [],
+      };
+      appendLiveLog(assistant.liveProcess, data.title || '开始处理问题');
+      return;
+    }
+    process.status = event === 'error' ? 'error' : event === 'run_finished' ? 'done' : process.status || 'running';
+    if (event === 'phase_started') {
+      upsertPhase(process, {
+        id: data.phaseId,
+        title: data.title,
+        status: 'running',
+        text: data.text || '',
+        startedAt: Date.now(),
+      });
+      appendLiveLog(process, data.text || `开始${data.title || '处理阶段'}`);
+    } else if (event === 'phase_delta') {
+      upsertPhase(process, {
+        id: data.phaseId,
+        status: 'running',
+        text: data.text || '',
+      });
+      appendLiveLog(process, data.text || '');
+    } else if (event === 'phase_finished') {
+      upsertPhase(process, {
+        id: data.phaseId,
+        title: data.title,
+        status: data.status || 'done',
+        summary: data.summary || '',
+        finishedAt: Date.now(),
+      });
+      appendLiveLog(process, data.summary || `${data.title || '阶段'}完成`, data.status || 'done');
+    } else if (event === 'tool_started') {
+      upsertTool(process, {
+        tool: data.tool,
+        title: data.title,
+        status: 'running',
+        text: data.text || '',
+        startedAt: Date.now(),
+      });
+      appendLiveLog(process, data.text || `开始${data.title || '调用工具'}`);
+    } else if (event === 'tool_delta') {
+      upsertTool(process, {
+        tool: data.tool,
+        status: 'running',
+        text: data.text || '',
+      });
+      appendLiveLog(process, data.text || '');
+    } else if (event === 'tool_result') {
+      upsertTool(process, {
+        tool: data.tool,
+        title: data.title,
+        status: data.status || 'done',
+        summary: data.summary || '',
+        items: Array.isArray(data.items) ? data.items : [],
+        finishedAt: Date.now(),
+      });
+      appendLiveLog(process, data.summary || '工具执行完成', data.status || 'done');
+    } else if (event === 'reasoning_delta') {
+      const text = normalizeReasoningLine(String(data.text || ''));
+      if (!text) return;
+      process.reasoningText = `${process.reasoningText || ''}${text}\n`;
+      process.currentSummary = text;
+      appendLiveLog(process, text);
+    } else if (event === 'citation') {
+      process.citations = [...(process.citations || []), data];
+      process.currentSummary = `已确认引用：${data.title || data.source || '课程证据'}`;
+    } else if (event === 'safety_check') {
+      process.safetyStatus = data.status || 'passed';
+      appendLiveLog(process, data.message || '已完成引用和安全检查', data.status === 'blocked' ? 'error' : 'done');
+    } else if (event === 'run_finished') {
+      process.status = 'done';
+      process.currentSummary = data.summary || '本轮处理完成';
+      process.finishedAt = Date.now();
+      appendLiveLog(process, process.currentSummary, 'done');
+    } else if (event === 'error') {
+      process.status = 'error';
+      process.currentSummary = data.message || '处理失败';
+      process.finishedAt = Date.now();
+      appendLiveLog(process, process.currentSummary, 'error');
+    }
+  }
+
   function hasProcessStage(assistant: Record<string, any>, stage: string, status?: string) {
     const list = Array.isArray(assistant.processEvents) ? assistant.processEvents : [];
     return list.some((item: Record<string, any>) =>
@@ -274,11 +460,13 @@
       courseContext: { ...courseContext.value, useCourseRag: autoCourseRag },
       tools: {
         ...tools.value,
+        courseRag: autoCourseRag,
         citationRequired: tools.value.citationRequired || autoCourseRag || Boolean(attachments.length),
       },
       reasoning: {
         level: reasoningLevel.value,
         showSummary: true,
+        showProcess: true,
       },
       attachments,
       resourceRequest: { ...resourceRequest.value },
@@ -309,6 +497,16 @@
         citations: [],
         toolEvents: [],
         processEvents: [],
+        liveProcess: {
+          status: 'idle',
+          collapsed: false,
+          currentSummary: '',
+          phases: [],
+          tools: [],
+          reasoningText: '',
+          citations: [],
+          logs: [],
+        },
         artifacts: [],
         resourcePackage: null,
       });
@@ -324,6 +522,38 @@
           if (!assistant) return;
           if (event === 'session_created' && data.sessionId && data.sessionId !== chatStore.currentConversationId) {
             chatStore.currentConversationId = String(data.sessionId);
+          } else if (
+            [
+              'run_started',
+              'phase_started',
+              'phase_delta',
+              'phase_finished',
+              'tool_started',
+              'tool_delta',
+              'tool_result',
+              'reasoning_delta',
+              'run_finished',
+            ].includes(event)
+          ) {
+            handleLiveProcessEvent(assistant, event, data);
+            if (event === 'tool_result' && Array.isArray(data.items) && data.items.length) {
+              const sourceType =
+                String(data.tool || '').includes('web')
+                  ? 'web'
+                  : String(data.tool || '').includes('attachment')
+                    ? 'uploaded'
+                    : 'course';
+              assistant.citations = [
+                ...(assistant.citations || []),
+                ...data.items.map((item: Record<string, any>, index: number) => ({
+                  id: item.id || item.citation_id || `${data.tool || 'tool'}-${index + 1}`,
+                  title: item.title || item.file_name || item.source || `${data.title || '证据'} ${index + 1}`,
+                  sourceType,
+                  snippet: item.snippet || item.chunk || item.content || item.text || item.summary || '',
+                  ...item,
+                })),
+              ];
+            }
           } else if (event === 'process_update') {
             appendProcessEvent(assistant, data);
           } else if (event === 'agent_started') {
@@ -372,6 +602,9 @@
             }
           } else if (event === 'reasoning_summary_delta') {
             appendReasoningDelta(assistant, data);
+          } else if (event === 'reasoning_delta') {
+            handleLiveProcessEvent(assistant, event, data);
+            appendReasoningDelta(assistant, data);
           } else if (event === 'answer_delta') {
             streamedAnswerChars += String(data.text || '').length;
             if (!hasProcessStage(assistant, 'compose', 'running')) {
@@ -395,6 +628,7 @@
             }
             assistant.content = `${assistant.content || ''}${data.text || ''}`;
           } else if (event === 'citation') {
+            handleLiveProcessEvent(assistant, event, data);
             assistant.citations = [...(assistant.citations || []), data];
           } else if (event === 'artifact_started') {
             appendToolEvent(assistant, {
@@ -422,6 +656,7 @@
               status: 'done',
             });
           } else if (event === 'safety_check') {
+            handleLiveProcessEvent(assistant, event, data);
             appendToolEvent(assistant, {
               agent: 'safety_check',
               label: data.status === 'passed' ? '引用与安全校验通过' : '已完成安全校验',
@@ -459,6 +694,7 @@
             }
             assistant.loading = false;
           } else if (event === 'error') {
+            handleLiveProcessEvent(assistant, event, data);
             const code = String(data.code || '');
             const message =
               code === 'RAG_EMPTY'

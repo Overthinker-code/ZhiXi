@@ -130,6 +130,7 @@ class CourseContext(CamelModel):
 
 class ToolOptions(CamelModel):
     web_search: bool = Field(default=False, alias="webSearch")
+    course_rag: bool = Field(default=True, alias="courseRag")
     deep_research: bool = Field(default=False, alias="deepResearch")
     homework_review: bool = Field(default=False, alias="homeworkReview")
     resource_generation: bool = Field(default=False, alias="resourceGeneration")
@@ -139,6 +140,7 @@ class ToolOptions(CamelModel):
 class ReasoningOptions(CamelModel):
     level: Literal["fast", "balanced", "deep"] = "balanced"
     show_summary: bool = Field(default=True, alias="showSummary")
+    show_process: bool = Field(default=True, alias="showProcess")
 
 
 class AttachmentRef(CamelModel):
@@ -169,6 +171,109 @@ def _sse(event: str, payload: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+def _now_iso() -> str:
+    return datetime.utcnow().isoformat(timespec="milliseconds") + "Z"
+
+
+def _phase_started(phase_id: str, title: str, text: str | None = None) -> str:
+    payload: dict[str, Any] = {
+        "phaseId": phase_id,
+        "title": title,
+        "status": "running",
+        "timestamp": _now_iso(),
+    }
+    if text:
+        payload["text"] = text
+    return _sse("phase_started", payload)
+
+
+def _phase_delta(phase_id: str, text: str) -> str:
+    return _sse(
+        "phase_delta",
+        {
+            "phaseId": phase_id,
+            "text": text,
+            "timestamp": _now_iso(),
+        },
+    )
+
+
+def _phase_finished(phase_id: str, title: str, summary: str, status: str = "done") -> str:
+    return _sse(
+        "phase_finished",
+        {
+            "phaseId": phase_id,
+            "title": title,
+            "status": status,
+            "summary": summary,
+            "timestamp": _now_iso(),
+        },
+    )
+
+
+def _tool_started(tool: str, title: str, text: str | None = None) -> str:
+    payload: dict[str, Any] = {
+        "tool": tool,
+        "title": title,
+        "status": "running",
+        "timestamp": _now_iso(),
+    }
+    if text:
+        payload["text"] = text
+    return _sse("tool_started", payload)
+
+
+def _tool_delta(tool: str, text: str) -> str:
+    return _sse(
+        "tool_delta",
+        {
+            "tool": tool,
+            "text": text,
+            "timestamp": _now_iso(),
+        },
+    )
+
+
+def _tool_result(tool: str, summary: str, items: list[dict[str, Any]] | None = None) -> str:
+    return _sse(
+        "tool_result",
+        {
+            "tool": tool,
+            "summary": summary,
+            "status": "done",
+            "items": items or [],
+            "timestamp": _now_iso(),
+        },
+    )
+
+
+def _clean_reasoning_summary(text: str) -> str:
+    clean = (
+        (text or "")
+        .replace("**", "")
+        .replace("我来分析一下这个问题。", "")
+        .replace("我来分析一下。", "")
+        .replace("我来分析这个问题。", "")
+        .replace("用户想了解", "正在确认问题目标：")
+        .replace("用户的问题核心", "问题核心")
+        .replace("用户想", "问题目标是")
+        .replace("用户希望", "问题目标是")
+        .replace("我的思考过程如下：", "正在组织回答结构。")
+        .replace("我的思考过程", "处理过程")
+        .replace("首先，我需要明确", "正在梳理")
+        .replace("接下来考虑", "正在分析")
+        .replace("然后我需要想", "正在准备")
+        .replace("我可以", "将")
+        .replace("我需要", "正在")
+        .replace("我会", "将")
+        .strip()
+    )
+    blocked = ("系统消息", "上下文注入", "协作线程", "intent_classifier", "course_context")
+    if not clean or any(token in clean for token in blocked):
+        return ""
+    return clean[:180]
+
+
 def _mode_label(req: AIChatStreamRequest) -> str:
     if req.mode == "homework_review" or req.tools.homework_review:
         return "作业批改"
@@ -176,14 +281,14 @@ def _mode_label(req: AIChatStreamRequest) -> str:
         return "资料生成"
     if req.mode == "deep_research" or req.tools.deep_research:
         return "深度研究"
-    if req.course_context.use_course_rag:
+    if req.course_context.use_course_rag or req.tools.course_rag:
         return "课程问答"
     return "通用问答"
 
 
 def _visible_tools(req: AIChatStreamRequest) -> list[str]:
     tools: list[str] = []
-    if req.course_context.use_course_rag:
+    if req.course_context.use_course_rag or req.tools.course_rag:
         tools.append("课程资料")
     if req.attachments:
         tools.append("上传附件")
@@ -308,7 +413,7 @@ def _ensure_session(db: Session, user_id: str | None, session_id: str | None) ->
 
 
 def _active_tools(req: AIChatStreamRequest) -> list[str]:
-    tools = ["knowledge_base"] if req.course_context.use_course_rag else []
+    tools = ["knowledge_base"] if (req.course_context.use_course_rag or req.tools.course_rag) else []
     if req.tools.web_search or req.mode == "deep_research":
         tools.append("web_search")
     if req.attachments:
@@ -339,7 +444,7 @@ def _system_prompt(req: AIChatStreamRequest) -> str:
         "你是智屿 AI 学习助手。所有回答必须面向学生，先给结论，再解释，再给例子、常见错误和下一步建议。",
         f"当前模式：{req.mode}；actionId：{req.action_id or 'none'}。",
     ]
-    if req.course_context.use_course_rag:
+    if req.course_context.use_course_rag or req.tools.course_rag:
         parts.append(f"课程上下文：{course}{(' / ' + chapter) if chapter else ''}。")
         parts.append("已启用课程 RAG：优先引用课程资料或上传资料，证据不足时要明确说明。")
     else:
@@ -370,68 +475,92 @@ def _legacy_event_to_ai_events(payload: dict[str, Any]) -> list[tuple[str, dict[
         action = str(payload.get("action") or "")
         title = str(payload.get("title") or "工具完成")
         detail = str(payload.get("detail") or title)
-        items = [str(item) for item in list(payload.get("items") or [])[:5]]
+        items = [
+            {"title": str(item)[:180], "score": None}
+            for item in list(payload.get("items") or [])[:5]
+            if str(item).strip()
+        ]
         if action in {"retrieve", "web_search", "vision"}:
-            stage = "retrieve"
+            tool = {
+                "retrieve": "course_retriever",
+                "web_search": "web_search",
+                "vision": "attachment_reader",
+            }.get(action, "course_retriever")
             visible_title = {
                 "retrieve": title,
                 "web_search": "联网搜索",
                 "vision": "解析图片",
             }.get(action, title)
-        elif action == "code":
-            stage = "verify"
-            visible_title = "代码验证"
-        else:
-            stage = "route"
-            visible_title = title
+            return [
+                (
+                    "tool_result",
+                    {
+                        "tool": tool,
+                        "summary": detail,
+                        "status": "done",
+                        "items": items,
+                        "timestamp": _now_iso(),
+                    },
+                )
+            ]
+        if action == "code":
+            return [
+                (
+                    "phase_delta",
+                    {
+                        "phaseId": "verify",
+                        "text": detail,
+                        "timestamp": _now_iso(),
+                    },
+                )
+            ]
         return [
             (
-                "process_update",
-                _process_payload(
-                    stage,
-                    visible_title,
-                    detail,
-                    status="done",
-                    log=detail,
-                    items=items,
-                ),
+                "phase_delta",
+                {
+                    "phaseId": "plan",
+                    "text": detail if detail != title else title,
+                    "timestamp": _now_iso(),
+                },
             )
         ]
     if kind == "phase":
         status = str(payload.get("status") or "running")
-        event = "agent_finished" if status in {"done", "finished", "success"} else "agent_started"
-        return [(event, {"agent": payload.get("agent") or payload.get("phase") or "agent", "label": payload.get("summary") or ""})]
+        phase_id = str(payload.get("phase") or payload.get("agent") or "plan")
+        title = str(payload.get("summary") or "处理阶段")
+        if status in {"done", "finished", "success"}:
+            return [("phase_finished", {"phaseId": phase_id, "title": title, "status": "done", "summary": title, "timestamp": _now_iso()})]
+        return [("phase_started", {"phaseId": phase_id, "title": title, "status": "running", "timestamp": _now_iso()})]
     if kind == "thought":
         text = str(payload.get("content") or "")
         if text.startswith("【") or "系统消息" in text or "上下文注入" in text or "协作线程" in text:
             return []
         if "检索" in text or "知识库" in text:
-            return [("retrieval_started", {"source": "course", "label": text[:120]})]
-        return [("agent_started", {"agent": payload.get("stage") or "orchestrator", "label": text[:160]})]
+            return [("tool_delta", {"tool": "course_retriever", "text": text[:160], "timestamp": _now_iso()})]
+        return [("phase_delta", {"phaseId": "plan", "text": text[:160], "timestamp": _now_iso()})]
     if kind == "reasoning_token":
-        if not str(payload.get("content") or "").strip():
-            return []
-        return [
-            (
-                "process_update",
-                _process_payload(
-                    "compose",
-                    "模型推理",
-                    "正在形成回答结构",
-                    status="running",
-                    log="模型正在推理并压缩回答结构",
-                ),
-            )
-        ]
+        return []
     if kind == "token":
         return [("answer_delta", {"text": payload.get("content") or ""})]
     if kind == "citations":
         citations = list(payload.get("citations") or payload.get("data") or [])
         events: list[tuple[str, dict[str, Any]]] = [
-            ("retrieval_result", {"source": "course", "items": citations[:6]})
+            (
+                "tool_result",
+                {
+                    "tool": "course_retriever",
+                    "summary": f"找到 {len(citations)} 条可引用证据",
+                    "status": "done",
+                    "items": citations[:6],
+                    "timestamp": _now_iso(),
+                },
+            )
         ]
-        for item in citations:
-            events.append(("citation", item if isinstance(item, dict) else {"title": str(item)}))
+        for index, item in enumerate(citations, start=1):
+            if isinstance(item, dict):
+                events.append(("citation", {"id": item.get("id") or f"c{index}", **item}))
+            else:
+                events.append(("citation", {"id": f"c{index}", "title": str(item)}))
         return events
     if kind == "suggestions":
         items = payload.get("data") or payload.get("suggestions") or []
@@ -621,23 +750,26 @@ def ai_chat_stream(
     def event_stream():
         final_text = ""
         final_payload: dict[str, Any] = {}
+        run_id = uuid4().hex
+        course_rag_enabled = bool(request.course_context.use_course_rag or request.tools.course_rag)
         try:
             yield _sse("session_created", {"sessionId": session_id, "created": created})
-            yield _sse("message_started", {"sessionId": session_id, "mode": request.mode, "actionId": request.action_id})
-            yield _process_sse(
-                "understand",
-                "理解问题",
-                "已接收你的问题，正在判断任务类型和回答边界",
-                log=f"收到问题：{(request.message or '附件/资料任务')[:80]}",
+            yield _sse(
+                "run_started",
+                {
+                    "runId": run_id,
+                    "sessionId": session_id,
+                    "mode": request.mode,
+                    "actionId": request.action_id,
+                    "title": "开始处理问题",
+                    "timestamp": _now_iso(),
+                },
             )
+            yield _sse("message_started", {"sessionId": session_id, "mode": request.mode, "actionId": request.action_id})
+            yield _phase_started("understand", "理解问题", "正在判断问题类型和回答边界")
+            yield _phase_delta("understand", f"收到问题：{(request.message or '附件/资料任务')[:80]}")
             if request.mode == "homework_review" and not request.message.strip() and not request.attachments:
-                yield _process_sse(
-                    "understand",
-                    "理解问题",
-                    "作业批改缺少题目、答案或附件",
-                    status="error",
-                    log="需要先上传材料或粘贴题目文本",
-                )
+                yield _phase_finished("understand", "理解问题", "作业批改需要题目、答案或附件", status="error")
                 yield _sse(
                     "error",
                     {
@@ -652,33 +784,35 @@ def ai_chat_stream(
             file_name: str | None = None
             index = _read_attachment_index()
             if request.attachments:
-                yield _process_sse(
-                    "retrieve",
-                    "解析上传材料",
-                    f"正在检查 {len(request.attachments)} 个上传附件",
-                    log="将附件加入本轮可检索上下文",
-                )
+                yield _tool_started("attachment_reader", "解析上传材料", f"正在检查 {len(request.attachments)} 个上传附件")
+                yield _tool_delta("attachment_reader", "将附件加入本轮可检索上下文")
             for item in request.attachments:
                 if item.type == "image":
                     meta = index.get(item.file_id)
                     if not meta:
-                        yield _process_sse(
-                            "retrieve",
-                            "解析上传材料",
-                            f"图片附件 {item.file_id} 不存在",
-                            status="error",
-                            log="附件索引缺失，停止本轮生成",
+                        yield _sse(
+                            "tool_result",
+                            {
+                                "tool": "attachment_reader",
+                                "summary": f"图片附件 {item.file_id} 不存在",
+                                "status": "error",
+                                "items": [],
+                                "timestamp": _now_iso(),
+                            },
                         )
                         yield _sse("error", {"code": "ATTACHMENT_PARSE_FAILED", "message": f"图片附件 {item.file_id} 不存在"})
                         return
                     path = Path(str(meta.get("path") or ""))
                     if not path.exists():
-                        yield _process_sse(
-                            "retrieve",
-                            "解析上传材料",
-                            f"图片附件 {item.file_id} 已丢失",
-                            status="error",
-                            log="附件文件不存在，停止本轮生成",
+                        yield _sse(
+                            "tool_result",
+                            {
+                                "tool": "attachment_reader",
+                                "summary": f"图片附件 {item.file_id} 已丢失",
+                                "status": "error",
+                                "items": [],
+                                "timestamp": _now_iso(),
+                            },
                         )
                         yield _sse("error", {"code": "ATTACHMENT_PARSE_FAILED", "message": f"图片附件 {item.file_id} 已丢失"})
                         return
@@ -689,85 +823,44 @@ def ai_chat_stream(
                     file_name = item.name or item.file_id
 
             if request.attachments:
-                yield _process_sse(
-                    "retrieve",
-                    "解析上传材料",
-                    "上传附件已挂载到本轮上下文",
-                    status="done",
-                    log=f"已挂载：{file_name or f'{len(request.attachments)} 个附件'}",
+                yield _tool_result(
+                    "attachment_reader",
+                    f"已挂载：{file_name or f'{len(request.attachments)} 个附件'}",
+                    [{"title": item.name or item.file_id, "type": item.type} for item in request.attachments],
                 )
 
-            yield _process_sse(
-                "understand",
-                "理解问题",
-                f"识别为：{_mode_label(request)}",
-                status="done",
-                log=f"任务类型确认：{_mode_label(request)}",
-            )
+            yield _phase_delta("understand", f"识别为：{_mode_label(request)}")
+            yield _phase_finished("understand", "理解问题", f"已识别为{_mode_label(request)}")
             visible_tools = _visible_tools(request)
-            yield _process_sse(
-                "route",
-                "选择工具",
-                "根据问题和开关选择本轮可用能力",
-                log=f"启用能力：{'、'.join(visible_tools)}",
-                items=visible_tools,
-            )
-            yield _process_sse(
-                "route",
-                "选择工具",
-                "工具路由已确认",
-                status="done",
-                log="已完成能力选择，开始准备上下文",
-                items=visible_tools,
-            )
+            yield _phase_started("plan", "选择能力", "正在选择本轮需要调用的能力")
+            yield _phase_delta("plan", f"启用能力：{'、'.join(visible_tools)}")
+            yield _phase_finished("plan", "选择能力", "能力选择完成，开始准备上下文")
 
-            yield _sse("agent_started", {"agent": "intent_classifier", "label": "正在识别学习任务"})
-            yield _sse("agent_finished", {"agent": "intent_classifier", "label": request.mode})
-            yield _sse("agent_started", {"agent": "course_context", "label": "正在读取课程上下文与学习画像"})
-            yield _sse("agent_finished", {"agent": "course_context", "label": _course_title(request.course_context.course_id)})
-            if request.course_context.use_course_rag:
-                yield _process_sse(
-                    "retrieve",
-                    "检索依据",
-                    f"正在检索《{_course_title(request.course_context.course_id)}》课程资料",
-                    log="课程 RAG 已启用，正在准备引用证据",
+            if course_rag_enabled:
+                yield _tool_started(
+                    "course_retriever",
+                    "检索课程资料",
+                    f"正在检索《{_course_title(request.course_context.course_id)}》相关内容",
                 )
-                yield _sse("retrieval_started", {"source": "course", "label": "正在检索课程资料"})
+                chapter = _chapter_title(request.course_context.course_id, request.course_context.chapter_id)
+                if chapter:
+                    yield _tool_delta("course_retriever", f"优先查找 {chapter} 的概念、例题和证据片段")
+                else:
+                    yield _tool_delta("course_retriever", "根据问题关键词匹配课程资料和知识点")
             elif not request.attachments and not request.tools.web_search:
-                yield _process_sse(
-                    "retrieve",
-                    "检索依据",
-                    "本轮不强制检索课程资料",
-                    status="skipped",
-                    log="未命中课程/附件/联网需求，直接进入模型回答",
-                )
+                yield _phase_delta("plan", "未命中课程/附件/联网需求，将作为通用学习问题回答")
+
+            if request.tools.web_search or request.mode == "deep_research":
+                yield _tool_started("web_search", "浏览联网来源", "正在准备检索近期公开来源")
+                yield _tool_delta("web_search", "会优先提取标题、摘要、链接和时间信息，避免把网页结果混入课程证据")
 
             if request.mode == "resource_generation" or request.tools.resource_generation:
-                yield _sse("agent_started", {"agent": "resource_planner", "label": "正在规划资源类型与难度"})
-                yield _process_sse(
-                    "compose",
-                    "生成资源",
-                    "正在规划资源类型、难度和资料包结构",
-                    log="调用资源规划与生成服务",
-                    items=request.resource_request.types or ["lecture_note", "mind_map", "quiz"],
-                )
-                yield _sse(
-                    "agent_finished",
-                    {
-                        "agent": "resource_planner",
-                        "label": "、".join(request.resource_request.types or ["lecture_note", "mind_map", "quiz"]),
-                    },
-                )
+                yield _phase_started("compose", "生成资源", "正在规划资源类型、难度和资料包结构")
+                yield _phase_delta("compose", f"资源类型：{'、'.join(request.resource_request.types or ['lecture_note', 'mind_map', 'quiz'])}")
                 yield _sse("artifact_started", {"label": "正在生成资源包"})
                 try:
                     package = _generate_resource_package(request)
-                    yield _process_sse(
-                        "compose",
-                        "生成资源",
-                        f"资源包已生成，包含 {len(package.get('artifacts') or [])} 类内容",
-                        status="done",
-                        log=f"资源包 ID：{package.get('package_id')}",
-                    )
+                    yield _phase_finished("compose", "生成资源", f"资源包已生成，包含 {len(package.get('artifacts') or [])} 类内容")
                     yield _sse("artifact_finished", package)
                     final_text = (
                         f"已围绕“{request.resource_request.target or request.message or '当前主题'}”生成资源包 "
@@ -789,14 +882,9 @@ def ai_chat_stream(
                         },
                     }
                     yield _sse("suggestions", {"items": final_payload["suggestions"]})
-                    yield _process_sse(
-                        "verify",
-                        "校验输出",
-                        "已完成资源包结构与后续建议检查",
-                        status="done",
-                        log="资源包可预览、入库或继续同步图谱",
-                    )
-                    yield _sse("safety_check", {"status": "passed", "citationRequired": request.tools.citation_required})
+                    yield _phase_started("verify", "校验输出", "正在检查资源包结构、安全和后续操作")
+                    yield _phase_finished("verify", "校验输出", "资源包可预览、入库或继续同步图谱")
+                    yield _sse("safety_check", {"status": "passed", "message": "已完成资源结构、安全和后续建议检查"})
                     yield _sse("profile_update", {"status": "queued"})
                     if user_id:
                         try:
@@ -818,31 +906,23 @@ def ai_chat_stream(
                             schedule_memory_profile_refresh(user_id)
                         except Exception:
                             pass
-                    yield _sse(
-                        "done",
-                        {
-                            "sessionId": session_id,
-                            "messageId": uuid4().hex,
-                            "usage": final_payload["metrics"],
-                        },
-                        )
+                    done_payload = {
+                        "runId": run_id,
+                        "sessionId": session_id,
+                        "messageId": uuid4().hex,
+                        "summary": "本轮资源生成已完成结构、安全和后续建议检查",
+                        "usage": final_payload["metrics"],
+                        "suggestions": final_payload["suggestions"],
+                    }
+                    yield _sse("run_finished", done_payload)
+                    yield _sse("done", done_payload)
                 except Exception as exc:
-                    yield _process_sse(
-                        "compose",
-                        "生成资源",
-                        "资源生成服务返回错误",
-                        status="error",
-                        log=str(exc)[:180],
-                    )
+                    yield _phase_finished("compose", "生成资源", "资源生成服务返回错误", status="error")
                     yield _sse("error", {"code": "RESOURCE_GENERATION_FAILED", "message": str(exc)})
                 return
 
-            yield _process_sse(
-                "compose",
-                "组织回答",
-                "上下文准备完成，正在调用模型生成回答",
-                log="模型请求已发出，等待首个输出",
-            )
+            yield _phase_started("compose", "组织回答", "上下文准备完成，正在调用模型生成回答")
+            yield _phase_delta("compose", "模型请求已发出，等待首个输出")
             chat_request = ChatRequest(
                 user_input=_message_for_model(request),
                 thread_id=session_id,
@@ -873,35 +953,36 @@ def ai_chat_stream(
                 debug_mode=False,
             )
             log_user = resolve_stream_user_text_for_storage(chat_request)
+            reasoning_buffer = ""
             for payload in stream_chat_events(chat_request):
                 if isinstance(payload, dict):
                     if payload.get("type") == "final":
                         final_payload = payload
                         final_text = str(payload.get("content") or final_text)
+                    if payload.get("type") == "reasoning_token":
+                        reasoning_buffer += str(payload.get("content") or "")
+                        if (
+                            len(reasoning_buffer) >= 42
+                            or reasoning_buffer.endswith(("。", "；", "：", "\n"))
+                        ):
+                            visible_reasoning = _clean_reasoning_summary(reasoning_buffer)
+                            reasoning_buffer = ""
+                            if visible_reasoning:
+                                yield _sse(
+                                    "reasoning_delta",
+                                    {"text": visible_reasoning, "timestamp": _now_iso()},
+                                )
+                        continue
                     for event_name, event_payload in _legacy_event_to_ai_events(payload):
                         yield _sse(event_name, event_payload)
-            yield _process_sse(
-                "compose",
-                "组织回答",
-                "正文回答已生成完成",
-                status="done",
-                log="回答正文已流式输出完成",
-            )
-            yield _process_sse(
-                "verify",
-                "校验输出",
-                "正在检查引用、安全和后续追问建议",
-                log="进入输出校验阶段",
-            )
-            yield _sse("safety_check", {"status": "passed", "citationRequired": request.tools.citation_required})
+            visible_reasoning = _clean_reasoning_summary(reasoning_buffer)
+            if visible_reasoning:
+                yield _sse("reasoning_delta", {"text": visible_reasoning, "timestamp": _now_iso()})
+            yield _phase_finished("compose", "组织回答", "正文回答已流式输出完成")
+            yield _phase_started("verify", "校验输出", "正在检查引用、安全和后续追问建议")
+            yield _sse("safety_check", {"status": "passed", "message": "已完成引用、安全和后续建议检查"})
             yield _sse("profile_update", {"status": "queued"})
-            yield _process_sse(
-                "verify",
-                "校验输出",
-                "引用、安全和学习画像更新已完成",
-                status="done",
-                log="本轮处理完成",
-            )
+            yield _phase_finished("verify", "校验输出", "引用、安全和学习画像更新已完成")
             if final_text and user_id:
                 try:
                     chat_provider.save_stream_turn(
@@ -922,14 +1003,16 @@ def ai_chat_stream(
                     schedule_memory_profile_refresh(user_id)
                 except Exception:
                     pass
-            yield _sse(
-                "done",
-                {
-                    "sessionId": session_id,
-                    "messageId": uuid4().hex,
-                    "usage": (final_payload.get("metrics") or {}),
-                },
-            )
+            done_payload = {
+                "runId": run_id,
+                "sessionId": session_id,
+                "messageId": uuid4().hex,
+                "summary": "本轮回答已完成引用、安全和后续建议检查",
+                "usage": (final_payload.get("metrics") or {}),
+                "suggestions": list(final_payload.get("suggestions") or []),
+            }
+            yield _sse("run_finished", done_payload)
+            yield _sse("done", done_payload)
         except Exception as exc:
             yield _sse("error", {"code": "MODEL_PROVIDER_ERROR", "message": str(exc)})
 

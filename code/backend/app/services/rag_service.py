@@ -269,9 +269,10 @@ class RAGService:
     ) -> List[dict]:
         if not query.strip() or not file_id.strip():
             return []
-        where: dict = {"$and": [{"file_id": file_id}]}
+        clauses = [{"file_id": file_id}]
         if thread_id:
-            where["$and"].append({"thread_id": str(thread_id)})
+            clauses.append({"thread_id": str(thread_id)})
+        where: dict = clauses[0] if len(clauses) == 1 else {"$and": clauses}
         matches = self.vector_store.similarity_search_with_scores(
             query=query,
             k=top_k,
@@ -285,7 +286,7 @@ class RAGService:
             matches = self.vector_store.similarity_search_with_scores(
                 query=query,
                 k=top_k,
-                filter={"$and": [{"file_id": file_id}]},
+                filter={"file_id": file_id},
             )
         out: List[dict] = []
         for i, (doc, score) in enumerate(matches, start=1):

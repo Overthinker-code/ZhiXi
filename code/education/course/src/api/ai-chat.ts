@@ -22,6 +22,7 @@ export interface CourseContextPayload {
 
 export interface ChatToolPayload {
   webSearch: boolean;
+  courseRag?: boolean;
   deepResearch: boolean;
   homeworkReview: boolean;
   resourceGeneration: boolean;
@@ -31,6 +32,7 @@ export interface ChatToolPayload {
 export interface ChatReasoningPayload {
   level: ReasoningLevel;
   showSummary: boolean;
+  showProcess?: boolean;
 }
 
 export interface ChatAttachmentPayload {

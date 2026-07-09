@@ -3,6 +3,7 @@
   import { renderMarkdown } from '@/utils/markdown';
   import ArtifactCards from './ArtifactCards.vue';
   import CitationList from './CitationList.vue';
+  import LiveProcessPanel from './LiveProcessPanel.vue';
 
   const props = defineProps<{
     message: Record<string, any>;
@@ -206,81 +207,7 @@
 
 <template>
   <article class="assistant-message">
-    <button
-      v-if="message.loading || reasoning || processEvents.length || message.content"
-      type="button"
-      class="process-toggle"
-      @click="toggleProcess"
-    >
-      <span class="process-toggle__dot" />
-      <span class="process-toggle__main">{{ processSummary }}</span>
-      <span class="process-toggle__sub">{{ processSubtitle }}</span>
-      <span>{{ processExpanded ? '收起' : '查看过程' }}</span>
-      <span v-if="message.loading" class="streaming-dots"><i /><i /><i /></span>
-    </button>
-    <section v-if="processExpanded" class="process-panel" aria-live="polite">
-      <div class="process-panel__head">
-        <div>
-          <strong>{{ message.loading ? '实时处理过程' : '处理过程记录' }}</strong>
-          <span>根据后端 SSE 事件实时更新</span>
-        </div>
-        <b>{{ activeProcessStep?.title }}<small v-if="liveElapsedLabel"> · {{ liveElapsedLabel }}</small></b>
-      </div>
-      <div class="process-monitor">
-        <div class="process-steps">
-          <div
-            v-for="step in processSteps"
-            :key="step.id"
-            class="process-step"
-            :class="`is-${step.status}`"
-          >
-            <span class="process-step__marker" />
-            <div>
-              <strong>{{ step.title }}</strong>
-              <span>{{ step.status === 'skipped' ? '按需跳过' : step.detail }}</span>
-              <div v-if="step.items?.length" class="process-step__items">
-                <em v-for="item in step.items" :key="item">{{ item }}</em>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="process-stream">
-          <div class="process-stream__head">
-            <span class="process-stream__label">{{ message.loading ? '实时动态' : '执行记录' }}</span>
-            <span v-if="message.loading" class="process-stream__live">LIVE</span>
-          </div>
-          <div class="process-log-list">
-            <div v-if="liveWaitingText" class="process-log is-running is-live-waiting">
-              <time>{{ liveElapsedLabel || '0s' }}</time>
-              <div>
-                <strong>模型正在工作</strong>
-                <p>{{ liveWaitingText }}，连接保持活跃。</p>
-              </div>
-            </div>
-            <div
-              v-for="log in processLogs"
-              :key="log.id"
-              class="process-log"
-              :class="`is-${log.status}`"
-            >
-              <time>{{ log.time || 'now' }}</time>
-              <div>
-                <strong>{{ log.title }}</strong>
-                <p>{{ log.text }}</p>
-                <span v-for="item in log.items" :key="item">{{ item }}</span>
-              </div>
-            </div>
-            <div v-if="!processLogs.length" class="process-log is-running">
-              <time>now</time>
-              <div>
-                <strong>等待事件</strong>
-                <p>正在建立流式连接，准备接收后端处理状态。</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
+    <LiveProcessPanel :state="message.liveProcess" :loading="message.loading" />
 
     <div v-if="message.content" class="assistant-message__body markdown-body" v-html="rendered" />
     <div v-else-if="message.loading" class="assistant-message__loading">
