@@ -1,5 +1,5 @@
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import text
 
 from app.core.config import settings
@@ -122,13 +122,43 @@ def _multimodal_base_url() -> str | None:
     return settings.MULTIMODAL_API_BASE
 
 
-def _build_model_checks() -> dict:
+def _build_model_checks(deep: bool = False) -> dict:
     chat_provider = settings.CHAT_PROVIDER.lower()
     chat_check = {
         "provider": settings.CHAT_PROVIDER,
         "model": _chat_model_name(chat_provider),
     }
-    if chat_provider == "ollama":
+    if not deep:
+        if chat_provider == "mimo":
+            chat_check.update(
+                {
+                    "configured": bool(settings.MIMO_API_KEY),
+                    "reachable": None,
+                    "base_url": settings.MIMO_API_BASE,
+                    "detail": "deep probe skipped; call /healthz?deep=true to verify provider reachability",
+                }
+            )
+        elif chat_provider == "ollama":
+            chat_check.update(
+                {
+                    "configured": True,
+                    "reachable": None,
+                    "base_url": settings.OLLAMA_BASE_URL,
+                    "detail": "deep probe skipped; call /healthz?deep=true to verify provider reachability",
+                }
+            )
+        elif chat_provider in {"openai", "openai_compatible"}:
+            chat_check.update(
+                {
+                    "configured": bool(settings.OPENAI_API_KEY and settings.OPENAI_API_BASE),
+                    "reachable": None,
+                    "base_url": settings.OPENAI_API_BASE,
+                    "detail": "deep probe skipped; call /healthz?deep=true to verify provider reachability",
+                }
+            )
+        else:
+            chat_check.update({"configured": False, "reachable": False, "detail": "unsupported provider"})
+    elif chat_provider == "ollama":
         chat_check.update(_probe_ollama(settings.OLLAMA_BASE_URL))
     elif chat_provider == "mimo":
         chat_check.update(_probe_mimo())
@@ -147,20 +177,33 @@ def _build_model_checks() -> dict:
         "fallback_model": settings.MULTIMODAL_FALLBACK_MODEL,
     }
     multimodal_base = _multimodal_base_url()
-    if settings.MULTIMODAL_PROVIDER.lower() == "mimo":
+    if not deep:
+        multimodal_check.update(
+            {
+                "configured": bool(
+                    (settings.MULTIMODAL_API_KEY or settings.MIMO_API_KEY)
+                    and _multimodal_base_url()
+                ),
+                "reachable": None,
+                "base_url": multimodal_base,
+                "detail": "deep vision probe skipped; call /healthz?deep=true to verify provider reachability",
+            }
+        )
+    elif settings.MULTIMODAL_PROVIDER.lower() == "mimo":
         multimodal_check.update(_probe_mimo())
     else:
         multimodal_check.update(_probe_openai_compatible(multimodal_base))
-    try:
-        multimodal_check["vision_probe"] = probe_multimodal_health(timeout=30.0)
-        if multimodal_check["vision_probe"].get("probe_ok"):
-            multimodal_check["reachable"] = True
-    except Exception as exc:
-        multimodal_check["vision_probe"] = {
-            "configured": bool(multimodal_base),
-            "probe_ok": False,
-            "detail": str(exc)[:240],
-        }
+    if deep:
+        try:
+            multimodal_check["vision_probe"] = probe_multimodal_health(timeout=30.0)
+            if multimodal_check["vision_probe"].get("probe_ok"):
+                multimodal_check["reachable"] = True
+        except Exception as exc:
+            multimodal_check["vision_probe"] = {
+                "configured": bool(multimodal_base),
+                "probe_ok": False,
+                "detail": str(exc)[:240],
+            }
     return {
         "chat_model": chat_check,
         "multimodal_model": multimodal_check,
@@ -169,12 +212,12 @@ def _build_model_checks() -> dict:
 
 
 @router.get('/healthz')
-def healthz():
-    return {'service': 'backend', 'status': 'ok', 'models': _build_model_checks()}
+def healthz(deep: bool = Query(False)):
+    return {'service': 'backend', 'status': 'ok', 'models': _build_model_checks(deep=deep)}
 
 
 @router.get('/readyz')
-def readyz():
+def readyz(deep: bool = Query(False)):
     try:
         with engine.connect() as conn:
             conn.execute(text('SELECT 1'))
@@ -182,7 +225,7 @@ def readyz():
             'service': 'backend',
             'status': 'ready',
             'db': 'ok',
-            'models': _build_model_checks(),
+            'models': _build_model_checks(deep=deep),
         }
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f'ready check failed: {exc}')
