@@ -170,6 +170,11 @@ ZHIXI_SKIP_DB_TEST_FIXTURE=1 ../.venv/bin/python -m pytest app/tests/services/te
   - SSE 文本中未出现“小米、米家、HyperOS、MIUI、澎湃OS、智能家居、生态设备、售后、系统优化、官方发布、小米助手、我是小米”等供应商语境词。
   - 流中出现 `process_delta` 和 `process_sanitized`，说明后端完成了过程整理和供应商语境过滤。
   - 最终回答以“智屿智能教育平台的 AI 伴学助手”为身份，并介绍了高校学习支持能力。
+- 使用临时 Playwright 浏览器脚本打开 `http://127.0.0.1:5174/tutor`，登录 `student@example.com / student123456` 后发送“你能做什么？”：
+  - 页面文本中未出现供应商语境词。
+  - LiveProcess 显示“已完成处理”。
+  - 最终回答包含“智屿”身份。
+  - 最终回答覆盖课程、作业、资料、学习路径、学情、深度研究等教育能力。
 
 注意：
 
