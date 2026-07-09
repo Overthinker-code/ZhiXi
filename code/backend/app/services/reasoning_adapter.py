@@ -135,6 +135,8 @@ def strip_reasoning_blocks(text: str) -> tuple[str, bool]:
 def sanitize_visible_answer_delta(
     text: str,
     context: ReasoningAdapterContext,
+    *,
+    preserve_edges: bool = False,
 ) -> tuple[str, bool]:
     """Keep process/reasoning logs out of the final assistant answer stream."""
 
@@ -143,17 +145,20 @@ def sanitize_visible_answer_delta(
         return "", blocked
 
     kept_lines: list[str] = []
-    for line in clean.splitlines():
+    for line in clean.splitlines(keepends=True):
         stripped = line.strip()
         if stripped and INTERNAL_PROCESS_RE.search(stripped):
             blocked = True
             continue
         kept_lines.append(line)
-    clean = "\n".join(kept_lines).strip()
+    clean = "".join(kept_lines)
     if not clean:
         return "", True
 
-    guarded, supplier_blocked = guard_answer_delta(clean, context)
+    guarded, supplier_blocked = guard_answer_delta(
+        clean if preserve_edges else clean.strip(),
+        context,
+    )
     return guarded, blocked or supplier_blocked
 
 

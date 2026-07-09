@@ -1469,7 +1469,16 @@ def _route_mode(request: ChatRequest) -> str:
 
 
 def _should_direct_stream_answer(request: ChatRequest) -> bool:
-    return _route_mode(request) == "deep_research"
+    route_mode = _route_mode(request)
+    if route_mode == "deep_research":
+        return True
+    if route_mode != "tutor":
+        return False
+    if request.current_file_id or request.image_base64_list:
+        return False
+    if request.tool_mode and request.tool_mode != "chat":
+        return False
+    return not bool(request.active_tools)
 
 
 def _stream_direct_research_answer(
@@ -1477,20 +1486,31 @@ def _stream_direct_research_answer(
     context_message: SystemMessage,
     rag_results: list[dict[str, Any]],
 ) -> Iterator[dict[str, Any]]:
-    """Low-latency research answer path for UI-facing deep-research chat."""
+    """Low-latency answer path for UI-facing chat that should not wait for graph completion."""
 
     started_at = time.perf_counter()
     first_token_at: float | None = None
-    system = SystemMessage(
-        content=(
+    is_deep_research = _route_mode(request) == "deep_research"
+    answer_prompt = (
+        (
             "你是智屿 AI 伴学的研究型学习助手。请直接给学生输出正文答案，"
             "不要输出内部思考、系统消息、Agent 名称或工具日志。"
             "回答结构必须清晰：先给结论入口，再分点说明近期研究方向、"
             "关键论文/技术线索、学习路径和下一步可追问问题。"
             "如果上下文片段不足，请明确区分已知资料、通用判断和需要继续验证的内容。"
-            "使用中文 Markdown，段落短，编号清楚。"
+        )
+        if is_deep_research
+        else (
+            "你是智屿 AI 伴学助手。请直接回答学生问题，不要输出内部思考、系统消息、"
+            "Agent 名称或工具日志。回答要像主流大模型产品：先给结论，再分点解释，"
+            "必要时给例子、常见误区和下一步建议。不要把普通问题强行套入课程上下文。"
         )
     )
+    answer_prompt += (
+        "使用规范中文 Markdown：标题后保留空格，表格必须是完整 Markdown 表格并在前后留空行，"
+        "列表每项单独成行。公式必须使用完整的 $...$ 或 $$...$$，不要把未闭合公式和正文混在同一段。"
+    )
+    system = SystemMessage(content=answer_prompt)
     llm = ChatModelFactory.create(
         temperature=min(float(request.temperature or 0.35), 0.45),
         max_tokens=min(max(int(request.max_tokens or 4096), 1200), 6000),
@@ -1529,9 +1549,9 @@ def _stream_direct_research_answer(
     yield {
         "type": "final",
         "content": text,
-        "agent": "research_mentor",
-        "intent": "deep_research",
-        "routing_reason": "深度研究低延迟流式回答路径",
+        "agent": "research_mentor" if is_deep_research else "learning_mentor",
+        "intent": "deep_research" if is_deep_research else "tutor",
+        "routing_reason": "深度研究低延迟流式回答路径" if is_deep_research else "通用问答低延迟流式回答路径",
         "tool_calls": [],
         "requires_confirmation": False,
         "pending_action_id": None,
@@ -1550,7 +1570,7 @@ def _stream_direct_research_answer(
             "cache_hit": False,
             "rag_hit_count": len(rag_results),
             "tool_calls_count": 0,
-            "route_trace": ["direct_deep_research_stream"],
+            "route_trace": ["direct_deep_research_stream" if is_deep_research else "direct_tutor_stream"],
         },
     }
 

@@ -126,6 +126,11 @@
     );
   }
 
+  function shouldAutoDeepResearch(text: string) {
+    if (activeAction.value.id !== 'general_chat') return false;
+    return /研究一下|调研|综述|近期|最新|主流|趋势|论文|进展|方向|对比|全景|报告/i.test(text);
+  }
+
   function handleAction(actionId: string) {
     patchFromAction(getTutorAction(actionId));
   }
@@ -413,19 +418,24 @@
 
   function buildPayload(text: string, attachments: ChatAttachmentPayload[]): AIChatStreamPayload {
     const autoCourseRag = shouldUseCourseContext(text);
+    const autoDeepResearch = shouldAutoDeepResearch(text);
+    const requestMode: TutorMode = autoDeepResearch ? 'deep_research' : mode.value;
+    const requestReasoningLevel: ReasoningLevel = autoDeepResearch ? 'deep' : reasoningLevel.value;
     return {
       sessionId: chatStore.currentConversationId || undefined,
       message: text,
-      mode: mode.value,
-      actionId: activeAction.value.id,
+      mode: requestMode,
+      actionId: autoDeepResearch ? 'auto_deep_research' : activeAction.value.id,
       courseContext: { ...courseContext.value, useCourseRag: autoCourseRag },
       tools: {
         ...tools.value,
+        webSearch: tools.value.webSearch || autoDeepResearch,
+        deepResearch: tools.value.deepResearch || autoDeepResearch,
         courseRag: autoCourseRag,
         citationRequired: tools.value.citationRequired || autoCourseRag || Boolean(attachments.length),
       },
       reasoning: {
-        level: reasoningLevel.value,
+        level: requestReasoningLevel,
         showSummary: true,
         showProcess: true,
       },

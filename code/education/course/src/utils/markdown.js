@@ -288,7 +288,7 @@ function normalizeDollarDelimiters(segment) {
       const next = source[index + 1] || '';
       const tail = source.slice(index + openerSize);
       if (isBlock || looksLikeMath(tail)) {
-        output += source.slice(index);
+        output += isBlock ? tail : `\\$${tail}`;
         break;
       }
       if (/\d/.test(next) || (/\d/.test(prev) && /\d/.test(next))) {

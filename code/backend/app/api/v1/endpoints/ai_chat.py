@@ -1090,6 +1090,23 @@ def ai_chat_stream(
             process_normalizer = ReasoningProcessNormalizer(adapter_context)
             answer_guard_triggered = False
             show_raw_reasoning_debug = _show_raw_reasoning_debug()
+            answer_stream_started = False
+            next_answer_progress_chars = 480
+
+            def emit_safe_answer(text: str):
+                nonlocal final_text, answer_stream_started, next_answer_progress_chars
+                if not text:
+                    return
+                final_text += text
+                if not answer_stream_started:
+                    answer_stream_started = True
+                    yield _phase_delta("compose", "回答已开始流式输出，可以边读边展开查看处理记录")
+                yield from finish_pending_tools()
+                yield _sse("answer_delta", {"text": text})
+                if len(final_text) >= next_answer_progress_chars:
+                    yield _phase_delta("compose", f"已输出约 {len(final_text)} 字，继续补全结构和细节")
+                    next_answer_progress_chars += 640
+
             for payload in stream_chat_events(chat_request):
                 if isinstance(payload, dict):
                     if payload.get("type") == "final":
@@ -1099,9 +1116,7 @@ def ai_chat_stream(
                             safe_final_text, blocked = _safe_final_text(raw_final_text, adapter_context)
                             answer_guard_triggered = answer_guard_triggered or blocked
                             if safe_final_text:
-                                final_text = safe_final_text
-                                yield from finish_pending_tools()
-                                yield _sse("answer_delta", {"text": safe_final_text})
+                                yield from emit_safe_answer(safe_final_text)
                     if payload.get("type") == "reasoning_token":
                         reasoning_part, answer_part, reasoning_closed = _split_reasoning_and_answer(
                             str(payload.get("content") or ""),
@@ -1124,24 +1139,25 @@ def ai_chat_stream(
                                         if payload:
                                             yield _sse("process_sanitized", payload)
                         if answer_part:
-                            safe_text, blocked = sanitize_visible_answer_delta(answer_part, adapter_context)
+                            safe_text, blocked = sanitize_visible_answer_delta(
+                                answer_part,
+                                adapter_context,
+                                preserve_edges=True,
+                            )
                             answer_guard_triggered = answer_guard_triggered or blocked
                             if safe_text:
-                                final_text += safe_text
-                                yield from finish_pending_tools()
-                                yield _sse("answer_delta", {"text": safe_text})
+                                yield from emit_safe_answer(safe_text)
                         continue
                     for event_name, event_payload in _legacy_event_to_ai_events(payload, adapter_context):
                         if event_name == "answer_delta":
                             safe_text, blocked = sanitize_visible_answer_delta(
                                 str(event_payload.get("text") or ""),
                                 adapter_context,
+                                preserve_edges=True,
                             )
                             answer_guard_triggered = answer_guard_triggered or blocked
                             if safe_text:
-                                final_text += safe_text
-                                yield from finish_pending_tools()
-                                yield _sse(event_name, {"text": safe_text})
+                                yield from emit_safe_answer(safe_text)
                         else:
                             if event_name == "tool_result":
                                 pending_tools.pop(str(event_payload.get("tool") or ""), None)

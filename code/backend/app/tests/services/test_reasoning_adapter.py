@@ -74,3 +74,26 @@ def test_visible_answer_sanitizer_removes_think_and_internal_logs() -> None:
     assert "course_context" not in sanitized
     assert "知识检索" not in sanitized
     assert "第一步" in sanitized
+
+
+def test_stream_answer_sanitizer_preserves_markdown_boundaries() -> None:
+    context = ReasoningAdapterContext(message="研究主流 CV", mode="deep_research")
+
+    heading, blocked = sanitize_visible_answer_delta("## 结论速览\n\n", context, preserve_edges=True)
+    row, row_blocked = sanitize_visible_answer_delta("| 方向 | 代表方法 |\n", context, preserve_edges=True)
+    separator, separator_blocked = sanitize_visible_answer_delta("| --- | --- |\n", context, preserve_edges=True)
+    table, table_blocked = sanitize_visible_answer_delta(
+        "| 方向 | 代表方法 |\n| --- | --- |\n| 检测 | YOLO |\n",
+        context,
+        preserve_edges=True,
+    )
+
+    assert blocked is False
+    assert row_blocked is False
+    assert separator_blocked is False
+    assert table_blocked is False
+    assert heading == "## 结论速览\n\n"
+    assert row.startswith("| ")
+    assert row.endswith("|\n")
+    assert separator == "| --- | --- |\n"
+    assert table == "| 方向 | 代表方法 |\n| --- | --- |\n| 检测 | YOLO |\n"
