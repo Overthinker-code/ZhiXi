@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import mimetypes
+import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -29,6 +30,14 @@ from app.schemas.chat_thread import ChatThreadCreate
 from app.schemas.resource_generation import ResourceGenerationRequest, ResourceKind
 from app.services.background_tasks import schedule_memory_profile_refresh
 from app.services.rag_service import RAGService
+from app.services.reasoning_adapter import (
+    ReasoningAdapterContext,
+    ReasoningProcessNormalizer,
+    contains_supplier_context,
+    guard_answer_delta,
+    guarded_fallback_answer,
+    normalize_reasoning_to_product_process,
+)
 from app.services.resource_generation_service import resource_generation_service
 
 router = APIRouter()
@@ -176,9 +185,33 @@ def _now_iso() -> str:
     return datetime.utcnow().isoformat(timespec="milliseconds") + "Z"
 
 
+_PHASE_ID_MAP = {
+    "understand": "understand_problem",
+    "intent": "understand_problem",
+    "route": "select_capability",
+    "plan": "select_capability",
+    "context": "prepare_context",
+    "retrieve": "retrieve_knowledge",
+    "retrieval": "retrieve_knowledge",
+    "tool": "call_tool",
+    "compose": "generate_answer",
+    "answer": "generate_answer",
+    "verify": "verify_output",
+    "safety": "verify_output",
+    "memory": "update_learning_profile",
+    "profile": "update_learning_profile",
+    "suggest": "suggest_next_step",
+}
+
+
+def _phase_id(value: str | None) -> str:
+    raw = str(value or "understand_problem")
+    return _PHASE_ID_MAP.get(raw, raw if raw in set(_PHASE_ID_MAP.values()) else "understand_problem")
+
+
 def _phase_started(phase_id: str, title: str, text: str | None = None) -> str:
     payload: dict[str, Any] = {
-        "phaseId": phase_id,
+        "phaseId": _phase_id(phase_id),
         "title": title,
         "status": "running",
         "timestamp": _now_iso(),
@@ -190,10 +223,12 @@ def _phase_started(phase_id: str, title: str, text: str | None = None) -> str:
 
 def _phase_delta(phase_id: str, text: str) -> str:
     return _sse(
-        "phase_delta",
+        "phase_updated",
         {
-            "phaseId": phase_id,
+            "phaseId": _phase_id(phase_id),
             "text": text,
+            "summary": text,
+            "status": "running",
             "timestamp": _now_iso(),
         },
     )
@@ -203,7 +238,7 @@ def _phase_finished(phase_id: str, title: str, summary: str, status: str = "done
     return _sse(
         "phase_finished",
         {
-            "phaseId": phase_id,
+            "phaseId": _phase_id(phase_id),
             "title": title,
             "status": status,
             "summary": summary,
@@ -215,6 +250,7 @@ def _phase_finished(phase_id: str, title: str, summary: str, status: str = "done
 def _tool_started(tool: str, title: str, text: str | None = None) -> str:
     payload: dict[str, Any] = {
         "tool": tool,
+        "phaseId": "call_tool",
         "title": title,
         "status": "running",
         "timestamp": _now_iso(),
@@ -229,6 +265,7 @@ def _tool_delta(tool: str, text: str) -> str:
         "tool_delta",
         {
             "tool": tool,
+            "phaseId": "call_tool",
             "text": text,
             "timestamp": _now_iso(),
         },
@@ -240,6 +277,7 @@ def _tool_result(tool: str, summary: str, items: list[dict[str, Any]] | None = N
         "tool_result",
         {
             "tool": tool,
+            "phaseId": "call_tool",
             "summary": summary,
             "status": "done",
             "items": items or [],
@@ -297,6 +335,37 @@ def _split_reasoning_and_answer(text: str, reasoning_closed: bool) -> tuple[str,
     before = re.sub(r"<think>", "", raw[: match.start()], flags=re.IGNORECASE)
     after = raw[match.end() :]
     return before, after, True
+
+
+def _adapter_context(req: AIChatStreamRequest) -> ReasoningAdapterContext:
+    return ReasoningAdapterContext(
+        message=req.message or "",
+        mode=req.mode,
+        tools=req.tools.model_dump(by_alias=True),
+        course_context=req.course_context.model_dump(by_alias=True),
+    )
+
+
+def _process_delta_sse(payload: dict[str, Any]) -> str:
+    payload = {**payload, "phaseId": _phase_id(str(payload.get("phaseId") or ""))}
+    return _sse("process_delta", payload)
+
+
+def _phase_updated_sse(payload: dict[str, Any]) -> str:
+    payload = {**payload, "phaseId": _phase_id(str(payload.get("phaseId") or ""))}
+    return _sse("phase_updated", payload)
+
+
+def _show_raw_reasoning_debug() -> bool:
+    return settings.ENVIRONMENT == "local" and os.getenv("ZHIXI_SHOW_RAW_REASONING", "").lower() == "true"
+
+
+def _safe_final_text(raw_text: str, context: ReasoningAdapterContext) -> tuple[str, bool]:
+    if not raw_text:
+        return "", False
+    if context.user_allows_supplier_context or not contains_supplier_context(raw_text):
+        return raw_text, False
+    return guarded_fallback_answer(context), True
 
 
 def _mode_label(req: AIChatStreamRequest) -> str:
@@ -466,7 +535,12 @@ def _system_prompt(req: AIChatStreamRequest) -> str:
     course = _course_title(req.course_context.course_id)
     chapter = _chapter_title(req.course_context.course_id, req.course_context.chapter_id)
     parts = [
-        "你是智屿 AI 学习助手。所有回答必须面向学生，先给结论，再解释，再给例子、常见错误和下一步建议。",
+        (
+            "你是“智屿智能教育平台”的 AI 伴学助手，服务场景是高校课程学习、课程资料问答、"
+            "作业辅导、资源生成、学习路径规划、学情分析和深度研究。不得自称小米助手，"
+            "不得主动介绍小米生态、米家、HyperOS、MIUI、手机、手环、电视、智能家居、售后或系统优化能力，"
+            "除非用户明确询问这些主题。所有回答必须面向学生，先给结论，再解释，再给例子、常见错误和下一步建议。"
+        ),
         f"当前模式：{req.mode}；actionId：{req.action_id or 'none'}。",
     ]
     if req.course_context.use_course_rag or req.tools.course_rag:
@@ -494,12 +568,18 @@ def _message_for_model(req: AIChatStreamRequest) -> str:
     return message or "请基于当前课程上下文给出学习建议。"
 
 
-def _legacy_event_to_ai_events(payload: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+def _legacy_event_to_ai_events(
+    payload: dict[str, Any],
+    adapter_context: ReasoningAdapterContext | None = None,
+) -> list[tuple[str, dict[str, Any]]]:
     kind = payload.get("type")
     if kind == "reasoning_action":
         action = str(payload.get("action") or "")
         title = str(payload.get("title") or "工具完成")
         detail = str(payload.get("detail") or title)
+        if adapter_context and contains_supplier_context(detail) and not adapter_context.user_allows_supplier_context:
+            delta = normalize_reasoning_to_product_process(detail, adapter_context)
+            return [("process_delta", delta.to_payload())] if delta else []
         items = [
             {"title": str(item)[:180], "score": None}
             for item in list(payload.get("items") or [])[:5]
@@ -531,27 +611,31 @@ def _legacy_event_to_ai_events(payload: dict[str, Any]) -> list[tuple[str, dict[
         if action == "code":
             return [
                 (
-                    "phase_delta",
+                    "phase_updated",
                     {
-                        "phaseId": "verify",
+                        "phaseId": "verify_output",
                         "text": detail,
+                        "summary": detail,
+                        "status": "running",
                         "timestamp": _now_iso(),
                     },
                 )
             ]
         return [
             (
-                "phase_delta",
+                "phase_updated",
                 {
-                    "phaseId": "plan",
+                    "phaseId": "select_capability",
                     "text": detail if detail != title else title,
+                    "summary": detail if detail != title else title,
+                    "status": "running",
                     "timestamp": _now_iso(),
                 },
             )
         ]
     if kind == "phase":
         status = str(payload.get("status") or "running")
-        phase_id = str(payload.get("phase") or payload.get("agent") or "plan")
+        phase_id = _phase_id(str(payload.get("phase") or payload.get("agent") or "plan"))
         title = str(payload.get("summary") or "处理阶段")
         if status in {"done", "finished", "success"}:
             return [("phase_finished", {"phaseId": phase_id, "title": title, "status": "done", "summary": title, "timestamp": _now_iso()})]
@@ -560,9 +644,13 @@ def _legacy_event_to_ai_events(payload: dict[str, Any]) -> list[tuple[str, dict[
         text = str(payload.get("content") or "")
         if text.startswith("【") or "系统消息" in text or "上下文注入" in text or "协作线程" in text:
             return []
+        if adapter_context:
+            delta = normalize_reasoning_to_product_process(text, adapter_context)
+            if delta:
+                return [("process_delta", delta.to_payload())]
         if "检索" in text or "知识库" in text:
-            return [("tool_delta", {"tool": "course_retriever", "text": text[:160], "timestamp": _now_iso()})]
-        return [("phase_delta", {"phaseId": "plan", "text": text[:160], "timestamp": _now_iso()})]
+            return [("tool_delta", {"tool": "course_retriever", "phaseId": "retrieve_knowledge", "text": text[:160], "timestamp": _now_iso()})]
+        return [("phase_updated", {"phaseId": "select_capability", "text": text[:160], "summary": text[:160], "status": "running", "timestamp": _now_iso()})]
     if kind == "reasoning_token":
         return []
     if kind == "token":
@@ -980,11 +1068,21 @@ def ai_chat_stream(
             log_user = resolve_stream_user_text_for_storage(chat_request)
             reasoning_buffer = ""
             reasoning_closed = False
+            adapter_context = _adapter_context(request)
+            process_normalizer = ReasoningProcessNormalizer(adapter_context)
+            answer_guard_triggered = False
+            show_raw_reasoning_debug = _show_raw_reasoning_debug()
             for payload in stream_chat_events(chat_request):
                 if isinstance(payload, dict):
                     if payload.get("type") == "final":
                         final_payload = payload
-                        final_text = str(payload.get("content") or final_text)
+                        raw_final_text = str(payload.get("content") or "")
+                        if not final_text.strip() and raw_final_text:
+                            safe_final_text, blocked = _safe_final_text(raw_final_text, adapter_context)
+                            answer_guard_triggered = answer_guard_triggered or blocked
+                            if safe_final_text:
+                                final_text = safe_final_text
+                                yield _sse("answer_delta", {"text": safe_final_text})
                     if payload.get("type") == "reasoning_token":
                         reasoning_part, answer_part, reasoning_closed = _split_reasoning_and_answer(
                             str(payload.get("content") or ""),
@@ -992,26 +1090,54 @@ def ai_chat_stream(
                         )
                         if reasoning_part:
                             reasoning_buffer += reasoning_part
+                            if show_raw_reasoning_debug:
+                                yield _sse("debug_raw_reasoning_delta", {"text": reasoning_part})
                             if (
                                 len(reasoning_buffer) >= 42
                                 or reasoning_buffer.endswith(("。", "；", "：", "\n"))
                             ):
-                                visible_reasoning = _clean_reasoning_summary(reasoning_buffer)
+                                process_delta = process_normalizer.ingest(reasoning_buffer)
                                 reasoning_buffer = ""
-                                if visible_reasoning:
-                                    yield _sse(
-                                        "reasoning_delta",
-                                        {"text": visible_reasoning, "timestamp": _now_iso()},
-                                    )
+                                if process_delta:
+                                    yield _process_delta_sse(process_delta.to_payload())
+                                    if process_delta.sanitized:
+                                        payload = process_normalizer.process_sanitized_payload()
+                                        if payload:
+                                            yield _sse("process_sanitized", payload)
                         if answer_part:
-                            final_text += answer_part
-                            yield _sse("answer_delta", {"text": answer_part})
+                            safe_text, blocked = guard_answer_delta(answer_part, adapter_context)
+                            answer_guard_triggered = answer_guard_triggered or blocked
+                            if safe_text:
+                                final_text += safe_text
+                                yield _sse("answer_delta", {"text": safe_text})
                         continue
-                    for event_name, event_payload in _legacy_event_to_ai_events(payload):
-                        yield _sse(event_name, event_payload)
-            visible_reasoning = _clean_reasoning_summary(reasoning_buffer)
-            if visible_reasoning:
-                yield _sse("reasoning_delta", {"text": visible_reasoning, "timestamp": _now_iso()})
+                    for event_name, event_payload in _legacy_event_to_ai_events(payload, adapter_context):
+                        if event_name == "answer_delta":
+                            safe_text, blocked = guard_answer_delta(str(event_payload.get("text") or ""), adapter_context)
+                            answer_guard_triggered = answer_guard_triggered or blocked
+                            if safe_text:
+                                final_text += safe_text
+                                yield _sse(event_name, {"text": safe_text})
+                        else:
+                            yield _sse(event_name, event_payload)
+            process_delta = process_normalizer.ingest(reasoning_buffer)
+            if process_delta:
+                yield _process_delta_sse(process_delta.to_payload())
+            if final_text and contains_supplier_context(final_text) and not adapter_context.user_allows_supplier_context:
+                final_text = guarded_fallback_answer(adapter_context)
+                answer_guard_triggered = True
+            if answer_guard_triggered and not final_text.strip():
+                fallback = guarded_fallback_answer(adapter_context)
+                final_text = fallback
+                yield _sse("process_sanitized", {
+                    "phaseId": "verify_output",
+                    "title": "校验输出",
+                    "summary": "已拦截与智屿教育场景无关的供应商人格输出，并改用智屿能力说明。",
+                    "status": "done",
+                    "sanitized": True,
+                    "timestamp": _now_iso(),
+                })
+                yield _sse("answer_delta", {"text": fallback})
             yield _phase_finished("compose", "组织回答", "正文回答已流式输出完成")
             yield _phase_started("verify", "校验输出", "正在检查引用、安全和后续追问建议")
             yield _sse("safety_check", {"status": "passed", "message": "已完成引用、安全和后续建议检查"})

@@ -53,7 +53,7 @@
     if (runningPhase.value?.title?.includes('检索')) return '正在检索';
     if (runningPhase.value?.title?.includes('校验')) return '正在校验输出';
     if (runningPhase.value?.title?.includes('组织') || runningPhase.value?.title?.includes('生成')) return '正在组织回答';
-    return '正在思考';
+    return '正在处理';
   });
   const barDetail = computed(() => {
     const raw =
@@ -84,7 +84,7 @@
       .slice(-6)
       .map((item: Record<string, any>) => ({
         key: `log-${item.id || item.timestamp || item.text}`,
-        title: item.title || '思考摘要',
+        title: item.title || '处理过程',
         text: item.text,
         status: item.status || 'running',
         time: item.timestamp || Date.now(),

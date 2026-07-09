@@ -4,11 +4,7 @@ const FLUSH_INTERVAL_MS = 50;
 
 function appendDelta(queue: AIStreamEvent[], event: AIStreamEvent) {
   const previous = queue[queue.length - 1];
-  if (
-    previous &&
-    previous.event === event.event &&
-    (event.event === 'answer_delta' || event.event === 'reasoning_delta')
-  ) {
+  if (previous && previous.event === event.event && event.event === 'answer_delta') {
     previous.data = {
       ...previous.data,
       ...event.data,

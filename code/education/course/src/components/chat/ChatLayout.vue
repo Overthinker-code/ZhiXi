@@ -16,7 +16,6 @@
   import { fetchChatHistory, fetchLearningReport } from '@/api/rag';
   import { useChatStore } from '@/store/chat';
   import { getToken } from '@/utils/auth';
-  import { isPipelineThought } from '@/utils/streamReasoning';
   import ChatComposer from './ChatComposer.vue';
   import ChatMain from './ChatMain.vue';
   import ChatSidebar from './ChatSidebar.vue';
@@ -61,6 +60,8 @@
   const lastPayload = ref<AIChatStreamPayload | null>(null);
   const lastDraft = ref<{ text: string; files: File[] } | null>(null);
   const mainScroller = ref<HTMLElement | null>(null);
+  const showRawReasoningDebug =
+    import.meta.env.DEV && String(import.meta.env.VITE_SHOW_RAW_REASONING || '').toLowerCase() === 'true';
 
   const conversations = computed(() => chatStore.conversations || []);
   const messages = computed(() => chatStore.currentMessages || []);
@@ -222,7 +223,7 @@
     return assistant.liveProcess as Record<string, any>;
   }
 
-  function appendLiveLog(process: Record<string, any>, text: string, status = 'running', title = '思考摘要') {
+  function appendLiveLog(process: Record<string, any>, text: string, status = 'running', title = '处理过程') {
     const clean = String(text || '').trim();
     if (!clean) return;
     const logs = Array.isArray(process.logs) ? process.logs : [];
@@ -313,11 +314,13 @@
         text: data.text || '',
         startedAt: Date.now(),
       });
-    } else if (event === 'phase_delta') {
+    } else if (event === 'phase_delta' || event === 'phase_updated' || event === 'process_delta') {
       upsertPhase(process, {
         id: data.phaseId,
         status: 'running',
-        text: data.text || '',
+        title: data.title,
+        text: data.summary || data.text || '',
+        summary: data.summary,
       });
     } else if (event === 'phase_finished') {
       upsertPhase(process, {
@@ -350,12 +353,15 @@
         items: Array.isArray(data.items) ? data.items : [],
         finishedAt: Date.now(),
       });
-    } else if (event === 'reasoning_delta') {
-      const text = normalizeReasoningLine(String(data.text || ''));
-      if (!text) return;
-      process.reasoningText = `${process.reasoningText || ''}${text}\n`;
-      process.currentSummary = text;
-      appendLiveLog(process, text, 'running', '思考摘要');
+    } else if (event === 'process_sanitized') {
+      upsertPhase(process, {
+        id: data.phaseId || 'verify_output',
+        title: data.title || '校验输出',
+        status: data.status || 'done',
+        summary: data.summary || '已完成过程整理',
+        finishedAt: Date.now(),
+      });
+      process.currentSummary = data.summary || process.currentSummary;
     } else if (event === 'citation') {
       process.citations = [...(process.citations || []), data];
       process.currentSummary = `已确认引用：${data.title || data.source || '课程证据'}`;
@@ -373,42 +379,6 @@
       process.finishedAt = Date.now();
       appendLiveLog(process, process.currentSummary, 'error', '处理失败');
     }
-  }
-
-  const INTERNAL_REASONING_LINE_RE =
-    /^(intent_classifier|course_context|deep_research|tutor|homework_review|resource_generation|course_retriever|safety_check|memory_update|数据库系统原理|第\s*\d+\s*章.*|.*ER\s*模型.*)$/i;
-  const INTERNAL_REASONING_TEXT_RE =
-    /(首条系统消息|已根据当前问题检索知识库|上下文注入协作线程|协作线程|系统消息|course_context|intent_classifier|deep_research|数据库系统原理\s*$)/i;
-
-  function normalizeReasoningLine(line: string) {
-    const text = line
-      .replace(/^【[^】]+】\s*/, '')
-      .replace(/\s*\([^)]*(?:系统消息|agent|context|classifier)[^)]*\)\s*/gi, '')
-      .trim();
-    if (!text) return '';
-    if (INTERNAL_REASONING_LINE_RE.test(text)) return '';
-    if (INTERNAL_REASONING_TEXT_RE.test(text)) return '';
-    return text;
-  }
-
-  function appendReasoningDelta(assistant: Record<string, any>, data: Record<string, any>) {
-    const raw = String(data.text || '');
-    if (!raw) return;
-    const stage = String(data.stage || data.agent || '').trim();
-    const visible = raw
-      .split(/\r?\n/)
-      .map((line) => {
-        const text = line.trim();
-        if (!text) return '';
-        if (isPipelineThought(text, stage)) return '';
-        if (/^(intent_classifier|course_context|deep_research)$/i.test(text)) return '';
-        if (/^(agent|router|planner|worker|tool)_[a-z0-9_]+$/i.test(text)) return '';
-        return normalizeReasoningLine(text);
-      })
-      .filter(Boolean)
-      .join('\n');
-    if (!visible.trim()) return;
-    assistant.reasoning_content = `${assistant.reasoning_content || ''}${visible}\n`;
   }
 
   function latestAssistantMutable() {
@@ -513,11 +483,13 @@
               'run_started',
               'phase_started',
               'phase_delta',
+              'phase_updated',
               'phase_finished',
+              'process_delta',
+              'process_sanitized',
               'tool_started',
               'tool_delta',
               'tool_result',
-              'reasoning_delta',
               'run_finished',
             ].includes(event)
           ) {
@@ -586,11 +558,12 @@
             if (Array.isArray(data.items)) {
               assistant.citations = [...(assistant.citations || []), ...data.items];
             }
-          } else if (event === 'reasoning_summary_delta') {
-            appendReasoningDelta(assistant, data);
-          } else if (event === 'reasoning_delta') {
-            handleLiveProcessEvent(assistant, event, data);
-            appendReasoningDelta(assistant, data);
+          } else if (event === 'reasoning_summary_delta' || event === 'reasoning_delta') {
+            // Legacy compatibility only. Productized streams use process_delta.
+          } else if (event === 'debug_raw_reasoning_delta') {
+            if (showRawReasoningDebug) {
+              assistant.debugRawReasoning = `${assistant.debugRawReasoning || ''}${data.text || ''}`;
+            }
           } else if (event === 'answer_delta') {
             streamedAnswerChars += String(data.text || '').length;
             const process = ensureLiveProcess(assistant);

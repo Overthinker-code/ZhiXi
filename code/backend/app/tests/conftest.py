@@ -1,4 +1,5 @@
 from collections.abc import Generator
+import os
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,6 +15,9 @@ from app.tests.utils.utils import get_superuser_token_headers
 
 @pytest.fixture(scope="session", autouse=True)
 def db() -> Generator[Session, None, None]:
+    if os.getenv("ZHIXI_SKIP_DB_TEST_FIXTURE") == "1":
+        yield None  # type: ignore[misc]
+        return
     with Session(engine) as session:
         init_db(session)
         yield session
