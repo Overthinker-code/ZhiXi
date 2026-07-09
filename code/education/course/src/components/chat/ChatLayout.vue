@@ -72,6 +72,9 @@
   const latestToolEvents = computed(() => latestAssistant.value?.toolEvents || []);
   const latestArtifacts = computed(() => latestAssistant.value?.artifacts || []);
   const latestPackage = computed(() => latestAssistant.value?.resourcePackage || null);
+  const latestRawReasoningDebug = computed(() =>
+    showRawReasoningDebug ? String(latestAssistant.value?.debugRawReasoning || '') : ''
+  );
   const selectedCourse = computed(() =>
     courses.value.find((item) => item.courseId === courseContext.value.courseId)
   );
@@ -791,12 +794,16 @@
         <button type="button" @click="drawerVisible = true">上下文</button>
       </div>
       <div ref="mainScroller" class="chat-main-scroll">
-      <ChatMain
-        :messages="messages"
-        :loading="chatStore.isLoading"
-        @retry="retry"
-        @send-suggestion="send({ text: $event, files: [] })"
-      />
+        <ChatMain
+          :messages="messages"
+          :loading="chatStore.isLoading"
+          @retry="retry"
+          @send-suggestion="send({ text: $event, files: [] })"
+        />
+        <details v-if="latestRawReasoningDebug" class="raw-reasoning-debug">
+          <summary>Raw reasoning debug</summary>
+          <pre>{{ latestRawReasoningDebug }}</pre>
+        </details>
       </div>
       <div class="composer-dock">
         <ChatComposer
@@ -858,6 +865,35 @@
   .chat-main-scroll {
     height: 100%;
     overflow: hidden;
+  }
+
+  .raw-reasoning-debug {
+    position: absolute;
+    right: 28px;
+    bottom: 124px;
+    z-index: 12;
+    width: min(460px, calc(100vw - 720px));
+    border: 1px dashed rgba(240, 68, 56, 0.3);
+    border-radius: 14px;
+    background: rgba(255, 251, 250, 0.96);
+    color: #7a271a;
+    font-size: 12px;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
+
+    summary {
+      cursor: pointer;
+      padding: 10px 12px;
+      font-weight: 600;
+    }
+
+    pre {
+      max-height: 240px;
+      overflow: auto;
+      margin: 0;
+      padding: 0 12px 12px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
   }
 
   .chat-main-actions {
