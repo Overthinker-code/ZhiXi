@@ -57,6 +57,16 @@ ANSWER_GUARD_MESSAGE = (
     "作业辅导、资源生成、学习路径规划、学情分析和深度研究提供支持。"
 )
 
+INTERNAL_PROCESS_RE = re.compile(
+    r"(?:"
+    r"intent_classifier|course_context|reasoning_content|"
+    r"系统消息|上下文注入|协作线程|首条系统消息|"
+    r"Supervisor|intermediate_steps|tool_policy|route_trace|"
+    r"【(?:流水线|知识检索|工具策略|工具执行|联网搜索|多智能体协作)】"
+    r")",
+    re.IGNORECASE,
+)
+
 
 @dataclass
 class ReasoningAdapterContext:
@@ -107,6 +117,44 @@ def contains_supplier_context(text: str) -> bool:
 
 def strip_reasoning_markers(text: str) -> str:
     return re.sub(r"</?think>", "", str(text or ""), flags=re.IGNORECASE).strip()
+
+
+def strip_reasoning_blocks(text: str) -> tuple[str, bool]:
+    """Remove provider/native reasoning blocks before text reaches answer UI."""
+
+    raw = str(text or "")
+    if not raw:
+        return "", False
+    blocked = bool(re.search(r"</?think>", raw, flags=re.IGNORECASE))
+    clean = re.sub(r"<think>[\s\S]*?</think>", "", raw, flags=re.IGNORECASE)
+    clean = re.sub(r"<think>[\s\S]*$", "", clean, flags=re.IGNORECASE)
+    clean = re.sub(r"</think>", "", clean, flags=re.IGNORECASE)
+    return clean, blocked
+
+
+def sanitize_visible_answer_delta(
+    text: str,
+    context: ReasoningAdapterContext,
+) -> tuple[str, bool]:
+    """Keep process/reasoning logs out of the final assistant answer stream."""
+
+    clean, blocked = strip_reasoning_blocks(text)
+    if not clean:
+        return "", blocked
+
+    kept_lines: list[str] = []
+    for line in clean.splitlines():
+        stripped = line.strip()
+        if stripped and INTERNAL_PROCESS_RE.search(stripped):
+            blocked = True
+            continue
+        kept_lines.append(line)
+    clean = "\n".join(kept_lines).strip()
+    if not clean:
+        return "", True
+
+    guarded, supplier_blocked = guard_answer_delta(clean, context)
+    return guarded, blocked or supplier_blocked
 
 
 def _clip_summary(text: str, limit: int = 72) -> str:

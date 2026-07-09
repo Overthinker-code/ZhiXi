@@ -34,9 +34,9 @@ from app.services.reasoning_adapter import (
     ReasoningAdapterContext,
     ReasoningProcessNormalizer,
     contains_supplier_context,
-    guard_answer_delta,
     guarded_fallback_answer,
     normalize_reasoning_to_product_process,
+    sanitize_visible_answer_delta,
 )
 from app.services.resource_generation_service import resource_generation_service
 
@@ -363,6 +363,11 @@ def _show_raw_reasoning_debug() -> bool:
 def _safe_final_text(raw_text: str, context: ReasoningAdapterContext) -> tuple[str, bool]:
     if not raw_text:
         return "", False
+    cleaned, blocked = sanitize_visible_answer_delta(raw_text, context)
+    if cleaned:
+        return cleaned, blocked
+    if blocked:
+        return "", True
     if context.user_allows_supplier_context or not contains_supplier_context(raw_text):
         return raw_text, False
     return guarded_fallback_answer(context), True
@@ -865,6 +870,13 @@ def ai_chat_stream(
         final_payload: dict[str, Any] = {}
         run_id = uuid4().hex
         course_rag_enabled = bool(request.course_context.use_course_rag or request.tools.course_rag)
+        pending_tools: dict[str, str] = {}
+
+        def finish_pending_tools():
+            for tool, summary in list(pending_tools.items()):
+                pending_tools.pop(tool, None)
+                yield _tool_result(tool, summary, [])
+
         try:
             yield _sse("session_created", {"sessionId": session_id, "created": created})
             yield _sse(
@@ -950,6 +962,7 @@ def ai_chat_stream(
             yield _phase_finished("plan", "选择能力", "能力选择完成，开始准备上下文")
 
             if course_rag_enabled:
+                pending_tools["course_retriever"] = "课程资料检索已完成，回答会按可用证据组织。"
                 yield _tool_started(
                     "course_retriever",
                     "检索课程资料",
@@ -964,6 +977,11 @@ def ai_chat_stream(
                 yield _phase_delta("plan", "未命中课程/附件/联网需求，将作为通用学习问题回答")
 
             if request.tools.web_search or request.mode == "deep_research":
+                pending_tools["web_search"] = (
+                    "已进入低延迟研究回答；如需严格联网证据，可继续要求补充可访问来源校验。"
+                    if request.mode == "deep_research"
+                    else "联网来源检查已完成，回答会区分公开来源与模型分析。"
+                )
                 yield _tool_started("web_search", "浏览联网来源", "正在准备检索近期公开来源")
                 yield _tool_delta("web_search", "会优先提取标题、摘要、链接和时间信息，避免把网页结果混入课程证据")
 
@@ -1082,6 +1100,7 @@ def ai_chat_stream(
                             answer_guard_triggered = answer_guard_triggered or blocked
                             if safe_final_text:
                                 final_text = safe_final_text
+                                yield from finish_pending_tools()
                                 yield _sse("answer_delta", {"text": safe_final_text})
                     if payload.get("type") == "reasoning_token":
                         reasoning_part, answer_part, reasoning_closed = _split_reasoning_and_answer(
@@ -1105,24 +1124,32 @@ def ai_chat_stream(
                                         if payload:
                                             yield _sse("process_sanitized", payload)
                         if answer_part:
-                            safe_text, blocked = guard_answer_delta(answer_part, adapter_context)
+                            safe_text, blocked = sanitize_visible_answer_delta(answer_part, adapter_context)
                             answer_guard_triggered = answer_guard_triggered or blocked
                             if safe_text:
                                 final_text += safe_text
+                                yield from finish_pending_tools()
                                 yield _sse("answer_delta", {"text": safe_text})
                         continue
                     for event_name, event_payload in _legacy_event_to_ai_events(payload, adapter_context):
                         if event_name == "answer_delta":
-                            safe_text, blocked = guard_answer_delta(str(event_payload.get("text") or ""), adapter_context)
+                            safe_text, blocked = sanitize_visible_answer_delta(
+                                str(event_payload.get("text") or ""),
+                                adapter_context,
+                            )
                             answer_guard_triggered = answer_guard_triggered or blocked
                             if safe_text:
                                 final_text += safe_text
+                                yield from finish_pending_tools()
                                 yield _sse(event_name, {"text": safe_text})
                         else:
+                            if event_name == "tool_result":
+                                pending_tools.pop(str(event_payload.get("tool") or ""), None)
                             yield _sse(event_name, event_payload)
             process_delta = process_normalizer.ingest(reasoning_buffer)
             if process_delta:
                 yield _process_delta_sse(process_delta.to_payload())
+            yield from finish_pending_tools()
             if final_text and contains_supplier_context(final_text) and not adapter_context.user_allows_supplier_context:
                 final_text = guarded_fallback_answer(adapter_context)
                 answer_guard_triggered = True

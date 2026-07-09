@@ -5,6 +5,7 @@ from app.services.reasoning_adapter import (
     guard_answer_delta,
     guarded_fallback_answer,
     normalize_reasoning_to_product_process,
+    sanitize_visible_answer_delta,
 )
 
 
@@ -54,3 +55,22 @@ def test_supplier_answer_guard_blocks_unrelated_provider_identity() -> None:
     assert "课程问答" in fallback
     assert "作业批改" in fallback
     assert "资料生成" in fallback
+
+
+def test_visible_answer_sanitizer_removes_think_and_internal_logs() -> None:
+    context = ReasoningAdapterContext(message="解析世界模型的近期研究", mode="deep_research")
+    text = (
+        "<think>用户希望我先走 intent_classifier，然后注入 course_context。</think>\n"
+        "【知识检索】已根据当前问题检索知识库并将上下文注入协作线程。\n"
+        "我来梳理一下对这个问题的分析思路。\n\n"
+        "第一步：明确“世界模型”的含义边界。"
+    )
+
+    sanitized, blocked = sanitize_visible_answer_delta(text, context)
+
+    assert blocked is True
+    assert "<think>" not in sanitized
+    assert "intent_classifier" not in sanitized
+    assert "course_context" not in sanitized
+    assert "知识检索" not in sanitized
+    assert "第一步" in sanitized

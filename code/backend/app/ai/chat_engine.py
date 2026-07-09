@@ -190,6 +190,48 @@ def _chunk_reasoning_tokens(text: str, chunk_size: int = 12):
         yield {"type": "reasoning_token", "content": text[i : i + chunk_size]}
 
 
+def _live_process_snapshot(request: ChatRequest, rag_results: list[dict[str, Any]]):
+    """Emit real, lightweight process notes without running an extra model call."""
+
+    enabled_tools, _ = _tool_status_text(request.active_tools)
+    if rag_results:
+        source_kinds = {
+            str(item.get("context_scope") or item.get("source") or "资料")
+            for item in rag_results[:6]
+        }
+        scope = "、".join(sorted(source_kinds))[:80] or "知识库"
+        yield from _chunk_reasoning_tokens(
+            f"已检索到 {len(rag_results)} 条可用资料片段，正在从{scope}中筛选回答依据。"
+        )
+    elif request.current_file_id:
+        yield from _chunk_reasoning_tokens("已读取上传资料索引，但暂未命中直接证据，正在准备说明证据边界。")
+    elif enabled_tools:
+        yield from _chunk_reasoning_tokens(f"已确认本轮可用能力：{'、'.join(enabled_tools)}，正在进入真实执行流程。")
+    else:
+        yield from _chunk_reasoning_tokens("未启用外部资料或工具，正在按通用学习助手方式组织解释。")
+
+
+def _graph_node_process_note(node_name: str) -> str | None:
+    key = (node_name or "").lower()
+    if not key:
+        return None
+    if "supervisor" in key or "router" in key:
+        return "正在判断问题类型、回答策略和是否需要调用工具。"
+    if "rag" in key or "knowledge" in key or "retriever" in key:
+        return "正在核对课程资料、知识库片段和可引用依据。"
+    if "web" in key or "search" in key:
+        return "正在筛选联网来源，保留标题、摘要、链接和时间信息。"
+    if "homework" in key or "review" in key:
+        return "正在识别题目结构、评分点、错因和可迁移练习。"
+    if "resource" in key or "artifact" in key:
+        return "正在规划讲义、练习、导图和案例等学习资源。"
+    if "code" in key:
+        return "正在检查代码示例和执行逻辑是否可解释。"
+    if "mentor" in key or "tutor" in key or "answer" in key or "teacher" in key:
+        return "正在按结论、解释、例子、常见误区和下一步建议组织回答。"
+    return None
+
+
 _JSON_OBJ = re.compile(r"\{[\s\S]*\}")
 _DOC_QUERY_HINT = re.compile(
     r"(这篇|该|这个)?(论文|文档|报告|课件|pdf|PDF|word|Word|doc|DOC|章节|第[一二三四五六七八九十0-9]+章|摘要|方法|实验|结论|创新点|原文)"
@@ -1421,6 +1463,98 @@ def _stream_grounded_document_answer(
     }
 
 
+def _route_mode(request: ChatRequest) -> str:
+    route_context = request.route_context or {}
+    return str(route_context.get("mode") or "").strip()
+
+
+def _should_direct_stream_answer(request: ChatRequest) -> bool:
+    return _route_mode(request) == "deep_research"
+
+
+def _stream_direct_research_answer(
+    request: ChatRequest,
+    context_message: SystemMessage,
+    rag_results: list[dict[str, Any]],
+) -> Iterator[dict[str, Any]]:
+    """Low-latency research answer path for UI-facing deep-research chat."""
+
+    started_at = time.perf_counter()
+    first_token_at: float | None = None
+    system = SystemMessage(
+        content=(
+            "你是智屿 AI 伴学的研究型学习助手。请直接给学生输出正文答案，"
+            "不要输出内部思考、系统消息、Agent 名称或工具日志。"
+            "回答结构必须清晰：先给结论入口，再分点说明近期研究方向、"
+            "关键论文/技术线索、学习路径和下一步可追问问题。"
+            "如果上下文片段不足，请明确区分已知资料、通用判断和需要继续验证的内容。"
+            "使用中文 Markdown，段落短，编号清楚。"
+        )
+    )
+    llm = ChatModelFactory.create(
+        temperature=min(float(request.temperature or 0.35), 0.45),
+        max_tokens=min(max(int(request.max_tokens or 4096), 1200), 6000),
+        top_p=request.top_p,
+        top_k=request.top_k,
+        reasoning=False,
+    )
+    previous_answer = ""
+    answer_text = ""
+    for chunk in llm.stream([system, context_message, HumanMessage(content=request.user_input)]):
+        delta, previous_answer = _stream_delta(_visible_chunk_text(chunk), previous_answer)
+        if not delta:
+            continue
+        if first_token_at is None:
+            first_token_at = time.perf_counter()
+        answer_text += delta
+        yield {"type": "token", "content": delta}
+
+    text = _normalize_answer_text(answer_text)
+    if not text.strip():
+        yield {"type": "error", "content": "模型没有返回可展示正文，请重试。"}
+        return
+
+    citations = _normalize_structured_citations(
+        rag_results,
+        [{"citation_id": item.get("citation_id")} for item in rag_results[:6]],
+    )
+    suggestions = _normalize_followups(request.user_input, text, [])
+    latency_ms = max(1, round((time.perf_counter() - started_at) * 1000))
+    ttft_ms = (
+        max(1, round((first_token_at - started_at) * 1000))
+        if first_token_at is not None
+        else None
+    )
+    yield {"type": "suggestions", "data": suggestions}
+    yield {
+        "type": "final",
+        "content": text,
+        "agent": "research_mentor",
+        "intent": "deep_research",
+        "routing_reason": "深度研究低延迟流式回答路径",
+        "tool_calls": [],
+        "requires_confirmation": False,
+        "pending_action_id": None,
+        "citations": citations,
+        "confidence": "medium",
+        "grounding_mode": "rag" if citations else "general",
+        "suggestions": suggestions,
+        "metrics": {
+            "ttft_ms": ttft_ms,
+            "latency_ms": latency_ms,
+            "prompt_tokens": None,
+            "completion_tokens": None,
+            "total_tokens": None,
+            "estimated_tokens": False,
+            "agent_hops": 1,
+            "cache_hit": False,
+            "rag_hit_count": len(rag_results),
+            "tool_calls_count": 0,
+            "route_trace": ["direct_deep_research_stream"],
+        },
+    }
+
+
 def _stream_model_reasoning(
     request: ChatRequest, context_message: SystemMessage
 ) -> Iterator[dict[str, Any]]:
@@ -2535,6 +2669,8 @@ def stream_chat_events(request: ChatRequest):
 
         rag_context = _build_rag_context(req)
         yield from _flush_reasoning()
+        if req.reasoning_enabled:
+            yield from _live_process_snapshot(req, rag_context[1])
         if req.current_file_id and req.reasoning_enabled:
             yield from _stream_grounded_document_answer(
                 req,
@@ -2542,16 +2678,9 @@ def stream_chat_events(request: ChatRequest):
                 rag_context[1],
             )
             return
-        if req.reasoning_enabled:
-            try:
-                yield from _stream_model_reasoning(req, rag_context[0])
-            except Exception as exc:
-                if req.debug_mode:
-                    yield {
-                        "type": "thought",
-                        "content": f"真实思考流暂不可用：{str(exc)[:240]}",
-                        "stage": "reasoning_error",
-                    }
+        if _should_direct_stream_answer(req):
+            yield from _stream_direct_research_answer(req, rag_context[0], rag_context[1])
+            return
 
         cache_hit = (
             chat_semantic_cache.get(req.user_input)
@@ -2636,6 +2765,7 @@ def stream_chat_events(request: ChatRequest):
         final_state: dict | None = None
         last_values_state: dict | None = None
         emitted_tool_nodes: set[str] = set()
+        emitted_node_notes: set[str] = set()
         try:
             try:
                 stream_iter = graph.stream(
@@ -2658,6 +2788,10 @@ def stream_chat_events(request: ChatRequest):
                 for node_name, data in chunk.items():
                     if not isinstance(node_name, str):
                         continue
+                    note = _graph_node_process_note(node_name)
+                    if note and note not in emitted_node_notes:
+                        emitted_node_notes.add(note)
+                        yield from _chunk_reasoning_tokens(note)
                     if node_name.endswith("_tools") and node_name not in emitted_tool_nodes:
                         emitted_tool_nodes.add(node_name)
                         yield from _stream_thought_events(

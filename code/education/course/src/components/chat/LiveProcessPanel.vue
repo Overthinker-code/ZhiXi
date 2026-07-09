@@ -49,6 +49,7 @@
   const barTitle = computed(() => {
     if (status.value === 'error') return '处理遇到问题';
     if (status.value === 'done') return '已完成处理';
+    if (props.loading && answerChars.value > 0) return '正在输出回答';
     if (runningTool.value?.title) return '正在工具调用';
     if (runningPhase.value?.title?.includes('检索')) return '正在检索';
     if (runningPhase.value?.title?.includes('校验')) return '正在校验输出';
@@ -56,6 +57,9 @@
     return '正在处理';
   });
   const barDetail = computed(() => {
+    if (props.loading && answerChars.value > 0) {
+      return '正文正在流式生成，处理记录可展开查看。';
+    }
     const raw =
       process.value.currentSummary ||
       activeTool.value?.resultSummary ||
@@ -137,7 +141,7 @@
   );
 
   watch(answerChars, (chars) => {
-    if (props.loading && chars > 360 && !manuallyToggled.value) {
+    if (props.loading && chars > 24 && !manuallyToggled.value) {
       open.value = false;
     }
   });

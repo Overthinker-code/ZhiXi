@@ -4,6 +4,7 @@
   import ArtifactCards from './ArtifactCards.vue';
   import CitationList from './CitationList.vue';
   import LiveProcessPanel from './LiveProcessPanel.vue';
+  import { sanitizeAssistantText } from './sanitizeAssistantText';
 
   const props = defineProps<{
     message: Record<string, any>;
@@ -15,8 +16,9 @@
     (e: 'retry'): void;
   }>();
 
+  const safeContent = computed(() => sanitizeAssistantText(props.message.content || ''));
   const rendered = computed(() =>
-    renderMarkdown(String(props.message.content || ''), {
+    renderMarkdown(safeContent.value, {
       streaming: Boolean(props.message.loading),
     })
   );
@@ -33,7 +35,7 @@
     <LiveProcessPanel :state="message.liveProcess" :loading="message.loading" />
 
     <div
-      v-if="message.content"
+      v-if="safeContent"
       class="assistant-message__body markdown-body"
       :class="{ 'is-streaming': message.loading }"
       v-html="rendered"

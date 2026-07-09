@@ -20,6 +20,7 @@
   import ChatMain from './ChatMain.vue';
   import ChatSidebar from './ChatSidebar.vue';
   import ContextDrawer from './ContextDrawer.vue';
+  import { sanitizeAssistantText } from './sanitizeAssistantText';
   import { streamTutorChat } from './useTutorStream';
   import {
     CHAT_DEFAULT_RESOURCE_TYPES,
@@ -568,10 +569,12 @@
               assistant.debugRawReasoning = `${assistant.debugRawReasoning || ''}${data.text || ''}`;
             }
           } else if (event === 'answer_delta') {
-            streamedAnswerChars += String(data.text || '').length;
+            const safeText = sanitizeAssistantText(data.text || '', { preserveEdges: true });
+            if (!safeText) return;
+            streamedAnswerChars += safeText.length;
             const process = ensureLiveProcess(assistant);
             process.answerChars = streamedAnswerChars;
-            assistant.content = `${assistant.content || ''}${data.text || ''}`;
+            assistant.content = `${assistant.content || ''}${safeText}`;
           } else if (event === 'citation') {
             handleLiveProcessEvent(assistant, event, data);
             assistant.citations = [...(assistant.citations || []), data];
@@ -708,7 +711,7 @@
         });
         next.push({
           role: 'assistant',
-          content: record.response,
+          content: sanitizeAssistantText(record.response),
           localId: `a-${record.id}`,
           loading: false,
           mode: 'tutor',
