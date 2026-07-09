@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import mimetypes
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -250,10 +251,19 @@ def _tool_result(tool: str, summary: str, items: list[dict[str, Any]] | None = N
 def _clean_reasoning_summary(text: str) -> str:
     clean = (
         (text or "")
+        .replace("<think>", "")
+        .replace("</think>", "")
         .replace("**", "")
+        .replace("我来分析这个问题：", "正在分析问题：")
+        .replace("我来分析一下这个问题：", "正在分析问题：")
+        .replace("我来分析一下：", "正在分析问题：")
         .replace("我来分析一下这个问题。", "")
         .replace("我来分析一下。", "")
         .replace("我来分析这个问题。", "")
+        .replace("第一点想到的是", "正在提炼第一条依据：")
+        .replace("第二点考虑", "正在提炼第二条依据：")
+        .replace("第三点可以强调", "正在提炼第三条依据：")
+        .replace("检查相关知识：", "正在核对相关知识：")
         .replace("用户想了解", "正在确认问题目标：")
         .replace("用户的问题核心", "问题核心")
         .replace("用户想", "问题目标是")
@@ -272,6 +282,21 @@ def _clean_reasoning_summary(text: str) -> str:
     if not clean or any(token in clean for token in blocked):
         return ""
     return clean[:180]
+
+
+def _split_reasoning_and_answer(text: str, reasoning_closed: bool) -> tuple[str, str, bool]:
+    """MiMo may stream visible answer after </think> through reasoning_content."""
+    raw = str(text or "")
+    if not raw:
+        return "", "", reasoning_closed
+    if reasoning_closed:
+        return "", raw, True
+    match = re.search(r"</think>", raw, flags=re.IGNORECASE)
+    if not match:
+        return re.sub(r"<think>", "", raw, flags=re.IGNORECASE), "", False
+    before = re.sub(r"<think>", "", raw[: match.start()], flags=re.IGNORECASE)
+    after = raw[match.end() :]
+    return before, after, True
 
 
 def _mode_label(req: AIChatStreamRequest) -> str:
@@ -954,24 +979,33 @@ def ai_chat_stream(
             )
             log_user = resolve_stream_user_text_for_storage(chat_request)
             reasoning_buffer = ""
+            reasoning_closed = False
             for payload in stream_chat_events(chat_request):
                 if isinstance(payload, dict):
                     if payload.get("type") == "final":
                         final_payload = payload
                         final_text = str(payload.get("content") or final_text)
                     if payload.get("type") == "reasoning_token":
-                        reasoning_buffer += str(payload.get("content") or "")
-                        if (
-                            len(reasoning_buffer) >= 42
-                            or reasoning_buffer.endswith(("。", "；", "：", "\n"))
-                        ):
-                            visible_reasoning = _clean_reasoning_summary(reasoning_buffer)
-                            reasoning_buffer = ""
-                            if visible_reasoning:
-                                yield _sse(
-                                    "reasoning_delta",
-                                    {"text": visible_reasoning, "timestamp": _now_iso()},
-                                )
+                        reasoning_part, answer_part, reasoning_closed = _split_reasoning_and_answer(
+                            str(payload.get("content") or ""),
+                            reasoning_closed,
+                        )
+                        if reasoning_part:
+                            reasoning_buffer += reasoning_part
+                            if (
+                                len(reasoning_buffer) >= 42
+                                or reasoning_buffer.endswith(("。", "；", "：", "\n"))
+                            ):
+                                visible_reasoning = _clean_reasoning_summary(reasoning_buffer)
+                                reasoning_buffer = ""
+                                if visible_reasoning:
+                                    yield _sse(
+                                        "reasoning_delta",
+                                        {"text": visible_reasoning, "timestamp": _now_iso()},
+                                    )
+                        if answer_part:
+                            final_text += answer_part
+                            yield _sse("answer_delta", {"text": answer_part})
                         continue
                     for event_name, event_payload in _legacy_event_to_ai_events(payload):
                         yield _sse(event_name, event_payload)

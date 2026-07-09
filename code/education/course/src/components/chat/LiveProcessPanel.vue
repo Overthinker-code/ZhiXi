@@ -1,15 +1,16 @@
 <script setup lang="ts">
   import { computed, onUnmounted, ref, watch } from 'vue';
+  import ProcessPhaseItem from './ProcessPhaseItem.vue';
 
-  type ProcessStatus = 'idle' | 'running' | 'done' | 'error' | 'pending';
+  type ProcessStatus = 'idle' | 'running' | 'done' | 'error';
 
   const props = defineProps<{
     state?: Record<string, any> | null;
     loading?: boolean;
   }>();
 
-  const userTouched = ref(false);
   const open = ref(true);
+  const manuallyToggled = ref(false);
   const now = ref(Date.now());
   let timer: ReturnType<typeof window.setInterval> | null = null;
 
@@ -23,84 +24,93 @@
   const logs = computed<Record<string, any>[]>(() =>
     Array.isArray(process.value.logs) ? process.value.logs : []
   );
-  const reasoningText = computed(() => String(process.value.reasoningText || '').trim());
   const status = computed<ProcessStatus>(() => String(process.value.status || 'idle') as ProcessStatus);
+  const startedAt = computed(() => Number(process.value.startedAt || phases.value[0]?.startedAt || 0));
+  const answerChars = computed(() => Number(process.value.answerChars || 0));
   const hasProcess = computed(() =>
-    status.value !== 'idle' ||
-    phases.value.length > 0 ||
-    tools.value.length > 0 ||
-    logs.value.length > 0 ||
-    reasoningText.value
+    status.value !== 'idle' || phases.value.length > 0 || tools.value.length > 0 || logs.value.length > 0
   );
+  const elapsed = computed(() => {
+    if (!props.loading || !startedAt.value) return '';
+    return `${Math.max(0, Math.floor((now.value - startedAt.value) / 1000))}s`;
+  });
   const activePhase = computed(() =>
     [...phases.value].reverse().find((item) => item.status === 'running') ||
     [...phases.value].reverse().find((item) => item.status === 'done') ||
     null
   );
+  const runningPhase = computed(() => [...phases.value].reverse().find((item) => item.status === 'running') || null);
   const activeTool = computed(() =>
     [...tools.value].reverse().find((item) => item.status === 'running') ||
     [...tools.value].reverse().find((item) => item.status === 'done') ||
     null
   );
-  const startedAt = computed(() => {
-    const value = process.value.startedAt || phases.value[0]?.startedAt || tools.value[0]?.startedAt;
-    const time = value ? Number(value) : 0;
-    return Number.isFinite(time) ? time : 0;
-  });
-  const elapsed = computed(() => {
-    if (!props.loading || !startedAt.value) return '';
-    const seconds = Math.max(0, Math.floor((now.value - startedAt.value) / 1000));
-    return `${seconds}s`;
-  });
-  const summary = computed(() => {
+  const runningTool = computed(() => [...tools.value].reverse().find((item) => item.status === 'running') || null);
+  const barTitle = computed(() => {
     if (status.value === 'error') return '处理遇到问题';
     if (status.value === 'done') return '已完成处理';
-    if (activeTool.value?.title) return `正在${activeTool.value.title}`;
-    if (activePhase.value?.title) return `正在${activePhase.value.title}`;
+    if (runningTool.value?.title) return '正在工具调用';
+    if (runningPhase.value?.title?.includes('检索')) return '正在检索';
+    if (runningPhase.value?.title?.includes('校验')) return '正在校验输出';
+    if (runningPhase.value?.title?.includes('组织') || runningPhase.value?.title?.includes('生成')) return '正在组织回答';
     return '正在思考';
   });
-  const detail = computed(() => {
+  const barDetail = computed(() => {
     const raw =
       process.value.currentSummary ||
-      activeTool.value?.text ||
       activeTool.value?.resultSummary ||
-      activePhase.value?.text ||
+      activeTool.value?.text ||
       activePhase.value?.summary ||
-      '正在根据问题组织处理步骤';
+      activePhase.value?.text ||
+      '正在从问题、资料和上下文中整理回答依据';
     return String(raw).replace(/\s+/g, ' ').trim();
   });
-  const timelineItems = computed(() => {
+  const streamItems = computed(() => {
     const phaseItems = phases.value.map((item) => ({
-      id: `phase-${item.id}`,
-      kind: 'phase',
+      key: `phase-${item.id}`,
       title: item.title || '处理阶段',
-      text: item.summary || item.text || '',
+      text: item.summary || item.text || '进行中',
       status: item.status || 'running',
-      items: [],
       time: item.startedAt || item.finishedAt || 0,
     }));
     const toolItems = tools.value.map((item) => ({
-      id: `tool-${item.tool}`,
-      kind: 'tool',
+      key: `tool-${item.tool}`,
       title: item.title || '工具调用',
-      text: item.resultSummary || item.text || '',
+      text: item.resultSummary || item.text || '工具正在运行',
       status: item.status || 'running',
-      items: Array.isArray(item.items) ? item.items.slice(0, 3) : [],
       time: item.startedAt || item.finishedAt || 0,
     }));
-    return [...phaseItems, ...toolItems].sort((a, b) => Number(a.time || 0) - Number(b.time || 0));
+    const logItems = logs.value
+      .slice(-6)
+      .map((item: Record<string, any>) => ({
+        key: `log-${item.id || item.timestamp || item.text}`,
+        title: item.title || '思考摘要',
+        text: item.text,
+        status: item.status || 'running',
+        time: item.timestamp || Date.now(),
+      }));
+
+    const merged = [...phaseItems, ...toolItems, ...logItems]
+      .filter((item) => String(item.text || '').trim())
+      .sort((a, b) => Number(a.time || 0) - Number(b.time || 0));
+
+    const seen = new Set<string>();
+    return merged
+      .filter((item) => {
+        const signature = `${item.title}-${String(item.text).slice(0, 80)}`;
+        if (seen.has(signature)) return false;
+        seen.add(signature);
+        return true;
+      })
+      .slice(-12);
   });
-  const visibleLogs = computed(() => logs.value.slice(-8).reverse());
-  const reasoningPreview = computed(() =>
-    reasoningText.value
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .slice(-4)
+  const activeKey = computed(() =>
+    [...streamItems.value].reverse().find((item) => item.status === 'running')?.key || ''
   );
+  const hasAnswer = computed(() => answerChars.value > 0);
 
   function toggle() {
-    userTouched.value = true;
+    manuallyToggled.value = true;
     open.value = !open.value;
   }
 
@@ -108,7 +118,7 @@
     () => props.loading,
     (loading) => {
       if (loading) {
-        if (!userTouched.value) open.value = true;
+        if (!manuallyToggled.value) open.value = true;
         if (!timer) {
           now.value = Date.now();
           timer = window.setInterval(() => {
@@ -116,7 +126,7 @@
           }, 1000);
         }
       } else {
-        if (!userTouched.value) open.value = false;
+        if (!manuallyToggled.value) open.value = false;
         if (timer) {
           window.clearInterval(timer);
           timer = null;
@@ -126,14 +136,18 @@
     { immediate: true }
   );
 
-  watch(
-    () => logs.value.length,
-    (count) => {
-      if (props.loading && count > 6 && !userTouched.value) {
-        open.value = false;
-      }
+  watch(answerChars, (chars) => {
+    if (props.loading && chars > 360 && !manuallyToggled.value) {
+      open.value = false;
     }
-  );
+  });
+
+  watch(status, (next) => {
+    if (next === 'done') {
+      open.value = false;
+      manuallyToggled.value = false;
+    }
+  });
 
   onUnmounted(() => {
     if (timer) window.clearInterval(timer);
@@ -142,317 +156,195 @@
 
 <template>
   <section v-if="hasProcess" class="live-process" :class="[`is-${status}`, { 'is-open': open }]">
-    <button type="button" class="live-process__bar" @click="toggle">
-      <span class="live-process__pulse" />
-      <span class="live-process__summary">{{ summary }}</span>
-      <span class="live-process__detail">{{ detail }}</span>
+    <button type="button" class="live-process-bar" @click="toggle">
+      <span class="live-process-bar__dot">
+        <i v-if="status === 'done'">✓</i>
+      </span>
+      <span class="live-process-bar__title">{{ barTitle }}</span>
+      <span class="live-process-bar__detail">{{ barDetail }}</span>
       <time v-if="elapsed">{{ elapsed }}</time>
-      <span class="live-process__toggle">{{ open ? '收起' : '展开' }}</span>
+      <span class="live-process-bar__toggle">{{ open ? '收起' : '展开' }}</span>
     </button>
 
-    <div v-if="open" class="live-process__body" aria-live="polite">
-      <div class="live-process__timeline">
-        <div
-          v-for="item in timelineItems"
-          :key="item.id"
-          class="live-step"
-          :class="[`is-${item.status}`, `is-${item.kind}`]"
-        >
-          <span class="live-step__dot" />
-          <div>
-            <strong>{{ item.title }}</strong>
-            <p>{{ item.text || (item.status === 'running' ? '进行中' : '已完成') }}</p>
-            <div v-if="item.items?.length" class="live-step__items">
-              <span v-for="entry in item.items" :key="entry.title || entry.chunk || entry">
-                {{ entry.title || entry.chunk || entry.summary || entry }}
-              </span>
-            </div>
-          </div>
-        </div>
+    <div v-if="open" class="live-process-stream" aria-live="polite">
+      <ProcessPhaseItem
+        v-for="item in streamItems"
+        :key="item.key"
+        :title="item.title"
+        :text="item.text"
+        :status="item.status"
+        :active="item.key === activeKey"
+      />
+      <div v-if="!streamItems.length" class="live-process-empty">
+        <span />
+        <p>正在建立流式连接，等待后端处理事件。</p>
       </div>
-
-      <div class="live-process__stream">
-        <div class="live-process__stream-head">
-          <span>{{ loading ? '实时动态' : '处理摘要' }}</span>
-          <b v-if="loading">LIVE</b>
-        </div>
-        <div v-if="reasoningPreview.length" class="live-reasoning">
-          <span>思考摘要</span>
-          <p v-for="line in reasoningPreview" :key="line">{{ line }}</p>
-        </div>
-        <div class="live-log-list">
-          <div v-for="item in visibleLogs" :key="item.id" class="live-log" :class="`is-${item.status || 'running'}`">
-            <time>{{ item.time || 'now' }}</time>
-            <p>{{ item.text }}</p>
-          </div>
-          <div v-if="!visibleLogs.length" class="live-log is-running">
-            <time>now</time>
-            <p>正在建立流式连接，等待后端处理事件。</p>
-          </div>
-        </div>
-      </div>
+      <div v-if="loading && hasAnswer" class="live-process-hint">回答已开始输出，处理过程将自动收敛为状态条。</div>
     </div>
   </section>
 </template>
 
 <style scoped lang="scss">
   .live-process {
-    margin: 6px 0 14px;
-    color: #344054;
+    width: min(820px, 100%);
+    margin: 4px auto 14px;
   }
 
-  .live-process__bar {
+  .live-process-bar {
     display: inline-flex;
     max-width: 100%;
+    min-height: 36px;
     align-items: center;
     gap: 8px;
-    padding: 6px 10px;
-    border: 1px solid rgba(15, 23, 42, 0.08);
+    padding: 6px 11px 6px 9px;
+    border: 1px solid rgba(79, 70, 229, 0.16);
     border-radius: 999px;
-    background: #fff;
-    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.03);
+    background: rgba(255, 255, 255, 0.94);
     color: #475467;
     cursor: pointer;
-    transition: border-color 0.16s ease, box-shadow 0.16s ease;
+    box-shadow: 0 8px 28px rgba(15, 23, 42, 0.04);
+    backdrop-filter: blur(8px);
+    transition:
+      border-color 0.16s ease,
+      box-shadow 0.16s ease,
+      background 0.16s ease;
 
     &:hover {
-      border-color: rgba(99, 102, 241, 0.28);
-      box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+      border-color: rgba(79, 70, 229, 0.28);
+      box-shadow: 0 12px 34px rgba(15, 23, 42, 0.07);
     }
 
     time {
       color: #98a2b3;
       font-size: 12px;
-    }
-  }
-
-  .live-process__pulse {
-    width: 8px;
-    height: 8px;
-    flex: 0 0 auto;
-    border-radius: 999px;
-    background: #6366f1;
-    box-shadow: 0 0 0 6px rgba(99, 102, 241, 0.1);
-    animation: live-pulse 1.25s ease-in-out infinite;
-  }
-
-  .is-done .live-process__pulse {
-    animation: none;
-    background: #12b76a;
-    box-shadow: 0 0 0 5px rgba(18, 183, 106, 0.1);
-  }
-
-  .is-error .live-process__pulse {
-    animation: none;
-    background: #f04438;
-    box-shadow: 0 0 0 5px rgba(240, 68, 56, 0.12);
-  }
-
-  .live-process__summary {
-    color: #4f46e5;
-    font-size: 13px;
-    font-weight: 760;
-    white-space: nowrap;
-  }
-
-  .live-process__detail {
-    min-width: 0;
-    max-width: min(520px, 52vw);
-    overflow: hidden;
-    color: #667085;
-    font-size: 13px;
-    font-weight: 620;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .live-process__toggle {
-    color: #4f46e5;
-    font-size: 13px;
-    font-weight: 760;
-    white-space: nowrap;
-  }
-
-  .live-process__body {
-    display: grid;
-    grid-template-columns: minmax(220px, 0.9fr) minmax(280px, 1.2fr);
-    gap: 14px;
-    margin-top: 10px;
-    padding: 14px;
-    border: 1px solid rgba(15, 23, 42, 0.08);
-    border-radius: 22px;
-    background:
-      linear-gradient(90deg, rgba(99, 102, 241, 0.055), rgba(255, 255, 255, 0) 58%),
-      #fff;
-    box-shadow: 0 14px 40px rgba(15, 23, 42, 0.05);
-    animation: process-enter 0.16s ease both;
-  }
-
-  .live-process__timeline {
-    display: grid;
-    gap: 2px;
-    padding: 8px 4px;
-  }
-
-  .live-step {
-    position: relative;
-    display: grid;
-    grid-template-columns: 20px 1fr;
-    gap: 8px;
-    padding: 6px 0 10px;
-
-    &::before {
-      position: absolute;
-      top: 22px;
-      bottom: -6px;
-      left: 7px;
-      width: 1px;
-      background: rgba(99, 102, 241, 0.16);
-      content: '';
-    }
-
-    &:last-child::before {
-      display: none;
-    }
-
-    strong {
-      display: block;
-      color: #1d2939;
-      font-size: 14px;
-      font-weight: 760;
-    }
-
-    p {
-      margin: 3px 0 0;
-      color: #667085;
-      font-size: 13px;
-      line-height: 1.55;
-    }
-  }
-
-  .live-step__dot {
-    z-index: 1;
-    width: 14px;
-    height: 14px;
-    margin-top: 3px;
-    border: 3px solid #fff;
-    border-radius: 999px;
-    background: #d0d5dd;
-    box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.08);
-  }
-
-  .live-step.is-running .live-step__dot {
-    background: #6366f1;
-    box-shadow: 0 0 0 5px rgba(99, 102, 241, 0.1);
-    animation: live-pulse 1.25s ease-in-out infinite;
-  }
-
-  .live-step.is-done .live-step__dot {
-    background: #12b76a;
-  }
-
-  .live-step.is-error .live-step__dot {
-    background: #f04438;
-  }
-
-  .live-step__items {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 8px;
-
-    span {
-      max-width: 100%;
-      overflow: hidden;
-      padding: 4px 8px;
-      border-radius: 999px;
-      background: #f2f4f7;
-      color: #667085;
-      font-size: 12px;
-      text-overflow: ellipsis;
+      font-variant-numeric: tabular-nums;
       white-space: nowrap;
     }
   }
 
-  .live-process__stream {
-    min-width: 0;
-    padding: 12px;
-    border: 1px solid rgba(15, 23, 42, 0.07);
-    border-radius: 18px;
-    background: rgba(248, 250, 252, 0.72);
+  .live-process-bar__dot {
+    display: inline-flex;
+    width: 9px;
+    height: 9px;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: #6366f1;
+    box-shadow: 0 0 0 6px rgba(99, 102, 241, 0.1);
+    animation: process-pulse 1.35s ease-in-out infinite;
+
+    i {
+      color: #fff;
+      font-size: 7px;
+      font-style: normal;
+      line-height: 1;
+    }
   }
 
-  .live-process__stream-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 10px;
+  .is-done .live-process-bar__dot {
+    width: 14px;
+    height: 14px;
+    background: #667085;
+    box-shadow: none;
+    animation: none;
+  }
+
+  .is-error .live-process-bar__dot {
+    background: #f04438;
+    box-shadow: 0 0 0 6px rgba(240, 68, 56, 0.1);
+    animation: none;
+  }
+
+  .live-process-bar__title {
     color: #4f46e5;
     font-size: 13px;
     font-weight: 760;
-
-    b {
-      padding: 2px 7px;
-      border-radius: 999px;
-      background: rgba(99, 102, 241, 0.1);
-      font-size: 10px;
-      letter-spacing: 0.08em;
-    }
+    white-space: nowrap;
   }
 
-  .live-reasoning {
-    margin-bottom: 10px;
-    padding: 10px;
-    border-radius: 14px;
-    background: #fff;
+  .is-done .live-process-bar__title {
+    color: #475467;
+  }
+
+  .live-process-bar__detail {
+    min-width: 0;
+    max-width: min(560px, 52vw);
+    overflow: hidden;
+    color: #667085;
+    font-size: 13px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .live-process-bar__toggle {
+    color: #4f46e5;
+    font-size: 13px;
+    font-weight: 720;
+    white-space: nowrap;
+  }
+
+  .live-process-stream {
+    position: relative;
+    max-height: 300px;
+    margin-top: 10px;
+    overflow: auto;
+    padding: 14px 16px 8px;
+    border: 1px solid rgba(15, 23, 42, 0.06);
+    border-radius: 18px;
+    background:
+      radial-gradient(circle at 18% 0%, rgba(99, 102, 241, 0.065), transparent 34%),
+      linear-gradient(180deg, rgba(248, 250, 255, 0.86), rgba(255, 255, 255, 0.96));
+    box-shadow: 0 18px 48px rgba(15, 23, 42, 0.045);
+    animation: process-stream-enter 0.18s ease both;
+    scrollbar-width: thin;
+  }
+
+  .live-process-empty {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-height: 42px;
+    color: #667085;
 
     span {
-      color: #667085;
-      font-size: 12px;
-      font-weight: 760;
-    }
-
-    p {
-      margin: 6px 0 0;
-      color: #344054;
-      font-size: 13px;
-      line-height: 1.6;
-    }
-  }
-
-  .live-log-list {
-    display: grid;
-    gap: 8px;
-  }
-
-  .live-log {
-    display: grid;
-    grid-template-columns: 52px 1fr;
-    gap: 8px;
-    padding: 9px 10px;
-    border-radius: 13px;
-    background: #fff;
-    color: #475467;
-    font-size: 13px;
-
-    time {
-      color: #98a2b3;
-      font-variant-numeric: tabular-nums;
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #6366f1;
+      animation: process-pulse 1.35s ease-in-out infinite;
     }
 
     p {
       margin: 0;
-      line-height: 1.5;
+      font-size: 13px;
     }
   }
 
-  .live-log.is-running {
-    box-shadow: inset 3px 0 0 #6366f1;
+  .live-process-hint {
+    margin: 3px 0 6px 27px;
+    color: #98a2b3;
+    font-size: 12px;
   }
 
-  @keyframes live-pulse {
+  @keyframes process-stream-enter {
+    from {
+      opacity: 0;
+      filter: blur(6px);
+      transform: translateY(8px);
+    }
+
+    to {
+      opacity: 1;
+      filter: blur(0);
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes process-pulse {
     0%, 100% {
-      opacity: 0.72;
+      opacity: 0.7;
       transform: scale(0.94);
     }
 
@@ -462,33 +354,22 @@
     }
   }
 
-  @keyframes process-enter {
-    from {
-      opacity: 0;
-      transform: translateY(6px);
-    }
-
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
   @media (prefers-reduced-motion: reduce) {
-    .live-process__pulse,
-    .live-step.is-running .live-step__dot,
-    .live-process__body {
-      animation: none;
+    .live-process-bar__dot,
+    .live-process-stream,
+    .live-process-empty span {
+      animation: none !important;
+      filter: none;
     }
   }
 
   @media (max-width: 900px) {
-    .live-process__body {
-      grid-template-columns: 1fr;
+    .live-process-bar__detail {
+      max-width: 42vw;
     }
 
-    .live-process__detail {
-      max-width: 42vw;
+    .live-process-stream {
+      max-height: 260px;
     }
   }
 </style>

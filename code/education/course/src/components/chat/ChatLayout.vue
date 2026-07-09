@@ -3,7 +3,6 @@
   import { Message, Modal } from '@arco-design/web-vue';
   import {
     fetchAIContextCourses,
-    streamAIChat,
     uploadAIAttachment,
     type AIChatStreamPayload,
     type AIContextCourse,
@@ -22,6 +21,7 @@
   import ChatMain from './ChatMain.vue';
   import ChatSidebar from './ChatSidebar.vue';
   import ContextDrawer from './ContextDrawer.vue';
+  import { streamTutorChat } from './useTutorStream';
   import {
     CHAT_DEFAULT_RESOURCE_TYPES,
     getTutorAction,
@@ -222,7 +222,7 @@
     return assistant.liveProcess as Record<string, any>;
   }
 
-  function appendLiveLog(process: Record<string, any>, text: string, status = 'running') {
+  function appendLiveLog(process: Record<string, any>, text: string, status = 'running', title = '思考摘要') {
     const clean = String(text || '').trim();
     if (!clean) return;
     const logs = Array.isArray(process.logs) ? process.logs : [];
@@ -232,6 +232,7 @@
       ...logs,
       {
         id: `${Date.now()}-${logs.length}-${clean.slice(0, 20)}`,
+        title,
         text: clean,
         status,
         time: timeLabel(),
@@ -301,7 +302,6 @@
         startedAt: Date.now(),
         logs: [],
       };
-      appendLiveLog(assistant.liveProcess, data.title || '开始处理问题');
       return;
     }
     process.status = event === 'error' ? 'error' : event === 'run_finished' ? 'done' : process.status || 'running';
@@ -313,14 +313,12 @@
         text: data.text || '',
         startedAt: Date.now(),
       });
-      appendLiveLog(process, data.text || `开始${data.title || '处理阶段'}`);
     } else if (event === 'phase_delta') {
       upsertPhase(process, {
         id: data.phaseId,
         status: 'running',
         text: data.text || '',
       });
-      appendLiveLog(process, data.text || '');
     } else if (event === 'phase_finished') {
       upsertPhase(process, {
         id: data.phaseId,
@@ -329,7 +327,6 @@
         summary: data.summary || '',
         finishedAt: Date.now(),
       });
-      appendLiveLog(process, data.summary || `${data.title || '阶段'}完成`, data.status || 'done');
     } else if (event === 'tool_started') {
       upsertTool(process, {
         tool: data.tool,
@@ -338,14 +335,12 @@
         text: data.text || '',
         startedAt: Date.now(),
       });
-      appendLiveLog(process, data.text || `开始${data.title || '调用工具'}`);
     } else if (event === 'tool_delta') {
       upsertTool(process, {
         tool: data.tool,
         status: 'running',
         text: data.text || '',
       });
-      appendLiveLog(process, data.text || '');
     } else if (event === 'tool_result') {
       upsertTool(process, {
         tool: data.tool,
@@ -355,37 +350,29 @@
         items: Array.isArray(data.items) ? data.items : [],
         finishedAt: Date.now(),
       });
-      appendLiveLog(process, data.summary || '工具执行完成', data.status || 'done');
     } else if (event === 'reasoning_delta') {
       const text = normalizeReasoningLine(String(data.text || ''));
       if (!text) return;
       process.reasoningText = `${process.reasoningText || ''}${text}\n`;
       process.currentSummary = text;
-      appendLiveLog(process, text);
+      appendLiveLog(process, text, 'running', '思考摘要');
     } else if (event === 'citation') {
       process.citations = [...(process.citations || []), data];
       process.currentSummary = `已确认引用：${data.title || data.source || '课程证据'}`;
     } else if (event === 'safety_check') {
       process.safetyStatus = data.status || 'passed';
-      appendLiveLog(process, data.message || '已完成引用和安全检查', data.status === 'blocked' ? 'error' : 'done');
+      appendLiveLog(process, data.message || '已完成引用和安全检查', data.status === 'blocked' ? 'error' : 'done', '校验输出');
     } else if (event === 'run_finished') {
       process.status = 'done';
       process.currentSummary = data.summary || '本轮处理完成';
       process.finishedAt = Date.now();
-      appendLiveLog(process, process.currentSummary, 'done');
+      appendLiveLog(process, process.currentSummary, 'done', '完成处理');
     } else if (event === 'error') {
       process.status = 'error';
       process.currentSummary = data.message || '处理失败';
       process.finishedAt = Date.now();
-      appendLiveLog(process, process.currentSummary, 'error');
+      appendLiveLog(process, process.currentSummary, 'error', '处理失败');
     }
-  }
-
-  function hasProcessStage(assistant: Record<string, any>, stage: string, status?: string) {
-    const list = Array.isArray(assistant.processEvents) ? assistant.processEvents : [];
-    return list.some((item: Record<string, any>) =>
-      String(item.stage || '') === stage && (!status || String(item.status || '') === status)
-    );
   }
 
   const INTERNAL_REASONING_LINE_RE =
@@ -514,8 +501,7 @@
       mainScroller.value?.scrollTo({ top: mainScroller.value.scrollHeight, behavior: 'smooth' });
       abortController.value = new AbortController();
       let streamedAnswerChars = 0;
-      let lastProcessCharMark = 0;
-      await streamAIChat(
+      await streamTutorChat(
         payload,
         ({ event, data }) => {
           const assistant = latestAssistantMutable();
@@ -607,25 +593,8 @@
             appendReasoningDelta(assistant, data);
           } else if (event === 'answer_delta') {
             streamedAnswerChars += String(data.text || '').length;
-            if (!hasProcessStage(assistant, 'compose', 'running')) {
-              appendProcessEvent(assistant, {
-                stage: 'compose',
-                title: '组织回答',
-                detail: '模型正在流式生成正文',
-                status: 'running',
-                log: '开始接收 answer_delta',
-              });
-            }
-            if (streamedAnswerChars - lastProcessCharMark >= 420) {
-              lastProcessCharMark = streamedAnswerChars;
-              appendProcessEvent(assistant, {
-                stage: 'compose',
-                title: '组织回答',
-                detail: '模型正在持续输出正文',
-                status: 'running',
-                log: `已接收约 ${streamedAnswerChars} 个字符，继续流式生成`,
-              });
-            }
+            const process = ensureLiveProcess(assistant);
+            process.answerChars = streamedAnswerChars;
             assistant.content = `${assistant.content || ''}${data.text || ''}`;
           } else if (event === 'citation') {
             handleLiveProcessEvent(assistant, event, data);
@@ -671,20 +640,10 @@
                   ? data.data
                   : [];
           } else if (event === 'done') {
-            appendProcessEvent(assistant, {
-              stage: 'compose',
-              title: '组织回答',
-              detail: '正文回答已生成完成',
-              status: 'done',
-              log: '回答流已结束',
-            });
-            appendProcessEvent(assistant, {
-              stage: 'verify',
-              title: '校验输出',
-              detail: '本轮回答已完成引用、安全和后续建议检查',
-              status: 'done',
-              log: '处理完成',
-            });
+            const process = ensureLiveProcess(assistant);
+            process.status = 'done';
+            process.currentSummary = '本轮回答已完成引用、安全和后续建议检查';
+            process.finishedAt = Date.now();
             assistant.metrics = {
               ...(assistant.metrics || {}),
               ...(data.usage || {}),

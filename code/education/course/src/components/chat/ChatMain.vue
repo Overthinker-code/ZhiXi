@@ -1,4 +1,5 @@
 <script setup lang="ts">
+  import { computed, nextTick, ref, watch } from 'vue';
   import AssistantMessage from './AssistantMessage.vue';
 
   const props = defineProps<{
@@ -13,10 +14,39 @@
 
   const isLastAssistant = (index: number) =>
     index === props.messages.length - 1 && props.messages[index]?.role === 'assistant';
+
+  const mainRef = ref<HTMLElement | null>(null);
+  const shouldStickToBottom = ref(true);
+  const streamSignature = computed(() =>
+    props.messages
+      .map((message) => `${message.localId || message.id || message.role}:${String(message.content || '').length}:${message.loading ? 1 : 0}`)
+      .join('|')
+  );
+
+  function onScroll() {
+    const el = mainRef.value;
+    if (!el) return;
+    shouldStickToBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 180;
+  }
+
+  function scrollToBottom(behavior: ScrollBehavior = 'auto') {
+    const el = mainRef.value;
+    if (!el || !shouldStickToBottom.value) return;
+    el.scrollTo({ top: el.scrollHeight, behavior });
+  }
+
+  watch(
+    streamSignature,
+    async () => {
+      await nextTick();
+      scrollToBottom('auto');
+    },
+    { flush: 'post' }
+  );
 </script>
 
 <template>
-  <main class="chat-main" data-testid="tutor-chat-main">
+  <main ref="mainRef" class="chat-main" data-testid="tutor-chat-main" @scroll="onScroll">
     <section v-if="!messages.length" class="chat-empty">
       <h1>今天想学习什么？</h1>
     </section>
@@ -34,6 +64,7 @@
           :message="message"
           :is-last="isLastAssistant(index)"
           @send-suggestion="emit('send-suggestion', $event)"
+          @retry="emit('retry')"
         />
         <div v-else-if="message.role === 'error'" class="error-message">
           <strong>{{ message.content }}</strong>

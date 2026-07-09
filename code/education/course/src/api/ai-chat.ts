@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { getToken } from '@/utils/auth';
+import { parseSSEBlock } from '@/components/chat/sseParser';
 
 const AI_STREAM_TIMEOUT_MS = 600000;
 
@@ -91,31 +92,6 @@ function streamUrl() {
   return base ? `${base}/api/ai/chat/stream` : '/api/ai/chat/stream';
 }
 
-function parseEventBlock(block: string): AIStreamEvent | null {
-  const lines = block.split(/\r?\n/);
-  let event = 'message';
-  const dataLines: string[] = [];
-  lines.forEach((line) => {
-    if (line.startsWith('event:')) {
-      event = line.slice(6).trim();
-    } else if (line.startsWith('data:')) {
-      dataLines.push(line.slice(5).trimStart());
-    }
-  });
-  if (!dataLines.length) return null;
-  try {
-    return {
-      event,
-      data: JSON.parse(dataLines.join('\n')) as Record<string, any>,
-    };
-  } catch {
-    return {
-      event,
-      data: { text: dataLines.join('\n') },
-    };
-  }
-}
-
 export async function streamAIChat(
   payload: AIChatStreamPayload,
   onEvent: (event: AIStreamEvent) => void,
@@ -155,7 +131,7 @@ export async function streamAIChat(
         const blocks = buffer.split(/\n\n/);
         buffer = blocks.pop() || '';
         blocks.forEach((block) => {
-          const parsed = parseEventBlock(block);
+          const parsed = parseSSEBlock(block);
           if (parsed) onEvent(parsed);
         });
       }
@@ -164,7 +140,7 @@ export async function streamAIChat(
     /* eslint-enable no-await-in-loop */
     const tail = buffer.trim();
     if (tail) {
-      const parsed = parseEventBlock(tail);
+      const parsed = parseSSEBlock(tail);
       if (parsed) onEvent(parsed);
     }
   } finally {
