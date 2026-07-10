@@ -2,7 +2,7 @@ from typing import Optional
 from uuid import UUID
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 class UserBase(BaseModel):
     email: Optional[EmailStr] = None
@@ -24,11 +24,10 @@ class UserUpdate(UserBase):
 
 
 class UserInDBBase(UserBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 class User(UserInDBBase):
     pass

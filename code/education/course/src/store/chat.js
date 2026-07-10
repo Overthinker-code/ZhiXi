@@ -68,29 +68,16 @@ const useChatStore = defineStore(
           delete _mountedFileMap.value[DRAFT_KEY];
         }
       };
-      try {
-        const thread = await createChatThread();
-        const newConversation = {
-          id: thread.thread_id,
-          title: thread.title,
-          createdAt: Date.parse(thread.created_at) || Date.now(),
-        };
-        conversations.value.unshift(newConversation);
-        _messagesMap.value[newConversation.id] = [];
-        attachDraftMount(newConversation.id);
-        currentConversationId.value = newConversation.id;
-      } catch {
-        const id = `local-${Date.now()}`;
-        const newConversation = {
-          id,
-          title: '新对话',
-          createdAt: Date.now(),
-        };
-        conversations.value.unshift(newConversation);
-        _messagesMap.value[newConversation.id] = [];
-        attachDraftMount(newConversation.id);
-        currentConversationId.value = newConversation.id;
-      }
+      const thread = await createChatThread();
+      const newConversation = {
+        id: thread.thread_id,
+        title: thread.title,
+        createdAt: Date.parse(thread.created_at) || Date.now(),
+      };
+      conversations.value.unshift(newConversation);
+      _messagesMap.value[newConversation.id] = [];
+      attachDraftMount(newConversation.id);
+      currentConversationId.value = newConversation.id;
     };
 
     /**
@@ -102,7 +89,6 @@ const useChatStore = defineStore(
     };
 
     const loadConversations = async () => {
-      const localConversations = conversations.value.slice();
       try {
         const raw = await fetchChatThreads();
         const threads = Array.isArray(raw) ? raw : [];
@@ -111,21 +97,6 @@ const useChatStore = defineStore(
           title: thread.title,
           createdAt: Date.parse(thread.created_at) || Date.now(),
         }));
-
-        if (!conversations.value.length && localConversations.length) {
-          await Promise.all(
-            localConversations.map((conv) =>
-              createChatThread(conv.title, conv.id).catch(() => null)
-            )
-          );
-          const refreshed = await fetchChatThreads();
-          const list = Array.isArray(refreshed) ? refreshed : [];
-          conversations.value = list.map((thread) => ({
-            id: thread.thread_id,
-            title: thread.title,
-            createdAt: Date.parse(thread.created_at) || Date.now(),
-          }));
-        }
 
         const cid = currentConversationId.value;
         if (cid === '') {
@@ -297,20 +268,22 @@ const useChatStore = defineStore(
         (c) => c.id === conversationId
       );
       if (conversation) {
+        const previousTitle = conversation.title;
         conversation.title = newTitle;
-      }
-      try {
+        try {
+          await updateChatThreadTitle(conversationId, newTitle);
+        } catch (error) {
+          conversation.title = previousTitle;
+          throw error;
+        }
+      } else {
         await updateChatThreadTitle(conversationId, newTitle);
-      } catch (error) {
-        // ignore title sync errors
       }
     };
 
     const deleteConversation = async (conversationId) => {
-      try {
+      if (!String(conversationId).startsWith('local-')) {
         await deleteChatThread(conversationId);
-      } catch {
-        /* 仍执行本地移除，避免列表无法操作 */
       }
       const index = conversations.value.findIndex(
         (c) => c.id === conversationId
@@ -318,6 +291,7 @@ const useChatStore = defineStore(
       if (index !== -1) {
         conversations.value.splice(index, 1);
         delete _messagesMap.value[conversationId];
+        delete _mountedFileMap.value[conversationId];
       }
       if (conversationId === currentConversationId.value) {
         if (conversations.value.length > 0) {
@@ -330,15 +304,31 @@ const useChatStore = defineStore(
 
     const deleteAllConversations = async () => {
       const list = [...conversations.value];
-      for (const c of list) {
-        try {
-          await deleteChatThread(c.id);
-        } catch {
-          /* */
+      const results = await Promise.allSettled(
+        list.map((conversation) =>
+          String(conversation.id).startsWith('local-')
+            ? Promise.resolve()
+            : deleteChatThread(conversation.id)
+        )
+      );
+      const failed = [];
+
+      results.forEach((result, index) => {
+        const conversation = list[index];
+        if (result.status === 'fulfilled') {
+          delete _messagesMap.value[conversation.id];
+          delete _mountedFileMap.value[conversation.id];
+        } else {
+          failed.push(conversation);
         }
-        delete _messagesMap.value[c.id];
+      });
+
+      conversations.value = failed;
+      if (failed.length) {
+        currentConversationId.value = failed[0].id;
+        throw new Error(`${failed.length} 个会话未能删除，请检查后端后重试`);
       }
-      conversations.value = [];
+
       _mountedFileMap.value = {};
       enterDraftSession();
     };

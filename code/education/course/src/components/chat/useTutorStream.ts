@@ -15,7 +15,7 @@ function appendDelta(queue: AIStreamEvent[], event: AIStreamEvent) {
   queue.push(event);
 }
 
-export function streamTutorChat(
+export default function streamTutorChat(
   payload: AIChatStreamPayload,
   onEvent: (event: AIStreamEvent) => void,
   signal?: AbortSignal

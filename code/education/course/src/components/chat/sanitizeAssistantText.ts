@@ -4,7 +4,10 @@ const CLOSE_THINK_RE = /<\/think>/gi;
 const INTERNAL_LINE_RE =
   /(intent_classifier|course_context|reasoning_content|系统消息|上下文注入|协作线程|首条系统消息|Supervisor|intermediate_steps|tool_policy|route_trace|【(?:流水线|知识检索|工具策略|工具执行|联网搜索|多智能体协作)】)/i;
 
-export function sanitizeAssistantText(input: unknown, options: { preserveEdges?: boolean } = {}) {
+export default function sanitizeAssistantText(
+  input: unknown,
+  options: { preserveEdges?: boolean } = {}
+) {
   const raw = String(input || '');
   if (!raw) return '';
   const withoutThink = raw

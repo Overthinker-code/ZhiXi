@@ -4,7 +4,7 @@
   import ArtifactCards from './ArtifactCards.vue';
   import CitationList from './CitationList.vue';
   import LiveProcessPanel from './LiveProcessPanel.vue';
-  import { sanitizeAssistantText } from './sanitizeAssistantText';
+  import sanitizeAssistantText from './sanitizeAssistantText';
 
   const props = defineProps<{
     message: Record<string, any>;
@@ -12,7 +12,7 @@
   }>();
 
   const emit = defineEmits<{
-    (e: 'send-suggestion', text: string): void;
+    (e: 'sendSuggestion', text: string): void;
     (e: 'retry'): void;
   }>();
 
@@ -60,7 +60,7 @@
         v-for="item in suggestions"
         :key="item"
         type="button"
-        @click="emit('send-suggestion', item)"
+        @click="emit('sendSuggestion', item)"
       >
         {{ item }}
       </button>

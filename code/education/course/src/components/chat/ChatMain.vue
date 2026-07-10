@@ -9,7 +9,7 @@
 
   const emit = defineEmits<{
     (e: 'retry'): void;
-    (e: 'send-suggestion', text: string): void;
+    (e: 'sendSuggestion', text: string): void;
   }>();
 
   const isLastAssistant = (index: number) =>
@@ -29,7 +29,7 @@
     shouldStickToBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 180;
   }
 
-  function scrollToBottom(behavior: ScrollBehavior = 'auto') {
+  function scrollToBottom(behavior: 'auto' | 'smooth' = 'auto') {
     const el = mainRef.value;
     if (!el || !shouldStickToBottom.value) return;
     el.scrollTo({ top: el.scrollHeight, behavior });
@@ -63,7 +63,7 @@
           v-else-if="message.role === 'assistant'"
           :message="message"
           :is-last="isLastAssistant(index)"
-          @send-suggestion="emit('send-suggestion', $event)"
+          @send-suggestion="emit('sendSuggestion', $event)"
           @retry="emit('retry')"
         />
         <div v-else-if="message.role === 'error'" class="error-message">

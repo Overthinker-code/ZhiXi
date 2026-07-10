@@ -47,13 +47,15 @@
   const running = computed(() =>
     visibleEvents.value.find((item) => item.status === 'running')
   );
-  const summaryText = computed(() =>
-    running.value
-      ? `正在${friendlyLabel(running.value)}`
-      : visibleEvents.value.length
-        ? '已整理好回答依据'
-        : '正在分析问题'
-  );
+  const summaryText = computed(() => {
+    if (running.value) return `正在${friendlyLabel(running.value)}`;
+    return visibleEvents.value.length ? '已整理好回答依据' : '正在分析问题';
+  });
+  const statusLabel = (status: string | undefined) => {
+    if (status === 'running') return '进行中';
+    if (status === 'error') return '处理失败';
+    return '已完成';
+  };
 </script>
 
 <template>
@@ -68,7 +70,7 @@
         <span :class="['step-state', item.status || 'done']" />
         <div>
           <strong>{{ friendlyLabel(item, index) }}</strong>
-          <p>{{ item.status === 'running' ? '进行中' : item.status === 'error' ? '处理失败' : '已完成' }}</p>
+          <p>{{ statusLabel(item.status) }}</p>
         </div>
       </li>
     </ol>

@@ -25,8 +25,12 @@ export function parseSSEBlock(block: string): ParsedSSEEvent | null {
     };
   } catch {
     return {
-      event,
-      data: { text: dataLines.join('\n') },
+      event: 'error',
+      data: {
+        code: 'INVALID_SSE_PAYLOAD',
+        message: '流式响应格式异常，请重试',
+        sourceEvent: event,
+      },
     };
   }
 }

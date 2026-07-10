@@ -14,10 +14,10 @@
   }>();
 
   const emit = defineEmits<{
-    (e: 'new-chat'): void;
+    (e: 'newChat'): void;
     (e: 'switch', id: string): void;
     (e: 'delete', id: string): void;
-    (e: 'clear-all'): void;
+    (e: 'clearAll'): void;
     (e: 'toggle'): void;
   }>();
 
@@ -53,7 +53,7 @@
       <button type="button" class="collapse-btn" @click="emit('toggle')">
         {{ collapsed ? '›' : '‹' }}
       </button>
-      <button v-if="!collapsed" type="button" class="new-chat" @click="emit('new-chat')">
+      <button v-if="!collapsed" type="button" class="new-chat" @click="emit('newChat')">
         新建对话
       </button>
     </div>
@@ -65,7 +65,7 @@
           class="clear-all-button"
           :disabled="!conversations.length"
           title="一键清除全部对话记录"
-          @click="emit('clear-all')"
+          @click="emit('clearAll')"
         >
           清除
         </button>
@@ -87,7 +87,7 @@
         </button>
       </section>
     </template>
-    <button v-else type="button" class="collapsed-new" @click="emit('new-chat')">+</button>
+    <button v-else type="button" class="collapsed-new" @click="emit('newChat')">+</button>
   </aside>
 </template>
 

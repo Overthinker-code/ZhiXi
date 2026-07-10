@@ -1,6 +1,7 @@
 import logging
 import subprocess
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import sentry_sdk
@@ -34,12 +35,6 @@ def custom_generate_unique_id(route: APIRoute) -> str:
 if settings.SENTRY_DSN and settings.ENVIRONMENT != "local":
     sentry_sdk.init(dsn=str(settings.SENTRY_DSN), enable_tracing=True)
 
-app = FastAPI(
-    title=settings.PROJECT_NAME,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json",
-    generate_unique_id_function=custom_generate_unique_id,
-)
-
 
 def run_schema_migrations() -> None:
     """在应用启动时补齐增量 schema 变更。"""
@@ -59,7 +54,6 @@ def run_schema_migrations() -> None:
     )
 
 
-@app.on_event("startup")
 def ensure_sqlalchemy_tables() -> None:
     # SQLAlchemy tables used by chat/history modules
     Base.metadata.create_all(bind=engine)
@@ -68,6 +62,20 @@ def ensure_sqlalchemy_tables() -> None:
     with Session(engine) as session:
         init_db(session)
     logger.info("Schema migrations are up to date")
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    ensure_sqlalchemy_tables()
+    yield
+
+
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    generate_unique_id_function=custom_generate_unique_id,
+    lifespan=lifespan,
+)
 
 # Set all CORS enabled origins
 if settings.all_cors_origins:

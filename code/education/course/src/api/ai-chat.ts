@@ -99,11 +99,16 @@ export async function streamAIChat(
 ) {
   const token = getToken();
   const controller = new AbortController();
+  let timedOut = false;
+  const abortFromSignal = () => controller.abort();
   if (signal) {
     if (signal.aborted) controller.abort();
-    else signal.addEventListener('abort', () => controller.abort(), { once: true });
+    else signal.addEventListener('abort', abortFromSignal, { once: true });
   }
-  const timeout = window.setTimeout(() => controller.abort(), AI_STREAM_TIMEOUT_MS);
+  const timeout = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, AI_STREAM_TIMEOUT_MS);
   try {
     const response = await fetch(streamUrl(), {
       method: 'POST',
@@ -128,7 +133,7 @@ export async function streamAIChat(
       const { value, done } = await reader.read();
       if (value?.length) {
         buffer += decoder.decode(value, { stream: true });
-        const blocks = buffer.split(/\n\n/);
+        const blocks = buffer.split(/\r?\n\r?\n/);
         buffer = blocks.pop() || '';
         blocks.forEach((block) => {
           const parsed = parseSSEBlock(block);
@@ -138,13 +143,20 @@ export async function streamAIChat(
       if (done) break;
     }
     /* eslint-enable no-await-in-loop */
+    buffer += decoder.decode();
     const tail = buffer.trim();
     if (tail) {
       const parsed = parseSSEBlock(tail);
       if (parsed) onEvent(parsed);
     }
+  } catch (error) {
+    if (timedOut && error instanceof Error && error.name === 'AbortError') {
+      throw new Error('回答生成超时，请重试或降低思考强度');
+    }
+    throw error;
   } finally {
     window.clearTimeout(timeout);
+    signal?.removeEventListener('abort', abortFromSignal);
   }
 }
 

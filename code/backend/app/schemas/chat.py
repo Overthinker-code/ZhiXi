@@ -1,6 +1,6 @@
 from typing import Optional, List, Dict, Any
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ChatBase(BaseModel):
@@ -46,15 +46,15 @@ class ChatInDBBase(ChatBase):
 
 
 class Chat(ChatInDBBase):
-    tool_calls: List[Dict[str, Any]] = []
+    tool_calls: List[Dict[str, Any]] = Field(default_factory=list)
     agent: Optional[str] = None
     intent: Optional[str] = None
     routing_reason: Optional[str] = None
-    citations: List[Dict[str, Any]] = []
+    citations: List[Dict[str, Any]] = Field(default_factory=list)
     confidence: Optional[str] = None
     grounding_mode: Optional[str] = None
-    suggestions: List[str] = []
-    metrics: Dict[str, Any] = {}
+    suggestions: List[str] = Field(default_factory=list)
+    metrics: Dict[str, Any] = Field(default_factory=dict)
 
 class ChatInDB(ChatInDBBase):
     pass

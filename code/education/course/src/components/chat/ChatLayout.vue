@@ -20,8 +20,8 @@
   import ChatMain from './ChatMain.vue';
   import ChatSidebar from './ChatSidebar.vue';
   import ContextDrawer from './ContextDrawer.vue';
-  import { sanitizeAssistantText } from './sanitizeAssistantText';
-  import { streamTutorChat } from './useTutorStream';
+  import sanitizeAssistantText from './sanitizeAssistantText';
+  import streamTutorChat from './useTutorStream';
   import {
     CHAT_DEFAULT_RESOURCE_TYPES,
     getTutorAction,
@@ -91,6 +91,14 @@
     ];
   });
 
+  function openPanel(panel: TutorPanel) {
+    if (panel === 'upload') {
+      composerRef.value?.openUpload();
+    } else if (panel === 'course_picker') {
+      drawerVisible.value = true;
+    }
+  }
+
   function patchFromAction(action: TutorAction) {
     activeAction.value = action;
     mode.value = action.mode;
@@ -143,17 +151,22 @@
       okText: '清空',
       cancelText: '取消',
       async onOk() {
-        await chatStore.deleteAllConversations();
-        Message.success('已清空全部历史');
+        try {
+          await chatStore.deleteAllConversations();
+          Message.success('已清空全部历史');
+        } catch (error) {
+          Message.error(error instanceof Error ? error.message : '部分会话删除失败，请重试');
+          throw error;
+        }
       },
     });
   }
 
-  function openPanel(panel: TutorPanel) {
-    if (panel === 'upload') {
-      composerRef.value?.openUpload();
-    } else if (panel === 'course_picker') {
-      drawerVisible.value = true;
+  async function deleteConversation(conversationId: string) {
+    try {
+      await chatStore.deleteConversation(conversationId);
+    } catch (error) {
+      Message.error(error instanceof Error ? error.message : '删除会话失败，请稍后重试');
     }
   }
 
@@ -314,7 +327,13 @@
       };
       return;
     }
-    process.status = event === 'error' ? 'error' : event === 'run_finished' ? 'done' : process.status || 'running';
+    if (event === 'error') {
+      process.status = 'error';
+    } else if (event === 'run_finished') {
+      process.status = 'done';
+    } else {
+      process.status = process.status || 'running';
+    }
     if (event === 'phase_started') {
       upsertPhase(process, {
         id: data.phaseId,
@@ -404,16 +423,37 @@
   }
 
   async function uploadFiles(files: File[], sessionId: string): Promise<ChatAttachmentPayload[]> {
-    const attachments: ChatAttachmentPayload[] = [];
-    for (const file of files) {
-      const res = await uploadAIAttachment(file, sessionId);
-      attachments.push({
-        fileId: String(res.fileId),
-        type: res.type,
-        name: res.name || file.name,
-      });
+    return Promise.all(
+      files.map(async (file) => {
+        const res = await uploadAIAttachment(file, sessionId);
+        return {
+          fileId: String(res.fileId),
+          type: res.type,
+          name: res.name || file.name,
+        };
+      })
+    );
+  }
+
+  function citationSourceType(tool: unknown) {
+    const key = String(tool || '');
+    if (key.includes('web')) return 'web';
+    if (key.includes('attachment')) return 'uploaded';
+    return 'course';
+  }
+
+  function suggestionsFromEvent(data: Record<string, any>) {
+    if (Array.isArray(data.items)) return data.items;
+    if (Array.isArray(data.suggestions)) return data.suggestions;
+    if (Array.isArray(data.data)) return data.data;
+    return [];
+  }
+
+  function streamErrorMessage(code: string, data: Record<string, any>) {
+    if (code === 'RAG_EMPTY') {
+      return '当前课程资料不足，可切换联网搜索或上传资料。';
     }
-    return attachments;
+    return String(data.message || data.content || '后端生成失败');
   }
 
   function buildPayload(text: string, attachments: ChatAttachmentPayload[]): AIChatStreamPayload {
@@ -509,12 +549,7 @@
           ) {
             handleLiveProcessEvent(assistant, event, data);
             if (event === 'tool_result' && Array.isArray(data.items) && data.items.length) {
-              const sourceType =
-                String(data.tool || '').includes('web')
-                  ? 'web'
-                  : String(data.tool || '').includes('attachment')
-                    ? 'uploaded'
-                    : 'course';
+              const sourceType = citationSourceType(data.tool);
               assistant.citations = [
                 ...(assistant.citations || []),
                 ...data.items.map((item: Record<string, any>, index: number) => ({
@@ -621,13 +656,7 @@
               status: 'done',
             });
           } else if (event === 'suggestions') {
-            assistant.suggestions = Array.isArray(data.items)
-              ? data.items
-              : Array.isArray(data.suggestions)
-                ? data.suggestions
-                : Array.isArray(data.data)
-                  ? data.data
-                  : [];
+            assistant.suggestions = suggestionsFromEvent(data);
           } else if (event === 'done') {
             const process = ensureLiveProcess(assistant);
             process.status = 'done';
@@ -644,10 +673,7 @@
           } else if (event === 'error') {
             handleLiveProcessEvent(assistant, event, data);
             const code = String(data.code || '');
-            const message =
-              code === 'RAG_EMPTY'
-                ? '当前课程资料不足，可切换联网搜索或上传资料。'
-                : String(data.message || data.content || '后端生成失败');
+            const message = streamErrorMessage(code, data);
             if (code === 'RESOURCE_GENERATION_FAILED' && assistant.content) {
               appendProcessEvent(assistant, {
                 stage: 'compose',
@@ -692,7 +718,9 @@
       chatStore.setIsLoading(false);
       const last = latestAssistantMutable();
       if (last?.role === 'assistant') last.loading = false;
-      void chatStore.loadConversations();
+      chatStore.loadConversations().catch((error: unknown) => {
+        console.error('[Tutor] failed to refresh conversation list', error);
+      });
     }
   }
 
@@ -735,8 +763,9 @@
         });
       });
       chatStore.setConversationMessages(threadId, next);
-    } catch {
-      chatStore.setConversationMessages(threadId, []);
+    } catch (error) {
+      console.error('[Tutor] failed to load conversation history', error);
+      Message.error('加载对话历史失败，请稍后重试');
     }
   }
 
@@ -797,7 +826,7 @@
       :collapsed="sidebarCollapsed"
       @new-chat="chatStore.enterDraftSession()"
       @switch="chatStore.switchConversation"
-      @delete="chatStore.deleteConversation"
+      @delete="deleteConversation"
       @clear-all="clearAllConversations"
       @toggle="sidebarCollapsed = !sidebarCollapsed"
     />

@@ -1,3 +1,4 @@
+import logging
 from typing import List
 from sqlalchemy.orm import Session
 
@@ -14,6 +15,9 @@ from app.providers.chat_thread_provider import chat_thread_provider
 from app.schemas.chat_thread import ChatThreadCreate
 from app.services.background_tasks import schedule_memory_profile_refresh
 from app.services.chat_artifact_service import upsert_chat_artifact, attach_chat_artifact
+
+
+logger = logging.getLogger(__name__)
 
 
 _ALLOWED_TOOL_MODES = {
@@ -179,8 +183,11 @@ class ChatProvider(BaseProvider[Chat, ChatCreate, ChatUpdate]):
         try:
             thread = chat_thread_provider.get_by_thread_id(db, thread_id=thread_id)
             schedule_memory_profile_refresh(getattr(thread, "user_id", None))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "chat turn saved but memory profile refresh could not be scheduled: %s",
+                exc,
+            )
         return db_obj
 
 chat_provider = ChatProvider(Chat)

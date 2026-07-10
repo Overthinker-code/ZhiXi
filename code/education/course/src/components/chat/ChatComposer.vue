@@ -15,10 +15,10 @@
     (e: 'send', payload: { text: string; files: File[] }): void;
     (e: 'stop'): void;
     (e: 'action', actionId: string): void;
-    (e: 'toggle-web'): void;
-    (e: 'set-reasoning', level: ReasoningLevel): void;
-    (e: 'open-panel', panel: TutorPanel): void;
-    (e: 'update-resource-types', types: string[]): void;
+    (e: 'toggleWeb'): void;
+    (e: 'setReasoning', level: ReasoningLevel): void;
+    (e: 'openPanel', panel: TutorPanel): void;
+    (e: 'updateResourceTypes', types: string[]): void;
   }>();
 
   const input = ref('');
@@ -122,7 +122,7 @@
     input.value = '';
     files.value = [];
     closeFloatingPanels();
-    void nextTick(resizeTextarea);
+    nextTick(resizeTextarea);
   };
 
   const onKeydown = (event: KeyboardEvent) => {
@@ -143,11 +143,11 @@
     const set = new Set(props.resourceRequest.types);
     if (set.has(type)) set.delete(type);
     else set.add(type);
-    emit('update-resource-types', Array.from(set));
+    emit('updateResourceTypes', Array.from(set));
   };
 
   const toggleWebSearch = () => {
-    emit('toggle-web');
+    emit('toggleWeb');
   };
 
   const chooseReasoning = (id: string) => {
@@ -155,7 +155,7 @@
     if (!option) return;
     selectedReasoningId.value = option.id;
     reasoningMenuOpen.value = false;
-    emit('set-reasoning', option.level);
+    emit('setReasoning', option.level);
   };
 
   watch(
@@ -163,8 +163,13 @@
     (level) => {
       const current = reasoningOptions.find((item) => item.id === selectedReasoningId.value);
       if (current?.level === level) return;
-      selectedReasoningId.value =
-        level === 'fast' ? 'fast' : level === 'deep' ? 'high' : 'balanced';
+      if (level === 'fast') {
+        selectedReasoningId.value = 'fast';
+      } else if (level === 'deep') {
+        selectedReasoningId.value = 'high';
+      } else {
+        selectedReasoningId.value = 'balanced';
+      }
     },
     { immediate: true }
   );
@@ -250,7 +255,7 @@
               <button
                 type="button"
                 class="tool-menu__item"
-                @click="emit('open-panel', 'course_picker'); toolMenuOpen = false"
+                @click="emit('openPanel', 'course_picker'); toolMenuOpen = false"
               >
                 <span class="menu-icon">@</span>
                 <span class="menu-copy">

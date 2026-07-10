@@ -45,11 +45,28 @@ class VectorStore:
         k: int = 4,
         filter: Optional[dict] = None,
     ) -> List[Tuple[Document, float]]:
+        if settings.EMBEDDINGS_PROVIDER.lower() == "hash":
+            matches = self.db.similarity_search_with_score(
+                query,
+                k=k,
+                filter=filter,
+            )
+            return [
+                (document, self._hash_distance_to_relevance(distance))
+                for document, distance in matches
+            ]
         return self.db.similarity_search_with_relevance_scores(
             query,
             k=k,
             filter=filter,
         )
+
+    @staticmethod
+    def _hash_distance_to_relevance(distance: float) -> float:
+        """Map Chroma squared L2 distance for unit hash vectors to [0, 1]."""
+
+        cosine_similarity = 1.0 - float(distance) / 2.0
+        return max(0.0, min(1.0, cosine_similarity))
 
     def get_all_metadatas(self) -> List[dict]:
         data = self.db.get(include=["metadatas"])

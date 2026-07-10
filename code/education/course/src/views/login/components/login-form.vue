@@ -13,7 +13,11 @@
             :validate-trigger="['change', 'blur']"
             hide-label
           >
-            <a-input v-model="loginForm.username" :placeholder="$t('login.form.userName.placeholder')">
+            <a-input
+              v-model="loginForm.username"
+              :placeholder="$t('login.form.userName.placeholder')"
+              autocomplete="username"
+            >
               <template #prefix>
                 <icon-user />
               </template>
@@ -28,6 +32,7 @@
             <a-input-password
               v-model="loginForm.password"
               :placeholder="$t('login.form.password.placeholder')"
+              autocomplete="current-password"
               allow-clear
             >
               <template #prefix>
@@ -63,14 +68,14 @@
             :validate-trigger="['change', 'blur']"
             hide-label
           >
-            <a-input v-model="registerForm.email" placeholder="邮箱地址">
+            <a-input v-model="registerForm.email" placeholder="邮箱地址" autocomplete="email">
               <template #prefix>
                 <icon-email />
               </template>
             </a-input>
           </a-form-item>
           <a-form-item field="full_name" hide-label>
-            <a-input v-model="registerForm.full_name" placeholder="姓名（可选）">
+            <a-input v-model="registerForm.full_name" placeholder="姓名（可选）" autocomplete="name">
               <template #prefix>
                 <icon-user />
               </template>
@@ -85,7 +90,12 @@
             :validate-trigger="['change', 'blur']"
             hide-label
           >
-            <a-input-password v-model="registerForm.password" placeholder="密码（至少6位）" allow-clear>
+            <a-input-password
+              v-model="registerForm.password"
+              placeholder="密码（至少6位）"
+              autocomplete="new-password"
+              allow-clear
+            >
               <template #prefix>
                 <icon-lock />
               </template>
@@ -100,7 +110,12 @@
             :validate-trigger="['change', 'blur']"
             hide-label
           >
-            <a-input-password v-model="registerForm.confirmPassword" placeholder="确认密码" allow-clear>
+            <a-input-password
+              v-model="registerForm.confirmPassword"
+              placeholder="确认密码"
+              autocomplete="new-password"
+              allow-clear
+            >
               <template #prefix>
                 <icon-lock />
               </template>
@@ -125,7 +140,7 @@
             :validate-trigger="['change', 'blur']"
             hide-label
           >
-            <a-input v-model="recoveryForm.email" placeholder="输入注册邮箱">
+            <a-input v-model="recoveryForm.email" placeholder="输入注册邮箱" autocomplete="email">
               <template #prefix>
                 <icon-email />
               </template>

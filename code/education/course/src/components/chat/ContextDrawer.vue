@@ -18,9 +18,9 @@
 
   const emit = defineEmits<{
     (e: 'close'): void;
-    (e: 'update-course', courseId: string): void;
-    (e: 'update-chapter', chapterId: string): void;
-    (e: 'toggle-rag'): void;
+    (e: 'updateCourse', courseId: string): void;
+    (e: 'updateChapter', chapterId: string): void;
+    (e: 'toggleRag'): void;
   }>();
 
   const selectedCourse = computed(() =>
@@ -42,7 +42,7 @@
         课程
         <select
           :value="courseContext.courseId || ''"
-          @change="emit('update-course', ($event.target as HTMLSelectElement).value)"
+          @change="emit('updateCourse', ($event.target as HTMLSelectElement).value)"
         >
           <option value="">未选择</option>
           <option v-for="course in courses" :key="course.courseId" :value="course.courseId">
@@ -54,7 +54,7 @@
         章节
         <select
           :value="courseContext.chapterId || ''"
-          @change="emit('update-chapter', ($event.target as HTMLSelectElement).value)"
+          @change="emit('updateChapter', ($event.target as HTMLSelectElement).value)"
         >
           <option value="">未选择</option>
           <option
@@ -66,7 +66,7 @@
           </option>
         </select>
       </label>
-      <button type="button" :class="{ active: courseContext.useCourseRag }" @click="emit('toggle-rag')">
+      <button type="button" :class="{ active: courseContext.useCourseRag }" @click="emit('toggleRag')">
         课程 RAG：{{ courseContext.useCourseRag ? '开启' : '关闭' }}
       </button>
     </section>

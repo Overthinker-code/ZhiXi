@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
+import math
 import re
 from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from langchain_core.messages import HumanMessage
 from sqlmodel import Session, select, or_
 
@@ -16,6 +18,9 @@ from app.models.chat import Chat
 from app.models.chat_thread import ChatThread
 from app.models.user_memory_profile import UserMemoryProfile
 from app.services.chat_model_factory import ChatModelFactory
+
+
+logger = logging.getLogger(__name__)
 
 
 class MemoryProfilePayload(BaseModel):
@@ -130,7 +135,7 @@ class UserMemoryProfileService:
             data = json.loads(text)
             if isinstance(data, dict):
                 return data
-        except Exception:
+        except json.JSONDecodeError:
             pass
         match = re.search(r"\{[\s\S]*\}", text)
         if not match:
@@ -139,7 +144,7 @@ class UserMemoryProfileService:
             data = json.loads(match.group(0))
             if isinstance(data, dict):
                 return data
-        except Exception:
+        except json.JSONDecodeError:
             return {}
         return {}
 
@@ -147,6 +152,8 @@ class UserMemoryProfileService:
         try:
             score = float(value)
         except (TypeError, ValueError):
+            score = default
+        if not math.isfinite(score):
             score = default
         return round(max(0.0, min(1.0, score)), 4)
 
@@ -157,9 +164,15 @@ class UserMemoryProfileService:
         mastery_map = profile.get("mastery_map") or {}
         if not isinstance(mastery_map, dict) or not mastery_map:
             return "暂无稳定估计"
-        rows = []
-        for topic, score in sorted(mastery_map.items(), key=lambda item: float(item[1]))[:6]:
-            rows.append(f"{topic}:{round(float(score) * 100)}%")
+        normalized_scores = [
+            (str(topic), self._clamp_mastery(score))
+            for topic, score in mastery_map.items()
+            if str(topic).strip()
+        ]
+        rows = [
+            f"{topic}:{round(score * 100)}%"
+            for topic, score in sorted(normalized_scores, key=lambda item: item[1])[:6]
+        ]
         return "、".join(rows) if rows else "暂无稳定估计"
 
     def _fallback_observed_mastery(
@@ -240,6 +253,7 @@ class UserMemoryProfileService:
             
             return adjusted
         except Exception:
+            logger.debug("behavioral mastery merge skipped", exc_info=True)
             return current_mastery
 
     def _merge_mastery_map(
@@ -328,7 +342,7 @@ class UserMemoryProfileService:
         data = self._extract_json_blob(str(raw))
         try:
             return MemoryProfilePayload.model_validate(data)
-        except Exception:
+        except ValidationError:
             weak_points = data.get("weak_points")
             if not isinstance(weak_points, list):
                 weak_points = []

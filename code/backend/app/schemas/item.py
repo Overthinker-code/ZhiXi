@@ -1,6 +1,6 @@
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 # Shared properties
@@ -21,12 +21,11 @@ class ItemUpdate(ItemBase):
 
 # Properties shared by models stored in DB
 class ItemInDBBase(ItemBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     title: str
     owner_id: int
-
-    class Config:
-        from_attributes = True
 
 
 # Properties to return to client
@@ -36,4 +35,4 @@ class Item(ItemInDBBase):
 
 # Properties properties stored in DB
 class ItemInDB(ItemInDBBase):
-    pass 
+    pass
