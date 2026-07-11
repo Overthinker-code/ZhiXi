@@ -218,7 +218,6 @@ class LearningReportService:
         if not BEHAVIOR_MODEL_AVAILABLE:
             return ""
         try:
-            from uuid import UUID
             from sqlalchemy import desc, or_
             uid = resolve_student_or_user_id(session, user_id)
             if uid is None:
@@ -317,7 +316,6 @@ class LearningReportService:
         if not BEHAVIOR_MODEL_AVAILABLE:
             return ""
         try:
-            from uuid import UUID
             from sqlalchemy import desc, or_
             uid = resolve_student_or_user_id(session, user_id)
             if uid is None:
@@ -422,7 +420,6 @@ class LearningReportService:
         if not BEHAVIOR_MODEL_AVAILABLE or not topics:
             return ""
         try:
-            from uuid import UUID
             from sqlalchemy import desc, or_
             uid = resolve_student_or_user_id(session, user_id)
             if uid is None:
@@ -444,7 +441,6 @@ class LearningReportService:
                 return ""
             
             lines = ["【错题-课堂注意力归因数据】"]
-            import json
             avg_mw = sum(r.mind_wandering_rate for r in records) / len(records)
             avg_lei = sum(r.avg_lei for r in records) / len(records)
             
@@ -543,7 +539,6 @@ class LearningReportService:
         classroom_behavior_summary = None
         if behavior_context:
             try:
-                from uuid import UUID
                 from sqlalchemy import desc
                 uid = resolve_student_or_user_id(session, user_id)
                 latest_record = None
@@ -582,7 +577,6 @@ class LearningReportService:
                         "contagion_index": round(latest_record.contagion_index, 3),
                         "on_task_rate": round(latest_record.on_task_rate, 3),
                         "dominant_cognitive_state": "",
-                        "mind_wandering_rate": round(latest_record.mind_wandering_rate, 3),
                         "bloom_distribution": bd,
                         "teacher_note": "课堂表现已纳入诊断参考",
                         "behavioral_engagement": snapshot.get("class_behavioral_engagement", 0),

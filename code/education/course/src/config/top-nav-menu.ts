@@ -14,7 +14,7 @@ export interface TopNavGroup {
   items?: MegaMenuItem[];
 }
 
-const STUDENT_GROUPS: TopNavGroup[] = [
+const TOP_NAV_GROUPS: TopNavGroup[] = [
   {
     key: 'home',
     label: '首页',
@@ -34,22 +34,34 @@ const STUDENT_GROUPS: TopNavGroup[] = [
     roles: ['student', 'teacher', '*'],
   },
   {
+    key: 'resources',
+    label: '资源工坊',
+    routeName: 'CourseResourceGeneration',
+    roles: ['student'],
+  },
+  {
+    key: 'profile',
+    label: '学情档案',
+    routeName: 'ProfileLearningData',
+    roles: ['student'],
+  },
+  {
     key: 'solutions',
     label: '解决方案',
     routeName: 'MarketingSolutions',
-    roles: ['student', 'teacher', '*'],
+    roles: ['teacher'],
   },
   {
     key: 'pricing',
     label: '价格',
     routeName: 'MarketingPricing',
-    roles: ['student', 'teacher', '*'],
+    roles: ['teacher'],
   },
   {
     key: 'about',
     label: '关于我们',
     routeName: 'MarketingAbout',
-    roles: ['student', 'teacher', '*'],
+    roles: ['teacher'],
   },
   {
     key: 'profile',
@@ -102,7 +114,7 @@ const STUDENT_GROUPS: TopNavGroup[] = [
 
 export function getTopNavGroups(role: string): TopNavGroup[] {
   const normalized = role === 'teacher' ? 'teacher' : 'student';
-  return STUDENT_GROUPS.filter((group) => {
+  return TOP_NAV_GROUPS.filter((group) => {
     if (!group.roles?.length) return true;
     return (
       group.roles.includes('*') ||

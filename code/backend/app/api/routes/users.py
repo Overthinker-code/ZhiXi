@@ -14,7 +14,6 @@ from app.core.config import settings
 from app.core.security import get_password_hash, verify_password
 from app.models import (
     Item,
-    Message,
     UpdatePassword,
     User,
     UserCreate,
@@ -24,6 +23,7 @@ from app.models import (
     UserUpdate,
     UserUpdateMe,
 )
+from app.schemas.common import MessageResponse
 from app.utils import generate_new_account_email, send_email
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -97,7 +97,7 @@ def update_user_me(
     return current_user
 
 
-@router.patch("/me/password", response_model=Message)
+@router.patch("/me/password", response_model=MessageResponse)
 def update_password_me(
     *, session: SessionDep, body: UpdatePassword, current_user: CurrentUser
 ) -> Any:
@@ -114,7 +114,7 @@ def update_password_me(
     current_user.hashed_password = hashed_password
     session.add(current_user)
     session.commit()
-    return Message(message="Password updated successfully")
+    return MessageResponse(message="Password updated successfully")
 
 
 @router.get("/me", response_model=UserPublic)
@@ -125,7 +125,7 @@ def read_user_me(current_user: CurrentUser) -> Any:
     return current_user
 
 
-@router.delete("/me", response_model=Message)
+@router.delete("/me", response_model=MessageResponse)
 def delete_user_me(session: SessionDep, current_user: CurrentUser) -> Any:
     """
     当前用户注销账号.
@@ -136,7 +136,7 @@ def delete_user_me(session: SessionDep, current_user: CurrentUser) -> Any:
         )
     session.delete(current_user)
     session.commit()
-    return Message(message="User deleted successfully")
+    return MessageResponse(message="User deleted successfully")
 
 
 @router.post("/signup", response_model=UserPublic)
@@ -208,7 +208,7 @@ def update_user(
 @router.delete("/{user_id}", dependencies=[Depends(get_current_active_superuser)])
 def delete_user(
     session: SessionDep, current_user: CurrentUser, user_id: uuid.UUID
-) -> Message:
+) -> MessageResponse:
     """
     管理员删除用户.
     """
@@ -223,7 +223,7 @@ def delete_user(
     session.exec(statement)  # type: ignore
     session.delete(user)
     session.commit()
-    return Message(message="User deleted successfully")
+    return MessageResponse(message="User deleted successfully")
 
 
 @router.get("/admin/all-users", response_model=List[UserPublic])

@@ -23,4 +23,4 @@ def test_create_user(client: TestClient, db: Session) -> None:
 
     assert user
     assert user.email == "pollo@listo.com"
-    assert user.full_name == "Pollo Listo"
+    assert user.username == "Pollo Listo"

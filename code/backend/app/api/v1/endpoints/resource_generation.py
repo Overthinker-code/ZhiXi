@@ -1,66 +1,61 @@
 from __future__ import annotations
 
-from pathlib import Path
+import mimetypes
 from typing import Any
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
-from jwt.exceptions import InvalidTokenError
-import jwt
 
-from app.api import deps
-from app.api.deps import CurrentUser
-from app.core import security
-from app.core.config import settings
-from app.core.db import engine
-from sqlmodel import Session
-from app.models import TokenPayload, User
+from app.api.deps import CurrentUser, SessionDep
 from app.schemas.resource_generation import (
     ResourceGenerationRequest,
     ResourceGenerationResponse,
 )
 from app.services.resource_generation_service import resource_generation_service
+from app.services.resource_package_service import (
+    ResourcePackagePersistenceError,
+    resource_package_service,
+)
 
 router = APIRouter()
-
-
-def _resolve_download_user(token: str | None) -> User:
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    try:
-        payload = jwt.decode(
-            token, settings.SECRET_KEY, algorithms=[security.ALGORITHM]
-        )
-        token_data = TokenPayload(**payload)
-    except InvalidTokenError:
-        raise HTTPException(status_code=403, detail="Could not validate credentials")
-    with Session(engine) as session:
-        user = session.get(User, token_data.sub)
-        if not user or not user.is_active:
-            raise HTTPException(status_code=403, detail="Could not validate credentials")
-        return user
 
 
 @router.post("/packages", response_model=ResourceGenerationResponse)
 def generate_resource_package(
     *,
+    session: SessionDep,
     current_user: CurrentUser,
     request: ResourceGenerationRequest,
 ) -> Any:
-    _ = current_user
-    return resource_generation_service.generate(request)
+    try:
+        return resource_package_service.generate(
+            session,
+            request,
+            owner_id=current_user.id,
+        )
+    except ResourcePackagePersistenceError as exc:
+        status_code = 404 if exc.code == "COURSE_NOT_FOUND" else 500
+        raise HTTPException(
+            status_code=status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
 
 
 @router.get("/packages/recent")
 def list_recent_generated_packages(
     *,
+    session: SessionDep,
     current_user: CurrentUser,
-    course_id: str | None = Query(default=None),
+    course_id: UUID | None = Query(default=None),
+    limit: int = Query(default=12, ge=1, le=50),
 ) -> Any:
-    _ = current_user
     return {
-        "packages": resource_generation_service.list_recent_packages(
-            course_id=course_id
+        "packages": resource_package_service.list_recent(
+            session,
+            owner_id=current_user.id,
+            course_id=course_id,
+            limit=limit,
         )
     }
 
@@ -68,15 +63,24 @@ def list_recent_generated_packages(
 @router.get("/artifacts/{package_id}/{file_name}")
 def download_generated_artifact(
     *,
-    current_user: CurrentUser | None = Depends(deps.get_optional_current_user),
+    session: SessionDep,
+    current_user: CurrentUser,
     package_id: str,
     file_name: str,
-    token: str | None = Query(default=None),
 ) -> FileResponse:
-    _ = current_user or _resolve_download_user(token)
-    root = (Path(settings.BASE_PATH) / "generated_resources").resolve()
-    target = (root / package_id / file_name).resolve()
-    if root not in target.parents or not target.is_file():
+    if not resource_package_service.can_access(
+        session,
+        package_id=package_id,
+        user_id=current_user.id,
+        is_superuser=current_user.is_superuser,
+    ):
         raise HTTPException(status_code=404, detail="Generated artifact not found")
-    media_type = "application/pdf" if file_name.endswith(".pdf") else "text/plain"
+    try:
+        target = resource_generation_service.resolve_artifact_path(
+            package_id,
+            file_name,
+        )
+    except (FileNotFoundError, ValueError):
+        raise HTTPException(status_code=404, detail="Generated artifact not found")
+    media_type = mimetypes.guess_type(file_name)[0] or "application/octet-stream"
     return FileResponse(path=str(target), filename=file_name, media_type=media_type)

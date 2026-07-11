@@ -275,12 +275,8 @@ def ensure_demo_student_links(session: Session) -> None:
 
 
 def init_db(session: Session) -> None:
-    # Tables should be created with Alembic migrations
-    # But if you don't want to use migrations, create
-    # the tables un-commenting the next lines
-    # from sqlmodel import SQLModel
-
-    # No Alembic revisions are present in this project, so create tables directly.
+    # Standard startup applies Alembic before seeding. Keep create_all as a
+    # compatibility fallback for existing direct initial_data.py workflows.
     SQLModel.metadata.create_all(engine)
 
     user = session.exec(

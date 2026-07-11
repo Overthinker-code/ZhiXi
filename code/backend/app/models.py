@@ -560,6 +560,12 @@ class ResourceBase(SQLModel):
     file_size: int
     content_type: str = Field(max_length=150)
     course_id: UUID = Field(foreign_key="course.id")
+    package_id: Optional[str] = Field(
+        default=None,
+        foreign_key="generated_resource_package.id",
+        max_length=64,
+        index=True,
+    )
 
 
 class ResourceCreate(ResourceBase):
@@ -600,6 +606,5 @@ TC.course_plans = Relationship(back_populates="tc")
 TC.videos = Relationship(back_populates="tc")
 TC.student_relations = Relationship(back_populates="tc")
 Student.tc_relations = Relationship(back_populates="student")
-
 
 

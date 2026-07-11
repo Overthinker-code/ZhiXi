@@ -47,11 +47,11 @@ FIRST_SUPERUSER=admin@example.com
 FIRST_SUPERUSER_PASSWORD=<your-password>
 ```
 
-该入口会统一拉起：
+该入口默认只拉起 FastAPI 主服务，保证学生端和比赛核心链路不依赖 Redis/YOLO。可选服务通过环境变量显式开启：
 
-- FastAPI 主服务：`0.0.0.0:8001`
-- YOLO 行为检测服务：`127.0.0.1:8002`
-- Celery Worker：数字人生成、学情记忆刷新等异步任务
+- FastAPI 主服务：`0.0.0.0:8001`（默认）
+- `START_YOLO_SERVICE=true`：YOLO 行为检测服务 `127.0.0.1:8002`
+- `START_CELERY_SERVICE=true`：数字人生成等 Celery 异步任务
 
 常用健康检查：
 
@@ -247,7 +247,12 @@ npm run build
 python -m py_compile $(git ls-files 'code/backend/app/**/*.py' 'code/backend/*.py' ':!:code/backend/app/tests/**')
 ```
 
-如需执行 pytest，先在已安装 `code/requirements.txt` 依赖、且具备 `code/.env` 基础配置的 Python 环境中运行；当前裸环境下直接执行会因为缺少 `fastapi` 等依赖而失败。
+如需执行 pytest，先安装 `code/requirements.txt` 与 `code/requirements-dev.txt`，并准备 `code/.env`。默认配置仅收集智屿核心测试，不会误运行 MuseTalk 等可选组件的独立自检脚本：
+
+```bash
+cd code/backend
+../.venv/bin/python -m pytest -q
+```
 
 ### 服务器健康检查
 

@@ -4,7 +4,7 @@ import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-import PyPDF2
+import pypdf
 from pptx import Presentation
 
 from app.services.digital_human_assets import DEFAULT_GESTURES
@@ -136,7 +136,7 @@ class DocumentToScriptService:
     def _extract_pdf_chunks(self, path: Path) -> list[tuple[str, str]]:
         chunks: list[tuple[str, str]] = []
         with open(path, "rb") as file:
-            reader = PyPDF2.PdfReader(file)
+            reader = pypdf.PdfReader(file)
             for index, page in enumerate(reader.pages, start=1):
                 text = " ".join((page.extract_text() or "").split())
                 if text:

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { AxiosRequestConfig, AxiosResponse } from 'axios';
+import type { AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 import { Message, Modal } from '@arco-design/web-vue';
 import { useUserStore } from '@/store';
 import { getToken } from '@/utils/auth';
@@ -39,16 +39,13 @@ axios.defaults.timeout =
   Number.isFinite(parsedTimeout) && parsedTimeout > 0 ? parsedTimeout : 60000;
 
 axios.interceptors.request.use(
-  (config: AxiosRequestConfig) => {
+  (config: InternalAxiosRequestConfig) => {
     // let each request carry token
     // this example using the JWT token
     // Authorization is a custom headers key
     // please modify it according to the actual situation
     const token = getToken();
     if (token) {
-      if (!config.headers) {
-        config.headers = {};
-      }
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
@@ -60,7 +57,9 @@ axios.interceptors.request.use(
 );
 // add response interceptors
 axios.interceptors.response.use(
-  (response: AxiosResponse<HttpResponse | unknown>) => {
+  (
+    response: AxiosResponse<HttpResponse | unknown>
+  ): AxiosResponse | Promise<AxiosResponse> => {
     const raw = response.data as any;
     const isArcoStyle =
       raw &&
@@ -104,7 +103,9 @@ axios.interceptors.response.use(
       }
       return Promise.reject(new Error(res.msg || 'Error'));
     }
-    return res;
+    // Existing callers consume the normalized envelope directly. Isolate the
+    // Axios response-shape adaptation at this boundary.
+    return res as unknown as AxiosResponse;
   },
   (error) => {
     const url: string = error?.config?.url || '';

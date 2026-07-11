@@ -99,7 +99,7 @@ const COURSE: AppRouteRecordRaw = {
         locale: '资源生成中心',
         requiresAuth: true,
         roles: ['student', 'teacher'],
-        topNavGroup: 'course',
+        topNavGroup: 'resources',
       },
     },
     {
@@ -177,7 +177,7 @@ const COURSE: AppRouteRecordRaw = {
             requiresAuth: true,
             roles: ['student'],
             courseSection: 'resources',
-            topNavGroup: 'course',
+            topNavGroup: 'resources',
           },
         },
         {

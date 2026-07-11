@@ -305,7 +305,9 @@
               <div class="artifact-download-panel__head">
                 <div>
                   <strong>真实生成文件</strong>
-                  <span>后端已生成 Markdown、PDF、导图和脚本，并完成生成审查</span>
+                  <span
+                    >后端已生成 {{ downloadableArtifacts.length }} 个真实文件，并完成生成审查</span
+                  >
                 </div>
                 <div class="artifact-stats">
                   <article v-for="item in artifactStats" :key="item.label">
@@ -665,22 +667,25 @@
   import { fetchLearningReport, LearningReport } from '@/api/rag';
   import {
     analyzeImageProblem,
-    generateResourcePackage as generateWorkshopResourcePackage,
     gradeResourceExercise,
     ImageAnalyzeResponse,
-    ResourceDifficulty,
-    ResourceItem,
-    ResourcePackageResponse,
   } from '@/api/resource-workshop';
   import {
+    fetchRecentGeneratedPackages,
     generateResourcePackage as generateDownloadableResourcePackage,
-    rememberGeneratedPackage,
+    restoreGeneratedPackage,
     type GeneratedResourceArtifact,
     type ResourceGenerationResponse,
     type ResourceKind,
   } from '@/api/resource-generation';
   import { getToken } from '@/utils/auth';
   import { renderMarkdown } from '@/utils/markdown';
+  import {
+    buildResourcePackageViewModel,
+    type ResourceDifficulty,
+    type ResourceItem,
+    type ResourcePackageViewModel,
+  } from './resourcePackageViewModel';
 
   const route = useRoute();
   const router = useRouter();
@@ -699,7 +704,7 @@
   const loadingImage = ref(false);
 
   const report = ref<LearningReport | null>(null);
-  const packageResult = ref<ResourcePackageResponse | null>(null);
+  const packageResult = ref<ResourcePackageViewModel | null>(null);
   const downloadablePackage = ref<ResourceGenerationResponse | null>(null);
   const previewedArtifact = ref<GeneratedResourceArtifact | null>(null);
   const gradeResult = ref<Awaited<
@@ -760,15 +765,12 @@
     if (loadingPackage.value) {
       return [
         {
-          key: 'profile',
-          label: '学习画像分析师',
+          key: 'server-request',
+          label: '资源生成服务',
           status: 'running' as const,
-          sub: '读取画像…',
+          sub: '后端正在生成文件并执行质量审查',
+          message: '生成完成后将展示后端返回的实际处理记录。',
         },
-        { key: 'retrieval', label: '课程证据检索员', status: 'idle' as const },
-        { key: 'content', label: '内容生成专员', status: 'idle' as const },
-        { key: 'safety', label: '事实审查员', status: 'idle' as const },
-        { key: 'assembler', label: '资源组装专员', status: 'idle' as const },
       ];
     }
     return [
@@ -981,6 +983,13 @@
         value:
           downloadablePackage.value.local_model_profile?.mode || '课程资源生成',
       },
+      {
+        label: '存储状态',
+        value:
+          downloadablePackage.value.persistence_status === 'resources_persisted'
+            ? '课程资料已入库'
+            : '个人记录已保存',
+      },
     ];
   });
   const checklistArtifact = computed(
@@ -1013,22 +1022,30 @@
       .join('\n')
   );
   const artifactClosureCards = computed(() => {
-    if (!downloadablePackage.value) return [];
+    const pkg = downloadablePackage.value;
+    if (!pkg) return [];
+    const persistedCount = pkg.persisted_resource_ids.length;
     return [
       {
-        kicker: '课堂笔记',
-        label: '讲义与练习回填',
-        value: '定义、方法、校验、迁移四块笔记',
+        kicker: '资料存储',
+        label:
+          pkg.persistence_status === 'resources_persisted'
+            ? '课程资料已入库'
+            : '个人记录已保存',
+        value:
+          pkg.persistence_status === 'resources_persisted'
+            ? `${persistedCount} 份文件已建立课程资源记录`
+            : '未指定课程，不写入课程公共资料',
+      },
+      {
+        kicker: '质量审查',
+        label: '结构与内容已检查',
+        value: `${downloadableQualityNotes.value.length} 条审查说明可查看`,
       },
       {
         kicker: '课程图谱',
-        label: '节点关系核验',
-        value: '先修、核心、方法、校验、应用节点',
-      },
-      {
-        kicker: 'AI 伴学',
-        label: '错因追练闭环',
-        value: '批改、订正、再生成资源包',
+        label: '等待节点核验',
+        value: '进入课程图谱后确认知识点关系',
       },
     ];
   });
@@ -1049,7 +1066,7 @@
   function artifactQualityBadges(artifact: GeneratedResourceArtifact) {
     const shared = ['可下载'];
     const map: Partial<Record<ResourceKind, string[]>> = {
-      lecture_markdown: ['课堂笔记对齐', '图谱绑定'],
+      lecture_markdown: ['课堂笔记对齐', '图谱线索'],
       lecture_pdf: ['轻量预览'],
       practice_markdown: ['评分量规', 'AI 追练'],
       practice_pdf: ['轻量预览'],
@@ -1057,7 +1074,7 @@
       reading_list: ['证据模板', '引用回指'],
       case_project: ['提交物模板', '验收标准'],
       video_script: ['互动停顿', '数字人可用'],
-      quality_checklist: ['质量门槛', '闭环规则'],
+      quality_checklist: ['质量门槛', '复习规则'],
     };
     return [...(map[artifact.kind] || []), ...shared];
   }
@@ -1176,7 +1193,9 @@
     const primarySubject =
       form.subject || gradeForm.subject || imageForm.subject || '';
 
-    if (!form.topic && primaryWeakPoint) form.topic = primaryWeakPoint;
+    if (!activeCourse.value && !form.topic && primaryWeakPoint) {
+      form.topic = primaryWeakPoint;
+    }
     if (!form.goal && primaryGoal) form.goal = primaryGoal;
     if (!gradeForm.topic && primaryWeakPoint)
       gradeForm.topic = primaryWeakPoint;
@@ -1185,6 +1204,15 @@
 
     if (!gradeForm.subject && form.subject) gradeForm.subject = form.subject;
     if (!imageForm.subject && form.subject) imageForm.subject = form.subject;
+  }
+
+  function defaultCourseTopic() {
+    return (
+      activeCourse.value?.concepts[0]?.title ||
+      activeCourse.value?.notes[0]?.title ||
+      activeCourse.value?.chapters[0]?.lessons[0]?.title ||
+      '课程重点'
+    );
   }
 
   function hydrateFormsFromRoute() {
@@ -1235,6 +1263,10 @@
       if (!imageForm.question_text.trim()) {
         imageForm.question_text = `请围绕“${seedTopic}”生成结构化题解与图示说明。`;
       }
+    } else if (activeCourse.value && !form.topic) {
+      const courseTopic = defaultCourseTopic();
+      form.topic = courseTopic;
+      gradeForm.topic = courseTopic;
     }
     if (seedGoal) {
       form.goal = seedGoal;
@@ -1512,56 +1544,84 @@
     }
   }
 
+  async function restoreLatestPackage() {
+    try {
+      const recentPackages = await fetchRecentGeneratedPackages(
+        activeCourse.value?.id
+      );
+      const restored = recentPackages[0]
+        ? restoreGeneratedPackage(recentPackages[0])
+        : null;
+      if (!restored || packageResult.value || loadingPackage.value) return;
+      const difficulty =
+        form.difficulty === 'auto' ? 'standard' : form.difficulty;
+      downloadablePackage.value = restored;
+      packageResult.value = buildResourcePackageViewModel(restored, {
+        goal: form.goal || `继续学习 ${restored.topic}`,
+        difficulty,
+        targetMinutes: form.minutes,
+        personalizationBasis: ['已从课程资源库恢复', `生成主题：${restored.topic}`],
+      });
+    } catch {
+      // The empty state remains usable when no archived package can be restored.
+    }
+  }
+
   async function handleGeneratePackage() {
     if (!form.subject.trim()) {
       Message.warning('请先填写课程名称');
       return;
     }
     loadingPackage.value = true;
+    packageResult.value = null;
     downloadablePackage.value = null;
     try {
       const difficulty =
         form.difficulty === 'auto' ? 'standard' : form.difficulty;
-      const [previewResult, artifactResult] = await Promise.allSettled([
-        generateWorkshopResourcePackage({
-          ...form,
-          resource_count: 6,
-        }),
-        generateDownloadableResourcePackage({
-          course_id: activeCourse.value?.id,
-          resource_id: incomingRouteContext.value.resourceId || undefined,
-          node_id: incomingRouteContext.value.nodeId || undefined,
-          node_label: incomingRouteContext.value.nodeLabel || undefined,
-          map_type: incomingRouteContext.value.mapType || undefined,
-          source:
-            incomingRouteContext.value.source ||
-            incomingRouteContext.value.upstreamSource ||
-            undefined,
-          subject: form.subject,
-          topic: form.topic || weakPoints.value[0] || '课程重点',
-          learning_goal: form.goal || '生成可下载的个性化课程资源包',
-          difficulty,
-          target_minutes: form.minutes,
-          resource_types: productionResourceTypes(),
-          use_web_search: false,
-        }),
-      ]);
+      const goal = form.goal || '生成可下载的个性化课程资源包';
+      const artifactResult = await generateDownloadableResourcePackage({
+        course_id: activeCourse.value?.id,
+        resource_id: incomingRouteContext.value.resourceId || undefined,
+        node_id: incomingRouteContext.value.nodeId || undefined,
+        node_label: incomingRouteContext.value.nodeLabel || undefined,
+        map_type: incomingRouteContext.value.mapType || undefined,
+        source:
+          incomingRouteContext.value.source ||
+          incomingRouteContext.value.upstreamSource ||
+          undefined,
+        subject: form.subject,
+        topic:
+          form.topic ||
+          (activeCourse.value ? defaultCourseTopic() : weakPoints.value[0]) ||
+          '课程重点',
+        learning_goal: goal,
+        difficulty,
+        target_minutes: form.minutes,
+        resource_types: productionResourceTypes(),
+        use_web_search: false,
+      });
 
-      if (previewResult.status === 'fulfilled') {
-        packageResult.value = previewResult.value;
-      }
-      if (artifactResult.status === 'fulfilled') {
-        downloadablePackage.value = artifactResult.value;
-        rememberGeneratedPackage(artifactResult.value, activeCourse.value?.id);
-      }
-      if (previewResult.status === 'rejected' && artifactResult.status === 'rejected') {
-        throw previewResult.reason || artifactResult.reason;
-      }
-
+      downloadablePackage.value = artifactResult;
+      packageResult.value = buildResourcePackageViewModel(artifactResult, {
+        goal,
+        difficulty,
+        targetMinutes: form.minutes,
+        personalizationBasis: [
+          report.value?.current_goal || '',
+          report.value?.learning_style
+            ? `学习偏好：${report.value.learning_style}`
+            : '',
+          !activeCourse.value && weakPoints.value.length
+            ? `薄弱点：${weakPoints.value.slice(0, 3).join('、')}`
+            : '',
+          activeCourse.value ? `课程上下文：${activeCourse.value.shortTitle}` : '',
+          `目标难度：${difficulty}`,
+        ],
+      });
       const subject =
-        packageResult.value?.subject || downloadablePackage.value?.subject || form.subject;
+        packageResult.value.subject || form.subject;
       const topic =
-        packageResult.value?.topic || downloadablePackage.value?.topic || form.topic;
+        packageResult.value.topic || form.topic;
       gradeForm.subject = subject;
       gradeForm.topic = topic;
       imageForm.subject = subject;
@@ -1569,9 +1629,9 @@
         imageForm.question_text = `请结合 ${topic} 的核心概念，对题目进行结构化讲解。`;
       }
       Message.success(
-        downloadablePackage.value
-          ? '资源包与可下载文件已生成'
-          : '资源包预览已生成'
+        artifactResult.persistence_status === 'resources_persisted'
+          ? '资源包已生成并写入课程资料库'
+          : '资源包已生成并保存到个人资源记录'
       );
     } catch (error) {
       Message.error('资源包生成失败，请检查后端服务');
@@ -1623,9 +1683,9 @@
     }
   }
 
-  onMounted(() => {
+  onMounted(async () => {
     hydrateFormsFromRoute();
-    loadProfile(false);
+    await Promise.allSettled([loadProfile(false), restoreLatestPackage()]);
   });
 
   watch(

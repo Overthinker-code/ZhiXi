@@ -18,59 +18,34 @@ pydantic-settings
 sentry-sdk[fastapi]
 pyjwt
 
-# dev dependencies
-pytest
-mypy
-ruff
-pre-commit
-types-passlib
-coverage
-
-psycopg2-binary
-
 # LLM and RAG dependencies
 langchain
 langchain-community
 langchain-chroma
+langgraph
 langchain-openai
 langchain-ollama
 chromadb
-duckduckgo-search
 
 # Document processing
 python-docx
-PyPDF2
+pypdf
 pdfplumber
 python-pptx
 aiofiles
 typing-extensions
-docling
 pymupdf
 
 # Video and image processing
-opencv-python
+opencv-python>=4.10,<5
 numpy
-mediapipe
-
-# YOLO and deep learning for behavior detection
-ultralytics>=8.0.0
-torch>=2.0.0
-torchvision>=0.15.0
 Pillow
-python-magic
-ffmpeg-python
 
 # Async support
 aiohttp
-asyncio
 
 # Utils
 python-jose[cryptography]
 python-dateutil
 pytz
-duckduckgo-search
 ddgs
-
-# 与 peft / sentence-transformers 对齐，避免 EncoderDecoderCache 等导入错误
-transformers>=4.45.0
-sentence-transformers>=3.0.0

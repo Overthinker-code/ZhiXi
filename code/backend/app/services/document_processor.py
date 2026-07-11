@@ -2,7 +2,7 @@ from typing import List, Optional
 from pathlib import Path
 
 import docx
-import PyPDF2
+import pypdf
 try:
     import pdfplumber
 except Exception:  # pragma: no cover - optional dependency
@@ -45,7 +45,7 @@ class DocumentProcessor:
                     text += page.extract_text() or ""
         else:
             with open(file_path, "rb") as file:
-                pdf_reader = PyPDF2.PdfReader(file)
+                pdf_reader = pypdf.PdfReader(file)
                 for page in pdf_reader.pages:
                     text += page.extract_text() or ""
         metadata = self._build_metadata(file_path, doc_type="pdf")
@@ -111,7 +111,7 @@ class DocumentProcessor:
                         text += page.extract_text() or ""
             else:
                 with open(file_path, "rb") as file:
-                    pdf_reader = PyPDF2.PdfReader(file)
+                    pdf_reader = pypdf.PdfReader(file)
                     for page in pdf_reader.pages:
                         text += page.extract_text() or ""
             return text

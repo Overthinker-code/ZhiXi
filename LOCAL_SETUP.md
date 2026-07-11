@@ -33,13 +33,38 @@ http://127.0.0.1:8001/api/v1
 
 ## 后端依赖
 
-后端依赖较重，`code/requirements.txt` 里包含数字人、YOLO、torch、文档解析和 RAG 相关依赖。首次安装耗时正常。
+默认依赖只包含学生端、AI 对话、RAG、资源生成和轻量课堂分析所需内容，不再强制安装 Torch/YOLO/Docling。
 
 ```bash
 cd code
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+```
+
+需要运行测试、类型检查或提交钩子时安装开发依赖：
+
+```bash
+pip install -r requirements-dev.txt
+```
+
+核心后端测试只收集 `app/tests` 和 `tests`，不会误运行可选的 MuseTalk 自检脚本：
+
+```bash
+cd backend
+../.venv/bin/python -m pytest -q
+```
+
+需要 Docling 或 MediaPipe 时再安装：
+
+```bash
+pip install -r requirements-optional.txt
+```
+
+YOLO 是独立服务，按需安装：
+
+```bash
+pip install -r cv/requirements.txt
 ```
 
 ## 环境变量
@@ -82,6 +107,19 @@ cd code/backend
 ../.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8001
 ```
 
+也可以使用统一入口；默认只启动 FastAPI，不要求 Redis 或 YOLO：
+
+```bash
+cd code/backend
+../.venv/bin/python run_backend_stack.py
+```
+
+需要数字人队列和课堂 YOLO 时显式开启：
+
+```bash
+START_CELERY_SERVICE=true START_YOLO_SERVICE=true ../.venv/bin/python run_backend_stack.py
+```
+
 轻量健康检查：
 
 ```bash
@@ -118,4 +156,3 @@ curl -X POST http://127.0.0.1:8001/api/v1/login/access-token \
 ### npm install 很慢或失败
 
 之前依赖里包含 `vite-plugin-imagemin`，会下载 `gifsicle/mozjpeg/optipng/pngquant` 等二进制，国内网络容易失败。该依赖已经移除，正确的 `code/education/course/package-lock.json` 现在应随代码提交，组员使用 `npm ci` 即可。
-

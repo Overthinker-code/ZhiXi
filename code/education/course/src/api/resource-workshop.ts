@@ -1,57 +1,5 @@
 import axios from 'axios';
 
-export type ResourceDifficulty = 'auto' | 'foundation' | 'standard' | 'challenge';
-
-export interface ResourcePackageRequest {
-  subject: string;
-  topic?: string;
-  goal?: string;
-  difficulty?: ResourceDifficulty;
-  minutes?: number;
-  resource_count?: number;
-}
-
-export interface ResourceItem {
-  title: string;
-  type:
-    | 'lecture_doc'
-    | 'mind_map'
-    | 'practice_set'
-    | 'reading'
-    | 'case_project'
-    | 'video_script'
-    | 'reflection';
-  estimated_minutes: number;
-  difficulty: Exclude<ResourceDifficulty, 'auto'>;
-  description: string;
-  mastery_target: string;
-  content_preview: string;
-}
-
-export interface AgentStep {
-  agent: string;
-  label: string;
-  message?: string;
-  status?: 'idle' | 'running' | 'done' | 'error';
-  ts?: string;
-}
-
-export interface ResourcePackageResponse {
-  package_id: string;
-  subject: string;
-  topic: string;
-  goal: string;
-  personalization_basis: string[];
-  resources: ResourceItem[];
-  next_check: {
-    method: string;
-    endpoint: string;
-    target_mastery_delta: number;
-  };
-  agent_steps?: AgentStep[];
-  generation_mode?: string;
-}
-
 export interface ExerciseGradeRequest {
   subject: string;
   topic: string;
@@ -97,12 +45,6 @@ export interface ImageAnalyzeResponse {
   };
   confidence: number;
   limitations: string[];
-}
-
-export function generateResourcePackage(payload: ResourcePackageRequest) {
-  return axios
-    .post('/api/resource-workshop/packages', payload, { timeout: 0 })
-    .then((res: any) => res.data as ResourcePackageResponse);
 }
 
 export function gradeResourceExercise(payload: ExerciseGradeRequest) {

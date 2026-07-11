@@ -3,7 +3,7 @@ import os
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session, delete
+from sqlmodel import Session, delete, select
 
 from app.core.config import settings
 from app.core.db import engine, init_db
@@ -20,11 +20,18 @@ def db() -> Generator[Session, None, None]:
         return
     with Session(engine) as session:
         init_db(session)
+        baseline_item_ids = set(session.exec(select(Item.id)).all())
+        baseline_user_ids = set(session.exec(select(User.id)).all())
         yield session
-        statement = delete(Item)
-        session.execute(statement)
-        statement = delete(User)
-        session.execute(statement)
+        session.rollback()
+        item_cleanup = delete(Item)
+        if baseline_item_ids:
+            item_cleanup = item_cleanup.where(Item.id.not_in(baseline_item_ids))
+        session.execute(item_cleanup)
+        user_cleanup = delete(User)
+        if baseline_user_ids:
+            user_cleanup = user_cleanup.where(User.id.not_in(baseline_user_ids))
+        session.execute(user_cleanup)
         session.commit()
 
 

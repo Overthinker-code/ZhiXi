@@ -4,6 +4,7 @@
     <div
       v-if="!hideFloatUI && !visible"
       class="float-btn"
+      aria-label="打开课堂 AI 助理"
       :style="{ left: `${robotPos.x}px`, top: `${robotPos.y}px` }"
       @mousedown="startDragRobot"
     >
@@ -15,6 +16,8 @@
     <div
       v-if="!hideFloatUI && visible"
       class="float-ai-panel"
+      role="dialog"
+      aria-label="课堂 AI 助理"
       :style="{
         left: `${panelPos.x}px`,
         top: `${panelPos.y}px`,
@@ -161,6 +164,9 @@
   const handleCancel = () => {
     visible.value = false;
   };
+  const handleKeydown = (event: KeyboardEvent) => {
+    if (event.key === 'Escape' && visible.value) handleCancel();
+  };
   const handlePanelDrop = (event: DragEvent) => {
     quickChatRef.value?.handleDrop(event);
   };
@@ -174,6 +180,8 @@
     () =>
       route.path.startsWith('/assistant') ||
       route.path.startsWith('/tutor') ||
+      route.name === 'CourseResourceGeneration' ||
+      route.name === 'StudentCourseResourceGenerator' ||
       route.name === 'StudentCourseResources' ||
       route.name === 'StudentCourseKnowledge' ||
       route.name === 'StudentCourseAnalytics' ||
@@ -249,12 +257,14 @@
     window.addEventListener('mousemove', onDragMove);
     window.addEventListener('mouseup', onDragEnd);
     window.addEventListener('resize', fitFloatingUiToViewport);
+    window.addEventListener('keydown', handleKeydown);
     window.addEventListener('open-classroom-ai', openClassroomAi as EventListener);
   });
   onUnmounted(() => {
     window.removeEventListener('mousemove', onDragMove);
     window.removeEventListener('mouseup', onDragEnd);
     window.removeEventListener('resize', fitFloatingUiToViewport);
+    window.removeEventListener('keydown', handleKeydown);
     window.removeEventListener('open-classroom-ai', openClassroomAi as EventListener);
   });
 </script>

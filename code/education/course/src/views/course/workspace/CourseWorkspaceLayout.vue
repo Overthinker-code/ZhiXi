@@ -208,7 +208,7 @@
         <div class="workspace-header__actions">
           <span>{{ course.type }}</span>
           <button type="button" @click="navigate('agent')">
-            <icon-robot /> 问小智
+            <icon-robot /> 课程助手
           </button>
         </div>
       </header>

@@ -1,12 +1,13 @@
-from typing import Any, List
+from typing import Any
 import os
 import shutil
 from datetime import datetime
+from pathlib import Path
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
-from sqlmodel import select, and_, func
+from sqlmodel import select, and_, func, or_
 
 from app import models
 from app.api import deps
@@ -17,6 +18,47 @@ router = APIRouter()
 # 创建存储资源的目录
 UPLOAD_DIR = os.path.join(settings.BASE_PATH, "files", "resources")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+VALID_RESOURCE_TYPES = {
+    "pdf",
+    "ppt",
+    "pptx",
+    "doc",
+    "docx",
+    "image",
+    "lecture_markdown",
+    "lecture_pdf",
+    "practice_markdown",
+    "practice_pdf",
+    "mind_map",
+    "reading_list",
+    "case_project",
+    "video_script",
+    "quality_checklist",
+}
+
+
+def _ensure_generated_resource_access(
+    resource: models.Resource,
+    current_user: models.User,
+) -> None:
+    if (
+        resource.package_id
+        and resource.uploader_id != current_user.id
+        and not current_user.is_superuser
+    ):
+        raise HTTPException(status_code=404, detail="未找到指定的资源")
+
+
+def _resolve_resource_file(resource: models.Resource) -> Path:
+    if resource.package_id:
+        root = (Path(settings.BASE_PATH) / "generated_resources").resolve()
+        target = (Path(settings.BASE_PATH) / resource.file_path).resolve()
+        package_root = (root / resource.package_id).resolve()
+        if target.parent != package_root or package_root.parent != root:
+            raise HTTPException(status_code=404, detail="资源文件路径无效")
+        return target
+    return Path(UPLOAD_DIR) / os.path.basename(resource.file_path)
 
 
 @router.get("/", response_model=models.ResourcesPublic)
@@ -35,6 +77,14 @@ def read_resources(
     """
     query = select(models.Resource)
     conditions = []
+
+    if not current_user.is_superuser:
+        conditions.append(
+            or_(
+                models.Resource.package_id.is_(None),
+                models.Resource.uploader_id == current_user.id,
+            )
+        )
 
     if course_id:
         conditions.append(models.Resource.course_id == course_id)
@@ -89,16 +139,14 @@ async def create_resource(
         )
 
     # 验证资源类型
-    valid_types = ["pdf", "ppt", "pptx", "doc", "docx", "image"]
-    if type not in valid_types:
+    if type not in VALID_RESOURCE_TYPES:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid type. Must be one of: {', '.join(valid_types)}"
+            detail=f"Invalid type. Must be one of: {', '.join(sorted(VALID_RESOURCE_TYPES))}"
         )
 
     # 生成唯一的文件名
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    file_extension = os.path.splitext(file.filename)[1]
     unique_filename = f"{timestamp}_{file.filename}"
     file_path = os.path.join("resources", unique_filename)
     abs_file_path = os.path.join(UPLOAD_DIR, unique_filename)
@@ -146,6 +194,8 @@ def read_resource(
             detail="未找到指定的资源"
         )
 
+    _ensure_generated_resource_access(resource, current_user)
+
     return resource
 
 
@@ -179,11 +229,10 @@ def update_resource(
         resource.title = resource_in.title
     if resource_in.type:
         # 验证资源类型
-        valid_types = ["pdf", "ppt", "pptx", "doc", "docx", "image"]
-        if resource_in.type not in valid_types:
+        if resource_in.type not in VALID_RESOURCE_TYPES:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid type. Must be one of: {', '.join(valid_types)}"
+                detail=f"Invalid type. Must be one of: {', '.join(sorted(VALID_RESOURCE_TYPES))}"
             )
         resource.type = resource_in.type
 
@@ -219,10 +268,10 @@ def delete_resource(
         )
 
     # 删除物理文件
-    abs_file_path = os.path.join(UPLOAD_DIR, os.path.basename(resource.file_path))
-    if os.path.exists(abs_file_path):
+    abs_file_path = _resolve_resource_file(resource)
+    if abs_file_path.exists():
         try:
-            os.remove(abs_file_path)
+            abs_file_path.unlink()
         except Exception as e:
             raise HTTPException(
                 status_code=500,
@@ -253,15 +302,16 @@ def download_resource(
             detail="未找到指定的资源"
         )
 
-    abs_file_path = os.path.join(UPLOAD_DIR, os.path.basename(resource.file_path))
-    if not os.path.exists(abs_file_path):
+    _ensure_generated_resource_access(resource, current_user)
+    abs_file_path = _resolve_resource_file(resource)
+    if not abs_file_path.is_file():
         raise HTTPException(
             status_code=404,
             detail="资源文件不存在或已被删除"
         )
 
     return FileResponse(
-        abs_file_path,
+        str(abs_file_path),
         media_type=resource.content_type,
         filename=resource.file_name
     )

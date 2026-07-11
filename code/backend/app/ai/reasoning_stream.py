@@ -113,7 +113,6 @@ class ReasoningStreamController:
     def on_document_retrieve(
         self, query: str, hit_count: int, snippets: list[str] | None = None
     ) -> None:
-        q = (query or self.user_input)[:80]
         detail = (
             f"在上传文档中找到 {hit_count} 处相关内容"
             if hit_count

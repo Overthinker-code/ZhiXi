@@ -30,9 +30,18 @@
 
 <template>
   <div v-if="visible" class="drawer-mask" @click="emit('close')" />
-  <aside :class="['context-drawer', { visible }]" data-testid="tutor-context-drawer">
+  <aside
+    id="tutor-context-drawer"
+    :class="['context-drawer', { visible }]"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="tutor-context-title"
+    :aria-hidden="!visible"
+    :inert="!visible"
+    data-testid="tutor-context-drawer"
+  >
     <header>
-      <strong>上下文</strong>
+      <strong id="tutor-context-title">上下文</strong>
       <button type="button" @click="emit('close')">关闭</button>
     </header>
 
@@ -123,11 +132,16 @@
     border-left: 1px solid rgba(15, 23, 42, 0.08);
     background: #fff;
     box-shadow: -12px 0 32px rgba(15, 23, 42, 0.06);
+    visibility: hidden;
+    pointer-events: none;
     transform: translateX(100%);
-    transition: transform 0.2s ease;
+    transition: transform 0.2s ease, visibility 0s linear 0.2s;
 
     &.visible {
+      visibility: visible;
+      pointer-events: auto;
       transform: translateX(0);
+      transition-delay: 0s;
     }
 
     > header {

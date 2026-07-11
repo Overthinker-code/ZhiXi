@@ -11,6 +11,11 @@ export type ResourceKind =
   | 'video_script'
   | 'quality_checklist';
 
+export type ResourcePersistenceStatus =
+  | 'file_only'
+  | 'package_persisted'
+  | 'resources_persisted';
+
 export interface ResourceGenerationRequest {
   course_id?: string;
   resource_id?: string;
@@ -51,6 +56,8 @@ export interface ResourceGenerationResponse {
   local_model_profile: Record<string, any>;
   agent_trace: string[];
   quality_notes: string[];
+  persistence_status: ResourcePersistenceStatus;
+  persisted_resource_ids: string[];
   artifacts: GeneratedResourceArtifact[];
 }
 
@@ -65,6 +72,12 @@ export interface RecentGeneratedPackage {
   subject: string;
   topic: string;
   generated_at: string;
+  status?: string;
+  persistence_status: ResourcePersistenceStatus;
+  persisted_resource_ids: string[];
+  local_model_profile: Record<string, any>;
+  agent_trace: string[];
+  quality_notes: string[];
   artifacts: Array<{
     kind?: ResourceKind;
     title?: string;
@@ -76,7 +89,38 @@ export interface RecentGeneratedPackage {
   }>;
 }
 
-const recentPackageStorageKey = 'zhixi-resource-generated-packages-v1';
+const resourceKinds = new Set<ResourceKind>([
+  'lecture_markdown',
+  'lecture_pdf',
+  'practice_markdown',
+  'practice_pdf',
+  'mind_map',
+  'reading_list',
+  'case_project',
+  'video_script',
+  'quality_checklist',
+]);
+
+function inferResourceKind(fileName: string): ResourceKind {
+  const name = fileName.toLowerCase();
+  if (name.includes('practice')) {
+    return name.endsWith('.pdf') ? 'practice_pdf' : 'practice_markdown';
+  }
+  if (name.includes('mind')) return 'mind_map';
+  if (name.includes('reading')) return 'reading_list';
+  if (name.includes('case')) return 'case_project';
+  if (name.includes('video') || name.includes('script')) return 'video_script';
+  if (name.includes('quality') || name.includes('check')) {
+    return 'quality_checklist';
+  }
+  return name.endsWith('.pdf') ? 'lecture_pdf' : 'lecture_markdown';
+}
+
+function inferContentType(fileName: string) {
+  if (fileName.toLowerCase().endsWith('.pdf')) return 'application/pdf';
+  if (fileName.toLowerCase().endsWith('.md')) return 'text/markdown';
+  return 'text/plain';
+}
 
 function normalizePackageList(value: unknown): RecentGeneratedPackage[] {
   if (!Array.isArray(value)) return [];
@@ -92,6 +136,25 @@ function normalizePackageList(value: unknown): RecentGeneratedPackage[] {
       subject: String(item?.subject || '').trim(),
       topic: String(item?.topic || '').trim(),
       generated_at: String(item?.generated_at || '').trim(),
+      status: item?.status ? String(item.status) : undefined,
+      persistence_status: ['package_persisted', 'resources_persisted'].includes(
+        item?.persistence_status
+      )
+        ? item.persistence_status
+        : 'file_only',
+      persisted_resource_ids: Array.isArray(item?.persisted_resource_ids)
+        ? item.persisted_resource_ids.map(String)
+        : [],
+      local_model_profile:
+        item?.local_model_profile && typeof item.local_model_profile === 'object'
+          ? item.local_model_profile
+          : {},
+      agent_trace: Array.isArray(item?.agent_trace)
+        ? item.agent_trace.map(String)
+        : [],
+      quality_notes: Array.isArray(item?.quality_notes)
+        ? item.quality_notes.map(String)
+        : [],
       artifacts: Array.isArray(item?.artifacts)
         ? item.artifacts
             .map((artifact: any) => ({
@@ -113,25 +176,33 @@ function normalizePackageList(value: unknown): RecentGeneratedPackage[] {
     .filter((item) => item.package_id && item.topic);
 }
 
-export function readLocalGeneratedPackages() {
-  if (typeof window === 'undefined') return [] as RecentGeneratedPackage[];
-  try {
-    return normalizePackageList(
-      JSON.parse(window.localStorage.getItem(recentPackageStorageKey) || '[]')
-    );
-  } catch {
-    return [];
-  }
-}
+export function restoreGeneratedPackage(
+  pkg: RecentGeneratedPackage
+): ResourceGenerationResponse | null {
+  if (!pkg?.package_id || !pkg.topic) return null;
+  const artifacts = pkg.artifacts
+    .filter((artifact) => artifact.file_name)
+    .map((artifact) => {
+      const kind = resourceKinds.has(artifact.kind as ResourceKind)
+        ? (artifact.kind as ResourceKind)
+        : inferResourceKind(artifact.file_name);
+      return {
+        kind,
+        title: artifact.title || artifact.file_name,
+        file_name: artifact.file_name,
+        download_url:
+          artifact.download_url ||
+          `/api/v1/resource-generation/artifacts/${pkg.package_id}/${artifact.file_name}`,
+        content_type:
+          artifact.content_type || inferContentType(artifact.file_name),
+        file_size: artifact.file_size,
+        preview: artifact.preview || '',
+      };
+    });
 
-export function rememberGeneratedPackage(
-  pkg: ResourceGenerationResponse,
-  courseId?: string
-) {
-  if (typeof window === 'undefined' || !pkg?.package_id) return;
-  const nextPackage: RecentGeneratedPackage = {
+  return {
     package_id: pkg.package_id,
-    course_id: courseId || pkg.course_id,
+    course_id: pkg.course_id,
     resource_id: pkg.resource_id,
     node_id: pkg.node_id,
     node_label: pkg.node_label,
@@ -140,27 +211,13 @@ export function rememberGeneratedPackage(
     subject: pkg.subject,
     topic: pkg.topic,
     generated_at: pkg.generated_at,
-    artifacts: pkg.artifacts.map((artifact) => ({
-      kind: artifact.kind,
-      title: artifact.title,
-      file_name: artifact.file_name,
-      file_size: artifact.file_size,
-      download_url: artifact.download_url,
-      content_type: artifact.content_type,
-      preview: artifact.preview,
-    })),
+    local_model_profile: pkg.local_model_profile,
+    agent_trace: pkg.agent_trace,
+    quality_notes: pkg.quality_notes,
+    persistence_status: pkg.persistence_status,
+    persisted_resource_ids: pkg.persisted_resource_ids,
+    artifacts,
   };
-  const merged = [
-    nextPackage,
-    ...readLocalGeneratedPackages().filter(
-      (item) => item.package_id !== nextPackage.package_id
-    ),
-  ].slice(0, 12);
-  try {
-    window.localStorage.setItem(recentPackageStorageKey, JSON.stringify(merged));
-  } catch {
-    // Local persistence is a convenience cache; generation itself has succeeded.
-  }
 }
 
 export function generateResourcePackage(payload: ResourceGenerationRequest) {
@@ -176,15 +233,5 @@ export function fetchRecentGeneratedPackages(courseId?: string) {
     .get('/api/resource-generation/packages/recent', {
       params: courseId ? { course_id: courseId } : undefined,
     })
-    .then((res: any) => {
-      const remotePackages = normalizePackageList(res.data?.packages || []);
-      const localPackages = readLocalGeneratedPackages();
-      const seen = new Set<string>();
-      return [...localPackages, ...remotePackages].filter((item) => {
-        if (seen.has(item.package_id)) return false;
-        seen.add(item.package_id);
-        return true;
-      });
-    })
-    .catch(() => readLocalGeneratedPackages());
+    .then((res: any) => normalizePackageList(res.data?.packages || []));
 }

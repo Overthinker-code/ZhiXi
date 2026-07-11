@@ -61,9 +61,8 @@
     try {
       await registerUser({
         email: form.email,
-        username: form.email.split('@')[0] || form.fullName,
+        username: form.fullName,
         password: form.password,
-        full_name: form.fullName,
       });
       Message.success('注册成功，请登录');
       goLogin();

@@ -168,7 +168,7 @@
   import { useUserStore } from '@/store';
   import useLoading from '@/hooks/loading';
   import type { LoginData, RegisterData } from '@/api/user';
-  import { register, recoverPassword } from '@/api/user';
+  import { registerUser, recoverPassword } from '@/api/user';
 
   const router = useRouter();
   const { t } = useI18n();
@@ -265,11 +265,10 @@
       try {
         const data: RegisterData = {
           email: values.email,
-          username: values.email.split('@')[0] || values.email,
+          username: values.full_name || values.email.split('@')[0] || values.email,
           password: values.password,
-          full_name: values.full_name || undefined,
         };
-        await register(data);
+        await registerUser(data);
         Message.success('注册成功，请登录');
         activeTab.value = 'login';
         loginForm.username = values.email;

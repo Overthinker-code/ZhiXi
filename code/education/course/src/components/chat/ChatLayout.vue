@@ -1,5 +1,6 @@
 <script setup lang="ts">
-  import { computed, nextTick, onMounted, ref, watch } from 'vue';
+  import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+  import { useRoute } from 'vue-router';
   import { Message, Modal } from '@arco-design/web-vue';
   import {
     fetchAIContextCourses,
@@ -30,9 +31,11 @@
   } from './tutorActions';
 
   const chatStore = useChatStore();
+  const route = useRoute();
   const sidebarCollapsed = ref(false);
   const drawerVisible = ref(false);
   const composerRef = ref<InstanceType<typeof ChatComposer> | null>(null);
+  const contextButtonRef = ref<HTMLButtonElement | null>(null);
   const activeAction = ref<TutorAction>(getTutorAction('general_chat'));
   const mode = ref<TutorMode>('tutor');
   const tools = ref<ChatToolPayload>({
@@ -45,9 +48,9 @@
   });
   const reasoningLevel = ref<ReasoningLevel>('balanced');
   const courseContext = ref<CourseContextPayload>({
-    courseId: 'c1111111-1111-4111-9111-111111111101',
-    chapterId: 'ch3',
-    knowledgePointIds: ['er-model'],
+    courseId: '',
+    chapterId: '',
+    knowledgePointIds: [],
     useCourseRag: false,
   });
   const resourceRequest = ref<ResourceRequestPayload>({
@@ -95,8 +98,22 @@
     if (panel === 'upload') {
       composerRef.value?.openUpload();
     } else if (panel === 'course_picker') {
-      drawerVisible.value = true;
+      openContextDrawer();
     }
+  }
+
+  function openContextDrawer() {
+    drawerVisible.value = true;
+  }
+
+  function closeContextDrawer(restoreFocus = true) {
+    if (!drawerVisible.value) return;
+    drawerVisible.value = false;
+    if (restoreFocus) nextTick(() => contextButtonRef.value?.focus());
+  }
+
+  function handleDocumentKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape' && drawerVisible.value) closeContextDrawer();
   }
 
   function patchFromAction(action: TutorAction) {
@@ -127,7 +144,9 @@
   }
 
   function shouldUseCourseContext(text: string) {
+    if (courseContext.value.useCourseRag) return Boolean(courseContext.value.courseId);
     if (activeAction.value.id !== 'general_chat') return Boolean(courseContext.value.useCourseRag);
+    if (!courseContext.value.courseId) return false;
     const normalized = text.toLowerCase();
     return /课程|章节|本章|本节|课件|讲义|数据库|关系模型|er\s*模型|sql|事务|索引|范式|数据结构|二叉树|算法/.test(
       normalized
@@ -466,7 +485,9 @@
       message: text,
       mode: requestMode,
       actionId: autoDeepResearch ? 'auto_deep_research' : activeAction.value.id,
-      courseContext: { ...courseContext.value, useCourseRag: autoCourseRag },
+      courseContext: autoCourseRag
+        ? { ...courseContext.value, useCourseRag: true }
+        : { courseId: '', chapterId: '', knowledgePointIds: [], useCourseRag: false },
       tools: {
         ...tools.value,
         webSearch: tools.value.webSearch || autoDeepResearch,
@@ -788,7 +809,24 @@
     };
   }
 
+  function routeText(value: unknown) {
+    return Array.isArray(value) ? String(value[0] || '') : String(value || '');
+  }
+
+  function applyRouteContext() {
+    const courseId = routeText(route.query.courseId);
+    const chapterId = routeText(route.query.chapterId || route.query.sectionId);
+    const prompt = routeText(route.query.prompt);
+    if (courseId && courses.value.some((item) => item.courseId === courseId)) {
+      updateCourse(courseId);
+      if (chapterId) updateChapter(chapterId);
+      courseContext.value.useCourseRag = true;
+    }
+    if (prompt) composerRef.value?.setDraft(prompt);
+  }
+
   onMounted(async () => {
+    document.addEventListener('keydown', handleDocumentKeydown);
     await chatStore.loadConversations();
     chatStore.enterDraftSession();
     try {
@@ -796,11 +834,16 @@
     } catch {
       courses.value = [];
     }
+    applyRouteContext();
     try {
       learningReport.value = await fetchLearningReport(false);
     } catch {
       learningReport.value = null;
     }
+  });
+
+  onUnmounted(() => {
+    document.removeEventListener('keydown', handleDocumentKeydown);
   });
 
   watch(
@@ -833,7 +876,13 @@
 
     <section class="tutor-chat-layout__main">
       <div class="chat-main-actions">
-        <button type="button" @click="drawerVisible = true">上下文</button>
+        <button
+          ref="contextButtonRef"
+          type="button"
+          aria-controls="tutor-context-drawer"
+          :aria-expanded="drawerVisible"
+          @click="openContextDrawer"
+        >上下文</button>
       </div>
       <div ref="mainScroller" class="chat-main-scroll">
         <ChatMain
@@ -875,7 +924,7 @@
       :profile-items="profileItems"
       :artifacts="latestArtifacts"
       :resource-package="latestPackage"
-      @close="drawerVisible = false"
+      @close="closeContextDrawer"
       @update-course="updateCourse"
       @update-chapter="updateChapter"
       @toggle-rag="courseContext.useCourseRag = !courseContext.useCourseRag"

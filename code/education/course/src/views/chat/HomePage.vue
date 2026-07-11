@@ -2,7 +2,6 @@
   import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
   import { useRoute, useRouter } from 'vue-router';
   import {
-    BadgeCheck,
     Bell,
     BookOpen,
     Bot,
@@ -17,7 +16,6 @@
     ShieldCheck,
     Sparkles,
     Target,
-    UsersRound,
     Zap,
   } from 'lucide-vue-next';
   import { useUserStore } from '@/store';
@@ -51,10 +49,10 @@
   ];
 
   const statsBar = [
-    { icon: BookOpen, tone: 'blue', value: '1200+', label: '优质课程资源' },
-    { icon: BadgeCheck, tone: 'green', value: '98%', label: '学生满意度' },
-    { icon: UsersRound, tone: 'violet', value: '50+', label: '合作院校' },
-    { icon: ShieldCheck, tone: 'orange', value: '10万+', label: '活跃学习者' },
+    { icon: SearchCheck, tone: 'blue', value: '证据可追溯', label: '课程问答' },
+    { icon: Brain, tone: 'green', value: '画像可更新', label: '学习建议' },
+    { icon: Layers3, tone: 'violet', value: '资源可入库', label: '多类生成' },
+    { icon: Route, tone: 'orange', value: '路径可调整', label: '学习安排' },
   ];
 
   const features = [
@@ -113,42 +111,36 @@
       name: '计算机科学',
       icon: Library,
       tone: 'blue',
-      count: 368,
       topics: '人工智能 · 编程 · 数据结构',
     },
     {
       name: '经济管理',
       icon: LineChart,
       tone: 'green',
-      count: 256,
       topics: '经管学 · 管理学 · 金融学',
     },
     {
       name: '人文社科',
       icon: BookOpen,
       tone: 'amber',
-      count: 198,
       topics: '文学 · 历史 · 心理学',
     },
     {
       name: '理工科',
       icon: Sparkles,
       tone: 'violet',
-      count: 312,
       topics: '数学 · 物理 · 化学',
     },
     {
       name: '语言学习',
       icon: Bot,
       tone: 'cyan',
-      count: 156,
       topics: '英语 · 日语 · 其他语言',
     },
     {
       name: '职业技能',
       icon: Route,
       tone: 'rose',
-      count: 210,
       topics: '设计 · 营销 · 办公软件',
     },
   ];
@@ -402,7 +394,6 @@
             <div>
               <strong>{{ cat.name }}</strong>
               <small>{{ cat.topics }}</small>
-              <em>{{ cat.count }} 门课程</em>
             </div>
           </router-link>
         </div>

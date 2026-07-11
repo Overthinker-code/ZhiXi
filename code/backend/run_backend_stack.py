@@ -14,7 +14,13 @@ YOLO_APP_ROOT = CODE_ROOT / "cv" / "code"
 YOLO_MODEL_ROOT = CODE_ROOT / "cv" / "model"
 PORT = os.environ.get("BACKEND_PORT", "8001")
 YOLO_PORT = os.environ.get("YOLO_SERVICE_PORT", "8002")
-START_YOLO_SERVICE = os.environ.get("START_YOLO_SERVICE", "true").lower() in {
+START_YOLO_SERVICE = os.environ.get("START_YOLO_SERVICE", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+START_CELERY_SERVICE = os.environ.get("START_CELERY_SERVICE", "false").lower() in {
     "1",
     "true",
     "yes",
@@ -91,9 +97,21 @@ def main() -> int:
 
     try:
         _run_once([sys.executable, "backend_pre_start.py"])
+        _run_once(
+            [
+                sys.executable,
+                "-m",
+                "alembic",
+                "-c",
+                str(ROOT / "alembic.ini"),
+                "upgrade",
+                "head",
+            ]
+        )
         _run_once([sys.executable, "initial_data.py"])
-        children.append(("celery", _spawn(celery_cmd), True))
-        time.sleep(2)
+        if START_CELERY_SERVICE:
+            children.append(("celery", _spawn(celery_cmd), True))
+            time.sleep(2)
         if START_YOLO_SERVICE:
             yolo_file = YOLO_APP_ROOT / "yolo.py"
             detector_path = YOLO_MODEL_ROOT / "yolo11m.pt"
@@ -120,14 +138,18 @@ def main() -> int:
                 )
                 time.sleep(2)
             else:
-                print(f"[run_backend_stack] YOLO service skipped: {yolo_file} not found")
+                print(
+                    f"[run_backend_stack] YOLO service skipped: {yolo_file} not found"
+                )
         children.append(("uvicorn", _spawn(uvicorn_cmd), True))
         while True:
             for name, proc, critical in list(children):
                 code = proc.poll()
                 if code is not None:
                     if critical:
-                        print(f"[run_backend_stack] critical child {name} exited: {code}")
+                        print(
+                            f"[run_backend_stack] critical child {name} exited: {code}"
+                        )
                         shutdown()
                         return code
                     print(f"[run_backend_stack] optional child {name} exited: {code}")

@@ -60,4 +60,10 @@ class ResourceGenerationResponse(BaseModel):
     local_model_profile: dict[str, Any] = Field(default_factory=dict)
     agent_trace: list[str] = Field(default_factory=list)
     quality_notes: list[str] = Field(default_factory=list)
+    persistence_status: Literal[
+        "file_only",
+        "package_persisted",
+        "resources_persisted",
+    ] = "file_only"
+    persisted_resource_ids: list[UUID] = Field(default_factory=list)
     artifacts: list[GeneratedResourceArtifact]

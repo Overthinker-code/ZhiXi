@@ -21,6 +21,7 @@
   const chartContainer = ref<HTMLDivElement | null>(null);
   let chart: EChartsType | null = null;
   let resizeObserver: ResizeObserver | null = null;
+  let initialFrame = 0;
 
   const timePoints = Array.from({ length: 96 }, (_, index) => {
     const totalMinutes = index * 15;
@@ -206,21 +207,28 @@
     ],
   };
 
+  const renderChart = () => {
+    const container = chartContainer.value;
+    if (!container || container.clientWidth <= 0 || container.clientHeight <= 0) return;
+    if (!chart) {
+      chart = echarts.init(container);
+      chart.setOption(option);
+      return;
+    }
+    chart.resize();
+  };
+
   onMounted(() => {
     if (!chartContainer.value) return;
-
-    chart = echarts.init(chartContainer.value);
-    chart.setOption(option);
-
-    resizeObserver = new ResizeObserver(() => {
-      chart?.resize();
-    });
+    resizeObserver = new ResizeObserver(renderChart);
     resizeObserver.observe(chartContainer.value);
+    initialFrame = window.requestAnimationFrame(renderChart);
   });
 
   onBeforeUnmount(() => {
     resizeObserver?.disconnect();
     resizeObserver = null;
+    window.cancelAnimationFrame(initialFrame);
     chart?.dispose();
     chart = null;
   });

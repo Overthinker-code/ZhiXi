@@ -34,6 +34,8 @@
   const selectedResourceId = ref('');
   const resourceDrawerVisible = ref(false);
   const resourceToolDrawerVisible = ref(false);
+  const generatedPackagePreviewVisible = ref(false);
+  const previewedGeneratedPackage = ref<RecentGeneratedPackage | null>(null);
   const showAllResources = ref(false);
   const defaultResourcePreviewCount = 6;
   const aiTrialLimit = 3;
@@ -115,7 +117,7 @@
     {
       label: '资料定位',
       value: '章节 / 知识点 / 任务',
-      desc: '每份资料都写入课程节点和使用场景',
+      desc: '保留章节与知识点线索，便于后续核验',
     },
     {
       label: '学习闭环',
@@ -431,6 +433,11 @@
 
   type GeneratedPackageArtifact = RecentGeneratedPackage['artifacts'][number];
 
+  function openGeneratedPackagePreview(pkg: RecentGeneratedPackage) {
+    previewedGeneratedPackage.value = pkg;
+    generatedPackagePreviewVisible.value = true;
+  }
+
   function generatedArtifactFileId(
     pkg: RecentGeneratedPackage,
     artifact?: GeneratedPackageArtifact
@@ -469,6 +476,7 @@
 
   function askAboutGeneratedPackage(pkg: RecentGeneratedPackage) {
     if (!course.value) return;
+    generatedPackagePreviewVisible.value = false;
     const firstArtifact = pkg.artifacts[0];
     const artifactFileId = generatedArtifactFileId(pkg, firstArtifact);
     const artifactTitle = firstArtifact?.title || firstArtifact?.file_name || '';
@@ -516,6 +524,7 @@
 
   function auditGeneratedPackageInGraph(pkg: RecentGeneratedPackage) {
     if (!course.value) return;
+    generatedPackagePreviewVisible.value = false;
     router.push(
       courseWorkspaceLocation(course.value.id, 'knowledge', {
         topic: pkg.topic,
@@ -820,12 +829,18 @@
               :key="pkg.package_id"
             >
               <div>
-                <strong>{{ pkg.topic }}</strong>
+                <button
+                  type="button"
+                  class="tool-package-topic"
+                  @click="openGeneratedPackagePreview(pkg)"
+                >
+                  <strong>{{ pkg.topic }}</strong>
+                </button>
                 <span>{{ generatedPackageLabel(pkg) }} · {{ pkg.artifacts.length }} 个文件</span>
               </div>
               <div>
-                <button type="button" @click="downloadGeneratedArtifact(pkg)">
-                  <icon-download /> 下载
+                <button type="button" @click="openGeneratedPackagePreview(pkg)">
+                  <icon-file /> 预览
                 </button>
                 <button type="button" @click="askAboutGeneratedPackage(pkg)">
                   <icon-robot /> 复核
@@ -842,6 +857,60 @@
             <button type="button" @click="openGenerator('课程资料回流生成')">现在生成</button>
           </div>
         </section>
+      </div>
+    </a-drawer>
+
+    <a-drawer
+      v-model:visible="generatedPackagePreviewVisible"
+      :width="520"
+      :footer="false"
+      unmount-on-close
+      title="资源包预览"
+    >
+      <div v-if="previewedGeneratedPackage" class="generated-package-preview">
+        <header>
+          <span>课程生成记录</span>
+          <h2>{{ previewedGeneratedPackage.topic }}</h2>
+          <p>
+            {{ generatedPackageLabel(previewedGeneratedPackage) }} ·
+            {{ previewedGeneratedPackage.artifacts.length }} 个真实文件
+          </p>
+        </header>
+
+        <div class="generated-package-preview__files">
+          <article
+            v-for="artifact in previewedGeneratedPackage.artifacts"
+            :key="artifact.file_name"
+          >
+            <div>
+              <strong>{{ artifact.title || artifact.file_name }}</strong>
+              <span>{{ artifact.file_name }}</span>
+            </div>
+            <p>{{ artifact.preview || '该文件可下载查看完整内容。' }}</p>
+            <button
+              type="button"
+              @click="downloadGeneratedArtifact(previewedGeneratedPackage, artifact)"
+            >
+              <icon-download /> 下载文件
+            </button>
+          </article>
+        </div>
+
+        <footer>
+          <button
+            type="button"
+            @click="askAboutGeneratedPackage(previewedGeneratedPackage)"
+          >
+            <icon-robot /> AI 复核
+          </button>
+          <button
+            type="button"
+            class="primary"
+            @click="auditGeneratedPackageInGraph(previewedGeneratedPackage)"
+          >
+            <icon-mind-mapping /> 图谱核验
+          </button>
+        </footer>
       </div>
     </a-drawer>
   </section>
@@ -2909,6 +2978,129 @@
       background: #fff;
       cursor: pointer;
       font-size: 11px;
+    }
+
+    .tool-package-topic {
+      width: 100%;
+      height: auto;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      text-align: left;
+    }
+  }
+
+  .generated-package-preview {
+    display: grid;
+    gap: 18px;
+    color: #101828;
+
+    > header span {
+      color: #4f46e5;
+      font-size: 11px;
+      font-weight: 750;
+    }
+
+    > header h2 {
+      margin: 7px 0 5px;
+      font-size: 20px;
+      line-height: 1.4;
+    }
+
+    > header p {
+      margin: 0;
+      color: #667085;
+      font-size: 12px;
+    }
+
+    > footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+
+      button {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 36px;
+        padding: 0 14px;
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        border-radius: 10px;
+        color: #475467;
+        background: #fff;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 700;
+
+        &.primary {
+          border-color: #4f46e5;
+          color: #fff;
+          background: #4f46e5;
+        }
+      }
+    }
+  }
+
+  .generated-package-preview__files {
+    display: grid;
+    gap: 10px;
+
+    article {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 9px 12px;
+      padding: 13px;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      border-radius: 14px;
+      background: #f8fafc;
+    }
+
+    strong,
+    span {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    strong {
+      font-size: 13px;
+    }
+
+    span {
+      margin-top: 3px;
+      color: #667085;
+      font-size: 11px;
+    }
+
+    p {
+      grid-column: 1 / -1;
+      max-height: 66px;
+      margin: 0;
+      overflow: hidden;
+      color: #475467;
+      font-size: 12px;
+      line-height: 1.8;
+    }
+
+    button {
+      grid-column: 2;
+      grid-row: 1;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      align-self: center;
+      height: 32px;
+      padding: 0 10px;
+      border: 1px solid rgba(99, 102, 241, 0.18);
+      border-radius: 9px;
+      color: #4f46e5;
+      background: #fff;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 700;
     }
   }
 

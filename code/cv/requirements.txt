@@ -1,0 +1,7 @@
+# Standalone YOLO classroom behavior service.
+ultralytics>=8.0.0
+torch>=2.0.0
+torchvision>=0.15.0
+opencv-python>=4.10,<5
+numpy
+Pillow

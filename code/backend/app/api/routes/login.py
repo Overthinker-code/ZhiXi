@@ -2,15 +2,16 @@ from datetime import timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import HTMLResponse
 from fastapi.security import OAuth2PasswordRequestForm
 
 from app import crud
-from app.api.deps import CurrentUser, SessionDep, get_current_active_superuser
+from app.api.deps import CurrentUser, SessionDep
 from app.core import security
 from app.core.config import settings
 from app.core.security import get_password_hash
-from app.models import Message, NewPassword, Token, UserPublic, User, Log
+from app.models import Log, Token, UserPublic
+from app.schemas.common import MessageResponse
+from app.schemas.token import PasswordResetRequest
 from app.utils import (
     generate_password_reset_token,
     generate_reset_password_email,
@@ -35,16 +36,14 @@ def login_access_token(
         raise HTTPException(status_code=400, detail="Incorrect email or password")
     elif not user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
-    
+
     # 记录登录日志
     login_log = Log(
-        user_id=user.id,
-        action="login",
-        details=f"User {user.email} logged in"
+        user_id=user.id, action="login", details=f"User {user.email} logged in"
     )
     session.add(login_log)
     session.commit()
-    
+
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     return Token(
         access_token=security.create_access_token(
@@ -53,16 +52,14 @@ def login_access_token(
     )
 
 
-# @router.post("/login/test-token", response_model=UserPublic)
-# def test_token(current_user: CurrentUser) -> Any:
-#     """
-#     Test access token
-#     """
-#     return current_user
+@router.post("/login/test-token", response_model=UserPublic)
+def test_token(current_user: CurrentUser) -> Any:
+    """Validate an access token and return the authenticated user."""
+    return current_user
 
 
 @router.post("/password-recovery/{email}")
-def recover_password(email: str, session: SessionDep) -> Message:
+def recover_password(email: str, session: SessionDep) -> MessageResponse:
     """
     用户找回密码
     """
@@ -82,27 +79,17 @@ def recover_password(email: str, session: SessionDep) -> Message:
         subject=email_data.subject,
         html_content=email_data.html_content,
     )
-    return Message(message="Password recovery email sent")
+    return MessageResponse(message="Password recovery email sent")
 
 
 @router.post("/reset-password/")
-def reset_password(session: SessionDep, body: NewPassword) -> Message:
+def reset_password(session: SessionDep, body: PasswordResetRequest) -> MessageResponse:
     """
     用户修改密码
     """
-    user_id = verify_password_reset_token(token=body.token)
-    if not user_id:
+    email = verify_password_reset_token(token=body.token)
+    if not email:
         raise HTTPException(status_code=400, detail="Invalid token")
-
-    # 查找用户对象以获取真实 email
-    user_obj = session.get(User, user_id)
-    if not user_obj:
-        raise HTTPException(
-            status_code=404,
-            detail="User not found from token",
-        )
-    
-    email = user_obj.email
     user = crud.get_user_by_email(session=session, email=email)
 
     if not user:
@@ -116,7 +103,7 @@ def reset_password(session: SessionDep, body: NewPassword) -> Message:
     user.hashed_password = hashed_password
     session.add(user)
     session.commit()
-    return Message(message="Password updated successfully")
+    return MessageResponse(message="Password updated successfully")
 
 
 # @router.post(

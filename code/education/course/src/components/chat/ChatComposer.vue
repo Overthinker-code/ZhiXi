@@ -27,6 +27,8 @@
   const rootRef = ref<HTMLElement | null>(null);
   const textareaRef = ref<HTMLTextAreaElement | null>(null);
   const fileInput = ref<HTMLInputElement | null>(null);
+  const toolButtonRef = ref<HTMLButtonElement | null>(null);
+  const reasoningButtonRef = ref<HTMLButtonElement | null>(null);
   const toolMenuOpen = ref(false);
   const resourceTypeOpen = ref(false);
   const reasoningMenuOpen = ref(false);
@@ -99,10 +101,30 @@
     reasoningMenuOpen.value = false;
   };
 
+  const toggleToolMenu = () => {
+    const nextOpen = !toolMenuOpen.value;
+    closeFloatingPanels();
+    toolMenuOpen.value = nextOpen;
+  };
+
+  const toggleReasoningMenu = () => {
+    const nextOpen = !reasoningMenuOpen.value;
+    closeFloatingPanels();
+    reasoningMenuOpen.value = nextOpen;
+  };
+
   const handleDocumentPointerDown = (event: PointerEvent) => {
     const root = rootRef.value;
     if (!root || root.contains(event.target as Node)) return;
     closeFloatingPanels();
+  };
+
+  const handleDocumentKeydown = (event: KeyboardEvent) => {
+    if (event.key !== 'Escape') return;
+    const focusTarget = reasoningMenuOpen.value ? reasoningButtonRef.value : toolButtonRef.value;
+    if (!toolMenuOpen.value && !reasoningMenuOpen.value && !resourceTypeOpen.value) return;
+    closeFloatingPanels();
+    nextTick(() => focusTarget?.focus());
   };
 
   const onFileChange = (event: Event) => {
@@ -178,15 +200,24 @@
 
   onMounted(() => {
     document.addEventListener('pointerdown', handleDocumentPointerDown);
+    document.addEventListener('keydown', handleDocumentKeydown);
     resizeTextarea();
   });
 
   onUnmounted(() => {
     document.removeEventListener('pointerdown', handleDocumentPointerDown);
+    document.removeEventListener('keydown', handleDocumentKeydown);
   });
 
   defineExpose({
     openUpload: chooseFiles,
+    setDraft(value: string) {
+      input.value = value;
+      nextTick(() => {
+        resizeTextarea();
+        textareaRef.value?.focus();
+      });
+    },
   });
 </script>
 
@@ -233,17 +264,21 @@
 
         <div class="tool-wrap">
           <button
+            ref="toolButtonRef"
             type="button"
             class="icon-button"
             :class="{ active: toolMenuOpen || hasActiveTools }"
             aria-label="打开工具"
+            aria-haspopup="menu"
+            :aria-expanded="toolMenuOpen"
+            aria-controls="tutor-tool-menu"
             data-testid="tool-menu"
-            @click="toolMenuOpen = !toolMenuOpen"
+            @click="toggleToolMenu"
           >
             +
           </button>
 
-          <div v-if="toolMenuOpen" class="tool-menu" @keydown.esc="toolMenuOpen = false">
+          <div v-if="toolMenuOpen" id="tutor-tool-menu" class="tool-menu" role="menu">
             <section>
               <button type="button" class="tool-menu__item featured" @click="chooseFiles">
                 <span class="menu-icon">+</span>
@@ -333,18 +368,21 @@
 
         <div class="reasoning-wrap">
           <button
+            ref="reasoningButtonRef"
             type="button"
             class="reasoning-button"
             data-testid="tool-reasoning"
             aria-label="思考强度"
+            aria-haspopup="menu"
             :aria-expanded="reasoningMenuOpen"
-            @click="reasoningMenuOpen = !reasoningMenuOpen"
+            aria-controls="tutor-reasoning-menu"
+            @click="toggleReasoningMenu"
           >
             <span>{{ selectedReasoning.label }}</span>
             <i />
           </button>
 
-          <div v-if="reasoningMenuOpen" class="reasoning-menu">
+          <div v-if="reasoningMenuOpen" id="tutor-reasoning-menu" class="reasoning-menu" role="menu">
             <button
               v-for="option in reasoningOptions"
               :key="option.id"

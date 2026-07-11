@@ -10,6 +10,7 @@ from app.models.chat_thread import ChatThread
 from app.models.user import User
 from app.models.user_memory_profile import UserMemoryProfile
 from app.models.learning_path import LearningPath
+from app.models.generated_resource_package import GeneratedResourcePackage
 from app.models.student_hub import (
     PracticeRecord,
     StudentAchievement,
@@ -22,16 +23,38 @@ from app.models.message import Message
 from app.core.enums import MessageStatus, MessageType
 
 # Re-export from schemas
-from app.schemas.item import ItemCreate, ItemUpdate
-from app.schemas.user import UserCreate, UserUpdate, UsersPublic, UserUpdateMe, UserRegister, NewPassword, UserPublic, UpdatePassword
+from app.schemas.user import (
+    UserCreate,
+    UserPublic,
+    UserRegister,
+    UsersPublic,
+    UserUpdate,
+    UserUpdateMe,
+    UpdatePassword,
+)
 from app.schemas.token import Token, TokenPayload
-from app.schemas.ud import UDBase,UDCreate,UDPublic,UDPublicSingle,UDUpdate
-from app.schemas.teachers import TeacherBase,TeacherCreate,TeacherPublic,TeachersPublic,TeacherUpdate
+from app.schemas.ud import UDCreate, UDPublic, UDUpdate
+from app.schemas.teachers import (
+    TeacherCreate,
+    TeacherPublic,
+    TeachersPublic,
+    TeacherUpdate,
+)
 from app.schemas.course import CourseCreate, CourseUpdate, CoursePublic, CoursesPublic
 from app.schemas.tc import TCCreate, TCUpdate, TCPublic, TCsPublic
-from app.schemas.videos import VideoBase, VideoCreate, VideoPublic, VideosPublic,VideoUpdate
-from app.schemas.course_plans import CoursePlanBase,CoursePlanCreate,CoursePlanPublic,CoursePlansPublic,CoursePlanUpdate
-from app.schemas.students import StudentBase,StudentCreate,StudentInDBBase,StudentPublic,StudentsPublic,StudentUpdate
+from app.schemas.videos import VideoPublic, VideosPublic, VideoUpdate
+from app.schemas.course_plans import (
+    CoursePlanCreate,
+    CoursePlanPublic,
+    CoursePlansPublic,
+    CoursePlanUpdate,
+)
+from app.schemas.students import (
+    StudentCreate,
+    StudentPublic,
+    StudentsPublic,
+    StudentUpdate,
+)
 
 # 根目录 app/models.py 中的业务表（教育/视频等），经 business_tables 只加载一次
 from app.models.business_tables import (
@@ -68,11 +91,10 @@ __all__ = [
     "AIUsageLog",
     "ChatThread",
     "Item",
-    "ItemCreate",
-    "ItemUpdate",
     "User",
     "UserMemoryProfile",
     "LearningPath",
+    "GeneratedResourcePackage",
     "PracticeRecord",
     "StudentAchievement",
     "StudentNotification",
@@ -80,14 +102,43 @@ __all__ = [
     "StudyGroup",
     "StudyGroupMember",
     "UserCreate",
+    "UserPublic",
+    "UserRegister",
     "UserUpdate",
+    "UserUpdateMe",
+    "UsersPublic",
+    "UpdatePassword",
     "MessageStatus",
     "MessageType",
     "Token",
     "TokenPayload",
     "Message",
-    "NewPassword",
-    "UserPublic",
+    "UDCreate",
+    "UDPublic",
+    "UDUpdate",
+    "TeacherCreate",
+    "TeacherPublic",
+    "TeachersPublic",
+    "TeacherUpdate",
+    "CourseCreate",
+    "CoursePublic",
+    "CoursesPublic",
+    "CourseUpdate",
+    "TCCreate",
+    "TCPublic",
+    "TCsPublic",
+    "TCUpdate",
+    "VideoPublic",
+    "VideosPublic",
+    "VideoUpdate",
+    "CoursePlanCreate",
+    "CoursePlanPublic",
+    "CoursePlansPublic",
+    "CoursePlanUpdate",
+    "StudentCreate",
+    "StudentPublic",
+    "StudentsPublic",
+    "StudentUpdate",
     "Alert",
     "Assignment",
     "BehaviorSummaryRecord",

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import Session
@@ -38,7 +38,7 @@ from app.services.reasoning_adapter import (
     normalize_reasoning_to_product_process,
     sanitize_visible_answer_delta,
 )
-from app.services.resource_generation_service import resource_generation_service
+from app.services.resource_package_service import resource_package_service
 
 router = APIRouter()
 rag_service = RAGService()
@@ -135,12 +135,12 @@ class CourseContext(CamelModel):
     course_id: str | None = Field(default=None, alias="courseId")
     chapter_id: str | None = Field(default=None, alias="chapterId")
     knowledge_point_ids: list[str] = Field(default_factory=list, alias="knowledgePointIds")
-    use_course_rag: bool = Field(default=True, alias="useCourseRag")
+    use_course_rag: bool = Field(default=False, alias="useCourseRag")
 
 
 class ToolOptions(CamelModel):
     web_search: bool = Field(default=False, alias="webSearch")
-    course_rag: bool = Field(default=True, alias="courseRag")
+    course_rag: bool = Field(default=False, alias="courseRag")
     deep_research: bool = Field(default=False, alias="deepResearch")
     homework_review: bool = Field(default=False, alias="homeworkReview")
     resource_generation: bool = Field(default=False, alias="resourceGeneration")
@@ -596,11 +596,6 @@ def _legacy_event_to_ai_events(
                 "web_search": "web_search",
                 "vision": "attachment_reader",
             }.get(action, "course_retriever")
-            visible_title = {
-                "retrieve": title,
-                "web_search": "联网搜索",
-                "vision": "解析图片",
-            }.get(action, title)
             return [
                 (
                     "tool_result",
@@ -701,7 +696,11 @@ def _resource_kinds(types: list[str]) -> list[ResourceKind]:
     return values or ["lecture_markdown", "practice_markdown", "mind_map", "case_project", "video_script"]
 
 
-def _generate_resource_package(req: AIChatStreamRequest) -> dict[str, Any]:
+def _generate_resource_package(
+    req: AIChatStreamRequest,
+    db: Session,
+    owner_id: UUID,
+) -> dict[str, Any]:
     difficulty = {
         "basic": "foundation",
         "normal": "standard",
@@ -720,7 +719,11 @@ def _generate_resource_package(req: AIChatStreamRequest) -> dict[str, Any]:
         resource_types=_resource_kinds(req.resource_request.types),
         use_web_search=bool(req.tools.web_search),
     )
-    return resource_generation_service.generate(request).model_dump(mode="json")
+    return resource_package_service.generate(
+        db,
+        request,
+        owner_id=owner_id,
+    ).model_dump(mode="json")
 
 
 @router.post("/sessions")
@@ -844,9 +847,13 @@ def get_context_course(course_id: str, current_user: CurrentUser) -> Any:
 
 
 @router.post("/resources/from-chat")
-def generate_resources_from_chat(*, request: AIChatStreamRequest, current_user: CurrentUser) -> Any:
-    _ = current_user
-    return _generate_resource_package(request)
+def generate_resources_from_chat(
+    *,
+    db: Session = Depends(deps.get_db),
+    request: AIChatStreamRequest,
+    current_user: CurrentUser,
+) -> Any:
+    return _generate_resource_package(request, db, current_user.id)
 
 
 @router.post("/profile/update-from-chat")
@@ -990,7 +997,11 @@ def ai_chat_stream(
                 yield _phase_delta("compose", f"资源类型：{'、'.join(request.resource_request.types or ['lecture_note', 'mind_map', 'quiz'])}")
                 yield _sse("artifact_started", {"label": "正在生成资源包"})
                 try:
-                    package = _generate_resource_package(request)
+                    package = _generate_resource_package(
+                        request,
+                        db,
+                        current_user.id,
+                    )
                     yield _phase_finished("compose", "生成资源", f"资源包已生成，包含 {len(package.get('artifacts') or [])} 类内容")
                     yield _sse("artifact_finished", package)
                     final_text = (

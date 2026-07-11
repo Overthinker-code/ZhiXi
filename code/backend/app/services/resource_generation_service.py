@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import re
+import shutil
 from typing import Any
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from langchain_core.messages import HumanMessage
 
@@ -31,6 +33,28 @@ DEFAULT_RESOURCE_TYPES: list[ResourceKind] = [
     "quality_checklist",
 ]
 
+AI_RESOURCE_KINDS: frozenset[ResourceKind] = frozenset(
+    {
+        "lecture_markdown",
+        "practice_markdown",
+        "mind_map",
+        "reading_list",
+        "case_project",
+        "video_script",
+        "quality_checklist",
+    }
+)
+
+RESOURCE_AGENT_LABELS: dict[ResourceKind, tuple[str, str]] = {
+    "lecture_markdown": ("LectureAgent", "个性化讲义"),
+    "practice_markdown": ("ExerciseAgent", "分层练习"),
+    "mind_map": ("MindMapAgent", "知识导图"),
+    "reading_list": ("ReadingAgent", "拓展阅读"),
+    "case_project": ("CaseAgent", "实操案例"),
+    "video_script": ("ScriptAgent", "讲解脚本"),
+    "quality_checklist": ("QualityAgent", "质量清单"),
+}
+
 
 class ResourceGenerationService:
     """Local-first resource producer for the course resource center."""
@@ -38,14 +62,23 @@ class ResourceGenerationService:
     def __init__(self) -> None:
         self.output_root = Path(settings.BASE_PATH) / "generated_resources"
 
-    def generate(self, request: ResourceGenerationRequest) -> ResourceGenerationResponse:
-        package_id = f"rg_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid4().hex[:8]}"
+    def generate(
+        self,
+        request: ResourceGenerationRequest,
+        *,
+        owner_id: UUID | None = None,
+    ) -> ResourceGenerationResponse:
+        package_id = (
+            f"rg_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}_{uuid4().hex[:8]}"
+        )
         target_dir = self.output_root / package_id
         target_dir.mkdir(parents=True, exist_ok=True)
 
         kinds = request.resource_types or DEFAULT_RESOURCE_TYPES
+        requested_ai_kinds = [kind for kind in kinds if kind in AI_RESOURCE_KINDS]
         context = self._build_context(request)
         ai_contents, ai_generation_error = self._generate_ai_contents(context, kinds)
+        fallback_artifacts = sorted(set(requested_ai_kinds) - set(ai_contents))
         artifacts: list[GeneratedResourceArtifact] = []
         markdown_cache: dict[str, str] = {}
 
@@ -99,13 +132,15 @@ class ResourceGenerationService:
                     )
                 )
             elif kind == "mind_map":
+                mind_map = ai_contents.get(kind) or self._mind_map(context)
+                mind_map = self._ensure_mind_map_resource_links(mind_map, kinds)
                 artifacts.append(
                     self._write_artifact(
                         target_dir,
                         kind,
                         f"{request.topic} 思维导图",
                         "mind-map.mmd",
-                        ai_contents.get(kind) or self._mind_map(context),
+                        mind_map,
                         "text/plain",
                     )
                 )
@@ -159,6 +194,7 @@ class ResourceGenerationService:
             request=request,
             package_id=package_id,
             artifacts=artifacts,
+            owner_id=owner_id,
         )
 
         return ResourceGenerationResponse(
@@ -171,7 +207,7 @@ class ResourceGenerationService:
             source=request.source,
             subject=request.subject,
             topic=request.topic,
-            generated_at=datetime.utcnow(),
+            generated_at=datetime.now(timezone.utc),
             local_model_profile={
                 "chat_provider": settings.CHAT_PROVIDER,
                 "chat_model": self._active_chat_model_name(),
@@ -184,60 +220,18 @@ class ResourceGenerationService:
                 if ai_contents
                 else "课程画像 + 本地结构化回退 + 质量审查",
                 "content_provider": "mimo"
-                if len(ai_contents) == len(
-                    [
-                        kind
-                        for kind in kinds
-                        if kind
-                        in {
-                            "lecture_markdown",
-                            "practice_markdown",
-                            "mind_map",
-                            "reading_list",
-                            "case_project",
-                            "video_script",
-                            "quality_checklist",
-                        }
-                    ]
-                )
+                if len(ai_contents) == len(requested_ai_kinds)
                 else ("mimo_partial" if ai_contents else "local_fallback"),
                 "ai_generated_artifacts": sorted(ai_contents.keys()),
-                "fallback_artifacts": sorted(
-                    {
-                        kind
-                        for kind in kinds
-                        if kind
-                        in {
-                            "lecture_markdown",
-                            "practice_markdown",
-                            "mind_map",
-                            "reading_list",
-                            "case_project",
-                            "video_script",
-                            "quality_checklist",
-                        }
-                    }
-                    - set(ai_contents.keys())
-                ),
+                "fallback_artifacts": fallback_artifacts,
                 "domain": context["domain"],
                 "fallback_reason": ai_generation_error or "",
             },
-            agent_trace=[
-                "ProfileAgent: 读取学习画像和目标难度",
-                f"DomainAgent: 识别课程域为 {context['domain']}",
-                "EvidenceAgent: 生成课程证据清单和引用模板",
-                "MiMoContentAgent: 基于课程上下文生成结构化资源正文"
-                if ai_contents
-                else "FallbackContentAgent: MiMo 内容生成不可用，使用本地结构化回退",
-                "LectureAgent: 生成讲义、概念卡和课堂案例",
-                "ExerciseAgent: 生成分层练习和评分量规",
-                "MindMapAgent: 生成知识结构、图谱节点和迁移路径",
-                "CaseAgent: 生成实操任务和提交物模板",
-                "ScriptAgent: 生成讲解脚本与课后动作",
-                "QualityAgent: 生成资源使用审查清单",
-                "SafetyReviewAgent: 检查事实边界、适用条件、课堂证据和输出格式",
-                "FinalizerAgent: 汇总为可下载资源包",
-            ],
+            agent_trace=self._build_agent_trace(
+                context,
+                requested_ai_kinds,
+                ai_contents,
+            ),
             quality_notes=[
                 f"已按“{context['scenario']}”组织案例，不输出空泛学习建议。",
                 "讲义、练习、导图、阅读和案例均绑定课堂笔记、课程图谱与 AI 批改入口。",
@@ -269,7 +263,7 @@ class ResourceGenerationService:
             if not payload:
                 payload = self._infer_manifest_from_artifacts(folder)
             package_course_id = str(payload.get("course_id") or "")
-            if course_id and package_course_id and package_course_id != course_id:
+            if course_id and package_course_id != course_id:
                 continue
             packages.append(
                 {
@@ -283,23 +277,81 @@ class ResourceGenerationService:
                     "subject": payload.get("subject") or "",
                     "topic": payload.get("topic") or folder.name,
                     "generated_at": payload.get("generated_at")
-                    or datetime.fromtimestamp(folder.stat().st_mtime).isoformat(),
-                    "artifacts": [
-                        {
-                            "kind": self._artifact_kind_from_name(item.name),
-                            "title": item.stem.replace("-", " ").replace("_", " "),
-                            "file_name": item.name,
-                            "download_url": f"/api/v1/resource-generation/artifacts/{folder.name}/{item.name}",
-                            "file_size": item.stat().st_size,
-                        }
-                        for item in artifacts
-                        if item.is_file() and item.name != "manifest.json"
-                    ],
+                    or datetime.fromtimestamp(
+                        folder.stat().st_mtime, timezone.utc
+                    ).isoformat(),
+                    "artifacts": self._recent_artifact_payloads(
+                        folder,
+                        artifacts,
+                        payload,
+                    ),
                 }
             )
             if len(packages) >= limit:
                 break
         return packages
+
+    def read_package_manifest(self, package_id: str) -> dict[str, Any]:
+        manifest = self.package_directory(package_id) / "manifest.json"
+        if not manifest.is_file():
+            raise FileNotFoundError(f"Missing manifest for package {package_id}")
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError(f"Invalid manifest for package {package_id}")
+        return payload
+
+    def get_package_payload(self, package_id: str) -> dict[str, Any]:
+        package_dir = self.package_directory(package_id)
+        manifest = self.read_package_manifest(package_id)
+        artifacts = sorted(package_dir.iterdir(), key=lambda item: item.name)
+        return {
+            **manifest,
+            "package_id": package_id,
+            "artifacts": self._recent_artifact_payloads(
+                package_dir,
+                artifacts,
+                manifest,
+            ),
+        }
+
+    def update_package_manifest(
+        self,
+        package_id: str,
+        updates: dict[str, Any],
+    ) -> None:
+        package_dir = self.package_directory(package_id)
+        manifest = package_dir / "manifest.json"
+        payload = self.read_package_manifest(package_id)
+        payload.update(updates)
+        temporary = package_dir / "manifest.json.tmp"
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        temporary.replace(manifest)
+
+    def package_directory(self, package_id: str) -> Path:
+        if not package_id or self._safe_file_name(package_id) != package_id:
+            raise ValueError("Invalid generated package id")
+        root = self.output_root.resolve()
+        target = (root / package_id).resolve()
+        if target.parent != root:
+            raise ValueError("Invalid generated package path")
+        return target
+
+    def resolve_artifact_path(self, package_id: str, file_name: str) -> Path:
+        if not file_name or self._safe_file_name(file_name) != file_name:
+            raise ValueError("Invalid generated artifact name")
+        package_dir = self.package_directory(package_id)
+        target = (package_dir / file_name).resolve()
+        if target.parent != package_dir or not target.is_file():
+            raise FileNotFoundError(file_name)
+        return target
+
+    def delete_package(self, package_id: str) -> None:
+        package_dir = self.package_directory(package_id)
+        if package_dir.is_dir():
+            shutil.rmtree(package_dir)
 
     @staticmethod
     def _active_chat_model_name() -> str:
@@ -351,8 +403,67 @@ class ResourceGenerationService:
             "package_id": folder.name,
             "subject": subject,
             "topic": topic,
-            "generated_at": datetime.fromtimestamp(folder.stat().st_mtime).isoformat(),
+            "generated_at": datetime.fromtimestamp(
+                folder.stat().st_mtime, timezone.utc
+            ).isoformat(),
         }
+
+    @classmethod
+    def _recent_artifact_payloads(
+        cls,
+        folder: Path,
+        artifacts: list[Path],
+        manifest: dict[str, object],
+    ) -> list[dict[str, object]]:
+        raw_manifest_artifacts = manifest.get("artifacts", [])
+        if not isinstance(raw_manifest_artifacts, list):
+            raw_manifest_artifacts = []
+        manifest_artifacts = {
+            str(item.get("file_name")): item
+            for item in raw_manifest_artifacts
+            if isinstance(item, dict) and item.get("file_name")
+        }
+        payloads: list[dict[str, object]] = []
+        for artifact in artifacts:
+            if not artifact.is_file() or artifact.name == "manifest.json":
+                continue
+            metadata = manifest_artifacts.get(artifact.name, {})
+            content_type = str(
+                metadata.get("content_type") or cls._artifact_content_type(artifact)
+            )
+            payloads.append(
+                {
+                    "kind": metadata.get("kind")
+                    or cls._artifact_kind_from_name(artifact.name),
+                    "title": metadata.get("title")
+                    or artifact.stem.replace("-", " ").replace("_", " "),
+                    "file_name": artifact.name,
+                    "download_url": metadata.get("download_url")
+                    or f"/api/v1/resource-generation/artifacts/{folder.name}/{artifact.name}",
+                    "file_size": artifact.stat().st_size,
+                    "content_type": content_type,
+                    "preview": metadata.get("preview")
+                    or cls._artifact_preview(artifact, content_type),
+                }
+            )
+        return payloads
+
+    @staticmethod
+    def _artifact_content_type(path: Path) -> str:
+        if path.suffix.lower() == ".pdf":
+            return "application/pdf"
+        if path.suffix.lower() in {".md", ".mmd", ".txt"}:
+            return "text/markdown" if path.suffix.lower() == ".md" else "text/plain"
+        return "application/octet-stream"
+
+    @staticmethod
+    def _artifact_preview(path: Path, content_type: str) -> str:
+        if not content_type.startswith("text/"):
+            return ""
+        try:
+            return path.read_text(encoding="utf-8", errors="ignore")[:500]
+        except OSError:
+            return ""
 
     def _build_context(self, request: ResourceGenerationRequest) -> dict[str, str]:
         goal = request.learning_goal or f"掌握 {request.topic} 的核心概念、典型题型和应用方法"
@@ -428,58 +539,65 @@ class ResourceGenerationService:
             or not settings.MIMO_API_KEY
         ):
             return {}, "mimo_not_configured"
-        requested = [
-            kind
-            for kind in kinds
-            if kind
-            in {
-                "lecture_markdown",
-                "practice_markdown",
-                "mind_map",
-                "reading_list",
-                "case_project",
-                "video_script",
-                "quality_checklist",
-            }
-        ]
+        requested = [kind for kind in kinds if kind in AI_RESOURCE_KINDS]
         if not requested:
             return {}, ""
+        return self._generate_ai_contents_parallel(ctx, requested)
+
+    def _generate_ai_contents_parallel(
+        self,
+        ctx: dict[str, str],
+        requested: list[ResourceKind],
+    ) -> tuple[dict[str, str], str]:
         contents: dict[str, str] = {}
-        generation_error = ""
-        try:
-            model = ChatModelFactory.create(
-                temperature=0.2,
-                max_tokens=4200,
-                top_p=0.9,
-                model_name=settings.MIMO_FAST_MODEL or settings.MIMO_CHAT_MODEL,
-            )
-            response = model.invoke(
-                [
-                    HumanMessage(
-                        content=self._resource_generation_prompt(ctx, requested)
-                    )
-                ]
-            )
-            raw = getattr(response, "content", response)
-            payload = self._parse_structured_payload(str(raw), requested)
-            if not payload:
-                payload = self._parse_json_payload(str(raw))
-            contents = self._validate_ai_contents(payload, requested, ctx)
-        except Exception as exc:
-            generation_error = exc.__class__.__name__
-        missing = [kind for kind in requested if kind not in contents]
-        for kind in missing:
-            try:
-                content = self._generate_single_ai_content(ctx, kind)
+        errors: list[str] = []
+        worker_count = min(4, len(requested))
+        with ThreadPoolExecutor(
+            max_workers=worker_count,
+            thread_name_prefix="resource-agent",
+        ) as executor:
+            pending = {
+                executor.submit(self._generate_single_ai_content, ctx, kind): kind
+                for kind in requested
+            }
+            for future in as_completed(pending):
+                kind = pending[future]
+                try:
+                    content = future.result()
+                except Exception as exc:
+                    errors.append(exc.__class__.__name__)
+                    continue
                 if content:
                     contents[kind] = content
-            except Exception as exc:
-                generation_error = generation_error or exc.__class__.__name__
         if not contents:
-            return {}, generation_error or "empty_ai_contents"
+            return {}, errors[0] if errors else "empty_ai_contents"
         if len(contents) != len(requested):
-            return contents, generation_error or "partial_ai_contents"
+            return contents, errors[0] if errors else "partial_ai_contents"
         return contents, ""
+
+    @staticmethod
+    def _build_agent_trace(
+        ctx: dict[str, str],
+        requested: list[ResourceKind],
+        ai_contents: dict[str, str],
+    ) -> list[str]:
+        trace = [
+            "ProfileAgent: 读取学习画像和目标难度",
+            f"DomainAgent: 识别课程域为 {ctx['domain']}",
+            "EvidenceAgent: 生成课程证据清单和引用模板",
+            f"ResourcePlannerAgent: 规划 {len(requested)} 类资源并并行执行",
+        ]
+        for kind in requested:
+            agent, label = RESOURCE_AGENT_LABELS[kind]
+            provider = "MiMo 生成完成" if kind in ai_contents else "本地结构化回退完成"
+            trace.append(f"{agent}: {label}，{provider}")
+        trace.extend(
+            [
+                "SafetyReviewAgent: 检查事实边界、适用条件、课堂证据和输出格式",
+                "FinalizerAgent: 汇总并写入可下载资源包",
+            ]
+        )
+        return trace
 
     def _generate_single_ai_content(
         self,
@@ -654,6 +772,33 @@ class ResourceGenerationService:
             )
         )
 
+    @staticmethod
+    def _ensure_mind_map_resource_links(
+        content: str, kinds: list[ResourceKind]
+    ) -> str:
+        """Keep the generated map aligned with files that exist in the package."""
+        file_names: dict[ResourceKind, str] = {
+            "lecture_markdown": "lecture.md",
+            "lecture_pdf": "lecture.pdf",
+            "practice_markdown": "practice.md",
+            "practice_pdf": "practice.pdf",
+            "reading_list": "reading-list.md",
+            "case_project": "case-project.md",
+            "video_script": "video-script.md",
+            "quality_checklist": "quality-checklist.md",
+        }
+        missing = [
+            file_names[kind]
+            for kind in kinds
+            if kind in file_names and file_names[kind] not in content
+        ]
+        if not missing:
+            return content
+        package_index = "\n".join(
+            ["  资源包索引", *(f"    {file_name}" for file_name in missing)]
+        )
+        return f"{content.rstrip()}\n{package_index}\n"
+
     def _write_artifact(
         self,
         target_dir: Path,
@@ -689,9 +834,11 @@ class ResourceGenerationService:
         request: ResourceGenerationRequest,
         package_id: str,
         artifacts: list[GeneratedResourceArtifact],
+        owner_id: UUID | None = None,
     ) -> None:
         manifest = {
             "package_id": package_id,
+            "owner_id": str(owner_id) if owner_id else "",
             "course_id": str(request.course_id) if request.course_id else "",
             "resource_id": request.resource_id or "",
             "node_id": request.node_id or "",
@@ -700,14 +847,18 @@ class ResourceGenerationService:
             "source": request.source or "",
             "subject": request.subject,
             "topic": request.topic,
-            "generated_at": datetime.utcnow().isoformat(),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "persistence_status": "file_only",
+            "persisted_resource_ids": [],
             "artifacts": [
                 {
                     "kind": artifact.kind,
                     "title": artifact.title,
                     "file_name": artifact.file_name,
                     "download_url": artifact.download_url,
+                    "content_type": artifact.content_type,
                     "file_size": artifact.file_size,
+                    "preview": artifact.preview,
                 }
                 for artifact in artifacts
             ],
