@@ -61,6 +61,7 @@
   const isPanning = ref(false);
   const panStart = ref({ pointerX: 0, pointerY: 0, x: 0, y: 0 });
   const selectedLinkKey = ref('');
+  const inspectorTab = ref<'evidence' | 'resources' | 'next'>('evidence');
   const nodeStatuses = ref<Record<string, NodeStudyStatus>>({});
 
   const course = computed(() => getClassroomCourse(String(route.params.courseId || '')));
@@ -344,7 +345,7 @@
     const rootId = root?.id;
     const selectedId = selected?.id || rootId;
     const isRootFocus = !selectedId || selectedId === rootId;
-    const center = { x: GRAPH_CANVAS.centerX, y: GRAPH_CANVAS.centerY };
+    const center = { x: 430, y: GRAPH_CANVAS.centerY };
 
     if (isRootFocus) {
       if (root) positions.set(root.id, center);
@@ -353,8 +354,8 @@
       primaryNodes.forEach((node, index) => {
         const angle = -Math.PI / 2 + (Math.PI * 2 * index) / Math.max(primaryNodes.length, 1);
         positions.set(node.id, {
-          x: center.x + Math.cos(angle) * 318,
-          y: center.y + Math.sin(angle) * 220,
+          x: center.x + Math.cos(angle) * 300,
+          y: center.y + Math.sin(angle) * 214,
         });
       });
       secondaryNodes.forEach((node, index) => {
@@ -370,7 +371,7 @@
     }
 
     if (selected) positions.set(selected.id, center);
-    if (root && root.id !== selectedId) positions.set(root.id, { x: GRAPH_CANVAS.centerX, y: 96 });
+    if (root && root.id !== selectedId) positions.set(root.id, { x: 430, y: 78 });
 
     const selectedLinksInMap = map.links.filter(
       (link) =>
@@ -438,19 +439,19 @@
       });
     };
 
-    placeColumn(leftNodes, 230);
-    placeColumn(rightNodes, 730);
-    placeRail(support, 522);
+    placeColumn(leftNodes, 135, 160, 458);
+    placeColumn(rightNodes, 735, 150, 470);
+    placeRail(support, 530, 270, 650);
 
     const contextNodes = visible.filter((node) => !positions.has(node.id));
     contextNodes.forEach((node, index) => {
       const slots = [
-        { x: 112, y: 164 },
-        { x: 848, y: 164 },
-        { x: 112, y: 456 },
-        { x: 848, y: 456 },
-        { x: 480, y: 548 },
-        { x: 480, y: 72 },
+        { x: 120, y: 150 },
+        { x: 745, y: 150 },
+        { x: 120, y: 470 },
+        { x: 745, y: 470 },
+        { x: 430, y: 540 },
+        { x: 430, y: 78 },
       ];
       positions.set(node.id, slots[index % slots.length]);
     });
@@ -461,6 +462,24 @@
     { label: '关系', value: String(visibleLinks.value.length) },
     { label: '掌握度', value: `${course.value?.progress || 0}%` },
   ]);
+  const selectedMasteryState = computed(() => {
+    const mastery = selectedNodeMastery.value;
+    if (mastery >= 80) return { label: '已掌握', tone: 'mastered' };
+    if (mastery >= 60) return { label: '掌握中', tone: 'learning' };
+    if (mastery > 0) return { label: '薄弱', tone: 'weak' };
+    return { label: '未学习', tone: 'unstarted' };
+  });
+  const evidenceRows = computed(() => {
+    const node = selectedNode.value;
+    const fallback = node?.detail || activeMap.value?.description || '等待补充课程证据';
+    const rows = selectedNodeEvidence.value.length ? selectedNodeEvidence.value : [fallback];
+    return rows.slice(0, 4).map((title, index) => ({
+      id: index + 1,
+      title,
+      source: index === 0 ? '课程课件' : index === 1 ? '课堂练习' : '学习记录',
+      relevance: Math.max(68, 92 - index * 9),
+    }));
+  });
   const lowMasteryNodes = computed(() =>
     [...visibleNodes.value]
       .filter((node) => node.weight < 4)
@@ -515,31 +534,31 @@
     return [
       {
         key: 'notes',
-        kicker: '课堂笔记',
-        title: `定位「${nodeLabel}」笔记证据`,
-        desc: selectedNodeEvidence.value[0] || '回到课堂笔记，补齐定义、条件和边界。',
-        metric: `${selectedNodeEvidence.value.length || 1} 条证据`,
+        kicker: '01',
+        title: '课程资料',
+        desc: '课件、习题与课堂笔记',
+        metric: `${selectedNodeEvidence.value.length || 1} 份`,
       },
       {
         key: 'resources',
-        kicker: '资料资源',
-        title: '生成节点配套资料',
-        desc: selectedNodeResources.value[0] || '生成讲义、导图、练习和审查清单。',
-        metric: `${selectedNodeResources.value.length || 4} 项资源`,
+        kicker: '02',
+        title: '知识节点',
+        desc: `${nodeLabel} 与一阶关系`,
+        metric: `${visibleNodes.value.length} 个`,
       },
       {
         key: 'checks',
-        kicker: '检查题',
-        title: '用题目验证掌握度',
-        desc: selectedNodeChecks.value[0] || '按定义、条件、步骤、证据四类错因检查。',
-        metric: `${selectedNodeChecks.value.length || 3} 道检查`,
+        kicker: '03',
+        title: '掌握核验',
+        desc: '证据、练习与错因状态',
+        metric: `${selectedNodeMastery.value}%`,
       },
       {
         key: 'agent',
-        kicker: 'AI 伴学',
-        title: '让 AI 解释关系与路径',
-        desc: selectedRelationTags.value[0] || '基于相邻节点生成下一步学习动作。',
-        metric: `${selectedLinks.value.length} 条关系`,
+        kicker: '04',
+        title: '学习路径',
+        desc: '按薄弱点生成下一步',
+        metric: '个性化',
       },
     ];
   });
@@ -1142,18 +1161,20 @@
   }
 
   function nodeBoxWidth(node: CourseKnowledgeNode) {
-    if (node.weight >= 4) return 154;
-    if (node.weight >= 3) return 122;
-    if (node.type === 'resource' || node.type === 'task') return 102;
-    return 104;
+    if (selectedNode.value?.id === node.id) return 196;
+    if (node.weight >= 4) return 164;
+    if (node.weight >= 3) return 152;
+    return 140;
   }
 
   function nodeBoxHeight(node: CourseKnowledgeNode) {
-    return node.weight >= 4 ? 54 : node.weight >= 3 ? 38 : 32;
+    if (selectedNode.value?.id === node.id) return 76;
+    return node.weight >= 4 ? 62 : 56;
   }
 
   function nodeFill(node: CourseKnowledgeNode) {
-    if (node.weight >= 4) return 'url(#graphRootFill)';
+    if (selectedNode.value?.id === node.id) return '#ffffff';
+    if (node.weight >= 4) return '#f7f8ff';
     if (node.type === 'chapter') return '#f5f8ff';
     if (node.type === 'resource') return '#f1fbf6';
     if (node.type === 'task') return '#fff7ec';
@@ -1171,7 +1192,38 @@
   }
 
   function nodeTextColor(node: CourseKnowledgeNode) {
-    return node.weight >= 4 ? '#ffffff' : '#26334d';
+    return '#172033';
+  }
+
+  function hiddenNeighborCount(node: CourseKnowledgeNode) {
+    const map = activeMap.value;
+    if (!map) return 0;
+    const relatedIds = new Set(
+      map.links
+        .filter((link) => link.source === node.id || link.target === node.id)
+        .map((link) => (link.source === node.id ? link.target : link.source))
+    );
+    return Array.from(relatedIds).filter((id) => !visibleNodeIds.value.has(id)).length;
+  }
+
+  function relationShortLabel(relation: string) {
+    if (relation === '前后置关系') return '前置';
+    if (relation === '父子关系') return '归属';
+    if (relation === '资料支撑') return '证据';
+    if (relation === '任务驱动') return '任务';
+    return '关联';
+  }
+
+  function linkLabelPosition(link: CourseKnowledgeMap['links'][number]) {
+    const source = activeMap.value?.nodes.find((node) => node.id === link.source);
+    const target = activeMap.value?.nodes.find((node) => node.id === link.target);
+    if (!source || !target) return { x: 0, y: 0 };
+    const sourcePosition = nodePosition(source);
+    const targetPosition = nodePosition(target);
+    return {
+      x: (sourcePosition.x + targetPosition.x) / 2,
+      y: (sourcePosition.y + targetPosition.y) / 2 - 8,
+    };
   }
 
   function nodePosition(node: CourseKnowledgeNode): GraphNodePosition {
@@ -2320,6 +2372,15 @@
                         @keydown.enter.stop="selectLink(link)"
                         @keydown.space.prevent.stop="selectLink(link)"
                       />
+                      <g
+                        v-for="link in selectedLinks.slice(0, 4)"
+                        :key="`label-${linkKey(link)}`"
+                        class="graph-link-label"
+                        :transform="`translate(${linkLabelPosition(link).x} ${linkLabelPosition(link).y})`"
+                      >
+                        <rect x="-20" y="-10" width="40" height="20" rx="10" />
+                        <text text-anchor="middle" y="4">{{ relationShortLabel(link.relation) }}</text>
+                      </g>
                     </g>
 
                     <g
@@ -2428,24 +2489,60 @@
                       />
                       <text
                         :x="nodeBoxWidth(node) / 2 + (node.weight >= 4 ? 0 : 8)"
-                        :y="node.weight >= 4 ? 26 : nodeBoxHeight(node) / 2 - 1"
+                        :y="selectedNode?.id === node.id || node.weight >= 4 ? 27 : 23"
                         text-anchor="middle"
                         :fill="nodeTextColor(node)"
                       >
-                        {{ shortNodeLabel(node.label, node.weight >= 4 ? 10 : 8) }}
+                        {{ shortNodeLabel(node.label, selectedNode?.id === node.id ? 12 : 9) }}
                       </text>
                       <text
-                        v-if="node.weight >= 4"
+                        v-if="node.weight >= 4 || selectedNode?.id === node.id"
                         :x="nodeBoxWidth(node) / 2"
-                        y="43"
+                        :y="selectedNode?.id === node.id ? 49 : 44"
                         text-anchor="middle"
                         class="node-subtitle"
                       >
                         {{ nodeSubtitle(node) }}
                       </text>
+                      <text
+                        v-else
+                        :x="nodeBoxWidth(node) / 2 + 8"
+                        y="40"
+                        text-anchor="middle"
+                        class="node-subtitle node-subtitle--compact"
+                      >
+                        {{ nodeSubtitle(node) }}
+                      </text>
+                      <g
+                        v-if="hiddenNeighborCount(node)"
+                        class="node-expand-count"
+                        :transform="`translate(${nodeBoxWidth(node) + 12} ${nodeBoxHeight(node) / 2})`"
+                        @click.stop="selectNode(node)"
+                      >
+                        <circle r="14" />
+                        <text text-anchor="middle" y="4">+{{ hiddenNeighborCount(node) }}</text>
+                      </g>
                     </g>
                   </g>
                 </svg>
+
+                <div class="graph-minimap" aria-hidden="true">
+                  <svg :viewBox="`0 0 ${GRAPH_CANVAS.width} ${GRAPH_CANVAS.height}`">
+                    <path
+                      v-for="link in visibleLinks"
+                      :key="`mini-${linkKey(link)}`"
+                      :d="linkPath(link)"
+                    />
+                    <circle
+                      v-for="node in visibleNodes"
+                      :key="`mini-${node.id}`"
+                      :cx="nodePosition(node).x"
+                      :cy="nodePosition(node).y"
+                      :r="selectedNode?.id === node.id ? 18 : 10"
+                      :class="{ selected: selectedNode?.id === node.id }"
+                    />
+                  </svg>
+                </div>
 
                 <div class="canvas-orbit-tools" aria-label="图谱画布工具">
                   <button type="button" @click.stop="changeZoom(0.08)">放大</button>
@@ -2490,9 +2587,10 @@
 
               <div v-if="viewMode === 'network'" class="map-canvas-tools">
                 <div class="graph-legend">
-                  <span class="legend-primary">核心路径</span>
-                  <span class="legend-resource">资料支撑</span>
-                  <span class="legend-task">任务驱动</span>
+                  <span class="legend-mastered">已掌握</span>
+                  <span class="legend-learning">掌握中</span>
+                  <span class="legend-weak">薄弱</span>
+                  <span class="legend-unstarted">未学习</span>
                 </div>
                 <div class="graph-quick-actions">
                   <button type="button" @click="askGraphAgent('沿当前节点展开前置和后置知识路径')">展开路径</button>
@@ -2535,7 +2633,9 @@
               <section class="node-detail-section">
                 <div class="node-detail-head">
                   <div>
-                    <strong>{{ nodeTypeLabel(selectedNode?.type) }}</strong>
+                    <strong :class="`mastery-state mastery-state--${selectedMasteryState.tone}`">
+                      {{ selectedMasteryState.label }} · {{ selectedNodeMastery }}%
+                    </strong>
                     <h3>{{ selectedNode?.label || activeMap.title }}</h3>
                   </div>
                   <div class="mastery-ring" :style="{ '--mastery': `${selectedNodeMastery * 3.6}deg` }">
@@ -2550,9 +2650,32 @@
                 <div v-if="selectedRelationTags.length" class="relation-tags">
                   <em v-for="item in selectedRelationTags" :key="item">{{ item }}</em>
                 </div>
+                <div class="inspector-tabs" role="tablist" aria-label="节点详情">
+                  <button
+                    type="button"
+                    :class="{ active: inspectorTab === 'evidence' }"
+                    @click="inspectorTab = 'evidence'"
+                  >
+                    学习证据
+                  </button>
+                  <button
+                    type="button"
+                    :class="{ active: inspectorTab === 'resources' }"
+                    @click="inspectorTab = 'resources'"
+                  >
+                    关联资源
+                  </button>
+                  <button
+                    type="button"
+                    :class="{ active: inspectorTab === 'next' }"
+                    @click="inspectorTab = 'next'"
+                  >
+                    下一步
+                  </button>
+                </div>
               </section>
 
-              <section class="node-health-panel">
+              <section v-show="inspectorTab === 'next'" class="node-health-panel">
                 <strong>节点状态</strong>
                 <div class="node-status-toggles" aria-label="节点学习状态">
                   <button
@@ -2578,7 +2701,7 @@
                 </div>
               </section>
 
-              <section v-if="selectedLink && selectedLinkNodes" class="link-audit-panel">
+              <section v-if="inspectorTab === 'evidence' && selectedLink && selectedLinkNodes" class="link-audit-panel">
                 <strong>关系详情</strong>
                 <div class="link-audit-main">
                   <span>{{ selectedLink.relation }}</span>
@@ -2600,7 +2723,7 @@
                 </button>
               </section>
 
-              <section class="node-timeline-panel">
+              <section v-show="inspectorTab === 'next'" class="node-timeline-panel">
                 <strong>学习路径</strong>
                 <div class="node-timeline">
                   <article
@@ -2617,7 +2740,7 @@
                 </div>
               </section>
 
-              <section class="path-decision-panel">
+              <section v-show="inspectorTab === 'next'" class="path-decision-panel">
                 <div class="path-decision-head">
                   <strong>路径推演</strong>
                   <button type="button" @click="generatePathResources">生成资料</button>
@@ -2636,7 +2759,7 @@
                 </button>
               </section>
 
-              <section v-if="nodeStudyPack" class="study-pack-panel">
+              <section v-if="inspectorTab === 'resources' && nodeStudyPack" class="study-pack-panel">
                 <div class="study-pack-head">
                   <div>
                     <strong>节点学习包</strong>
@@ -2666,11 +2789,14 @@
                 </div>
               </section>
 
-              <section class="evidence-matrix-panel">
-                <strong>证据矩阵</strong>
-                <article v-for="column in evidenceMatrix" :key="column.key" class="evidence-column">
-                  <span>{{ column.title }}</span>
-                  <p v-for="item in column.items.slice(0, 3)" :key="item">{{ item }}</p>
+              <section v-show="inspectorTab === 'evidence'" class="evidence-matrix-panel">
+                <strong>引用证据</strong>
+                <article v-for="item in evidenceRows" :key="item.id" class="evidence-row">
+                  <span>{{ item.id }}</span>
+                  <div>
+                    <b>{{ item.title }}</b>
+                    <small>{{ item.source }} · 相关度 {{ item.relevance }}%</small>
+                  </div>
                 </article>
               </section>
 
@@ -2705,7 +2831,7 @@
                 </div>
               </section>
 
-              <section v-if="selectedNeighbors.length" class="node-neighbor-panel">
+              <section v-if="inspectorTab === 'next' && selectedNeighbors.length" class="node-neighbor-panel">
                 <strong>相邻节点</strong>
                 <button
                   v-for="item in selectedNeighbors.slice(0, 5)"
@@ -2721,11 +2847,16 @@
               </section>
 
               <section class="node-action-panel">
-                <strong>节点动作</strong>
-                <button type="button" @click="askGraphAgent('解释当前节点和先修关系')">解释当前节点</button>
-                <button type="button" @click="askGraphAgent('基于当前节点生成一组自测题')">生成图谱自测</button>
-                <button type="button" @click="downloadNodeStudyPack">下载节点学习包</button>
-                <button type="button" @click="goResourceGenerator">生成配套资料</button>
+                <button
+                  type="button"
+                  class="node-action-primary"
+                  @click="askGraphAgent('围绕当前薄弱点开始针对性学习，先解释证据，再给一道检查题')"
+                >
+                  开始针对性学习
+                </button>
+                <button type="button" class="node-action-secondary" @click="askGraphAgent('解释当前节点和先修关系')">
+                  <icon-robot /> 问小智
+                </button>
               </section>
             </aside>
           </main>
@@ -5250,7 +5381,7 @@
   }
 
   .graph-command-deck {
-    display: grid;
+    display: grid !important;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 10px;
     padding: 12px 16px 14px;
@@ -5814,7 +5945,7 @@
     }
   }
 
-  .canvas-orbit-tools {
+  .graph-work-area .canvas-orbit-tools {
     display: none !important;
     position: absolute;
     top: 18px;
@@ -6471,16 +6602,12 @@
   .mobile-path-strip,
   .closure-command-center,
   .today-recommendation,
-  .graph-command-deck,
   .path-inspector-panel,
   .guided-path,
   .node-canvas-popover,
-  .study-pack-panel,
-  .evidence-matrix-panel,
   .node-mastery-panel,
   .node-check-panel,
-  .node-activity-panel,
-  .link-audit-panel {
+  .node-activity-panel {
     display: none !important;
   }
 
@@ -6642,7 +6769,7 @@
     background-size: 28px 28px;
   }
 
-  .canvas-orbit-tools {
+  .graph-work-area .canvas-orbit-tools {
     top: 14px;
     right: 14px;
     gap: 6px;
@@ -6989,5 +7116,859 @@
     min-height: 28px;
     padding: 0 10px;
     font-size: 12px;
+  }
+
+  /* Graph workspace v2: selected-node focus with progressive disclosure. */
+  .graph-lab-shell {
+    padding: 16px 18px 28px;
+    background: #f7f9ff;
+  }
+
+  .graph-topbar {
+    padding: 12px 14px 14px;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .graph-brand {
+    gap: 14px;
+  }
+
+  .graph-brand h1 {
+    margin: 0 0 5px;
+    font-size: 24px;
+    letter-spacing: 0;
+  }
+
+  .graph-brand p {
+    max-width: 620px;
+    color: #667085;
+  }
+
+  .graph-pill {
+    padding: 6px 10px;
+    border: 1px solid #e3e7ff;
+    color: #4f46e5;
+    background: #f7f7ff;
+    border-radius: 8px;
+  }
+
+  .graph-search {
+    width: min(300px, 27vw);
+    border-color: rgba(15, 23, 42, 0.08);
+    background: #fff;
+  }
+
+  .ghost-action {
+    display: none;
+  }
+
+  .primary-action {
+    min-height: 38px;
+    border-radius: 8px;
+    box-shadow: 0 8px 20px rgba(79, 70, 229, 0.18);
+  }
+
+  .graph-workbench-grid {
+    display: block;
+  }
+
+  .map-catalog {
+    display: block;
+    width: auto;
+    margin: 0 0 10px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .map-catalog > :not(.graph-tabs) {
+    display: none;
+  }
+
+  .graph-tabs {
+    display: flex !important;
+    gap: 6px;
+    padding: 0 2px;
+  }
+
+  .graph-tabs button {
+    min-width: 0;
+    flex: 1;
+    min-height: 42px;
+    padding: 7px 12px;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    background: #fff;
+    border-radius: 8px;
+    text-align: left;
+    box-shadow: none;
+  }
+
+  .graph-tabs button span {
+    font-size: 13px;
+    font-weight: 650;
+  }
+
+  .graph-tabs button em {
+    display: none;
+  }
+
+  .graph-tabs button.active {
+    border-color: #c9ceff;
+    color: #4338ca;
+    background: #f7f7ff;
+    box-shadow: inset 2px 0 0 #6366f1;
+  }
+
+  .graph-work-area {
+    min-width: 0;
+  }
+
+  .mobile-node-summary,
+  .mobile-path-strip,
+  .closure-command-center,
+  .today-recommendation,
+  .path-inspector-panel {
+    display: none !important;
+  }
+
+  .graph-filter-row {
+    min-height: 44px;
+    margin: 0;
+    padding: 6px 10px;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-bottom: 0;
+    background: #fff;
+    border-radius: 10px 10px 0 0;
+  }
+
+  .relation-filter {
+    gap: 4px;
+  }
+
+  .relation-filter button {
+    min-height: 30px;
+    padding: 0 10px;
+    border: 0;
+    color: #667085;
+    background: transparent;
+    border-radius: 7px;
+  }
+
+  .relation-filter button.active {
+    color: #4338ca;
+    background: #f0f1ff;
+  }
+
+  .relation-filter button em {
+    min-width: 18px;
+    color: inherit;
+    background: rgba(99, 102, 241, 0.08);
+  }
+
+  .graph-switches {
+    color: #667085;
+  }
+
+  .view-switch {
+    padding: 2px;
+    border-color: rgba(15, 23, 42, 0.08);
+    background: #f8fafc;
+  }
+
+  .view-switch button {
+    min-height: 28px;
+    padding: 0 11px;
+    border-radius: 6px;
+  }
+
+  .graph-command-deck {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0;
+    margin: 0;
+    padding: 10px 14px;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-bottom: 0;
+    background: #fff;
+  }
+
+  .graph-command-deck article {
+    position: relative;
+    min-height: 58px;
+    padding: 6px 46px 6px 42px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .graph-command-deck article:not(:last-child)::after {
+    position: absolute;
+    top: 28px;
+    right: -5px;
+    width: 18px;
+    height: 1px;
+    content: '';
+    background: #d6dbea;
+  }
+
+  .graph-command-deck article > div > span {
+    position: absolute;
+    top: 8px;
+    left: 6px;
+    display: grid;
+    width: 28px;
+    height: 28px;
+    border: 1px solid #dfe3ff;
+    color: #4f46e5;
+    background: #f7f7ff;
+    border-radius: 8px;
+    place-items: center;
+    font-size: 11px;
+  }
+
+  .graph-command-deck strong {
+    display: block;
+    margin-bottom: 2px;
+    color: #27324a;
+    font-size: 13px;
+  }
+
+  .graph-command-deck p {
+    overflow: hidden;
+    margin: 0;
+    color: #98a2b3;
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .graph-command-deck article > button {
+    position: absolute;
+    top: 18px;
+    right: 14px;
+    min-height: 22px;
+    padding: 0;
+    border: 0;
+    color: #6366f1;
+    background: transparent;
+    font-size: 11px;
+  }
+
+  .graph-stage {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 318px;
+    gap: 0;
+    align-items: stretch;
+    margin: 0;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    background: #fff;
+    border-radius: 0 0 12px 12px;
+    overflow: hidden;
+  }
+
+  .graph-canvas-panel {
+    min-width: 0;
+    border: 0;
+    border-right: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 0;
+    background: #fff;
+    box-shadow: none;
+  }
+
+  .graph-canvas-head {
+    min-height: 62px;
+    padding: 10px 16px;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+    background: #fff;
+  }
+
+  .graph-canvas-head > div:first-child {
+    min-width: 0;
+  }
+
+  .canvas-eyebrow {
+    color: #6366f1;
+    font-size: 11px;
+  }
+
+  .graph-canvas-head strong {
+    font-size: 17px;
+  }
+
+  .graph-canvas-head p {
+    margin-top: 2px;
+    color: #98a2b3;
+    font-size: 11px;
+  }
+
+  .stat-strip {
+    display: none;
+  }
+
+  .zoom-control {
+    padding: 2px;
+    border-color: rgba(15, 23, 42, 0.08);
+    background: #f8fafc;
+  }
+
+  .graph-work-area .map-canvas-viewport {
+    height: clamp(430px, calc(100vh - 450px), 560px);
+    min-height: 430px;
+    background-color: #fbfcff;
+    background-image: radial-gradient(circle, rgba(99, 102, 241, 0.12) 1px, transparent 1px);
+    background-size: 20px 20px;
+    cursor: grab;
+  }
+
+  .map-canvas-viewport.panning {
+    cursor: grabbing;
+  }
+
+  .map-canvas {
+    width: 100%;
+    height: 100%;
+  }
+
+  .graph-links path {
+    fill: none;
+    stroke: #aeb8cc;
+    stroke-width: 1.5;
+    opacity: 0.52;
+    transition: opacity 180ms ease, stroke 180ms ease, stroke-width 180ms ease;
+  }
+
+  .graph-links path.selected {
+    stroke: #4f60e8;
+    stroke-width: 2.2;
+    opacity: 0.95;
+  }
+
+  .graph-links path.link-前后置关系,
+  .graph-links path.link-父子关系 {
+    stroke: #6476ef;
+  }
+
+  .graph-links path.link-关联关系 {
+    stroke: #94a3b8;
+    stroke-dasharray: 6 6;
+  }
+
+  .graph-links path.link-资料支撑 {
+    stroke: #20a779;
+    stroke-dasharray: 5 5;
+  }
+
+  .graph-link-label {
+    pointer-events: none;
+  }
+
+  .graph-link-label rect {
+    fill: rgba(255, 255, 255, 0.96);
+    stroke: #e5e8f0;
+  }
+
+  .graph-link-label text {
+    fill: #667085;
+    font-size: 9px;
+  }
+
+  .graph-node {
+    outline: none;
+    cursor: pointer;
+  }
+
+  .graph-node .node-body {
+    stroke-width: 1.2;
+    filter: url(#graphNodeShadow);
+    transition: stroke 180ms ease, stroke-width 180ms ease, filter 180ms ease;
+  }
+
+  .graph-node:hover .node-body {
+    stroke: #9aa7ff;
+    stroke-width: 1.8;
+  }
+
+  .graph-node.selected .node-body {
+    stroke: #4f5ff0 !important;
+    stroke-width: 2.5;
+    filter: url(#graphRootShadow);
+  }
+
+  .graph-node.selected::before {
+    opacity: 1;
+  }
+
+  .graph-node > text:not(.node-subtitle) {
+    font-size: 13px;
+    font-weight: 680;
+  }
+
+  .node-subtitle {
+    fill: #667085 !important;
+    font-size: 10px;
+    font-weight: 500;
+  }
+
+  .node-subtitle--compact {
+    fill: #98a2b3 !important;
+    font-size: 9px;
+  }
+
+  .node-track {
+    fill: #edf0f6;
+  }
+
+  .node-mastery-badge {
+    display: none;
+  }
+
+  .node-expand-count circle {
+    fill: #fff;
+    stroke: #d6dbea;
+    stroke-width: 1.2;
+    transition: fill 160ms ease, stroke 160ms ease;
+  }
+
+  .node-expand-count text {
+    fill: #475467;
+    font-size: 10px;
+    font-weight: 650;
+  }
+
+  .graph-node:hover .node-expand-count circle {
+    fill: #f0f1ff;
+    stroke: #818cf8;
+  }
+
+  .node-canvas-popover {
+    display: none;
+  }
+
+  .graph-work-area .canvas-orbit-tools {
+    top: auto;
+    right: 50%;
+    bottom: 16px;
+    display: flex !important;
+    flex-direction: row;
+    padding: 4px;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    background: rgba(255, 255, 255, 0.96);
+    border-radius: 9px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+    transform: translateX(50%);
+  }
+
+  .canvas-orbit-tools button {
+    width: auto;
+    min-width: 42px;
+    height: 28px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: 6px;
+  }
+
+  .graph-work-area .map-canvas-tools {
+    pointer-events: none;
+    top: auto;
+    right: 14px;
+    bottom: 14px;
+    left: auto;
+    width: auto;
+    display: flex;
+    justify-content: flex-end;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .graph-legend {
+    pointer-events: auto;
+    display: grid;
+    gap: 6px;
+    padding: 9px 11px;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    background: rgba(255, 255, 255, 0.96);
+    border-radius: 8px;
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+  }
+
+  .graph-legend span {
+    position: relative;
+    padding-left: 14px;
+    font-size: 10px;
+  }
+
+  .graph-legend span::before {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 7px;
+    height: 7px;
+    content: '';
+    border-radius: 50%;
+    transform: translateY(-50%);
+  }
+
+  .legend-mastered::before {
+    background: #12a270;
+  }
+
+  .legend-learning::before {
+    background: #5267ed;
+  }
+
+  .legend-weak::before {
+    background: #f28b32;
+  }
+
+  .legend-unstarted::before {
+    background: #98a2b3;
+  }
+
+  .graph-quick-actions {
+    display: none;
+  }
+
+  .graph-work-area .map-insights {
+    position: static;
+    width: auto;
+    max-height: clamp(492px, calc(100vh - 388px), 622px);
+    padding: 0;
+    overflow: auto;
+    border: 0;
+    border-radius: 0;
+    background: #fff;
+    box-shadow: none;
+    scrollbar-width: thin;
+  }
+
+  .map-insights > section {
+    margin: 0;
+    padding: 16px;
+    border: 0;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 0;
+    background: #fff;
+    box-shadow: none;
+  }
+
+  .node-detail-section {
+    padding-bottom: 0 !important;
+  }
+
+  .node-detail-head h3 {
+    margin: 5px 0 0;
+    color: #101828;
+    font-size: 22px;
+  }
+
+  .mastery-state {
+    display: inline-flex;
+    padding: 4px 7px;
+    border-radius: 6px;
+    font-size: 11px !important;
+  }
+
+  .mastery-state--mastered {
+    color: #087a55;
+    background: #ecfdf3;
+  }
+
+  .mastery-state--learning {
+    color: #334fd7;
+    background: #eef2ff;
+  }
+
+  .mastery-state--weak {
+    color: #c25c12;
+    background: #fff5e8;
+  }
+
+  .mastery-state--unstarted {
+    color: #667085;
+    background: #f2f4f7;
+  }
+
+  .mastery-ring {
+    width: 58px;
+    height: 58px;
+    background: conic-gradient(#5267ed var(--mastery), #edf0f6 0);
+  }
+
+  .node-detail-section > p {
+    margin: 12px 0;
+    color: #667085;
+    font-size: 12px;
+    line-height: 1.65;
+  }
+
+  .node-meta {
+    display: none;
+  }
+
+  .relation-tags {
+    display: flex;
+    gap: 5px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+
+  .relation-tags em {
+    padding: 4px 7px;
+    color: #667085;
+    background: #f6f7fa;
+    border-radius: 6px;
+    font-size: 10px;
+  }
+
+  .inspector-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    margin: 0 -16px;
+    border-top: 1px solid rgba(15, 23, 42, 0.08);
+  }
+
+  .inspector-tabs button {
+    position: relative;
+    min-height: 42px;
+    border: 0;
+    color: #667085;
+    background: #fff;
+    font-size: 12px;
+  }
+
+  .inspector-tabs button.active {
+    color: #4f46e5;
+    font-weight: 650;
+  }
+
+  .inspector-tabs button.active::after {
+    position: absolute;
+    right: 14px;
+    bottom: 0;
+    left: 14px;
+    height: 2px;
+    content: '';
+    background: #6366f1;
+    border-radius: 2px 2px 0 0;
+  }
+
+  .evidence-matrix-panel > strong {
+    display: block;
+    margin-bottom: 10px;
+    color: #344054;
+    font-size: 13px;
+  }
+
+  .evidence-column {
+    display: none;
+  }
+
+  .evidence-row {
+    display: grid;
+    grid-template-columns: 26px minmax(0, 1fr);
+    gap: 9px;
+    align-items: center;
+    padding: 9px 0;
+    border-bottom: 1px solid #f0f2f6;
+  }
+
+  .evidence-row:last-child {
+    border-bottom: 0;
+  }
+
+  .evidence-row > span {
+    display: grid;
+    width: 24px;
+    height: 24px;
+    color: #4f46e5;
+    background: #eef0ff;
+    border-radius: 6px;
+    place-items: center;
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .evidence-row b,
+  .evidence-row small {
+    display: block;
+  }
+
+  .evidence-row b {
+    overflow: hidden;
+    color: #344054;
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .evidence-row small {
+    margin-top: 3px;
+    color: #12a270;
+    font-size: 10px;
+  }
+
+  .node-mastery-panel,
+  .node-check-panel,
+  .node-activity-panel {
+    display: none !important;
+  }
+
+  .node-health-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .node-health-grid article {
+    min-height: 92px;
+    padding: 10px;
+    border-radius: 8px;
+  }
+
+  .node-timeline-panel {
+    display: none !important;
+  }
+
+  .path-decision-item {
+    min-height: 52px;
+    border-radius: 8px;
+  }
+
+  .study-pack-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .node-neighbor-panel .neighbor-button {
+    border-radius: 8px;
+  }
+
+  .node-action-panel {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 14px 16px 16px !important;
+    border-top: 1px solid rgba(15, 23, 42, 0.08) !important;
+    background: rgba(255, 255, 255, 0.98) !important;
+  }
+
+  .node-action-panel > strong {
+    display: none;
+  }
+
+  .node-action-panel button {
+    min-height: 38px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 650;
+  }
+
+  .node-action-primary {
+    border: 1px solid #4f5ff0 !important;
+    color: #fff !important;
+    background: #4f5ff0 !important;
+  }
+
+  .node-action-secondary {
+    border: 1px solid #d8dcff !important;
+    color: #4f46e5 !important;
+    background: #fff !important;
+  }
+
+  .graph-minimap {
+    position: absolute;
+    bottom: 14px;
+    left: 14px;
+    width: 112px;
+    height: 76px;
+    padding: 6px;
+    border: 1px solid rgba(99, 102, 241, 0.18);
+    background: rgba(255, 255, 255, 0.94);
+    border-radius: 8px;
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+  }
+
+  .graph-minimap svg {
+    width: 100%;
+    height: 100%;
+  }
+
+  .graph-minimap path {
+    fill: none;
+    stroke: #c6ccda;
+    stroke-width: 7;
+  }
+
+  .graph-minimap circle {
+    fill: #cbd2e4;
+  }
+
+  .graph-minimap circle.selected {
+    fill: #4f5ff0;
+  }
+
+  .graph-search-results {
+    margin: 0 0 10px;
+    border-radius: 8px;
+  }
+
+  @media (max-width: 1180px) {
+    .graph-stage {
+      grid-template-columns: minmax(0, 1fr) 286px;
+    }
+
+    .graph-command-deck article {
+      padding-right: 12px;
+    }
+
+    .graph-command-deck article > button {
+      display: none;
+    }
+
+    .graph-switches label {
+      display: none;
+    }
+  }
+
+  @media (max-width: 980px) {
+    .graph-topbar {
+      align-items: flex-start;
+    }
+
+    .graph-top-actions {
+      width: auto;
+    }
+
+    .graph-search {
+      width: 230px;
+    }
+
+    .graph-stage {
+      grid-template-columns: 1fr;
+    }
+
+    .graph-canvas-panel {
+      border-right: 0;
+    }
+
+    .map-insights {
+      max-height: none;
+      border-top: 1px solid rgba(15, 23, 42, 0.08);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .graph-node,
+    .graph-node .node-body,
+    .graph-links path {
+      animation: none !important;
+      transition: none !important;
+    }
   }
 </style>
