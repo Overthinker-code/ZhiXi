@@ -1,6 +1,9 @@
 import { resolve } from 'path';
 import AutoImport from 'unplugin-auto-import/vite';
-import { ElementPlusResolver } from 'unplugin-vue-components/resolvers';
+import {
+  ArcoResolver,
+  ElementPlusResolver,
+} from 'unplugin-vue-components/resolvers';
 import Components from 'unplugin-vue-components/vite';
 import { defineConfig, loadEnv, mergeConfig } from 'vite';
 import eslint from 'vite-plugin-eslint';
@@ -23,7 +26,6 @@ export default defineConfig(({ mode }) => {
     '/learning-report',
     '/ai-metrics',
     '/resource-generation',
-    '/resource-workshop',
     '/ai',
     '/alerts',
     '/education',
@@ -83,10 +85,13 @@ export default defineConfig(({ mode }) => {
         //   exclude: ['node_modules'],
         // }),
         AutoImport({
-          resolvers: [ElementPlusResolver()],
+          resolvers: [ElementPlusResolver(), ArcoResolver()],
         }),
         Components({
-          resolvers: [ElementPlusResolver()],
+          resolvers: [
+            ElementPlusResolver(),
+            ArcoResolver({ resolveIcons: true }),
+          ],
         }),
       ],
     },

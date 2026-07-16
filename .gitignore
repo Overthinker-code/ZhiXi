@@ -56,6 +56,7 @@ yarn-error.log*
 # Build outputs
 *.local
 *.log
+output/
 
 # Environment variables
 .env
@@ -68,6 +69,7 @@ yarn-error.log*
 *.sqlite3
 code/backend/vector_db/
 code/backend/generated_resources/
+code/backend/files/resources/
 code/backend/digital_human_inputs/
 code/backend/digital_human_outputs/
 code/backend/digital_human_assets/

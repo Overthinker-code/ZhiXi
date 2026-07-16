@@ -53,11 +53,35 @@ export interface AIChatStreamPayload {
   message: string;
   mode: TutorMode;
   actionId?: string;
+  agentKey?: string;
   courseContext: CourseContextPayload;
   tools: ChatToolPayload;
   reasoning: ChatReasoningPayload;
   attachments: ChatAttachmentPayload[];
   resourceRequest: ResourceRequestPayload;
+}
+
+export interface CourseAgentContractSummary {
+  key: string;
+  label: string;
+  category: string;
+  description: string;
+  executionKind: 'chat' | 'resource_workflow' | 'knowledge_graph';
+  mode: TutorMode;
+  outputs: string[];
+  starterActions: string[];
+  requirements: {
+    courseContext: boolean;
+    attachment: boolean;
+  };
+  capabilities: string[];
+}
+
+export interface CourseAgentCatalogResponse {
+  courseId?: string;
+  courseTitle?: string;
+  contextBound: boolean;
+  agents: CourseAgentContractSummary[];
 }
 
 export interface AIAttachmentUploadResponse {
@@ -160,14 +184,34 @@ export async function streamAIChat(
   }
 }
 
-export function uploadAIAttachment(file: File, sessionId: string) {
+export async function fetchCourseAgents(courseId?: string) {
+  const response = await axios.get<CourseAgentCatalogResponse>('/api/ai/course-agents', {
+    params: courseId ? { course_id: courseId } : undefined,
+  });
+  return response.data;
+}
+
+export function uploadAIAttachment(
+  file: File,
+  sessionId: string,
+  courseContext?: Pick<CourseContextPayload, 'courseId' | 'chapterId' | 'knowledgePointIds'>,
+  signal?: AbortSignal
+) {
   const body = new FormData();
   body.append('file', file);
   body.append('session_id', sessionId);
+  if (courseContext?.courseId) {
+    body.append('course_id', courseContext.courseId);
+    if (courseContext.chapterId) body.append('chapter_id', courseContext.chapterId);
+    if (courseContext.knowledgePointIds?.length) {
+      body.append('knowledge_point_ids', JSON.stringify(courseContext.knowledgePointIds));
+    }
+  }
   return axios
     .post('/api/ai/attachments', body, {
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 0,
+      signal,
     })
     .then((res: any) => res.data as AIAttachmentUploadResponse);
 }

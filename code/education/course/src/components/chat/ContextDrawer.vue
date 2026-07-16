@@ -76,14 +76,14 @@
         </select>
       </label>
       <button type="button" :class="{ active: courseContext.useCourseRag }" @click="emit('toggleRag')">
-        课程 RAG：{{ courseContext.useCourseRag ? '开启' : '关闭' }}
+        使用课程资料：{{ courseContext.useCourseRag ? '开启' : '关闭' }}
       </button>
     </section>
 
     <section class="drawer-section">
-      <h3>引用证据</h3>
+      <h3>参考来源</h3>
       <CitationList :citations="citations" />
-      <p v-if="!citations.length" class="muted">完成一次课程问答后会展示证据。</p>
+      <p v-if="!citations.length" class="muted">完成一次课程问答后，这里会显示参考来源。</p>
     </section>
 
     <section class="drawer-section">

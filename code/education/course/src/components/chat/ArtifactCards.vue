@@ -1,27 +1,43 @@
 <script setup lang="ts">
-  import { computed, ref } from 'vue';
+  import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
   import { useRouter } from 'vue-router';
   import axios from 'axios';
   import { Message } from '@arco-design/web-vue';
   import { getToken } from '@/utils/auth';
-  import { setResourceFavorite } from '@/api/resources';
-  import KnowledgeGraphViewer from './KnowledgeGraphViewer.vue';
+  import { resolveTrustedApiAssetUrl } from '@/api/resource-run-url';
+  import { renderMarkdown } from '@/utils/markdown';
+  import KnowledgeGraphViewer, {
+    type KnowledgeGraphJson,
+  } from './KnowledgeGraphViewer.vue';
+  import { artifactSummary, markdownToPlainText } from './artifactPresentation';
 
-  defineProps<{
+  const props = defineProps<{
     artifacts: Array<Record<string, any>>;
     packageId?: string;
   }>();
-
-  const selected = ref<Record<string, any> | null>(null);
   const router = useRouter();
 
+  interface ArtifactGroup {
+    key: string;
+    primary: Record<string, any>;
+    downloads: Record<string, any>[];
+  }
+
+  const selected = ref<ArtifactGroup | null>(null);
+  const previewPanel = ref<HTMLElement | null>(null);
+  let previouslyFocused: HTMLElement | null = null;
+
   const labelMap: Record<string, string> = {
-    knowledge_graph: '知识图谱',
     lecture_markdown: '讲义',
+    lecture_docx: '讲义',
+    lecture_pdf: '讲义',
     lecture_note: '讲义',
     practice_markdown: '练习题',
+    practice_docx: '练习题',
+    practice_pdf: '练习题',
     quiz: '练习题',
-    question: '专项练习',
+    question: '练习题',
+    knowledge_graph: '知识图谱',
     mind_map: '思维导图',
     reading_list: '拓展阅读',
     reading: '拓展阅读',
@@ -30,44 +46,116 @@
     video_script: '视频脚本',
   };
 
-  const selectedLabel = computed(() =>
-    selected.value ? labelMap[selected.value.kind] || selected.value.kind || '资源' : ''
-  );
-
-  const selectedIsKnowledgeGraph = computed(
-    () => selected.value?.kind === 'knowledge_graph' || selected.value?.resource_type === 'knowledge_graph'
-  );
-
-  function formatGeneratedAt(value: unknown) {
-    if (!value) return '刚刚生成';
-    const date = new Date(String(value));
-    return Number.isNaN(date.getTime()) ? '刚刚生成' : date.toLocaleString('zh-CN');
+  function family(item: Record<string, any>) {
+    const kind = String(item.kind || '');
+    if (kind.startsWith('lecture_')) return 'lecture';
+    if (kind.startsWith('practice_') || ['quiz', 'question'].includes(kind)) return 'practice';
+    return String(item.file_name || item.title || kind || 'resource');
   }
 
-  function openResource(item: Record<string, any>) {
-    if ((item.kind === 'question' || item.resource_type === 'question') && item.resource_id) {
-      router.push({ name: 'QuizPage', params: { resourceId: String(item.resource_id) } });
+  function formatRank(item: Record<string, any>) {
+    const name = String(item.file_name || '').toLowerCase();
+    if (name.endsWith('.docx')) return 0;
+    if (name.endsWith('.pdf')) return 1;
+    if (name.endsWith('.md')) return 2;
+    return 3;
+  }
+
+  function formatLabel(item: Record<string, any>) {
+    if (isQuiz(item)) return '在线答题';
+    if (String(item.kind || item.resource_type || '') === 'knowledge_graph') {
+      return '交互式图谱';
+    }
+    const name = String(item.file_name || '').toLowerCase();
+    if (name.endsWith('.docx')) return 'Word';
+    if (name.endsWith('.pdf')) return 'PDF';
+    if (name.endsWith('.md')) return 'Markdown';
+    return item.download_url ? '文件' : '在线查看';
+  }
+
+  const artifactGroups = computed<ArtifactGroup[]>(() => {
+    const groups = new Map<string, Record<string, any>[]>();
+    props.artifacts.forEach((item) => {
+      const key = family(item);
+      groups.set(key, [...(groups.get(key) || []), item]);
+    });
+    return Array.from(groups.entries()).map(([key, items]) => {
+      const downloads = [...items].sort((a, b) => formatRank(a) - formatRank(b));
+      const primary =
+        items.find((item) => String(item.file_name || '').endsWith('.md')) || items[0];
+      return { key, primary, downloads };
+    });
+  });
+
+  const selectedArtifact = computed(() => selected.value?.primary || null);
+  const selectedGraph = computed<KnowledgeGraphJson | null>(() => {
+    const graph = selectedArtifact.value?.graph_json;
+    if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return null;
+    return graph as KnowledgeGraphJson;
+  });
+  const selectedLabel = computed(() => {
+    const item = selectedArtifact.value;
+    return item ? labelMap[item.kind] || item.kind || '资源' : '';
+  });
+
+  function displayTitle(item: Record<string, any>) {
+    return markdownToPlainText(item.title || item.file_name || '生成资源');
+  }
+
+  function isQuiz(item: Record<string, any>) {
+    return ['quiz', 'question'].includes(String(item.kind || item.resource_type || ''));
+  }
+
+  async function openArtifact(group: ArtifactGroup, trigger: HTMLElement | null) {
+    const artifact = group.primary;
+    if (isQuiz(artifact)) {
+      const resourceId = String(artifact.resource_id || '').trim();
+      if (!resourceId) {
+        Message.error('练习资源信息不完整，暂时无法进入答题');
+        return;
+      }
+      await router.push({ name: 'QuizPage', params: { resourceId } });
       return;
     }
-    selected.value = item;
+    previouslyFocused = trigger || (document.activeElement as HTMLElement | null);
+    selected.value = group;
   }
 
-  function enterLibrary(item: Record<string, any>) {
-    router.push({
-      name: 'ResourceHub',
-      query: item.resource_id ? { resourceId: String(item.resource_id) } : undefined,
-    });
+  function closePreview() {
+    selected.value = null;
   }
 
-  async function toggleFavorite(item: Record<string, any>) {
-    if (!item.resource_id) return;
-    const next = !item.favorite;
-    try {
-      await setResourceFavorite(String(item.resource_id), next);
-      item.favorite = next;
-      Message.success(next ? '已收藏到资料库' : '已取消收藏');
-    } catch {
-      Message.error('收藏状态更新失败');
+  function previewFocusableElements() {
+    const panel = previewPanel.value;
+    if (!panel) return [];
+    return Array.from(
+      panel.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+    ).filter((element) => !element.hasAttribute('hidden'));
+  }
+
+  function handlePreviewKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closePreview();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = previewFocusableElements();
+    if (!focusable.length) {
+      event.preventDefault();
+      previewPanel.value?.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
     }
   }
 
@@ -76,7 +164,12 @@
     if (!url) return;
     try {
       const token = getToken();
-      const response = await axios.get(url, {
+      const trustedUrl = resolveTrustedApiAssetUrl(
+        url,
+        window.location.origin,
+        axios.defaults.baseURL || import.meta.env.VITE_API_BASE_URL
+      );
+      const response = await axios.get(trustedUrl, {
         responseType: 'blob',
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
@@ -90,75 +183,94 @@
       Message.error('资源下载失败，请稍后重试');
     }
   }
+
+  watch(selected, async (group) => {
+    if (group) {
+      await nextTick();
+      const firstFocusable = previewFocusableElements()[0];
+      if (firstFocusable) {
+        firstFocusable.focus();
+      } else {
+        previewPanel.value?.focus();
+      }
+      return;
+    }
+    const focusTarget = previouslyFocused;
+    previouslyFocused = null;
+    await nextTick();
+    focusTarget?.focus();
+  });
+
+  onBeforeUnmount(() => {
+    previouslyFocused?.focus();
+  });
 </script>
 
 <template>
   <section v-if="artifacts.length" class="artifact-cards">
     <header>
-      <span>资源包</span>
-      <strong v-if="packageId">{{ packageId }}</strong>
+      <span>学习资源</span>
+      <strong>{{ artifacts.length }} 项</strong>
     </header>
     <div class="artifact-cards__grid">
-      <article
-        v-for="item in artifacts"
-        :key="item.resource_id || item.file_name || item.title || item.kind"
+      <button
+        v-for="group in artifactGroups"
+        :key="group.key"
+        type="button"
         class="artifact-card"
+        @click="openArtifact(group, $event.currentTarget as HTMLElement)"
       >
-        <span>{{ labelMap[item.kind] || item.kind || '资源' }}</span>
-        <strong>{{ item.title || item.file_name || '生成资源' }}</strong>
-        <p>{{ item.knowledge_point || item.root || '当前学习主题' }}</p>
-        <small>{{ formatGeneratedAt(item.generated_at) }}</small>
-        <div class="artifact-card__actions">
-          <button type="button" @click="openResource(item)">
-            {{ item.kind === 'knowledge_graph' ? '查看知识图谱' : item.kind === 'question' ? '开始答题' : '查看' }}
-          </button>
-          <button type="button" @click="enterLibrary(item)">进入资料库</button>
-          <button
-            v-if="item.download_url"
-            type="button"
-            @click="downloadArtifact(item)"
-          >
-            下载 Word
-          </button>
-          <button
-            v-if="item.resource_id"
-            type="button"
-            @click="toggleFavorite(item)"
-          >
-            {{ item.favorite ? '取消收藏' : '收藏' }}
-          </button>
-        </div>
-      </article>
+        <span>{{ labelMap[group.primary.kind] || group.primary.kind || '资源' }}</span>
+        <strong>{{ displayTitle(group.primary) }}</strong>
+        <p>{{ artifactSummary(group.primary.preview) }}</p>
+        <small>{{ group.downloads.map(formatLabel).join(' · ') }}</small>
+      </button>
     </div>
 
     <Teleport to="body">
       <Transition name="artifact-preview">
-        <div v-if="selected" class="artifact-preview" role="dialog" aria-modal="true">
-          <button class="artifact-preview__backdrop" type="button" @click="selected = null" />
-          <article
-            class="artifact-preview__panel"
-            :class="{ 'is-knowledge-graph': selectedIsKnowledgeGraph }"
-          >
+        <div
+          v-if="selected"
+          class="artifact-preview"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="artifact-preview-title"
+          @keydown="handlePreviewKeydown"
+        >
+          <button
+            class="artifact-preview__backdrop"
+            type="button"
+            aria-label="关闭资源预览"
+            @click="closePreview"
+          />
+          <article ref="previewPanel" class="artifact-preview__panel" tabindex="-1">
             <header>
               <span>{{ selectedLabel }}</span>
-              <strong>{{ selected.title || selected.file_name || '生成资源' }}</strong>
-              <small>{{ selected.file_name || packageId || '资源包预览' }}</small>
+              <h2 id="artifact-preview-title">
+                {{ displayTitle(selectedArtifact || {}) }}
+              </h2>
+              <small>内容摘要预览</small>
             </header>
-            <div v-if="selectedIsKnowledgeGraph" class="artifact-preview__graph">
-              <KnowledgeGraphViewer :graph-json="selected.graph_json" />
-            </div>
-            <div v-else class="artifact-preview__content">
-              {{ selected.preview || '当前资源包已生成，但后端未返回可展示摘要。你可以下载后查看完整内容。' }}
-            </div>
+            <KnowledgeGraphViewer
+              v-if="selectedGraph"
+              class="artifact-preview__graph"
+              :graph-json="selectedGraph"
+            />
+            <div
+              v-else
+              class="artifact-preview__content markdown-body"
+              v-html="renderMarkdown(selectedArtifact?.preview || '暂无可用内容摘要，可下载查看完整文件。')"
+            />
             <footer>
-              <button type="button" @click="selected = null">关闭</button>
+              <button type="button" @click="closePreview">关闭</button>
               <button
-                v-if="selected.download_url && !selectedIsKnowledgeGraph"
+                v-for="item in selected.downloads.filter((entry) => entry.download_url)"
+                :key="item.file_name"
                 type="button"
-                class="primary"
-                @click="downloadArtifact(selected)"
+                :class="{ primary: ['Word', 'PDF'].includes(formatLabel(item)) }"
+                @click="downloadArtifact(item)"
               >
-                下载
+                下载 {{ formatLabel(item) }}
               </button>
             </footer>
           </article>
@@ -202,6 +314,7 @@
     background: #fff;
     text-align: left;
     text-decoration: none;
+    cursor: pointer;
     transition: box-shadow 0.18s ease, transform 0.18s ease;
 
     &:hover {
@@ -233,37 +346,11 @@
       -webkit-line-clamp: 2;
     }
 
-    small {
+    > small {
       display: block;
-      margin-top: 5px;
+      margin-top: 8px;
       color: #98a2b3;
       font-size: 11px;
-    }
-
-    em {
-      display: inline-block;
-      margin-top: 8px;
-      color: #4f46e5;
-      font-size: 12px;
-      font-style: normal;
-      font-weight: 700;
-    }
-  }
-
-  .artifact-card__actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 10px;
-
-    button {
-      padding: 5px 9px;
-      border: 1px solid rgba(99, 102, 241, 0.18);
-      border-radius: 8px;
-      background: #f5f3ff;
-      color: #4f46e5;
-      cursor: pointer;
-      font-size: 12px;
-      font-weight: 600;
     }
   }
 
@@ -287,15 +374,14 @@
   .artifact-preview__panel {
     position: relative;
     width: min(620px, calc(100vw - 40px));
+    max-height: min(82vh, 760px);
+    display: flex;
+    flex-direction: column;
     overflow: hidden;
     border: 1px solid rgba(15, 23, 42, 0.1);
     border-radius: 20px;
     background: #fff;
     box-shadow: 0 28px 80px rgba(15, 23, 42, 0.2);
-
-    &.is-knowledge-graph {
-      width: min(1080px, calc(100vw - 40px));
-    }
 
     header,
     footer {
@@ -307,7 +393,7 @@
     }
 
     header span,
-    header strong,
+    header h2,
     header small {
       display: block;
     }
@@ -318,10 +404,13 @@
       font-weight: 800;
     }
 
-    header strong {
+    header h2 {
       margin-top: 5px;
+      margin-bottom: 0;
       color: #101828;
       font-size: 18px;
+      font-weight: 700;
+      line-height: 1.45;
     }
 
     header small {
@@ -332,6 +421,7 @@
 
     footer {
       display: flex;
+      flex-wrap: wrap;
       justify-content: flex-end;
       gap: 10px;
       border-top: 1px solid rgba(15, 23, 42, 0.08);
@@ -360,17 +450,104 @@
   }
 
   .artifact-preview__content {
-    max-height: min(52vh, 420px);
+    min-height: 0;
+    flex: 1;
     overflow: auto;
     padding: 18px 20px;
     color: #344054;
     font-size: 14px;
-    line-height: 1.8;
-    white-space: pre-wrap;
+    line-height: 1.72;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    scrollbar-gutter: stable;
   }
 
   .artifact-preview__graph {
-    padding: 14px;
+    min-height: 0;
+    flex: 1;
+    margin: 18px 20px;
+  }
+
+  .artifact-preview__graph :deep(.knowledge-graph-viewer__viewport) {
+    height: min(54vh, 500px);
+    min-height: 340px;
+  }
+
+  .artifact-preview__content :deep(h1:first-of-type) {
+    display: none;
+  }
+
+  .artifact-preview__content :deep(h1),
+  .artifact-preview__content :deep(h2),
+  .artifact-preview__content :deep(h3),
+  .artifact-preview__content :deep(h4) {
+    color: #1d2939;
+    font-weight: 700;
+    line-height: 1.4;
+  }
+
+  .artifact-preview__content :deep(h1) {
+    margin: 0 0 14px;
+    font-size: 21px;
+  }
+
+  .artifact-preview__content :deep(h2) {
+    margin: 22px 0 10px;
+    font-size: 17px;
+  }
+
+  .artifact-preview__content :deep(h3),
+  .artifact-preview__content :deep(h4) {
+    margin: 18px 0 8px;
+    font-size: 15px;
+  }
+
+  .artifact-preview__content :deep(p) {
+    margin: 0 0 12px;
+  }
+
+  .artifact-preview__content :deep(ul),
+  .artifact-preview__content :deep(ol) {
+    margin: 8px 0 14px;
+    padding-left: 1.6em;
+  }
+
+  .artifact-preview__content :deep(li) {
+    margin: 5px 0;
+  }
+
+  .artifact-preview__content :deep(blockquote) {
+    margin: 14px 0;
+    padding: 10px 14px;
+    border-left: 3px solid #818cf8;
+    border-radius: 0 10px 10px 0;
+    background: #f8f9ff;
+  }
+
+  .artifact-preview__content :deep(table) {
+    width: 100%;
+    margin: 14px 0;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .artifact-preview__content :deep(th),
+  .artifact-preview__content :deep(td) {
+    padding: 8px 10px;
+    border: 1px solid #e4e7ec;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .artifact-preview__content :deep(th) {
+    background: #f8fafc;
+    color: #344054;
+    font-weight: 700;
+  }
+
+  .artifact-preview__content :deep(pre) {
+    max-width: 100%;
+    overflow-x: auto;
   }
 
   .artifact-preview-enter-active,
@@ -386,6 +563,24 @@
   @media (max-width: 760px) {
     .artifact-cards__grid {
       grid-template-columns: 1fr;
+    }
+
+    .artifact-preview {
+      padding: 12px;
+      align-items: end;
+    }
+
+    .artifact-preview__panel {
+      width: 100%;
+      max-height: 88vh;
+      border-radius: 18px;
+    }
+
+    .artifact-preview__panel header,
+    .artifact-preview__panel footer,
+    .artifact-preview__content {
+      padding-right: 16px;
+      padding-left: 16px;
     }
   }
 </style>

@@ -64,11 +64,11 @@
   }
 
   function linePrefix(tag: string): string {
-    if (tag.includes('知识检索') || tag.includes('工具')) return '[RAG RETRIEVAL]';
-    if (tag.includes('主管') || tag.includes('拆解')) return '[SYSTEM INIT]';
-    if (tag.includes('汇总')) return '[MERGE]';
-    if (tag.includes('代码') || tag.includes('执行')) return '[TOOL EXEC]';
-    return '[AGENT]';
+    if (tag.includes('知识检索') || tag.includes('工具')) return '[查找资料]';
+    if (tag.includes('主管') || tag.includes('拆解')) return '[分析问题]';
+    if (tag.includes('汇总')) return '[整理回答]';
+    if (tag.includes('代码') || tag.includes('执行')) return '[使用工具]';
+    return '[处理任务]';
   }
 
   const bootAt = ref(Date.now());
@@ -96,7 +96,7 @@
       });
     });
     if (props.streaming && !parsed.value.length) {
-      lines.push(`${ts(0)}  [WAIT] 正在连接分析节点…`);
+      lines.push(`${ts(0)}  [等待] 正在准备处理步骤…`);
     }
     return lines.join('\n');
   });
@@ -162,7 +162,7 @@
       <div class="atc-inner">
         <div class="atc-head">
           <span class="atc-pulse-dot" />
-          <span class="atc-title">多智能体分析过程</span>
+          <span class="atc-title">处理过程</span>
           <span v-if="streaming" class="atc-live">处理中</span>
         </div>
 

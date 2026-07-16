@@ -13,13 +13,12 @@ from app.ai.chat_service import (
 )
 from app.providers.chat_thread_provider import chat_thread_provider
 from app.schemas.chat_thread import ChatThreadCreate
-from app.services.background_tasks import (
-    schedule_memory_profile_refresh,
-    schedule_profile_turn_analysis,
-)
+from app.services.background_tasks import schedule_memory_profile_refresh
 from app.services.chat_artifact_service import upsert_chat_artifact, attach_chat_artifact
-from app.services.conversation_context_service import conversation_context_service
-from app.services.learning_session_service import learning_session_service
+from app.services.content_safety_service import (
+    content_safety_service,
+    stable_block_message,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -39,57 +38,6 @@ def _normalize_tool_mode(tool_mode: str | None) -> str:
 
 
 class ChatProvider(BaseProvider[Chat, ChatCreate, ChatUpdate]):
-    def _record_learning_session(self, db: Session, *, db_obj: Chat) -> None:
-        try:
-            thread = chat_thread_provider.get_by_thread_id(db, thread_id=db_obj.thread_id)
-            if thread:
-                learning_session_service.record_turn(
-                    db, thread=thread, first_query=db_obj.user_input or ""
-                )
-        except Exception as exc:
-            db.rollback()
-            logger.warning("chat saved but learning session update failed: %s", exc)
-
-    def _schedule_profile_analysis(self, db: Session, *, db_obj: Chat) -> None:
-        thread = chat_thread_provider.get_by_thread_id(db, thread_id=db_obj.thread_id)
-        if not thread:
-            return
-        schedule_profile_turn_analysis(
-            user_id=getattr(thread, "user_id", None),
-            session_id=db_obj.thread_id,
-            user_message=db_obj.user_input or "",
-            assistant_message=db_obj.response or "",
-            message_id=db_obj.id,
-            course=getattr(thread, "course", None),
-            knowledge_point=getattr(thread, "knowledge_point", None),
-        )
-
-    def _save_normalized_messages(
-        self,
-        db: Session,
-        *,
-        db_obj: Chat,
-        metadata: dict | None = None,
-    ) -> None:
-        """Dual-write normalized messages without making legacy persistence fragile."""
-        thread = chat_thread_provider.get_by_thread_id(db, thread_id=db_obj.thread_id)
-        user_id = str(getattr(thread, "user_id", "") or "")
-        if not user_id:
-            return
-        try:
-            conversation_context_service.append_turn(
-                db,
-                session_id=db_obj.thread_id,
-                user_id=user_id,
-                user_content=db_obj.user_input or "",
-                assistant_content=db_obj.response or "",
-                legacy_chat_id=db_obj.id,
-                assistant_metadata=metadata or {},
-            )
-        except Exception as exc:
-            db.rollback()
-            logger.warning("legacy chat saved but normalized message write failed: %s", exc)
-
     def get_by_thread_id(self, db: Session, *, thread_id: str) -> List[Chat]:
         """获取指定thread_id的所有对话记录"""
         return db.query(Chat).filter(Chat.thread_id == thread_id).all()
@@ -98,6 +46,10 @@ class ChatProvider(BaseProvider[Chat, ChatCreate, ChatUpdate]):
         self, db: Session, *, obj_in: ChatCreate, current_user: User | None = None
     ) -> Chat:
         """创建新的对话记录并获取AI响应"""
+        input_safety = content_safety_service.ensure_safe(
+            obj_in.user_input,
+            direction="input",
+        )
         user_id = str(current_user.id) if current_user else None
         thread_id = obj_in.thread_id
         if not thread_id:
@@ -137,6 +89,22 @@ class ChatProvider(BaseProvider[Chat, ChatCreate, ChatUpdate]):
             debug_mode=bool(obj_in.debug_mode),
         )
         ai_response = ai_chat_service(ai_request)
+        output_safety = content_safety_service.review(
+            ai_response.response,
+            direction="output",
+        )
+        metrics = dict(ai_response.metrics or {})
+        metrics["content_safety"] = {
+            "input": input_safety.public_dict(),
+            "output": output_safety.public_dict(),
+        }
+        ai_response.metrics = metrics
+        if output_safety.blocked:
+            ai_response.response = stable_block_message("output")
+            ai_response.citations = []
+            ai_response.suggestions = []
+            ai_response.confidence = "low"
+            ai_response.grounding_mode = "safety_blocked"
         effective_system_prompt = resolve_system_prompt(
             obj_in.prompt_key or "tutor", obj_in.system_prompt or ""
         )
@@ -167,22 +135,6 @@ class ChatProvider(BaseProvider[Chat, ChatCreate, ChatUpdate]):
             metrics=ai_response.metrics,
         )
         attach_chat_artifact(db_obj, artifact)
-        self._save_normalized_messages(
-            db,
-            db_obj=db_obj,
-            metadata={
-                "agent": ai_response.agent,
-                "intent": ai_response.intent,
-                "routing_reason": ai_response.routing_reason,
-                "citations": ai_response.citations,
-                "confidence": ai_response.confidence,
-                "grounding_mode": ai_response.grounding_mode,
-                "suggestions": ai_response.suggestions,
-                "metrics": ai_response.metrics,
-            },
-        )
-        self._record_learning_session(db, db_obj=db_obj)
-        self._schedule_profile_analysis(db, db_obj=db_obj)
         return db_obj
 
     def get_chat_history(
@@ -252,25 +204,93 @@ class ChatProvider(BaseProvider[Chat, ChatCreate, ChatUpdate]):
                 metrics=metrics,
             )
             attach_chat_artifact(db_obj, artifact)
-        self._save_normalized_messages(
-            db,
-            db_obj=db_obj,
-            metadata={
-                "agent": agent,
-                "intent": intent,
-                "routing_reason": routing_reason,
-                "citations": citations or [],
-                "confidence": confidence,
-                "grounding_mode": grounding_mode,
-                "suggestions": suggestions or [],
-                "metrics": metrics or {},
-            },
-        )
-        self._record_learning_session(db, db_obj=db_obj)
-        self._schedule_profile_analysis(db, db_obj=db_obj)
         try:
             thread = chat_thread_provider.get_by_thread_id(db, thread_id=thread_id)
-            schedule_memory_profile_refresh(getattr(thread, "user_id", None))
+            thread_user_id = getattr(thread, "user_id", None)
+            if thread_user_id:
+                from uuid import UUID
+
+                from sqlalchemy import or_
+                from sqlmodel import select
+
+                from app.models import Course
+                from app.services.conversation_context_service import (
+                    conversation_context_service,
+                )
+                from app.services.learning_report_service import learning_report_service
+
+                conversation_context_service.append_turn(
+                    db,
+                    session_id=thread_id,
+                    user_id=str(thread_user_id),
+                    user_content=user_input,
+                    assistant_content=response,
+                    legacy_chat_id=db_obj.id,
+                    assistant_metadata={
+                        "agent": agent,
+                        "intent": intent,
+                        "citations": citations or [],
+                        "confidence": confidence,
+                        "grounding_mode": grounding_mode,
+                        "suggestions": suggestions or [],
+                    },
+                )
+                course_id = None
+                course_ref = str(getattr(thread, "course", None) or "").strip()
+                if course_ref:
+                    try:
+                        candidate_id = UUID(course_ref)
+                        if db.get(Course, candidate_id):
+                            course_id = candidate_id
+                    except ValueError:
+                        course = db.exec(
+                            select(Course).where(
+                                or_(Course.name == course_ref, Course.identifier == course_ref)
+                            )
+                        ).first()
+                        course_id = course.id if course else None
+                safe_citations = [
+                    {
+                        key: item.get(key)
+                        for key in ("title", "document", "source", "source_type", "chunk_id")
+                        if item.get(key) is not None
+                    }
+                    for item in (citations or [])[:12]
+                    if isinstance(item, dict)
+                ]
+                topic = str(
+                    getattr(thread, "knowledge_point", None)
+                    or next(
+                        (
+                            item.get("knowledge_point")
+                            or item.get("title")
+                            or item.get("document")
+                            for item in (citations or [])
+                            if isinstance(item, dict)
+                        ),
+                        "学习对话",
+                    )
+                )[:160]
+                learning_report_service.record_evidence(
+                    db,
+                    user_id=UUID(str(thread_user_id)),
+                    course_id=course_id,
+                    knowledge_point=topic,
+                    source_type="knowledge_base" if safe_citations else "agent_chat",
+                    source_id=str(db_obj.id),
+                    event_type="grounded_response" if safe_citations else "chat_turn",
+                    weight=0.15,
+                    score=None,
+                    payload={
+                        "agent": agent,
+                        "intent": intent,
+                        "grounding_mode": grounding_mode,
+                        "resource_type": "knowledge_base" if safe_citations else "dialogue",
+                        "citations": safe_citations,
+                    },
+                )
+                db.commit()
+            schedule_memory_profile_refresh(thread_user_id)
         except Exception as exc:
             logger.warning(
                 "chat turn saved but memory profile refresh could not be scheduled: %s",

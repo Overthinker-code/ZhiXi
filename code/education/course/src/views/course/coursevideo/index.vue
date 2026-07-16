@@ -59,15 +59,22 @@
         <button type="button" class="back-picker-btn" @click="backToPicker">
           <icon-left /> 全部课程
         </button>
-        <div class="course-switcher">
+        <label class="course-switcher">
           <span>当前课程</span>
-          <a-select
-            :model-value="currentCourse.id"
-            :options="courseOptions"
-            size="small"
-            @change="openCourse(String($event))"
-          />
-        </div>
+          <select
+            :value="currentCourse.id"
+            aria-label="切换当前课程"
+            @change="handleCourseSwitch"
+          >
+            <option
+              v-for="option in courseOptions"
+              :key="option.value"
+              :value="option.value"
+            >
+              {{ option.label }}
+            </option>
+          </select>
+        </label>
       </div>
 
       <section class="course-overview-card">
@@ -988,8 +995,8 @@ const notesExplanation = computed(() => {
       label: '可生成资料',
       value: 'PDF / Word / SVG',
       desc: notesOrganized.value
-        ? '导出内容会保留整理后的定义、证据、误区、检查题和行动项。'
-        : '笔记可一键导出，PDF 讲义由后端资源生成链路实时产出。',
+        ? '导出内容会保留整理后的定义、参考资料、误区、检查题和行动项。'
+        : '笔记可一键导出，也可根据当前课节生成 PDF 讲义。',
     },
   ];
 });
@@ -1245,6 +1252,11 @@ function openCourse(courseId: string) {
   router.push({ name: 'StudentCourseContent', params: { courseId } });
 }
 
+function handleCourseSwitch(event: Event) {
+  const courseId = (event.target as HTMLSelectElement).value;
+  if (courseId && courseId !== currentCourse.value?.id) openCourse(courseId);
+}
+
 function backToPicker() {
   router.push({ name: 'CourseList' });
 }
@@ -1437,7 +1449,7 @@ async function generateNotesPdfArtifact() {
     recordLearningAction('generate');
     Message.success('PDF 讲义已生成，正在下载');
   } catch (error) {
-    Message.error('PDF 生成失败，请检查后端资源生成服务');
+    Message.error('PDF 暂未生成，请稍后重试');
   } finally {
     notesGenerating.value = false;
   }
@@ -1906,9 +1918,16 @@ onBeforeRouteLeave(() => {
     font-size: 11px;
   }
 
-  :deep(.arco-select-view) {
+  select {
     width: 190px;
+    min-height: 32px;
+    padding: 0 34px 0 12px;
+    border: 1px solid #e2e6ef;
     border-radius: 8px;
+    color: #344054;
+    background: #fff;
+    font: inherit;
+    cursor: pointer;
   }
 }
 
@@ -3232,10 +3251,14 @@ onBeforeRouteLeave(() => {
 }
 
 .back-picker-btn,
-.course-switcher :deep(.arco-select-view) {
+.course-switcher select {
   border-color: var(--zy-border);
   border-radius: 999px;
   box-shadow: none;
+}
+
+.back-picker-btn {
+  color: #475467;
 }
 
 .course-overview-card,
@@ -3322,12 +3345,18 @@ onBeforeRouteLeave(() => {
   :deep(.arco-btn) {
     height: 32px;
     border-radius: 999px;
+    color: #344054;
     background: #f4f6ff;
     transition: background 160ms ease, transform 160ms ease;
 
     &:hover {
       transform: translateY(-1px);
     }
+  }
+
+  :deep(.arco-btn-primary) {
+    color: #ffffff;
+    background: var(--zy-brand);
   }
 }
 
@@ -3424,7 +3453,7 @@ onBeforeRouteLeave(() => {
   }
 
   small {
-    color: var(--zy-muted);
+    color: #475467;
     font-size: 10px;
   }
 }
@@ -3543,7 +3572,7 @@ onBeforeRouteLeave(() => {
   gap: 6px;
   margin: 0;
   padding-left: 18px;
-  color: var(--zy-muted);
+  color: #475467;
   font-size: 11px;
   line-height: 1.55;
 }

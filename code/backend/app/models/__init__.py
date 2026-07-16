@@ -11,7 +11,6 @@ from app.models.user import User
 from app.models.user_memory_profile import UserMemoryProfile
 from app.models.conversation_message import ConversationMessage
 from app.models.learning_context import LearningContext
-from app.models.profile_update_event import ProfileUpdateEvent
 from app.models.agent_task import AgentTask
 from app.models.learning_task import LearningTask
 from app.models.knowledge_graph import KnowledgeGraph
@@ -21,6 +20,19 @@ from app.models.resource_recommendation import PersonalizedResourceRecommendatio
 from app.models.quiz import Question, QuizAttempt, WrongQuestion
 from app.models.learning_path import LearningPath
 from app.models.generated_resource_package import GeneratedResourcePackage
+from app.models.resource_run import (
+    CourseKnowledgeEdge,
+    CourseKnowledgeNode,
+    CourseKnowledgeNodeAction,
+    ResourceGenerationRun,
+    ResourceGenerationStep,
+    ResourceKnowledgeLink,
+)
+from app.models.learning_evidence import (
+    LearningEvidence,
+    ProfileUpdateEvent,
+    LearningPathUpdateEvent,
+)
 from app.models.student_hub import (
     PracticeRecord,
     StudentAchievement,
@@ -105,7 +117,9 @@ __all__ = [
     "UserMemoryProfile",
     "ConversationMessage",
     "LearningContext",
-    "ProfileUpdateEvent",
+    "AgentTask",
+    "LearningTask",
+    "KnowledgeGraph",
     "LearningPath",
     "GeneratedResourcePackage",
     "ResourceFavorite",
@@ -115,6 +129,15 @@ __all__ = [
     "Question",
     "QuizAttempt",
     "WrongQuestion",
+    "CourseKnowledgeEdge",
+    "CourseKnowledgeNode",
+    "CourseKnowledgeNodeAction",
+    "ResourceGenerationRun",
+    "ResourceGenerationStep",
+    "ResourceKnowledgeLink",
+    "LearningEvidence",
+    "ProfileUpdateEvent",
+    "LearningPathUpdateEvent",
     "PracticeRecord",
     "StudentAchievement",
     "StudentNotification",

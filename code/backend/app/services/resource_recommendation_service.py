@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import unicodedata
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
@@ -8,6 +9,7 @@ from uuid import UUID
 from sqlmodel import Session, select
 
 from app.models import (
+    Course,
     ExternalResource,
     PersonalizedResourceRecommendation,
     PracticeRecord,
@@ -21,7 +23,7 @@ from app.schemas.resource_recommendation import (
     RecommendationItem,
     ResourceRecommendationResponse,
 )
-from app.services.knowledge_graph_service import knowledge_graph_service
+from app.services.generated_knowledge_graph_service import knowledge_graph_service
 from app.services.quiz_service import quiz_service
 from app.services.resource_package_service import resource_package_service
 from app.services.resource_subject_service import resolve_resource_subject
@@ -36,8 +38,113 @@ MODALITY_SPECS: tuple[tuple[str, str, str], ...] = (
     ("image", "图解卡片", "流程图、对比图与关键结论卡片"),
 )
 
+# A recommendation is a short follow-up activity, not a full exam. Six
+# questions keep the two-stage generation/review request inside an interactive
+# latency budget while still covering concept, mechanism and application.
+RECOMMENDED_QUIZ_QUESTION_COUNT = 6
+
 
 class ResourceRecommendationService:
+    @classmethod
+    def _record_resource_signal(
+        cls,
+        session: Session,
+        *,
+        user_id: UUID,
+        item: PersonalizedResourceRecommendation,
+        event_type: str,
+    ) -> None:
+        from app.services.learning_report_service import learning_report_service
+
+        course_id = cls._resolve_course_id(
+            session,
+            subject=item.subject,
+            topic=item.knowledge_point,
+            resource_id=item.resource_id,
+        )
+        learning_report_service.record_evidence(
+            session,
+            user_id=user_id,
+            course_id=course_id,
+            knowledge_point=item.knowledge_point or item.title,
+            source_type="resource_interaction",
+            source_id=f"{item.id}:{event_type}:{item.updated_time.isoformat()}",
+            event_type=event_type,
+            weight=0.2,
+            score=None,
+            payload={
+                "recommendation_id": str(item.id),
+                "resource_id": str(item.resource_id) if item.resource_id else None,
+                "resource_type": item.type,
+                "subject": item.subject,
+                "origin": item.origin,
+                "course_id": str(course_id) if course_id else None,
+            },
+        )
+
+    @classmethod
+    def _resolve_course_id(
+        cls,
+        session: Session,
+        *,
+        subject: str | None,
+        topic: str | None,
+        resource_id: UUID | None = None,
+    ) -> UUID | None:
+        """Resolve a recommendation to one real course without guessing.
+
+        An already materialized resource is authoritative. Otherwise, an exact
+        normalized course-name match wins; a substring match is accepted only
+        when it identifies exactly one course. Ambiguous or weak matches remain
+        unscoped so evidence is never attributed to the wrong course.
+        """
+        if resource_id:
+            resource = session.get(Resource, resource_id)
+            if resource and resource.course_id:
+                return resource.course_id
+
+        signals = cls._unique(
+            [
+                cls._normalize_course_text(subject),
+                cls._normalize_course_text(topic),
+            ]
+        )
+        signals = [
+            value
+            for value in signals
+            if len(value) >= 3
+            and value not in {"未分类", "通用学习", "个性化学习", "当前学习目标"}
+        ]
+        if not signals:
+            return None
+
+        courses = list(session.exec(select(Course)).all())
+        normalized_courses = [
+            (course, cls._normalize_course_text(course.name)) for course in courses
+        ]
+        exact = {
+            course.id
+            for course, course_name in normalized_courses
+            if course_name and course_name in signals
+        }
+        if len(exact) == 1:
+            return next(iter(exact))
+        if len(exact) > 1:
+            return None
+
+        contained = {
+            course.id
+            for course, course_name in normalized_courses
+            if course_name
+            and any(signal in course_name or course_name in signal for signal in signals)
+        }
+        return next(iter(contained)) if len(contained) == 1 else None
+
+    @staticmethod
+    def _normalize_course_text(value: object) -> str:
+        normalized = unicodedata.normalize("NFKC", str(value or "")).casefold()
+        return "".join(character for character in normalized if character.isalnum())
+
     def recommend(
         self,
         session: Session,
@@ -103,6 +210,9 @@ class ResourceRecommendationService:
         item.status = "dismissed"
         item.updated_time = datetime.now(timezone.utc)
         session.add(item)
+        self._record_resource_signal(
+            session, user_id=user_id, item=item, event_type="recommendation_dismissed"
+        )
         session.commit()
 
     def favorite(
@@ -117,6 +227,12 @@ class ResourceRecommendationService:
         item.favorite = favorite
         item.updated_time = datetime.now(timezone.utc)
         session.add(item)
+        self._record_resource_signal(
+            session,
+            user_id=user_id,
+            item=item,
+            event_type="resource_favorited" if favorite else "resource_unfavorited",
+        )
         session.commit()
         session.refresh(item)
         return self._public(item)
@@ -138,6 +254,12 @@ class ResourceRecommendationService:
             item.reason = f"根据你的“{item.knowledge_point}”画像信号重新检索的网络资源。"
             item.updated_time = datetime.now(timezone.utc)
             session.add(item)
+            self._record_resource_signal(
+                session,
+                user_id=user_id,
+                item=item,
+                event_type="external_resource_regenerated",
+            )
             session.commit()
             session.refresh(item)
             return RecommendationActionResponse(
@@ -156,6 +278,12 @@ class ResourceRecommendationService:
         item.reason = f"已根据最新个人画像重新生成第 {item.generation} 版，可预览后加入资料库。"
         item.updated_time = datetime.now(timezone.utc)
         session.add(item)
+        self._record_resource_signal(
+            session,
+            user_id=user_id,
+            item=item,
+            event_type="generated_resource_regenerated",
+        )
         session.commit()
         session.refresh(item)
         return RecommendationActionResponse(
@@ -168,6 +296,12 @@ class ResourceRecommendationService:
         self, session: Session, *, user_id: UUID, recommendation_id: UUID
     ) -> RecommendationActionResponse:
         item = self._owned(session, user_id=user_id, recommendation_id=recommendation_id)
+        course_id = self._resolve_course_id(
+            session,
+            subject=item.subject,
+            topic=item.knowledge_point,
+            resource_id=item.resource_id,
+        )
         if item.origin == "external":
             resource = Resource(
                 title=item.title,
@@ -179,6 +313,7 @@ class ResourceRecommendationService:
                 difficulty=item.difficulty,
                 source=item.source,
                 uploader_id=user_id,
+                course_id=course_id,
                 content={"recommendation_id": str(item.id), "external": True},
             )
             session.add(resource)
@@ -188,6 +323,10 @@ class ResourceRecommendationService:
             resource_id = item.resource_id or self._materialize_generated(
                 session, item=item, user_id=user_id, hidden=False
             )
+            existing_resource = session.get(Resource, resource_id)
+            if existing_resource and existing_resource.course_id is None and course_id:
+                existing_resource.course_id = course_id
+                session.add(existing_resource)
         config = session.exec(
             select(UserResourceConfig).where(
                 UserResourceConfig.user_id == user_id,
@@ -202,6 +341,9 @@ class ResourceRecommendationService:
         item.status = "added"
         item.updated_time = datetime.now(timezone.utc)
         session.add(item)
+        self._record_resource_signal(
+            session, user_id=user_id, item=item, event_type="resource_added_to_library"
+        )
         session.commit()
         session.refresh(item)
         return RecommendationActionResponse(
@@ -346,14 +488,21 @@ class ResourceRecommendationService:
     ) -> UUID:
         topic = item.knowledge_point or "当前学习目标"
         subject = resolve_resource_subject(item.subject, topic, item.title)
+        course_id = self._resolve_course_id(
+            session,
+            subject=subject,
+            topic=topic,
+            resource_id=item.resource_id,
+        )
         if item.type == "question":
             output = quiz_service.generate(
                 session,
                 owner_id=user_id,
                 course=subject,
                 knowledge_point=topic,
-                count=10,
+                count=RECOMMENDED_QUIZ_QUESTION_COUNT,
                 difficulty=item.difficulty,
+                course_id=course_id,
             )
             resource_id = output.resource_id
         elif item.type == "knowledge_graph":
@@ -362,6 +511,7 @@ class ResourceRecommendationService:
                 owner_id=user_id,
                 course=subject,
                 knowledge_point=topic,
+                course_id=course_id,
             )
             resource_id = UUID(str(output.resource_id))
         else:
@@ -375,6 +525,7 @@ class ResourceRecommendationService:
             output = resource_package_service.generate(
                 session,
                 ResourceGenerationRequest(
+                    course_id=course_id,
                     node_label=topic,
                     subject=subject,
                     topic=topic,
@@ -491,6 +642,17 @@ class ResourceRecommendationService:
         self, profile: dict[str, Any]
     ) -> tuple[list[str], list[str], str, list[str]]:
         weak_points = [str(item).strip() for item in (profile.get("weak_points") or []) if str(item).strip()]
+        interest_topics = [
+            str(item).strip()
+            for item in (profile.get("interest_topics") or [])
+            if str(item).strip()
+        ]
+        kb_context = profile.get("knowledge_base_context") or {}
+        kb_topics = [
+            str(item).strip()
+            for item in (kb_context.get("topic_signals") or [])
+            if str(item).strip()
+        ]
         mastery = profile.get("mastery_map") or profile.get("knowledge_state") or {}
         if isinstance(mastery, dict):
             for topic, value in sorted(
@@ -502,12 +664,17 @@ class ResourceRecommendationService:
                         weak_points.append(topic_text)
         goal = str(profile.get("current_goal") or profile.get("learning_goal") or "").strip()
         goals = [goal] if goal else []
+        goals.extend(
+            item for item in [*interest_topics, *kb_topics] if item not in goals
+        )
         style = str(profile.get("learning_style") or profile.get("cognitive_style") or "").strip()
         signals = [f"薄弱知识点：{item}" for item in weak_points[:5]]
         if goal:
             signals.append(f"当前目标：{goal}")
         if style:
             signals.append(f"学习偏好：{style}")
+        signals.extend(f"近期学习主题：{item}" for item in interest_topics[:3])
+        signals.extend(f"知识库关联：{item}" for item in kb_topics[:3])
         return weak_points, goals, style, signals
 
     def _score(

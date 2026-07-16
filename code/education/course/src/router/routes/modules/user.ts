@@ -17,7 +17,7 @@ const USER: AppRouteRecordRaw = {
     {
       path: 'info',
       name: 'Info',
-      component: () => import('@/views/user/info/index.vue'),
+      redirect: '/profile/user-info',
       meta: {
         locale: 'menu.user.info',
         requiresAuth: true,
@@ -37,11 +37,12 @@ const USER: AppRouteRecordRaw = {
     {
       path: 'setting',
       name: 'Setting',
-      component: () => import('@/views/user/setting/index.vue'),
+      redirect: '/profile/user-info',
       meta: {
-        locale: 'menu.user.setting',
+        locale: '个人资料',
         requiresAuth: true,
         roles: ['*'],
+        hideInMenu: true,
       },
     },
   ],

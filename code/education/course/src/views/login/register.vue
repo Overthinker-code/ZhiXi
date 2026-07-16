@@ -10,12 +10,17 @@
           <a-input v-model="form.email" placeholder="请输入邮箱" />
         </a-form-item>
         <a-form-item field="password" label="密码" required>
-          <a-input-password v-model="form.password" placeholder="至少8位密码" />
+          <a-input-password
+            v-model="form.password"
+            placeholder="10–128位密码"
+            :max-length="128"
+          />
         </a-form-item>
         <a-form-item field="confirmPassword" label="确认密码" required>
           <a-input-password
             v-model="form.confirmPassword"
             placeholder="请再次输入密码"
+            :max-length="128"
           />
         </a-form-item>
         <a-space direction="vertical" fill>
@@ -51,6 +56,10 @@
   const onSubmit = async () => {
     if (!form.fullName || !form.email || !form.password) {
       Message.warning('请完整填写注册信息');
+      return;
+    }
+    if (form.password.length < 10 || form.password.length > 128) {
+      Message.warning('密码需为10–128位');
       return;
     }
     if (form.password !== form.confirmPassword) {

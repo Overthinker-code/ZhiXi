@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "course_id": "c1111111-1111-4111-9111-111111111101",
+  "course_title": "数据库系统原理",
+  "content_license": "CC BY 4.0",
+  "content_author": "智屿项目组",
+  "content_note": "面向课程演示编写的原创中文讲义；技术事实经 PostgreSQL 官方文档核对，来源逐文件记录。",
+  "files": [
+    {
+      "path": "01_course_outline.md",
+      "document_type": "outline",
+      "chapter_id": "course-outline",
+      "chapter_title": "课程大纲",
+      "knowledge_point_ids": ["relational-model", "sql", "normalization", "index", "transaction", "recovery"],
+      "source_url": "https://www.postgresql.org/docs/current/tutorial.html",
+      "source_title": "PostgreSQL Tutorial",
+      "source_license": "PostgreSQL License"
+    },
+    {
+      "path": "02_lecture_notes.md",
+      "document_type": "lecture_notes",
+      "chapter_id": "chapter-3",
+      "chapter_title": "事务、并发与恢复",
+      "knowledge_point_ids": ["acid", "transaction", "isolation-level", "mvcc", "recovery"],
+      "source_url": "https://www.postgresql.org/docs/current/tutorial-transactions.html",
+      "source_title": "PostgreSQL 18 Documentation: Transactions",
+      "source_license": "PostgreSQL License"
+    },
+    {
+      "path": "03_exercises_answers.md",
+      "document_type": "exercise_answers",
+      "chapter_id": "chapter-3",
+      "chapter_title": "事务与并发练习",
+      "knowledge_point_ids": ["acid", "transaction", "isolation-level", "lost-update"],
+      "source_url": "https://www.postgresql.org/docs/current/transaction-iso.html",
+      "source_title": "PostgreSQL 18 Documentation: Transaction Isolation",
+      "source_license": "PostgreSQL License"
+    },
+    {
+      "path": "04_index_lab.md",
+      "document_type": "lab",
+      "chapter_id": "chapter-4",
+      "chapter_title": "索引与查询优化实验",
+      "knowledge_point_ids": ["btree-index", "query-plan", "explain-analyze"],
+      "source_url": "https://www.postgresql.org/docs/current/using-explain.html",
+      "source_title": "PostgreSQL 18 Documentation: Using EXPLAIN",
+      "source_license": "PostgreSQL License"
+    },
+    {
+      "path": "05_glossary.md",
+      "document_type": "glossary",
+      "chapter_id": "course-glossary",
+      "chapter_title": "术语表",
+      "knowledge_point_ids": ["primary-key", "foreign-key", "normalization", "acid", "index", "mvcc"],
+      "source_url": "https://www.postgresql.org/docs/current/ddl-constraints.html",
+      "source_title": "PostgreSQL 18 Documentation: Constraints",
+      "source_license": "PostgreSQL License"
+    }
+  ],
+  "source_license_url": "https://www.postgresql.org/about/licence/"
+}

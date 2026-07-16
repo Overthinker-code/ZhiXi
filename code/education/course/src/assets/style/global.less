@@ -26,6 +26,111 @@ body {
   color: var(--zy-color-text-primary, #0f172a);
 }
 
+/* A single, visible keyboard-focus contract for native and custom controls. */
+:where(
+  a,
+  button,
+  summary,
+  [role='button'],
+  [role='link'],
+  [tabindex]:not([tabindex='-1'])
+):focus-visible {
+  outline: 3px solid #2563eb !important;
+  outline-offset: 3px !important;
+}
+
+/* Native fields use a neutral keyboard ring instead of the browser/brand-blue
+   outline. Composite fields suppress this inner ring below and expose focus on
+   their wrapper, which prevents the large rectangle and inner underline seen
+   in chat composers. */
+:where(input, textarea, select, [contenteditable='true']):focus {
+  outline: none !important;
+}
+
+:where(input, textarea, select, [contenteditable='true']):focus-visible {
+  outline: 2px solid rgba(51, 65, 85, 0.5) !important;
+  outline-offset: 2px !important;
+  box-shadow: none !important;
+}
+
+/* Arco/Element inputs are composite controls. Keep the real input visually
+   quiet and render one restrained focus indicator on the outer field only. */
+:where(
+  .arco-input-wrapper,
+  .arco-textarea-wrapper,
+  .arco-input-number,
+  .arco-select-view,
+  .arco-cascader-view,
+  .arco-tree-select-view,
+  .arco-picker,
+  .el-input__wrapper,
+  .el-textarea,
+  .el-select__wrapper,
+  .el-date-editor,
+  .el-input-number
+) :where(input, textarea, select):focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+:where(
+  .arco-input-wrapper,
+  .arco-textarea-wrapper,
+  .arco-input-number,
+  .arco-select-view,
+  .arco-cascader-view,
+  .arco-tree-select-view,
+  .arco-picker,
+  .el-input__wrapper,
+  .el-textarea,
+  .el-select__wrapper,
+  .el-date-editor,
+  .el-input-number
+):is(
+  .arco-input-focus,
+  .arco-textarea-focus,
+  .arco-input-number-focus,
+  .arco-select-view-focus,
+  .arco-cascader-view-focus,
+  .arco-tree-select-view-focus,
+  .arco-picker-focused,
+  .is-focus,
+  .is-focused,
+  :focus,
+  :focus-within
+) {
+  border-color: #94a3b8 !important;
+  outline: none !important;
+  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.08) !important;
+}
+
+@media (forced-colors: active) {
+  :where(input, textarea, select, [contenteditable='true']):focus-visible {
+    outline: 2px solid Highlight !important;
+    outline-offset: 2px !important;
+    box-shadow: none !important;
+  }
+}
+
+#main-content:focus {
+  outline: none !important;
+}
+
+.zy-sr-only {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
 .echarts-tooltip-diy {
   background: linear-gradient(
     304.17deg,
@@ -126,4 +231,79 @@ body {
       background-color: rgb(var(--primary-6));
     }
   }
+}
+
+/* Arco's default tertiary text is too faint on the light student workspace. */
+.arco-empty-description,
+.arco-textarea-word-limit,
+.arco-tag {
+  color: #475569 !important;
+}
+
+/* Desktop course workspace: preserve the layout while bringing legacy tertiary
+   labels up to WCAG AA on the existing white and pale-blue surfaces. */
+.course-workspace__content :where(
+  .profile-signals span,
+  .metric small,
+  .insight-summary small,
+  .panel-title span,
+  .weak-list small,
+  .rhythm-empty p,
+  .loop-steps small,
+  .course-switcher > span,
+  .inspector-metrics span,
+  .chapter-header span,
+  .chapter-header small,
+  .lesson-list span,
+  .resource-overview small,
+  .resource-toolbar button,
+  .resource-card p,
+  .resource-card__top small,
+  .resource-meta,
+  .quick-row .section-heading span,
+  .agent-section .section-heading span,
+  .task-summary span,
+  .deliverable-grid p,
+  .graph-command-deck p,
+  .zoom-control span,
+  .evidence-row small
+) {
+  color: #556070 !important;
+}
+
+.course-workspace__content :where(
+  .metric em,
+  .insight-summary em,
+  strong > small,
+  .task-toolbar button,
+  .task-copy span,
+  .resource-type,
+  .graph-command-deck button,
+  .view-switch button,
+  .download-all
+) {
+  color: #4053e6 !important;
+}
+
+.course-workspace__content :where(
+  .section-heading > button
+) {
+  background: #4f46e5 !important;
+}
+
+.course-workspace__content .resource-heading__actions button:not(.ghost) {
+  background: #4f46e5 !important;
+}
+
+.learning-portrait-page :where(
+  .radar-legend,
+  .course-table__head,
+  .course-mastery small,
+  .course-trend--muted
+) {
+  color: #556070 !important;
+}
+
+.learning-portrait-page .course-trend:not(.course-trend--muted) {
+  color: #0b7a3e !important;
 }

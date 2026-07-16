@@ -1,5 +1,6 @@
 <script setup lang="ts">
   import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+  import { Square } from 'lucide-vue-next';
   import type { ChatToolPayload, ReasoningLevel, ResourceRequestPayload, TutorMode } from '@/api/ai-chat';
   import { DEFAULT_RESOURCE_TYPES, type TutorPanel } from './tutorActions';
 
@@ -244,6 +245,7 @@
       <textarea
         ref="textareaRef"
         v-model="input"
+        aria-label="向 AI 伴学提问"
         placeholder="有问题，尽管问"
         rows="1"
         @compositionstart="composing = true"
@@ -284,7 +286,7 @@
                 <span class="menu-icon">+</span>
                 <span class="menu-copy">
                   <strong>添加照片和文件</strong>
-                  <em>上传后用于本轮 RAG 检索</em>
+                  <em>上传后可结合文件内容回答</em>
                 </span>
               </button>
               <button
@@ -403,9 +405,11 @@
           type="button"
           class="send-button stop"
           data-testid="stop-generation"
+          aria-label="停止生成"
+          title="停止生成"
           @click="emit('stop')"
         >
-          停止
+          <Square :size="12" fill="currentColor" />
         </button>
         <button
           v-else
@@ -424,7 +428,8 @@
 
 <style scoped lang="scss">
   .chat-composer {
-    width: min(var(--composer-width, 680px), calc(100vw - 500px));
+    width: min(var(--composer-width, 680px), calc(100% - 32px));
+    max-width: 100%;
     margin: 0 auto;
     transition: width 180ms ease;
   }
@@ -437,8 +442,8 @@
     transition: border-color 0.18s ease, box-shadow 0.18s ease;
 
     &:focus-within {
-      border-color: #6366f1;
-      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1), 0 14px 42px rgba(15, 23, 42, 0.07);
+      border-color: #94a3b8;
+      box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.07), 0 14px 42px rgba(15, 23, 42, 0.07);
     }
   }
 
@@ -481,11 +486,19 @@
     resize: none;
     padding: 13px 18px 0;
     border: 0;
-    outline: none;
+    outline: none !important;
+    box-shadow: none !important;
     color: #101828;
     background: transparent;
     font-size: 15px;
     line-height: 1.6;
+
+    &:focus,
+    &:focus-visible {
+      border-color: transparent !important;
+      outline: none !important;
+      box-shadow: none !important;
+    }
 
     &::placeholder {
       color: #98a2b3;
@@ -545,7 +558,7 @@
     height: 36px;
     padding: 0 13px 0 15px;
     border-color: transparent;
-    color: #8a8f98;
+    color: #5b6575;
     background: #f2f4f7;
     font-size: 15px;
     font-weight: 560;
@@ -596,6 +609,9 @@
     }
 
     &.stop {
+      min-width: 36px;
+      width: 36px;
+      padding: 0;
       color: #344054;
       border-color: rgba(15, 23, 42, 0.1);
       background: #f2f4f7;
@@ -795,7 +811,7 @@
 
   @media (max-width: 1280px) {
     .chat-composer {
-      width: min(var(--composer-width, 660px), calc(100vw - 420px));
+      width: min(var(--composer-width, 660px), calc(100% - 32px));
     }
 
     .tool-menu {
@@ -810,7 +826,7 @@
 
   @media (max-width: 860px) {
     .chat-composer {
-      width: calc(100vw - 32px);
+      width: calc(100% - 32px);
     }
   }
 

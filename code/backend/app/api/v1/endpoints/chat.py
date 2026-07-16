@@ -3,6 +3,7 @@ import json
 import asyncio
 import re
 from difflib import SequenceMatcher
+from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Body
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session
@@ -10,6 +11,30 @@ from pydantic import BaseModel
 from langchain_core.messages import HumanMessage
 
 from app.api import deps
+from app.api.deps import CurrentUser
+from app.providers.chat_provider import chat_provider
+from app.providers.chat_thread_provider import chat_thread_provider
+from app.models.chat import Chat as ChatORM
+from app.models.chat_feedback import ChatFeedback as ChatFeedbackModel
+from app.schemas.chat import Chat, ChatCreate
+from app.schemas.chat_feedback import ChatFeedback, ChatFeedbackCreate
+from app.ai.chat_service import get_chat_runtime_settings, ChatRequest, resolve_system_prompt
+from app.ai.chat_engine import stream_chat_events, chat_service, resolve_stream_user_text_for_storage
+from app.ai.chat_runtime import AgentName
+from app.ai.chat_trace import ChatTraceRecorder, public_engine_events
+from app.services.pending_actions import pending_action_store
+from app.services.realtime_event_bus import realtime_event_bus
+from app.services.ai_usage_logger import persist_ai_usage
+from app.services.chat_artifact_service import hydrate_chat_artifacts
+from app.services.chat_semantic_cache import chat_semantic_cache
+from app.services.chat_model_factory import ChatModelFactory
+from app.services.background_tasks import schedule_memory_profile_refresh
+from app.services.content_safety_service import (
+    ContentSafetyBlockedError,
+    ContentSafetyStreamGuard,
+    content_safety_service,
+    stable_block_message,
+)
 
 _SSE_HEADERS = {
     "Cache-Control": "no-cache, no-transform",
@@ -24,25 +49,6 @@ def _sse_response(event_stream):
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )
-
-
-from app.api.deps import CurrentUser
-from app.providers.chat_provider import chat_provider
-from app.providers.chat_thread_provider import chat_thread_provider
-from app.models.chat import Chat as ChatORM
-from app.models.chat_feedback import ChatFeedback as ChatFeedbackModel
-from app.schemas.chat import Chat, ChatCreate, ChatUpdate
-from app.schemas.chat_feedback import ChatFeedback, ChatFeedbackCreate
-from app.ai.chat_service import get_chat_runtime_settings, ChatRequest, resolve_system_prompt
-from app.ai.chat_engine import stream_chat_events, chat_service, resolve_stream_user_text_for_storage
-from app.ai.chat_runtime import AgentName
-from app.services.pending_actions import pending_action_store
-from app.services.realtime_event_bus import realtime_event_bus
-from app.services.ai_usage_logger import persist_ai_usage
-from app.services.chat_artifact_service import hydrate_chat_artifacts
-from app.services.chat_semantic_cache import chat_semantic_cache
-from app.services.chat_model_factory import ChatModelFactory
-from app.services.background_tasks import schedule_memory_profile_refresh
 
 router = APIRouter()
 
@@ -395,6 +401,15 @@ def create_chat(
                 },
             )
         return _chat_to_api(chat)
+    except ContentSafetyBlockedError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "CONTENT_SAFETY_BLOCKED",
+                "message": stable_block_message("input"),
+                "safety": exc.review.public_dict(),
+            },
+        ) from exc
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -407,6 +422,13 @@ def stream_chat(
     current_user: CurrentUser,
 ):
     _validate_chat_images(request.image_base64_list)
+    input_safety = content_safety_service.review(request.user_input, direction="input")
+    if input_safety.blocked:
+        def blocked_event_stream():
+            yield f"data: {json.dumps({'type': 'safety_check', **input_safety.public_dict(), 'status': 'blocked'}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'code': 'CONTENT_SAFETY_BLOCKED', 'content': stable_block_message('input'), 'auditId': input_safety.audit_id}, ensure_ascii=False)}\n\n"
+
+        return _sse_response(blocked_event_stream)
     user_id = str(current_user.id) if current_user else None
     prior_turns = _prior_turns_for_request(
         db, thread_id=request.thread_id, user_id=user_id
@@ -415,7 +437,15 @@ def stream_chat(
     def event_stream():
         final_text: str | None = None
         final_payload: dict[str, Any] | None = None
+        run_id = uuid4().hex
+        trace = ChatTraceRecorder(run_id)
+        output_safety_guard = ContentSafetyStreamGuard(content_safety_service)
+        output_safety_blocked = False
+        output_safety_review = None
+        output_streaming_mode: str | None = None
         try:
+            yield f"data: {json.dumps(trace.event('run_started', {'title': '开始处理问题', 'status': 'running'}), ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps(trace.event('phase_started', {'phaseId': 'understand_problem', 'title': '理解问题', 'summary': '正在确认问题与可用上下文'}), ensure_ascii=False)}\n\n"
             chat_request = ChatRequest(
                 user_input=request.user_input,
                 thread_id=request.thread_id,
@@ -448,14 +478,104 @@ def stream_chat(
                 debug_mode=bool(request.debug_mode),
                 reasoning_enabled=bool(request.reasoning_enabled),
             )
+            yield f"data: {json.dumps(trace.event('phase_finished', {'phaseId': 'understand_problem', 'title': '理解问题', 'summary': '已确认本轮问题与上下文边界', 'status': 'done'}), ensure_ascii=False)}\n\n"
             log_user = resolve_stream_user_text_for_storage(chat_request)
             for payload in stream_chat_events(chat_request):
                 if isinstance(payload, dict) and payload.get("type") == "final":
                     c = payload.get("content")
-                    if isinstance(c, str) and c.strip():
+                    if not output_safety_blocked and isinstance(c, str) and c.strip():
                         final_text = c
                     final_payload = payload
-                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    # Emit the terminal payload only after trace phases have closed.
+                    continue
+                if not isinstance(payload, dict):
+                    continue
+                for public_event in public_engine_events(payload, trace):
+                    if public_event.get("type") == "token":
+                        if public_event.get("streamingMode") in {"provider", "replayed"}:
+                            output_streaming_mode = str(public_event["streamingMode"])
+                        if output_safety_blocked:
+                            continue
+                        try:
+                            approved = output_safety_guard.push(
+                                str(public_event.get("content") or "")
+                            )
+                        except ContentSafetyBlockedError as exc:
+                            output_safety_blocked = True
+                            output_safety_review = exc.review
+                            final_text = stable_block_message("output")
+                            safety_event = trace.event(
+                                "safety_check",
+                                {
+                                    **exc.review.public_dict(),
+                                    "status": "blocked",
+                                },
+                            )
+                            yield f"data: {json.dumps(safety_event, ensure_ascii=False)}\n\n"
+                            blocked_payload = {"content": final_text}
+                            if output_streaming_mode:
+                                blocked_payload["streamingMode"] = output_streaming_mode
+                            blocked_token = trace.event("token", blocked_payload)
+                            yield f"data: {json.dumps(blocked_token, ensure_ascii=False)}\n\n"
+                            continue
+                        if not approved:
+                            continue
+                        public_event["content"] = approved
+                    yield f"data: {json.dumps(public_event, ensure_ascii=False)}\n\n"
+            if not output_safety_blocked:
+                try:
+                    approved_tail = output_safety_guard.finish()
+                except ContentSafetyBlockedError as exc:
+                    output_safety_blocked = True
+                    output_safety_review = exc.review
+                    final_text = stable_block_message("output")
+                    safety_event = trace.event(
+                        "safety_check",
+                        {**exc.review.public_dict(), "status": "blocked"},
+                    )
+                    yield f"data: {json.dumps(safety_event, ensure_ascii=False)}\n\n"
+                    blocked_payload = {"content": final_text}
+                    if output_streaming_mode:
+                        blocked_payload["streamingMode"] = output_streaming_mode
+                    blocked_token = trace.event("token", blocked_payload)
+                    yield f"data: {json.dumps(blocked_token, ensure_ascii=False)}\n\n"
+                else:
+                    if approved_tail:
+                        tail_payload = {"content": approved_tail}
+                        if output_streaming_mode:
+                            tail_payload["streamingMode"] = output_streaming_mode
+                        tail_event = trace.event("token", tail_payload)
+                        yield f"data: {json.dumps(tail_event, ensure_ascii=False)}\n\n"
+                    if output_safety_guard.last_review:
+                        output_safety_review = output_safety_guard.last_review
+                        safety_event = trace.event(
+                            "safety_check",
+                            {
+                                **output_safety_guard.last_review.public_dict(),
+                                "status": "passed",
+                            },
+                        )
+                        yield f"data: {json.dumps(safety_event, ensure_ascii=False)}\n\n"
+            if final_payload:
+                if output_safety_blocked:
+                    final_payload = {
+                        **final_payload,
+                        "content": stable_block_message("output"),
+                        "citations": [],
+                        "suggestions": [],
+                        "confidence": "low",
+                        "grounding_mode": "safety_blocked",
+                    }
+                metrics = dict(final_payload.get("metrics") or {})
+                metrics["content_safety"] = {
+                    "input": input_safety.public_dict(),
+                    "output": output_safety_review.public_dict()
+                    if output_safety_review
+                    else None,
+                }
+                final_payload["metrics"] = metrics
+                for public_event in public_engine_events(final_payload, trace):
+                    yield f"data: {json.dumps(public_event, ensure_ascii=False)}\n\n"
             if final_text and request.thread_id and user_id:
                 try:
                     thread = chat_thread_provider.get_by_thread_id_and_user(
@@ -497,8 +617,17 @@ def stream_chat(
                             )
                 except Exception:
                     pass
+            yield f"data: {json.dumps(trace.event('run_finished', {'title': '本轮完成', 'summary': '回答已生成并完成必要的记录', 'status': 'done'}), ensure_ascii=False)}\n\n"
         except Exception as exc:
-            error_payload = {"type": "error", "content": str(exc)}
+            _ = exc
+            error_payload = trace.event(
+                "error",
+                {
+                    "code": "CHAT_EXECUTION_FAILED",
+                    "content": "本轮处理未完成，请稍后重试。",
+                    "status": "error",
+                },
+            )
             yield f"data: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
 
     return _sse_response(event_stream)
@@ -513,6 +642,10 @@ def selection_query(
 ) -> Any:
     try:
         _validate_chat_images(request.image_base64_list)
+        input_safety = content_safety_service.ensure_safe(
+            request.user_input,
+            direction="input",
+        )
         user_id = str(current_user.id) if current_user else None
         prior_turns = _prior_turns_for_request(
             db, thread_id=request.thread_id, user_id=user_id
@@ -550,6 +683,26 @@ def selection_query(
             reasoning_enabled=bool(request.reasoning_enabled),
         )
         out = chat_service(chat_request).model_dump()
+        output_safety = content_safety_service.review(
+            str(out.get("response") or ""),
+            direction="output",
+        )
+        metrics = dict(out.get("metrics") or {})
+        metrics["content_safety"] = {
+            "input": input_safety.public_dict(),
+            "output": output_safety.public_dict(),
+        }
+        out["metrics"] = metrics
+        if output_safety.blocked:
+            out.update(
+                {
+                    "response": stable_block_message("output"),
+                    "citations": [],
+                    "suggestions": [],
+                    "confidence": "low",
+                    "grounding_mode": "safety_blocked",
+                }
+            )
         if user_id and request.thread_id and (out.get("response") or "").strip():
             try:
                 thread = chat_thread_provider.get_by_thread_id_and_user(
@@ -592,6 +745,15 @@ def selection_query(
             except Exception:
                 pass
         return out
+    except ContentSafetyBlockedError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "CONTENT_SAFETY_BLOCKED",
+                "message": stable_block_message("input"),
+                "safety": exc.review.public_dict(),
+            },
+        ) from exc
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -14,13 +14,20 @@
   } from '@arco-design/web-vue/es/icon';
   import { getClassroomCourse } from '@/data/classroomCourses';
   import {
-    buildCourseKnowledgeMaps,
-    buildCourseStructureBranches,
     type CourseKnowledgeMap,
     type CourseKnowledgeMapType,
     type CourseKnowledgeNode,
+    type CourseStructureBranch,
   } from '@/data/courseWorkspace';
   import { courseWorkspaceLocation } from '@/composables/useCourseRouteContext';
+  import {
+    fetchCourseKnowledgeGraph,
+    fetchCourseKnowledgeNeighbors,
+    fetchCourseKnowledgeNodeActions,
+    setCourseKnowledgeNodeAction,
+    type CourseKnowledgeNodeActionState,
+    type CourseKnowledgeNodeActionType,
+  } from '@/api/knowledge-graph';
 
   type PackageMatch = {
     map: CourseKnowledgeMap;
@@ -63,12 +70,41 @@
   const selectedLinkKey = ref('');
   const inspectorTab = ref<'evidence' | 'resources' | 'next'>('evidence');
   const nodeStatuses = ref<Record<string, NodeStudyStatus>>({});
+  const maps = ref<CourseKnowledgeMap[]>([]);
+  const graphLoading = ref(false);
+  const graphError = ref('');
+  const actionsAvailable = ref(false);
+  let graphRequestSequence = 0;
+  let neighborRequestSequence = 0;
 
   const course = computed(() => getClassroomCourse(String(route.params.courseId || '')));
-  const maps = computed(() => (course.value ? buildCourseKnowledgeMaps(course.value) : []));
-  const structureBranches = computed(() =>
-    course.value ? buildCourseStructureBranches(course.value) : []
-  );
+  const structureBranches = computed<CourseStructureBranch[]>(() => {
+    const map = activeMap.value;
+    if (!map) return [];
+    return map.nodes
+      .filter((node) => node.type === 'chapter' && node.weight < 4)
+      .map((node) => {
+        const relatedLinks = map.links.filter(
+          (link) => link.source === node.id || link.target === node.id
+        );
+        const relatedNodes = relatedLinks
+          .map((link) => (link.source === node.id ? link.target : link.source))
+          .map((id) => map.nodes.find((item) => item.id === id))
+          .filter(Boolean) as CourseKnowledgeNode[];
+        return {
+          id: node.id,
+          title: node.label,
+          resourceBadges: [] as CourseStructureBranch['resourceBadges'],
+          taskCount: relatedNodes.filter((item) => item.type === 'task').length,
+          weakPoint:
+            relatedNodes
+              .filter((item) => item.type === 'concept' && item.mastery !== undefined)
+              .sort((left, right) => (left.mastery || 0) - (right.mastery || 0))[0]
+              ?.label || '暂无评测数据',
+          progress: node.mastery ?? 0,
+        };
+      });
+  });
   const activeMap = computed<CourseKnowledgeMap | undefined>(
     () => maps.value.find((item) => item.type === activeType.value) || maps.value[0]
   );
@@ -90,7 +126,7 @@
     if (!map) return [];
     if (!key || !isolateSearchResults.value) {
       const ids = new Set<string>();
-      const root = map.nodes.find((node) => node.id === 'course-root') || map.nodes[0];
+      const root = map.nodes.find((node) => node.weight >= 4) || map.nodes[0];
       if (root) ids.add(root.id);
       const selectedId = selectedNodeId.value || root?.id;
       const isRootFocus = !selectedId || selectedId === root?.id;
@@ -215,7 +251,7 @@
         return relationWeight(b.link) - relationWeight(a.link) || (b.link.strength || 0) - (a.link.strength || 0);
       });
     const weakestRelated = [...incoming, ...outgoing].sort(
-      (a, b) => (a.node.mastery ?? course.value!.progress) - (b.node.mastery ?? course.value!.progress)
+      (a, b) => (a.node.mastery ?? 101) - (b.node.mastery ?? 101)
     )[0];
     const selectedEvidence = node.evidence?.[0] || node.detail || map.description;
     const selectedResource = node.resources?.[0] || `${node.label} 节点讲义`;
@@ -228,7 +264,8 @@
             title: incoming[0].node.label,
             relation: incoming[0].link.relation,
             strength: incoming[0].link.strength || 72,
-            mastery: incoming[0].node.mastery ?? course.value.progress,
+            mastery: incoming[0].node.mastery ?? 0,
+            masteryKnown: incoming[0].node.mastery !== undefined,
             desc: `先确认「${incoming[0].node.label}」与当前节点的${incoming[0].link.relation}，避免直接跳到结论。`,
             evidence: incoming[0].node.evidence?.[0] || incoming[0].node.detail || '需要补齐前置节点课堂证据。',
             resource: incoming[0].node.resources?.[0] || `${incoming[0].node.label} 前置讲义`,
@@ -241,7 +278,8 @@
             title: '课程总览',
             relation: '父子关系',
             strength: 68,
-            mastery: course.value.progress,
+            mastery: 0,
+            masteryKnown: false,
             desc: '从课程总览确认当前节点在课程主线中的位置。',
             evidence: `${course.value.shortTitle} 总览结构`,
             resource: `${course.value.shortTitle} 章节脉络`,
@@ -258,6 +296,7 @@
             Math.max(selectedLinks.value.length, 1)
         ),
         mastery: selectedNodeMastery.value,
+        masteryKnown: node.mastery !== undefined,
         desc: node.recommendedAction || '围绕当前节点完成定义、边界、例题和错因复盘。',
         evidence: selectedEvidence,
         resource: selectedResource,
@@ -271,7 +310,8 @@
             title: outgoing[0].node.label,
             relation: outgoing[0].link.relation,
             strength: outgoing[0].link.strength || 72,
-            mastery: outgoing[0].node.mastery ?? course.value.progress,
+            mastery: outgoing[0].node.mastery ?? 0,
+            masteryKnown: outgoing[0].node.mastery !== undefined,
             desc: `掌握当前节点后，沿${outgoing[0].link.relation}进入「${outgoing[0].node.label}」。`,
             evidence: outgoing[0].node.evidence?.[0] || outgoing[0].node.detail || '需要补齐后续节点课堂证据。',
             resource: outgoing[0].node.resources?.[0] || `${outgoing[0].node.label} 拓展练习`,
@@ -285,7 +325,8 @@
               title: weakestRelated.node.label,
               relation: weakestRelated.link.relation,
               strength: weakestRelated.link.strength || 72,
-              mastery: weakestRelated.node.mastery ?? course.value.progress,
+              mastery: weakestRelated.node.mastery ?? 0,
+              masteryKnown: weakestRelated.node.mastery !== undefined,
               desc: `当前没有明确后继，建议先补强相邻薄弱点「${weakestRelated.node.label}」。`,
               evidence: weakestRelated.node.evidence?.[0] || weakestRelated.node.detail || '需要补充相邻节点证据。',
               resource: weakestRelated.node.resources?.[0] || `${weakestRelated.node.label} 补强练习`,
@@ -299,6 +340,7 @@
               relation: '任务驱动',
               strength: 64,
               mastery: selectedNodeMastery.value,
+              masteryKnown: node.mastery !== undefined,
               desc: '当前节点暂无后续关系，建议生成迁移题来补齐图谱边。',
               evidence: selectedEvidence,
               resource: `${node.label} 迁移练习`,
@@ -311,20 +353,29 @@
   const pathCoverageStats = computed(() => {
     const steps = graphPathSteps.value;
     const evidenceReady = steps.filter((item) => item.evidence && !item.evidence.includes('需要补')).length;
-    const averageMastery = Math.round(
-      steps.reduce((sum, item) => sum + item.mastery, 0) / Math.max(steps.length, 1)
-    );
+    const assessedSteps = steps.filter((item) => item.masteryKnown);
+    const averageMastery = assessedSteps.length
+      ? Math.round(
+          assessedSteps.reduce((sum, item) => sum + item.mastery, 0) /
+            assessedSteps.length
+        )
+      : null;
     const averageStrength = Math.round(
       steps.reduce((sum, item) => sum + item.strength, 0) / Math.max(steps.length, 1)
     );
     return [
       { label: '路径阶段', value: `${steps.length}` },
       { label: '证据覆盖', value: `${evidenceReady}/${steps.length}` },
-      { label: '平均掌握', value: `${averageMastery}%` },
+      { label: '平均掌握', value: averageMastery === null ? '未评测' : `${averageMastery}%` },
       { label: '关系强度', value: `${averageStrength}%` },
     ];
   });
-  const selectedNodeMastery = computed(() => selectedNode.value?.mastery ?? course.value?.progress ?? 0);
+  const selectedNodeMastery = computed(() => selectedNode.value?.mastery ?? 0);
+  const selectedNodeMasteryLabel = computed(() =>
+    selectedNode.value?.mastery === undefined
+      ? '未评测'
+      : `${selectedNode.value.mastery}%`
+  );
   const selectedNodeEvidence = computed(() => selectedNode.value?.evidence?.slice(0, 5) || []);
   const selectedNodeChecks = computed(() => selectedNode.value?.checks?.slice(0, 4) || []);
   const selectedNodeActivities = computed(() => selectedNode.value?.activities?.slice(0, 4) || []);
@@ -340,7 +391,7 @@
     const selected = selectedNode.value;
     const positions = new Map<string, GraphNodePosition>();
     if (!map) return positions;
-    const root = map.nodes.find((node) => node.id === 'course-root') || map.nodes[0];
+    const root = map.nodes.find((node) => node.weight >= 4) || map.nodes[0];
     const visible = visibleNodes.value;
     const rootId = root?.id;
     const selectedId = selected?.id || rootId;
@@ -460,9 +511,15 @@
   const graphStats = computed(() => [
     { label: '节点', value: String(visibleNodes.value.length) },
     { label: '关系', value: String(visibleLinks.value.length) },
-    { label: '掌握度', value: `${course.value?.progress || 0}%` },
+    {
+      label: '已评测',
+      value: `${visibleNodes.value.filter((node) => node.mastery !== undefined).length}/${visibleNodes.value.length}`,
+    },
   ]);
   const selectedMasteryState = computed(() => {
+    if (selectedNode.value?.mastery === undefined) {
+      return { label: '未评测', tone: 'unstarted' };
+    }
     const mastery = selectedNodeMastery.value;
     if (mastery >= 80) return { label: '已掌握', tone: 'mastered' };
     if (mastery >= 60) return { label: '掌握中', tone: 'learning' };
@@ -482,8 +539,8 @@
   });
   const lowMasteryNodes = computed(() =>
     [...visibleNodes.value]
-      .filter((node) => node.weight < 4)
-      .sort((a, b) => (a.mastery ?? course.value?.progress ?? 0) - (b.mastery ?? course.value?.progress ?? 0))
+      .filter((node) => node.weight < 4 && node.mastery !== undefined)
+      .sort((a, b) => (a.mastery || 0) - (b.mastery || 0))
       .slice(0, 4)
   );
   const relationSummary = computed(() =>
@@ -551,7 +608,7 @@
         kicker: '03',
         title: '掌握核验',
         desc: '证据、练习与错因状态',
-        metric: `${selectedNodeMastery.value}%`,
+        metric: selectedNodeMasteryLabel.value,
       },
       {
         key: 'agent',
@@ -568,7 +625,7 @@
     const candidates = map.nodes
       .filter((node) => node.weight < 4)
       .map((node) => {
-        const mastery = node.mastery ?? course.value!.progress;
+        const mastery = node.mastery;
         const evidenceGap = Math.max(0, 2 - (node.evidence?.length || 0));
         const resourceGap = Math.max(0, 2 - (node.resources?.length || 0));
         const checkGap = Math.max(0, 2 - (node.checks?.length || 0));
@@ -581,14 +638,14 @@
         return {
           node,
           score:
-            (100 - mastery) * 1.4 +
+            (mastery === undefined ? 45 : 100 - mastery) * 1.4 +
             evidenceGap * 16 +
             resourceGap * 12 +
             checkGap * 14 +
             relationCount * 2 +
             unfinishedBonus * 8,
           reasons: [
-            mastery < 65 ? `掌握度 ${mastery}%` : '',
+            mastery === undefined ? '尚无掌握评测' : mastery < 65 ? `掌握度 ${mastery}%` : '',
             evidenceGap ? `缺 ${evidenceGap} 条课堂证据` : '',
             checkGap ? `缺 ${checkGap} 道检查题` : '',
             resourceGap ? `缺 ${resourceGap} 项配套资料` : '',
@@ -612,13 +669,13 @@
     },
     {
       key: 'practice',
-      label: '做检查',
+      label: '加入复习',
       desc: selectedNodeChecks.value[0] || '生成分层检查题并记录错因',
       done: Boolean(selectedNodeStatus.value.practice),
     },
     {
       key: 'resource',
-      label: '补资料',
+      label: '申请资料',
       desc: selectedNodeResources.value[0] || '生成讲义、导图和复习单',
       done: Boolean(selectedNodeStatus.value.resource),
     },
@@ -630,7 +687,8 @@
     const neighbors = selectedNeighbors.value.slice(0, 4).map((item) => ({
       relation: item.link.relation,
       label: item.neighbor.label,
-      mastery: item.neighbor.mastery ?? course.value?.progress ?? 0,
+      mastery: item.neighbor.mastery ?? 0,
+      masteryKnown: item.neighbor.mastery !== undefined,
       strength: item.link.strength || 72,
     }));
     return {
@@ -660,12 +718,19 @@
   });
   const selectedNodeHealth = computed(() => {
     const mastery = selectedNodeMastery.value;
+    const hasMastery = selectedNode.value?.mastery !== undefined;
     return [
       {
         label: '掌握状态',
-        value: `${mastery}%`,
-        desc: mastery >= 80 ? '可进入迁移任务' : mastery >= 60 ? '需要补一轮自测' : '建议先补概念证据',
-        tone: mastery >= 80 ? 'green' : mastery >= 60 ? 'blue' : 'orange',
+        value: selectedNodeMasteryLabel.value,
+        desc: !hasMastery
+          ? '完成一次练习后生成评测结果'
+          : mastery >= 80
+            ? '可进入迁移任务'
+            : mastery >= 60
+              ? '需要补一轮自测'
+              : '建议先补概念证据',
+        tone: hasMastery && mastery >= 80 ? 'green' : hasMastery && mastery >= 60 ? 'blue' : 'orange',
       },
       {
         label: '证据覆盖',
@@ -806,19 +871,19 @@
   ]);
   const closureActionMeta: Record<ClosureActionKey, { label: string; short: string; desc: string }> = {
     reviewed: {
-      label: '读证据',
+      label: '打开课程内容',
       short: '证据',
-      desc: '回到课堂笔记确认定义、条件、边界和例题依据。',
+      desc: '先阅读课堂内容，返回后再手动标记已读。',
     },
     practice: {
-      label: '做检查',
+      label: '加入复习',
       short: '检查',
-      desc: '生成分层检查题，完成后记录错因并回写图谱。',
+      desc: '把分层检查题加入复习安排。',
     },
     resource: {
-      label: '补资料',
+      label: '申请资料',
       short: '资料',
-      desc: '生成讲义、导图、练习和阅读清单，补齐节点资料。',
+      desc: '记录讲义、导图、练习和阅读清单需求。',
     },
   };
   const nodeClosureStats = computed(() => {
@@ -890,7 +955,7 @@
         const missingKey =
           actionOrder.find((key) => !status[key]) || null;
         const doneCount = actionOrder.filter((key) => status[key]).length;
-        const mastery = node.mastery ?? course.value!.progress;
+        const mastery = node.mastery ?? 0;
         const relationCount = map.links.filter(
           (link) => link.source === node.id || link.target === node.id
         ).length;
@@ -900,6 +965,7 @@
           doneCount,
           pendingKey: status.pending || '',
           mastery,
+          masteryKnown: node.mastery !== undefined,
           relationCount,
           priority:
             Number(Boolean(missingKey)) * 100 +
@@ -930,8 +996,12 @@
       top: `calc(${top}% + ${canvasPan.value.y}px)`,
     };
   });
-  const chapterCount = computed(() => course.value?.chapters.length || 0);
-  const conceptCount = computed(() => course.value?.concepts.flatMap((item) => item.points).length || 0);
+  const chapterCount = computed(
+    () => activeMap.value?.nodes.filter((node) => node.type === 'chapter').length || 0
+  );
+  const conceptCount = computed(
+    () => activeMap.value?.nodes.filter((node) => node.type === 'concept').length || 0
+  );
   const actionBadgeCount = computed(() =>
     structureBranches.value.reduce((sum, item) => sum + item.resourceBadges.length, 0)
   );
@@ -1033,14 +1103,14 @@
         key: 'node',
         label: '节点定位',
         value: targetNode.label,
-        desc: `${targetMap.title} · 匹配置信度 ${packageConfidence.value}`,
+        desc: `${targetMap.title} · 已关联到当前主题`,
         state: packageConfidence.value === '待确认' ? 'warning' : 'ready',
       },
       {
         key: 'evidence',
-        label: '课堂证据',
-        value: `${evidenceCount} 条`,
-        desc: evidenceCount ? targetNode.evidence?.[0] || '已绑定课堂证据' : '需要补充课堂片段或笔记依据',
+        label: '学习记录',
+        value: evidenceCount ? '已找到' : '待补充',
+        desc: evidenceCount ? targetNode.evidence?.[0] || '已关联学习记录' : '可以补充课堂片段或学习笔记',
         state: evidenceCount >= 2 ? 'ready' : 'warning',
       },
       {
@@ -1108,8 +1178,8 @@
         selected: selected?.id === node.id,
         related: selectedNeighborIds.value.has(node.id),
         dimmed: shouldDim,
-        weak: (node.mastery ?? course.value?.progress ?? 0) < 60,
-        stable: (node.mastery ?? course.value?.progress ?? 0) >= 80,
+        weak: node.mastery !== undefined && node.mastery < 60,
+        stable: node.mastery !== undefined && node.mastery >= 80,
         'package-target': packageContext.value && packageNode?.id === node.id,
         'search-hit': isSearchHit,
         'search-muted': hasSearch && !isSearchHit && !selectedNeighborIds.value.has(node.id),
@@ -1155,9 +1225,17 @@
     return '图谱';
   }
 
+  function masteryDisplay(value: number, known: boolean) {
+    return known ? `${value}%` : '未评测';
+  }
+
+  function branchMasteryDisplay(branch: CourseStructureBranch) {
+    const node = activeMap.value?.nodes.find((item) => item.id === branch.id);
+    return node?.mastery === undefined ? '未评测' : `${node.mastery}%`;
+  }
+
   function nodeSubtitle(node: CourseKnowledgeNode) {
-    const mastery = node.mastery ?? course.value?.progress ?? 0;
-    return `${nodeTypeLabel(node.type)} · ${mastery}%`;
+    return `${nodeTypeLabel(node.type)} · ${node.mastery === undefined ? '未评测' : `${node.mastery}%`}`;
   }
 
   function nodeBoxWidth(node: CourseKnowledgeNode) {
@@ -1212,6 +1290,13 @@
     if (relation === '资料支撑') return '证据';
     if (relation === '任务驱动') return '任务';
     return '关联';
+  }
+
+  function graphLinkLabel(link: CourseKnowledgeMap['links'][number]) {
+    const map = activeMap.value;
+    const source = map?.nodes.find((node) => node.id === link.source)?.label || link.source;
+    const target = map?.nodes.find((node) => node.id === link.target)?.label || link.target;
+    return `${source}到${target}的${link.relation}`;
   }
 
   function linkLabelPosition(link: CourseKnowledgeMap['links'][number]) {
@@ -1282,6 +1367,7 @@
     canvasZoom.value = Math.min(canvasZoom.value, 1.08);
     canvasPan.value = { x: 0, y: 0 };
     persistSelectedNode();
+    void expandNodeNeighbors(node);
   }
 
   function selectLink(link: CourseKnowledgeMap['links'][number]) {
@@ -1294,6 +1380,10 @@
   }
 
   function selectMap(type: CourseKnowledgeMapType) {
+    if (!maps.value.some((item) => item.type === type)) {
+      Message.warning('当前课程暂不支持该图谱类型');
+      return;
+    }
     activeType.value = type;
     activeRelation.value = '全部';
     selectedLinkKey.value = '';
@@ -1301,10 +1391,9 @@
   }
 
   function selectBranch(index: number) {
-    selectedNodeId.value = `chapter-${index}`;
-    if (activeType.value !== 'knowledge' && activeType.value !== 'target') {
-      activeType.value = 'knowledge';
-    }
+    const branch = structureBranches.value[index];
+    const node = activeMap.value?.nodes.find((item) => item.id === branch?.id);
+    if (node) selectNode(node);
   }
 
   function queryText(value: unknown) {
@@ -1336,9 +1425,141 @@
     });
   }
 
-  function nodeStudyStorageKey() {
-    if (!course.value || !activeMap.value) return '';
-    return `zhixi:knowledge-node-status:${course.value.id}:${activeMap.value.type}`;
+  const actionTypeByClosureKey: Record<ClosureActionKey, CourseKnowledgeNodeActionType> = {
+    reviewed: 'evidence_read',
+    practice: 'review_queued',
+    resource: 'resource_requested',
+  };
+
+  function studyStatusFromApi(
+    state: CourseKnowledgeNodeActionState | undefined
+  ): NodeStudyStatus {
+    return {
+      reviewed: Boolean(state?.evidenceRead),
+      practice: Boolean(state?.reviewQueued),
+      resource: Boolean(state?.resourceRequested),
+      updatedAt: state?.updatedAt,
+    };
+  }
+
+  function applyNodeActionStates(
+    mapType: CourseKnowledgeMapType,
+    states: Record<string, CourseKnowledgeNodeActionState>,
+    replaceMap = false
+  ) {
+    const retained = replaceMap
+      ? Object.fromEntries(
+          Object.entries(nodeStatuses.value).filter(
+            ([key]) => !key.startsWith(`${mapType}:`)
+          )
+        )
+      : { ...nodeStatuses.value };
+    Object.entries(states).forEach(([nodeId, state]) => {
+      retained[`${mapType}:${nodeId}`] = studyStatusFromApi(state);
+    });
+    nodeStatuses.value = retained;
+  }
+
+  async function loadNodeActionStates(map = activeMap.value) {
+    if (!course.value || !map) return;
+    try {
+      const response = await fetchCourseKnowledgeNodeActions(course.value.id, map.type);
+      if (response.courseId !== course.value.id || response.mapType !== map.type) {
+        throw new Error('节点动作范围与当前课程不一致');
+      }
+      applyNodeActionStates(map.type, response.states, true);
+      actionsAvailable.value = true;
+    } catch {
+      applyNodeActionStates(map.type, {}, true);
+      actionsAvailable.value = false;
+      Message.error('节点学习状态暂时无法读取，请稍后重试');
+    }
+  }
+
+  async function expandNodeNeighbors(node: CourseKnowledgeNode) {
+    if (!course.value || !activeMap.value) return;
+    const requestId = ++neighborRequestSequence;
+    const courseId = course.value.id;
+    const mapType = activeMap.value.type;
+    try {
+      const response = await fetchCourseKnowledgeNeighbors(courseId, node.id, mapType, 1);
+      if (
+        requestId !== neighborRequestSequence ||
+        response.courseId !== courseId ||
+        response.centerNodeId !== node.id ||
+        activeMap.value?.type !== mapType
+      ) {
+        return;
+      }
+      const current = activeMap.value;
+      const nodeById = new Map(current.nodes.map((item) => [item.id, item]));
+      response.nodes.forEach((item) => nodeById.set(item.id, item));
+      const linkByKey = new Map(
+        current.links.map((item) => [linkKey(item), item])
+      );
+      response.links.forEach((item) => linkByKey.set(linkKey(item), item));
+      maps.value = maps.value.map((item) =>
+        item.type === mapType
+          ? {
+              ...item,
+              nodes: Array.from(nodeById.values()),
+              links: Array.from(linkByKey.values()),
+            }
+          : item
+      );
+    } catch {
+      Message.warning(`暂时无法展开「${node.label}」的相邻知识点`);
+    }
+  }
+
+  async function loadCourseGraph() {
+    const courseId = String(route.params.courseId || '');
+    const requestId = ++graphRequestSequence;
+    graphLoading.value = true;
+    graphError.value = '';
+    actionsAvailable.value = false;
+    nodeStatuses.value = {};
+    try {
+      const response = await fetchCourseKnowledgeGraph(courseId);
+      if (requestId !== graphRequestSequence) return;
+      if (response.courseId !== courseId) {
+        throw new Error('课程图谱范围与当前课程不一致');
+      }
+      if (!response.maps.length) {
+        throw new Error('当前课程还没有可用的知识图谱');
+      }
+      maps.value = response.maps;
+      if (!response.maps.some((item) => item.type === activeType.value)) {
+        activeType.value = response.maps[0].type;
+      }
+      applyIncomingNodeFromRoute();
+      loadSelectedNodeForMap();
+      if (!selectedNodeId.value || !activeMap.value?.nodes.some((node) => node.id === selectedNodeId.value)) {
+        selectedNodeId.value =
+          activeMap.value?.nodes.find((node) => node.weight >= 4)?.id ||
+          activeMap.value?.nodes[0]?.id ||
+          '';
+      }
+      await loadNodeActionStates(activeMap.value);
+      if (selectedNode.value) await expandNodeNeighbors(selectedNode.value);
+    } catch (error) {
+      if (requestId !== graphRequestSequence) return;
+      maps.value = [];
+      nodeStatuses.value = {};
+      const status = Number(
+        (error as { response?: { status?: number } } | null)?.response?.status || 0
+      );
+      graphError.value =
+        status === 404
+          ? '未找到可访问的课程图谱，请确认你已加入这门课程。'
+          : status === 422
+            ? '课程标识或图谱类型无效，请返回课程列表后重新进入。'
+            : error instanceof Error && error.message.startsWith('当前课程')
+              ? error.message
+              : '课程图谱加载失败，请稍后重试。';
+    } finally {
+      if (requestId === graphRequestSequence) graphLoading.value = false;
+    }
   }
 
   function selectedNodeStorageKey() {
@@ -1349,26 +1570,6 @@
   function nodeStudyStatusKey(node = selectedNode.value) {
     if (!activeMap.value || !node) return '';
     return `${activeMap.value.type}:${node.id}`;
-  }
-
-  function loadNodeStatuses() {
-    const key = nodeStudyStorageKey();
-    if (!key || typeof window === 'undefined') {
-      nodeStatuses.value = {};
-      return;
-    }
-    try {
-      const parsed = JSON.parse(window.localStorage.getItem(key) || '{}') as Record<string, NodeStudyStatus>;
-      nodeStatuses.value = parsed && typeof parsed === 'object' ? parsed : {};
-    } catch {
-      nodeStatuses.value = {};
-    }
-  }
-
-  function persistNodeStatuses() {
-    const key = nodeStudyStorageKey();
-    if (!key || typeof window === 'undefined') return;
-    window.localStorage.setItem(key, JSON.stringify(nodeStatuses.value));
   }
 
   function persistSelectedNode() {
@@ -1384,7 +1585,6 @@
     const recommended = recommendedNode.value?.node;
     if (
       savedNodeId &&
-      savedNodeId !== 'course-root' &&
       activeMap.value.nodes.some((node) => node.id === savedNodeId)
     ) {
       selectedNodeId.value = savedNodeId;
@@ -1395,74 +1595,69 @@
     }
   }
 
-  function toggleNodeStatus(key: keyof Omit<NodeStudyStatus, 'updatedAt'>) {
-    const statusKey = nodeStudyStatusKey();
-    if (!statusKey || !selectedNode.value) return;
-    const current = nodeStatuses.value[statusKey] || {};
-    nodeStatuses.value = {
-      ...nodeStatuses.value,
-      [statusKey]: {
-        ...current,
-        [key]: !current[key],
-        updatedAt: new Date().toISOString(),
-      },
-    };
-    persistSelectedNode();
-    persistNodeStatuses();
-    Message.success(`「${selectedNode.value.label}」学习状态已更新`);
-  }
-
-  function markNodeStatus(node: CourseKnowledgeNode, key: ClosureActionKey, value = true) {
+  async function updateNodeStatus(
+    node: CourseKnowledgeNode,
+    key: ClosureActionKey,
+    value: boolean
+  ) {
     const map = activeMap.value;
-    if (!map) return;
+    if (!map || !course.value) return false;
+    if (!actionsAvailable.value) {
+      Message.error('节点学习状态服务暂时不可用，请刷新后重试');
+      return false;
+    }
     const statusKey = `${map.type}:${node.id}`;
     const current = nodeStatuses.value[statusKey] || {};
+    if (current.pending) return false;
     nodeStatuses.value = {
       ...nodeStatuses.value,
       [statusKey]: {
         ...current,
         [key]: value,
-        pending: current.pending === key ? undefined : current.pending,
-        updatedAt: new Date().toISOString(),
-      },
-    };
-    persistSelectedNode();
-    persistNodeStatuses();
-  }
-
-  function setPendingNodeAction(node: CourseKnowledgeNode, key: ClosureActionKey) {
-    const map = activeMap.value;
-    if (!map) return;
-    const statusKey = `${map.type}:${node.id}`;
-    const current = nodeStatuses.value[statusKey] || {};
-    nodeStatuses.value = {
-      ...nodeStatuses.value,
-      [statusKey]: {
-        ...current,
         pending: key,
-        updatedAt: new Date().toISOString(),
       },
     };
-    persistSelectedNode();
-    persistNodeStatuses();
+    try {
+      const response = await setCourseKnowledgeNodeAction(
+        course.value.id,
+        node.id,
+        map.type,
+        actionTypeByClosureKey[key],
+        value
+      );
+      if (response.courseId !== course.value.id || response.mapType !== map.type) {
+        throw new Error('节点动作范围与当前课程不一致');
+      }
+      applyNodeActionStates(map.type, response.states);
+      return true;
+    } catch {
+      nodeStatuses.value = {
+        ...nodeStatuses.value,
+        [statusKey]: current,
+      };
+      Message.error(`「${node.label}」学习状态保存失败，已恢复原状态`);
+      return false;
+    }
   }
 
-  function runClosureAction(key: ClosureActionKey, node = selectedNode.value) {
+  async function toggleNodeStatus(key: ClosureActionKey) {
+    const node = selectedNode.value;
+    if (!node) return;
+    const current = nodeStatuses.value[nodeStudyStatusKey(node)] || {};
+    const saved = await updateNodeStatus(node, key, !current[key]);
+    if (saved) Message.success(`「${node.label}」学习状态已更新`);
+  }
+
+  async function runClosureAction(key: ClosureActionKey, node = selectedNode.value) {
     if (!node) return;
     if (selectedNode.value?.id !== node.id) {
       selectNode(node);
     }
-    const status = nodeStatuses.value[nodeStudyStatusKey(node)] || {};
-    if (status.pending === key && !status[key]) {
-      markNodeStatus(node, key, true);
-      Message.success(`「${node.label}」${closureActionMeta[key].label}已确认完成`);
-      return;
-    }
-    setPendingNodeAction(node, key);
     if (key === 'reviewed') {
       goCourseContent();
       return;
     }
+    if (!(await updateNodeStatus(node, key, true))) return;
     if (key === 'practice') {
       askGraphAgent(`围绕「${node.label}」生成分层检查题、判分标准和错因回写模板`);
       return;
@@ -1476,7 +1671,7 @@
       Message.success('当前图谱节点闭环已完成，可以切换其他图谱继续检查');
       return;
     }
-    runClosureAction(next.missingKey as ClosureActionKey, next.node);
+    void runClosureAction(next.missingKey as ClosureActionKey, next.node);
   }
 
   function selectSearchMatch(node: CourseKnowledgeNode) {
@@ -1660,7 +1855,7 @@
         prompt: [
           `当前课程：${course.value.title}`,
           `当前图谱：${activeMap.value.title}`,
-          node ? `当前节点：${node.label}（${node.type}，掌握度 ${selectedNodeMastery.value}%）` : '',
+          node ? `当前节点：${node.label}（${node.type}，${selectedNodeMasteryLabel.value}）` : '',
           node?.detail ? `节点说明：${node.detail}` : '',
           selectedNodeEvidence.value.length ? `证据资料：${selectedNodeEvidence.value.join('；')}` : '',
           ...packageLines,
@@ -1726,21 +1921,20 @@
     centerNodeInCanvas(node, 0.5);
   }
 
-  function runRecommendationAction(key: string) {
+  async function runRecommendationAction(key: string) {
     if (recommendedNode.value?.node && selectedNode.value?.id !== recommendedNode.value.node.id) {
       selectNode(recommendedNode.value.node);
     }
     if (key === 'evidence') {
-      toggleNodeStatus('reviewed');
       goCourseContent();
       return;
     }
     if (key === 'practice') {
-      toggleNodeStatus('practice');
+      if (!(await updateNodeStatus(selectedNode.value!, 'practice', true))) return;
       askGraphAgent('基于当前推荐节点生成分层检查题，并给出判分标准和错因记录模板');
       return;
     }
-    toggleNodeStatus('resource');
+    if (!(await updateNodeStatus(selectedNode.value!, 'resource', true))) return;
     goResourceGenerator();
   }
 
@@ -1755,7 +1949,7 @@
     if (!node) return;
     const pathLines = graphPathSteps.value.map(
       (item, index) =>
-        `${index + 1}. ${item.phase}：${item.title}（${item.relation}，掌握度 ${item.mastery}%，证据：${item.evidence}，检查：${item.check}）`
+        `${index + 1}. ${item.phase}：${item.title}（${item.relation}，掌握状态 ${masteryDisplay(item.mastery, item.masteryKnown)}，证据：${item.evidence}，检查：${item.check}）`
     );
     askGraphAgent(
       [
@@ -1778,7 +1972,7 @@
           `基于课程图谱节点「${selectedNode.value.label}」生成前置-当前-后续三段式学习包。`,
           `必须包含每段的课堂证据、资料讲义、检查题、误区提醒和通过标准。`,
           `路径阶段：${graphPathSteps.value
-            .map((item) => `${item.phase}:${item.title}/${item.relation}/${item.mastery}%`)
+            .map((item) => `${item.phase}:${item.title}/${item.relation}/${masteryDisplay(item.mastery, item.masteryKnown)}`)
             .join('；')}`,
         ].join(''),
         source: 'knowledge-path',
@@ -1801,7 +1995,7 @@
       `图谱：${pack.mapTitle}`,
       `节点：${pack.nodeLabel}`,
       `类型：${pack.nodeType}`,
-      `掌握度：${pack.mastery}%`,
+      `掌握状态：${selectedNodeMasteryLabel.value}`,
       packageContext.value
         ? `资源包：${packageContext.value.topic}（${packageContext.value.packageId} / ${packageContext.value.sourceLabel}）`
         : '',
@@ -1816,7 +2010,7 @@
       ...(pack.neighbors.length
         ? pack.neighbors.map(
             (item, index) =>
-              `${index + 1}. ${item.relation}：${item.label}（掌握度 ${item.mastery}% / 关系强度 ${item.strength}%）`
+              `${index + 1}. ${item.relation}：${item.label}（掌握状态 ${masteryDisplay(item.mastery, item.masteryKnown)} / 关系强度 ${item.strength}%）`
           )
         : ['1. 暂无相邻节点，需要先补充图谱关系。']),
       '',
@@ -1855,7 +2049,7 @@
       `课程：${course.value.title}`,
       `图谱：${activeMap.value?.title || ''}`,
       `节点：${selectedNode.value.label}`,
-      `掌握度：${selectedNodeMastery.value}%`,
+      `掌握状态：${selectedNodeMasteryLabel.value}`,
       '',
       '## 路径概览',
       ...pathCoverageStats.value.map((item) => `- ${item.label}：${item.value}`),
@@ -1863,7 +2057,7 @@
       '## 分阶段学习动作',
       ...graphPathSteps.value.flatMap((item, index) => [
         `### ${index + 1}. ${item.phase}：${item.title}`,
-        `- 关系：${item.relation} / 强度 ${item.strength}% / 掌握度 ${item.mastery}%`,
+        `- 关系：${item.relation} / 强度 ${item.strength}% / 掌握状态 ${masteryDisplay(item.mastery, item.masteryKnown)}`,
         `- 目标：${item.desc}`,
         `- 证据：${item.evidence}`,
         `- 资料：${item.resource}`,
@@ -1910,7 +2104,11 @@
   watch(activeMap, (map) => {
     if (!map) return;
     if (!map.nodes.some((node) => node.id === selectedNodeId.value)) {
-      selectedNodeId.value = recommendedNode.value?.node.id || map.nodes[0]?.id || 'course-root';
+      selectedNodeId.value =
+        recommendedNode.value?.node.id ||
+        map.nodes.find((node) => node.weight >= 4)?.id ||
+        map.nodes[0]?.id ||
+        '';
     }
     selectedLinkKey.value = '';
   });
@@ -1920,10 +2118,9 @@
   });
 
   watch(
-    [course, activeMap],
+    () => route.params.courseId,
     () => {
-      loadNodeStatuses();
-      loadSelectedNodeForMap();
+      void loadCourseGraph();
     },
     { immediate: true }
   );
@@ -1955,7 +2152,16 @@
 </script>
 
 <template>
-  <section v-if="course && activeMap" class="knowledge-page">
+  <section v-if="graphLoading" class="knowledge-page graph-page-state" aria-live="polite">
+    <strong>正在读取课程知识图谱</strong>
+    <p>正在同步课程计划、资料关系和你的节点学习状态。</p>
+  </section>
+  <section v-else-if="graphError" class="knowledge-page graph-page-state graph-page-state--error" role="alert">
+    <strong>课程图谱暂时无法显示</strong>
+    <p>{{ graphError }}</p>
+    <button type="button" @click="loadCourseGraph">重新加载</button>
+  </section>
+  <section v-else-if="course && activeMap" class="knowledge-page">
     <div class="graph-lab-shell">
       <header class="graph-topbar">
         <div class="graph-brand">
@@ -1970,7 +2176,12 @@
         <div class="graph-top-actions">
           <label class="graph-search">
             <icon-search />
-            <input v-model="keyword" type="search" placeholder="搜索节点或资料" />
+            <input
+              v-model="keyword"
+              type="search"
+              aria-label="搜索图谱节点或资料"
+              placeholder="搜索节点或资料"
+            />
           </label>
           <button type="button" class="ghost-action" @click="goCourseContent">课堂笔记</button>
           <button type="button" class="primary-action" @click="goResourceGenerator">
@@ -1981,11 +2192,11 @@
 
       <section v-if="packageContext" class="package-audit-banner">
         <div class="package-audit-title">
-          <span>资源包核验</span>
+          <span>资源关联检查</span>
           <strong>{{ packageContext.topic }}</strong>
           <p>
-            {{ packageContext.sourceLabel }} · {{ packageContext.packageId }} ·
-            {{ packageTarget ? `已匹配 ${packageTarget.node.label}` : '等待人工定位节点' }}
+            {{ packageContext.sourceLabel }} ·
+            {{ packageTarget ? `已关联 ${packageTarget.node.label}` : '请选择对应知识点' }}
           </p>
         </div>
         <div class="package-audit-cards">
@@ -2001,8 +2212,8 @@
         </div>
         <div class="package-audit-actions">
           <button type="button" @click="focusPackageNode">定位节点</button>
-          <button type="button" @click="askPackageAudit">AI 核验</button>
-          <button type="button" @click="goPackageBackfillGenerator">回炉生成</button>
+          <button type="button" @click="askPackageAudit">检查内容</button>
+          <button type="button" @click="goPackageBackfillGenerator">按问题重新生成</button>
         </div>
       </section>
 
@@ -2051,7 +2262,7 @@
               @click="selectNode(node)"
             >
               <span>{{ node.label }}</span>
-              <em>{{ node.mastery ?? course.progress }}%</em>
+              <em>{{ node.mastery === undefined ? '未评测' : `${node.mastery}%` }}</em>
             </button>
           </section>
         </aside>
@@ -2059,17 +2270,17 @@
         <div class="graph-work-area">
           <section v-if="selectedNode" class="mobile-node-summary" aria-label="当前节点快捷操作">
             <div class="mobile-node-summary__head">
-              <span>{{ nodeTypeLabel(selectedNode.type) }} · 掌握 {{ selectedNodeMastery }}%</span>
+              <span>{{ nodeTypeLabel(selectedNode.type) }} · {{ selectedNodeMasteryLabel }}</span>
               <strong>{{ selectedNode.label }}</strong>
               <p>{{ selectedNode.detail || activeMap.description }}</p>
             </div>
             <div class="mobile-node-summary__metrics">
-              <em>{{ selectedNodeEvidence.length }} 证据</em>
-              <em>{{ selectedNodeResources.length }} 资源</em>
-              <em>{{ selectedLinks.length }} 关系</em>
+              <em>{{ selectedNodeEvidence.length }} 条学习记录</em>
+              <em>{{ selectedNodeResources.length }} 份学习资料</em>
+              <em>{{ selectedLinks.length }} 个关联知识点</em>
             </div>
             <div class="mobile-node-summary__actions">
-              <button type="button" @click="askGraphAgent('解释当前节点的定义、前后置关系和课堂证据')">AI解释</button>
+              <button type="button" @click="askGraphAgent('解释当前知识点的定义、前后置关系和参考资料')">问小智</button>
               <button type="button" @click="goResourceGenerator">生成资料</button>
               <button type="button" @click="downloadNodeStudyPack">学习包</button>
             </div>
@@ -2090,42 +2301,42 @@
               >
                 <span>{{ item.phase }}</span>
                 <strong>{{ item.title }}</strong>
-                <small>{{ item.relation }} · {{ item.mastery }}%</small>
+                <small>{{ item.relation }} · {{ masteryDisplay(item.mastery, item.masteryKnown) }}</small>
               </button>
             </div>
           </section>
 
-          <section class="closure-command-center" aria-label="图谱学习闭环控制台">
+          <section class="closure-command-center" aria-label="本次学习计划">
             <div class="closure-command-head">
               <div>
-                <span>学习闭环</span>
-                <strong>图谱学习闭环控制台</strong>
+                <span>学习计划</span>
+                <strong>本次学习安排</strong>
                 <p>
-                  把每个节点推进到“读证据、做检查、补资料”三步闭环，避免图谱只停留在展示层。
+                  记录“已读资料、加入复习、申请资料”三类下一步动作。
                 </p>
               </div>
               <button type="button" @click="continueClosureQueue">继续下一步</button>
             </div>
             <div class="closure-progress-row">
               <div class="closure-progress-card">
-                <span>当前图谱进度</span>
+                <span>安排进度</span>
                 <strong>{{ nodeClosureStats.progress }}%</strong>
                 <div class="closure-progress-track">
                   <i :style="{ width: `${nodeClosureStats.progress}%` }"></i>
                 </div>
-                <small>{{ nodeClosureStats.complete }}/{{ nodeClosureStats.total }} 节点已完成三步闭环</small>
+                <small>{{ nodeClosureStats.complete }}/{{ nodeClosureStats.total }} 个知识点已记录三类安排</small>
               </div>
               <div class="closure-stat-grid">
                 <article>
-                  <span>读证据</span>
+                  <span>已读资料</span>
                   <b>{{ nodeClosureStats.reviewed }}</b>
                 </article>
                 <article>
-                  <span>做检查</span>
+                  <span>加入复习</span>
                   <b>{{ nodeClosureStats.practice }}</b>
                 </article>
                 <article>
-                  <span>补资料</span>
+                  <span>申请资料</span>
                   <b>{{ nodeClosureStats.resource }}</b>
                 </article>
               </div>
@@ -2138,9 +2349,10 @@
                     :key="item.key"
                     type="button"
                     :class="{ done: item.done, pending: item.pending }"
+                    :disabled="item.pending"
                     @click="runClosureAction(item.key)"
                   >
-                    {{ item.done ? '已完成' : item.pending ? '确认完成' : item.short }}
+                    {{ item.done ? '已记录' : item.pending ? '保存中' : item.short }}
                   </button>
                 </div>
               </div>
@@ -2151,17 +2363,18 @@
                 :key="`${item.node.id}-${item.missingKey}`"
                 type="button"
                 :class="{ active: item.node.id === selectedNode?.id, pending: item.pendingKey === item.missingKey }"
+                :disabled="item.pendingKey === item.missingKey"
                 @click="runClosureAction(item.actionKey, item.node)"
               >
-                <span>{{ item.pendingKey === item.missingKey ? '待确认' : item.action.label }}</span>
+                <span>{{ item.pendingKey === item.missingKey ? '保存中' : item.action.label }}</span>
                 <strong>{{ item.node.label }}</strong>
                 <small>
-                  掌握 {{ item.mastery }}% · 已完成 {{ item.doneCount }}/3 ·
-                  {{ item.pendingKey === item.missingKey ? '再次点击可确认完成' : item.action.desc }}
+                  {{ masteryDisplay(item.mastery, item.masteryKnown) }} · 已记录 {{ item.doneCount }}/3 ·
+                  {{ item.pendingKey === item.missingKey ? '正在保存状态' : item.action.desc }}
                 </small>
               </button>
               <div v-if="!nodeClosureQueue.length" class="closure-queue-empty">
-                当前图谱已完成闭环，可切换到其他图谱或下载路径包。
+                当前图谱各知识点均已记录学习安排，可继续查看图谱或下载路径包。
               </div>
             </div>
           </section>
@@ -2173,6 +2386,7 @@
                 :key="item.relation"
                 type="button"
                 :class="{ active: activeRelation === item.relation }"
+                :aria-pressed="activeRelation === item.relation"
                 @click="activeRelation = item.relation"
               >
                 {{ item.relation }}
@@ -2180,12 +2394,27 @@
               </button>
             </div>
             <div class="graph-switches">
-              <label><input v-model="showLearningPath" type="checkbox" /> 学习路径</label>
-              <label><input v-model="showResourceLinks" type="checkbox" /> 资料关系</label>
+              <label>
+                <input
+                  v-model="showLearningPath"
+                  type="checkbox"
+                  aria-label="显示学习路径"
+                />
+                学习路径
+              </label>
+              <label>
+                <input
+                  v-model="showResourceLinks"
+                  type="checkbox"
+                  aria-label="显示资料关系"
+                />
+                资料关系
+              </label>
               <div class="view-switch" aria-label="图谱视图">
                 <button
                   type="button"
                   :class="{ active: viewMode === 'network' }"
+                  :aria-pressed="viewMode === 'network'"
                   @click="viewMode = 'network'"
                 >
                   图谱
@@ -2193,6 +2422,7 @@
                 <button
                   type="button"
                   :class="{ active: viewMode === 'structure' }"
+                  :aria-pressed="viewMode === 'structure'"
                   @click="viewMode = 'structure'"
                 >
                   脉络
@@ -2264,7 +2494,7 @@
             </article>
           </div>
 
-          <main class="graph-stage">
+          <section class="graph-stage" aria-label="图谱工作区">
             <section class="graph-canvas-panel">
               <div class="graph-canvas-head">
                 <div>
@@ -2299,7 +2529,7 @@
                     v-for="(branch, index) in structureBranches"
                     :key="branch.id"
                   class="structure-branch"
-                  :class="{ active: selectedNodeId === `chapter-${index}` }"
+                  :class="{ active: selectedNodeId === branch.id }"
                   :style="{ '--branch-offset': `${index * 4}px` }"
                   tabindex="0"
                   @click="selectBranch(index)"
@@ -2322,7 +2552,7 @@
                     <div class="branch-meta">
                       <span>任务 {{ branch.taskCount }}</span>
                       <span>薄弱点：{{ branch.weakPoint }}</span>
-                      <strong>{{ branch.progress }}%</strong>
+                      <strong>{{ branchMasteryDisplay(branch) }}</strong>
                     </div>
                   </article>
                 </div>
@@ -2343,7 +2573,7 @@
                   class="map-canvas"
                   :viewBox="`0 0 ${GRAPH_CANVAS.width} ${GRAPH_CANVAS.height}`"
                   preserveAspectRatio="xMidYMin meet"
-                  role="img"
+                  role="group"
                   :aria-label="activeMap.title"
                 >
                   <defs>
@@ -2361,17 +2591,29 @@
 
                   <g class="map-canvas-content" :transform="canvasTransform">
                     <g class="graph-links">
-                      <path
+                      <g
                         v-for="link in visibleLinks"
                         :key="`${link.source}-${link.target}-${link.relation}`"
-                        :d="linkPath(link)"
-                        :class="linkClass(link)"
-                        role="button"
-                        tabindex="0"
-                        @click.stop="selectLink(link)"
-                        @keydown.enter.stop="selectLink(link)"
-                        @keydown.space.prevent.stop="selectLink(link)"
-                      />
+                      >
+                        <path
+                          class="graph-link-hit"
+                          :d="linkPath(link)"
+                          aria-hidden="true"
+                          @click.stop="selectLink(link)"
+                        />
+                        <path
+                          :d="linkPath(link)"
+                          :class="linkClass(link)"
+                          role="button"
+                          tabindex="0"
+                          :aria-label="graphLinkLabel(link)"
+                          @click.stop="selectLink(link)"
+                          @keydown.enter.stop="selectLink(link)"
+                          @keydown.space.prevent.stop="selectLink(link)"
+                        >
+                          <title>{{ graphLinkLabel(link) }}</title>
+                        </path>
+                      </g>
                       <g
                         v-for="link in selectedLinks.slice(0, 4)"
                         :key="`label-${linkKey(link)}`"
@@ -2392,6 +2634,7 @@
                       class="graph-node"
                       tabindex="0"
                       role="button"
+                      :aria-label="`${node.label}，${nodeSubtitle(node)}`"
                       @click="selectNode(node)"
                       @keydown.enter="selectNode(node)"
                       @keydown.space.prevent="selectNode(node)"
@@ -2407,7 +2650,7 @@
                         :filter="node.weight >= 4 ? 'url(#graphRootShadow)' : 'url(#graphNodeShadow)'"
                       />
                       <rect
-                        v-if="node.weight < 4"
+                        v-if="node.weight < 4 && node.mastery !== undefined"
                         class="node-track"
                         x="16"
                         :y="nodeBoxHeight(node) - 8"
@@ -2416,21 +2659,21 @@
                         rx="1.5"
                       />
                       <rect
-                        v-if="node.weight < 4"
+                        v-if="node.weight < 4 && node.mastery !== undefined"
                         class="node-progress"
                         x="16"
                         :y="nodeBoxHeight(node) - 8"
-                        :width="(nodeBoxWidth(node) - 32) * ((node.mastery ?? course.progress) / 100)"
+                        :width="(nodeBoxWidth(node) - 32) * ((node.mastery || 0) / 100)"
                         height="3"
                         rx="1.5"
                         :fill="nodeStroke(node)"
                       />
                       <g
-                        v-if="node.weight < 4"
+                        v-if="node.weight < 4 && node.mastery !== undefined"
                         class="node-mastery-badge"
                         :class="{
-                          hot: (node.mastery ?? course.progress) < 60,
-                          done: (node.mastery ?? course.progress) >= 80,
+                          hot: (node.mastery || 0) < 60,
+                          done: (node.mastery || 0) >= 80,
                         }"
                       >
                         <rect
@@ -2445,7 +2688,7 @@
                           y="3"
                           text-anchor="middle"
                         >
-                          {{ node.mastery ?? course.progress }}%
+                          {{ node.mastery }}%
                         </text>
                       </g>
                       <g
@@ -2517,7 +2760,6 @@
                         v-if="hiddenNeighborCount(node)"
                         class="node-expand-count"
                         :transform="`translate(${nodeBoxWidth(node) + 12} ${nodeBoxHeight(node) / 2})`"
-                        @click.stop="selectNode(node)"
                       >
                         <circle r="14" />
                         <text text-anchor="middle" y="4">+{{ hiddenNeighborCount(node) }}</text>
@@ -2569,16 +2811,16 @@
                   :style="selectedNodePopoverStyle"
                 >
                   <div>
-                    <span>{{ nodeTypeLabel(selectedNode.type) }} · {{ selectedNodeMastery }}%</span>
+                    <span>{{ nodeTypeLabel(selectedNode.type) }} · {{ selectedNodeMasteryLabel }}</span>
                     <strong>{{ selectedNode.label }}</strong>
                   </div>
                   <div class="popover-metrics">
-                    <em>{{ selectedNodeEvidence.length }} 证据</em>
-                    <em>{{ selectedNodeResources.length }} 资源</em>
-                    <em>{{ selectedLinks.length }} 关系</em>
+                    <em>{{ selectedNodeEvidence.length }} 条学习记录</em>
+                    <em>{{ selectedNodeResources.length }} 份学习资料</em>
+                    <em>{{ selectedLinks.length }} 个关联知识点</em>
                   </div>
                   <div class="popover-actions">
-                    <button type="button" @click.stop="askGraphAgent('解释当前节点的定义、前后置关系和课堂证据')">AI解释</button>
+                    <button type="button" @click.stop="askGraphAgent('解释当前知识点的定义、前后置关系和参考资料')">问小智</button>
                     <button type="button" @click.stop="goResourceGenerator">生成资料</button>
                     <button type="button" @click.stop="downloadNodeStudyPack">学习包</button>
                   </div>
@@ -2605,10 +2847,10 @@
               <section v-if="packageContext" class="package-insight-panel">
                 <div class="package-insight-head">
                   <div>
-                    <strong>资源包核验</strong>
-                    <span>{{ packageContext.packageId }}</span>
+                    <strong>资源关联检查</strong>
+                    <span>{{ packageContext.topic }}</span>
                   </div>
-                  <button type="button" @click="askPackageAudit">生成报告</button>
+                  <button type="button" @click="askPackageAudit">查看检查结果</button>
                 </div>
                 <div class="package-audit-timeline">
                   <article
@@ -2625,8 +2867,8 @@
                 </div>
                 <div class="package-insight-actions">
                   <button type="button" @click="focusPackageNode">查看匹配节点</button>
-                  <button type="button" @click="generatePackageChecks">生成核验题</button>
-                  <button type="button" @click="goPackageBackfillGenerator">带问题回炉</button>
+                  <button type="button" @click="generatePackageChecks">生成理解检查题</button>
+                  <button type="button" @click="goPackageBackfillGenerator">按问题重新生成</button>
                 </div>
               </section>
 
@@ -2634,12 +2876,12 @@
                 <div class="node-detail-head">
                   <div>
                     <strong :class="`mastery-state mastery-state--${selectedMasteryState.tone}`">
-                      {{ selectedMasteryState.label }} · {{ selectedNodeMastery }}%
+                      {{ selectedMasteryState.label }}<template v-if="selectedNode?.mastery !== undefined"> · {{ selectedNodeMastery }}%</template>
                     </strong>
                     <h3>{{ selectedNode?.label || activeMap.title }}</h3>
                   </div>
                   <div class="mastery-ring" :style="{ '--mastery': `${selectedNodeMastery * 3.6}deg` }">
-                    <span>{{ selectedNodeMastery }}%</span>
+                    <span>{{ selectedNodeMasteryLabel }}</span>
                   </div>
                 </div>
                 <p>{{ selectedNode?.detail || activeMap.description }}</p>
@@ -2653,21 +2895,27 @@
                 <div class="inspector-tabs" role="tablist" aria-label="节点详情">
                   <button
                     type="button"
+                    role="tab"
                     :class="{ active: inspectorTab === 'evidence' }"
+                    :aria-selected="inspectorTab === 'evidence'"
                     @click="inspectorTab = 'evidence'"
                   >
                     学习证据
                   </button>
                   <button
                     type="button"
+                    role="tab"
                     :class="{ active: inspectorTab === 'resources' }"
+                    :aria-selected="inspectorTab === 'resources'"
                     @click="inspectorTab = 'resources'"
                   >
                     关联资源
                   </button>
                   <button
                     type="button"
+                    role="tab"
                     :class="{ active: inspectorTab === 'next' }"
+                    :aria-selected="inspectorTab === 'next'"
                     @click="inspectorTab = 'next'"
                   >
                     下一步
@@ -2683,6 +2931,8 @@
                     :key="item.key"
                     type="button"
                     :class="{ active: item.active }"
+                    :aria-pressed="item.active"
+                    :disabled="selectedNodeStatus.pending === item.key"
                     @click="toggleNodeStatus(item.key)"
                   >
                     {{ item.label }}
@@ -2710,16 +2960,16 @@
                 </div>
                 <div class="link-audit-grid">
                   <article>
-                    <span>起点证据</span>
-                    <p>{{ selectedLinkNodes.source.evidence?.[0] || selectedLinkNodes.source.detail || '需要补齐起点课堂证据。' }}</p>
+                    <span>前置资料</span>
+                    <p>{{ selectedLinkNodes.source.evidence?.[0] || selectedLinkNodes.source.detail || '还没有可用的前置学习资料。' }}</p>
                   </article>
                   <article>
-                    <span>终点检查</span>
-                    <p>{{ selectedLinkNodes.target.checks?.[0] || selectedLinkNodes.target.recommendedAction || '需要生成终点检查题。' }}</p>
+                    <span>理解检查</span>
+                    <p>{{ selectedLinkNodes.target.checks?.[0] || selectedLinkNodes.target.recommendedAction || '可以生成一道理解检查题。' }}</p>
                   </article>
                 </div>
                 <button type="button" @click="askGraphAgent(`审计${selectedLink.relation}：${selectedLinkNodes.source.label}到${selectedLinkNodes.target.label}的证据是否充分`)">
-                  AI 审计这条关系
+                  请小智解释这条关系
                 </button>
               </section>
 
@@ -2742,7 +2992,7 @@
 
               <section v-show="inspectorTab === 'next'" class="path-decision-panel">
                 <div class="path-decision-head">
-                  <strong>路径推演</strong>
+                  <strong>学习路径</strong>
                   <button type="button" @click="generatePathResources">生成资料</button>
                 </div>
                 <button
@@ -2755,7 +3005,7 @@
                 >
                   <span>{{ item.phase }}</span>
                   <b>{{ item.title }}</b>
-                  <em>{{ item.relation }} · 掌握 {{ item.mastery }}%</em>
+                  <em>{{ item.relation }} · {{ masteryDisplay(item.mastery, item.masteryKnown) }}</em>
                 </button>
               </section>
 
@@ -2763,7 +3013,7 @@
                 <div class="study-pack-head">
                   <div>
                     <strong>节点学习包</strong>
-                    <span>{{ nodeStudyPack.nodeType }} · {{ nodeStudyPack.mastery }}%</span>
+                    <span>{{ nodeStudyPack.nodeType }} · {{ selectedNodeMasteryLabel }}</span>
                   </div>
                   <button type="button" @click="downloadNodeStudyPack">
                     <icon-download /> 下载
@@ -2790,12 +3040,12 @@
               </section>
 
               <section v-show="inspectorTab === 'evidence'" class="evidence-matrix-panel">
-                <strong>引用证据</strong>
+                <strong>参考资料</strong>
                 <article v-for="item in evidenceRows" :key="item.id" class="evidence-row">
                   <span>{{ item.id }}</span>
                   <div>
                     <b>{{ item.title }}</b>
-                    <small>{{ item.source }} · 相关度 {{ item.relevance }}%</small>
+                    <small>{{ item.source }}</small>
                   </div>
                 </article>
               </section>
@@ -2859,7 +3109,7 @@
                 </button>
               </section>
             </aside>
-          </main>
+          </section>
 
           <section class="path-inspector-panel" aria-label="图谱学习路径推演">
             <div class="path-inspector-head">
@@ -2891,7 +3141,7 @@
                 <div class="path-step-body">
                   <p>{{ item.desc }}</p>
                   <div class="path-step-meta">
-                    <span>掌握 {{ item.mastery }}%</span>
+                    <span>{{ masteryDisplay(item.mastery, item.masteryKnown) }}</span>
                     <span>{{ item.resource }}</span>
                   </div>
                   <div class="path-step-evidence">
@@ -2936,6 +3186,37 @@
 <style scoped lang="less">
   .knowledge-page {
     color: #151e33;
+  }
+
+  .graph-page-state {
+    display: grid;
+    min-height: 420px;
+    place-content: center;
+    justify-items: center;
+    gap: 10px;
+    border: 1px solid #e7ecf6;
+    border-radius: 28px;
+    background: #fff;
+    text-align: center;
+
+    strong {
+      font-size: 22px;
+    }
+
+    p {
+      margin: 0;
+      color: #65718a;
+    }
+
+    button {
+      margin-top: 8px;
+      padding: 9px 18px;
+      border: 0;
+      border-radius: 10px;
+      background: #5367f8;
+      color: #fff;
+      cursor: pointer;
+    }
   }
 
   .graph-lab-shell {
@@ -3029,12 +3310,19 @@
     color: #a6afbe;
     background: rgba(255, 255, 255, 0.88);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    transition: border-color 160ms ease, box-shadow 160ms ease;
+
+    &:focus-within {
+      border-color: #94a3b8;
+      box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.08);
+    }
 
     input {
       width: 100%;
       min-width: 0;
       border: 0;
-      outline: 0;
+      outline: 0 !important;
+      box-shadow: none !important;
       color: #24304a;
       background: transparent;
       font-size: 13px;
@@ -3419,6 +3707,20 @@
     transition: opacity 0.18s ease, stroke 0.18s ease, stroke-width 0.18s ease;
   }
 
+  .graph-links path.graph-link-hit {
+    stroke: transparent;
+    stroke-width: 16;
+    opacity: 1;
+    pointer-events: stroke;
+  }
+
+  .graph-links path:not(.graph-link-hit):focus-visible {
+    stroke: #1d4ed8;
+    stroke-width: 4;
+    opacity: 1;
+    outline: none;
+  }
+
   .graph-links .link-父子关系,
   .graph-links .link-前后置关系 {
     stroke: #6fa4de;
@@ -3544,6 +3846,11 @@
     &.dimmed {
       opacity: 0.38;
     }
+  }
+
+  .graph-node:focus-visible .node-body {
+    stroke: #1d4ed8;
+    stroke-width: 3;
   }
 
   .node-package-badge {

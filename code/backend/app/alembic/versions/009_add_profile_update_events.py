@@ -17,10 +17,10 @@ depends_on = None
 
 def upgrade() -> None:
     bind = op.get_bind()
-    if sa.inspect(bind).has_table("profile_update_event"):
+    if sa.inspect(bind).has_table("agent_profile_update_event"):
         return
     op.create_table(
-        "profile_update_event",
+        "agent_profile_update_event",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("user_id", sa.String(length=50), nullable=False),
         sa.Column("session_id", sa.String(length=50), nullable=True),
@@ -35,10 +35,17 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
     for column in ("user_id", "session_id", "message_id"):
-        op.create_index(f"ix_profile_update_event_{column}", "profile_update_event", [column])
+        op.create_index(
+            f"ix_agent_profile_update_event_{column}",
+            "agent_profile_update_event",
+            [column],
+        )
 
 
 def downgrade() -> None:
     for column in ("message_id", "session_id", "user_id"):
-        op.drop_index(f"ix_profile_update_event_{column}", table_name="profile_update_event")
-    op.drop_table("profile_update_event")
+        op.drop_index(
+            f"ix_agent_profile_update_event_{column}",
+            table_name="agent_profile_update_event",
+        )
+    op.drop_table("agent_profile_update_event")

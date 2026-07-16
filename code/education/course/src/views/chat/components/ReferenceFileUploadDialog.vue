@@ -351,11 +351,17 @@
         background: #f0f0f0;
       }
 
+      &:focus-within {
+        border-color: #94a3b8;
+        box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.08);
+      }
+
       .file-input {
         position: absolute;
         width: 100%;
         height: 100%;
         opacity: 0;
+        outline: none !important;
         cursor: pointer;
       }
 

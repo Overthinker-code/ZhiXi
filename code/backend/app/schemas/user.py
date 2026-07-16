@@ -14,12 +14,12 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     email: EmailStr
-    password: str
+    password: str = Field(min_length=10, max_length=128)
     username: str | None = None
 
 
 class UserUpdate(UserBase):
-    password: Optional[str] = None
+    password: Optional[str] = Field(default=None, min_length=10, max_length=128)
 
 
 class UserInDBBase(UserBase):
@@ -48,8 +48,8 @@ class UserPublic(BaseModel):
 class NewPassword(BaseModel):
     """密码更新模型"""
 
-    current_password: str = Field(..., min_length=6, description="当前密码")
-    new_password: str = Field(..., min_length=6, description="新密码")
+    current_password: str = Field(..., min_length=1, max_length=128, description="当前密码")
+    new_password: str = Field(..., min_length=10, max_length=128, description="新密码")
 
 
 class UsersPublic(BaseModel):
@@ -59,7 +59,7 @@ class UsersPublic(BaseModel):
 
 class UserRegister(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(min_length=10, max_length=128)
     username: str
 
 

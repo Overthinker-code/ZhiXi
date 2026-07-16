@@ -1,26 +1,34 @@
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
 import json
+import logging
 import os
 import re
 import shutil
 import subprocess
 import tempfile
 from io import BytesIO
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Literal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 from PIL import Image
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field, model_validator
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.api import deps
 from app.api.deps import CurrentUser
 from app.core.config import settings
+from app.core.request_ids import resolve_request_id
+from app.models import LearningEvidence
 from app.services.chat_model_factory import ChatModelFactory
+from app.services import knowledge_graph_service
+from app.services.learning_report_service import learning_report_service
 from app.services.model_aliases import resolve_model_name_for_base_url
 from app.services.vision_client import call_vision_model, normalize_image_ref
 from app.services.vision_response import extract_openai_compatible_content
@@ -30,8 +38,36 @@ from app.services.user_memory_profile_service import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 MAX_IMAGE_BASE64_CHARS = 10_000_000
+_IMAGE_DATA_URL_RE = re.compile(
+    r"^data:image/(?P<subtype>png|jpe?g|webp);base64,(?P<payload>[A-Za-z0-9+/]*={0,2})$",
+    re.IGNORECASE,
+)
+
+
+def _validated_image_base64(value: str, *, field_name: str) -> str:
+    if len(value) > MAX_IMAGE_BASE64_CHARS:
+        raise ValueError(f"{field_name} is too large")
+    match = _IMAGE_DATA_URL_RE.fullmatch(value)
+    encoded = match.group("payload") if match else value
+    if value.startswith("data:") and not match:
+        raise ValueError(f"{field_name} must be a PNG, JPEG, or WebP base64 data URL")
+    if not re.fullmatch(r"[A-Za-z0-9+/]*={0,2}", encoded or ""):
+        raise ValueError(f"{field_name} must contain base64 image data")
+    try:
+        decoded = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError(f"{field_name} must contain valid base64 image data") from exc
+    signatures = (
+        decoded.startswith(b"\x89PNG\r\n\x1a\n"),
+        decoded.startswith(b"\xff\xd8\xff"),
+        decoded.startswith((b"RIFF",)) and decoded[8:12] == b"WEBP",
+    )
+    if not decoded or not any(signatures):
+        raise ValueError(f"{field_name} must contain a PNG, JPEG, or WebP image")
+    return value
 
 
 def _clamp_score(value: Any, default: float = 0.52) -> float:
@@ -75,10 +111,8 @@ def _decode_image_bytes(image_base64: str | None) -> bytes | None:
     if "," in raw:
         raw = raw.split(",", 1)[1]
     try:
-        import base64
-
-        return base64.b64decode(raw)
-    except Exception:
+        return base64.b64decode(raw, validate=True)
+    except (binascii.Error, ValueError):
         return None
 
 
@@ -292,6 +326,10 @@ class ExerciseGradeRequest(BaseModel):
     student_answer: str = Field(..., min_length=1, max_length=4000)
     reference_answer: str | None = Field(default=None, max_length=4000)
     max_score: float = Field(default=100, gt=0, le=100)
+    course_id: UUID | None = None
+    knowledge_point_id: str | None = Field(default=None, min_length=1, max_length=160)
+    source_resource_id: str | None = Field(default=None, min_length=1, max_length=160)
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 class ExerciseGradeResponse(BaseModel):
@@ -311,15 +349,19 @@ class ExerciseGradeResponse(BaseModel):
 class ImageAnalyzeRequest(BaseModel):
     subject: str | None = Field(default=None, max_length=40)
     question_text: str | None = Field(default=None, max_length=2000)
-    image_url: str | None = None
-    image_base64: str | None = None
+    # Kept for API compatibility. The current pipeline accepts image bytes,
+    # not arbitrary remote URLs, so both fields share the same strict schema.
+    image_url: str | None = Field(default=None, max_length=MAX_IMAGE_BASE64_CHARS)
+    image_base64: str | None = Field(default=None, max_length=MAX_IMAGE_BASE64_CHARS)
 
     @model_validator(mode="after")
     def _require_image(self) -> "ImageAnalyzeRequest":
         if not self.image_url and not self.image_base64:
             raise ValueError("image_url or image_base64 is required")
-        if self.image_base64 and len(self.image_base64) > MAX_IMAGE_BASE64_CHARS:
-            raise ValueError("image_base64 is too large")
+        if self.image_url:
+            _validated_image_base64(self.image_url, field_name="image_url")
+        if self.image_base64:
+            _validated_image_base64(self.image_base64, field_name="image_base64")
         return self
 
 
@@ -724,39 +766,198 @@ def _grade_exercise(request: ExerciseGradeRequest) -> tuple[float, list[str], li
     return score, strengths, gaps, feedback
 
 
-def _apply_mastery_update(
+def _scoped_exercise_idempotency_key(
+    *, course_id: UUID | None, client_key: str | None
+) -> str | None:
+    if not client_key:
+        return None
+    scoped_identity = {
+        "namespace": "resource_workshop.exercise_grade",
+        "course_id": str(course_id or "unscoped"),
+        "client_key": client_key.strip(),
+    }
+    return hashlib.sha256(
+        json.dumps(scoped_identity, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
+
+def _exercise_source_id(
+    *, source_resource_id: str | None, scoped_idempotency_key: str | None
+) -> str:
+    if scoped_idempotency_key:
+        return (source_resource_id or f"exercise:{scoped_idempotency_key}")[:160]
+    prefix = f"{source_resource_id}:attempt:" if source_resource_id else "exercise:"
+    return f"{prefix[:120]}{uuid4().hex}"[:160]
+
+
+def _exercise_request_digest(request: ExerciseGradeRequest) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "subject": request.subject.strip(),
+                "topic": request.topic.strip(),
+                "question": request.question.strip(),
+                "student_answer": request.student_answer.strip(),
+                "reference_answer": (request.reference_answer or "").strip(),
+                "max_score": request.max_score,
+                "knowledge_point_id": request.knowledge_point_id,
+                "source_resource_id": request.source_resource_id,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _existing_exercise_evidence(
     db: Session,
-    user_id: str,
+    *,
+    user_id: UUID,
+    request: ExerciseGradeRequest,
+    scoped_key: str | None,
+    request_digest: str,
+) -> LearningEvidence | None:
+    if not scoped_key:
+        return None
+    existing = db.exec(
+        select(LearningEvidence).where(
+            LearningEvidence.user_id == user_id,
+            LearningEvidence.idempotency_key == scoped_key,
+        )
+    ).first()
+    if not existing:
+        return None
+    if (
+        existing.course_id != request.course_id
+        or existing.source_type != "exercise_grading"
+        or existing.event_type != "graded"
+        or existing.payload.get("request_digest") != request_digest
+    ):
+        raise HTTPException(status_code=409, detail="幂等键已用于不同的练习判分请求")
+    return existing
+
+
+def _apply_mastery_update_from_evidence(
+    db: Session,
+    current_user: CurrentUser,
     request: ExerciseGradeRequest,
     score: float,
+    strengths: list[str],
+    gaps: list[str],
+    feedback: str,
+    *,
+    scoped_key: str | None,
+    request_digest: str,
+    existing: LearningEvidence | None,
 ) -> tuple[float, float, dict[str, Any]]:
+    user_id = current_user.id
     topic = _normalize_topic(request.topic)
-    profile = _profile_for_user(db, user_id)
+    profile = _profile_for_user(db, str(user_id))
     mastery_map = {
         _normalize_topic(key): _clamp_score(value)
         for key, value in (profile.get("mastery_map") or {}).items()
         if _normalize_topic(key)
     }
-    before = mastery_map.get(topic, user_memory_profile_service.MASTERY_DEFAULT)
     observed = _clamp_score(score / request.max_score)
-    reliability = 0.34 if request.reference_answer else 0.26
-    after = _clamp_score((1 - reliability) * before + reliability * observed)
-    mastery_map[topic] = after
+    knowledge_identity = learning_report_service.resolve_knowledge_identity(
+        db,
+        course_id=request.course_id,
+        knowledge_point=request.topic,
+        knowledge_point_id=request.knowledge_point_id,
+    )
+    mastery_eligible = bool(knowledge_identity["trusted"])
+    canonical_point = str(knowledge_identity["canonical"])
+    before_summary = {}
+    if mastery_eligible:
+        before_summary = learning_report_service.evidence_confidence(
+            db,
+            user_id,
+            course_id=request.course_id,
+            exact_course_scope=True,
+        ).get(canonical_point, {})
+    before_estimate = before_summary.get("mastery_estimate")
+    before = _clamp_score(
+        before_estimate
+        if before_estimate is not None
+        else mastery_map.get(topic, user_memory_profile_service.MASTERY_DEFAULT)
+    )
+
+    question_digest = hashlib.sha256(request.question.strip().encode("utf-8")).hexdigest()
+    if existing and existing.score is not None and existing.score != observed:
+        raise HTTPException(status_code=409, detail="幂等请求的评分结果不一致")
+    source_id = _exercise_source_id(
+        source_resource_id=request.source_resource_id,
+        scoped_idempotency_key=scoped_key,
+    )
+    evidence_weight = 1.0 if request.reference_answer else 0.85
+    evidence = learning_report_service.record_evidence(
+        db,
+        user_id=user_id,
+        course_id=request.course_id,
+        knowledge_point=request.topic,
+        knowledge_point_id=request.knowledge_point_id,
+        idempotency_key=scoped_key,
+        source_type="exercise_grading",
+        source_id=source_id,
+        event_type="graded",
+        weight=evidence_weight,
+        score=observed,
+        payload={
+            "subject": request.subject,
+            "source_resource_id": request.source_resource_id,
+            "question_digest": question_digest,
+            "request_digest": request_digest,
+            "max_score": request.max_score,
+            "has_reference_answer": bool(request.reference_answer),
+            "grading_result": {
+                "score": score,
+                "strengths": strengths,
+                "gaps": gaps,
+                "feedback": feedback,
+            },
+        },
+    )
+    after_summary = {}
+    after = before
+    if mastery_eligible:
+        after_summary = learning_report_service.evidence_confidence(
+            db,
+            user_id,
+            course_id=request.course_id,
+            exact_course_scope=True,
+        ).get(evidence.knowledge_point, {})
+        after_estimate = after_summary.get("mastery_estimate")
+        after = _clamp_score(after_estimate if after_estimate is not None else observed)
+        mastery_map[topic] = after
     weak_points = [
         str(item).strip() for item in (profile.get("weak_points") or []) if str(item).strip()
     ]
-    if after < 0.6 and request.topic not in weak_points:
-        weak_points = [request.topic, *weak_points][:6]
-    elif after >= 0.72:
-        weak_points = [item for item in weak_points if _normalize_topic(item) != topic]
+    if mastery_eligible:
+        if after < 0.6 and request.topic not in weak_points:
+            weak_points = [request.topic, *weak_points][:6]
+        elif after >= 0.72:
+            weak_points = [item for item in weak_points if _normalize_topic(item) != topic]
     update = {
-        "formula": "M_new = clamp((1-r) * M_old + r * score_ratio, 0, 1)",
+        "formula": (
+            after_summary.get("formula")
+            or "alpha=1+sum(w*s); beta=1+sum(w*(1-s))"
+            if mastery_eligible
+            else "no_mastery_update_untrusted_knowledge_identity"
+        ),
         "source": "resource_workshop.exercise_grade",
         "topic": topic,
+        "course_id": str(request.course_id) if request.course_id else None,
+        "knowledge_point_id": evidence.knowledge_point_id,
+        "mastery_eligible": mastery_eligible,
+        "knowledge_identity_reason": knowledge_identity["reason"],
         "score_ratio": observed,
-        "reliability": reliability,
+        "reliability": evidence_weight if mastery_eligible else 0.0,
+        "evidence_weight": evidence_weight,
+        "evidence_id": str(evidence.id),
+        "evidence_created": existing is None,
+        "idempotent_replay": existing is not None,
         "delta": round(after - before, 4),
-        "updated_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     profile.update(
         {
@@ -765,7 +966,10 @@ def _apply_mastery_update(
             "mastery_update": update,
         }
     )
-    _upsert_profile_from_dict(db, user_id, profile)
+    # The profile upsert commits the pending evidence and compatibility snapshot
+    # together, so older clients keep reading mastery_map while the evidence
+    # ledger remains the source of the scientific estimate.
+    _upsert_profile_from_dict(db, str(user_id), profile)
     return before, after, update
 
 
@@ -843,10 +1047,12 @@ async def _call_qwen3_vl(request: ImageAnalyzeRequest) -> dict[str, Any]:
     raise RuntimeError(f"Qwen3-VL request failed: {last_error}")
 
 
-def _fallback_image_analysis(request: ImageAnalyzeRequest, reason: str) -> ImageAnalyzeResponse:
+def _fallback_image_analysis(
+    request: ImageAnalyzeRequest, *, reason_code: str, request_id: str
+) -> ImageAnalyzeResponse:
     subject = (request.subject or "未知学科").strip() or "未知学科"
     question_text = (request.question_text or "").strip()
-    image_bytes = _decode_image_bytes(request.image_base64)
+    image_bytes = _decode_image_bytes(request.image_url or request.image_base64)
     ocr_text = _ocr_text_from_image_bytes(image_bytes)
     extracted = question_text or ocr_text or "已收到图片，但当前未能稳定读取图片文字。"
     answer_markdown, solution_outline, answer_hint = _fallback_reasoned_answer(
@@ -867,7 +1073,7 @@ def _fallback_image_analysis(request: ImageAnalyzeRequest, reason: str) -> Image
         },
         confidence=0.58 if ocr_text or question_text else 0.28,
         limitations=[
-            f"视觉模型暂不可用：{reason}",
+            f"图片理解服务暂时不可用（{reason_code}，请求编号 {request_id}）。",
             "当前结果主要基于 OCR 和补充题干推理，复杂图表题仍建议补充文字说明。",
         ],
     )
@@ -896,12 +1102,45 @@ def grade_exercise_and_update_mastery(
     current_user: CurrentUser,
     request: ExerciseGradeRequest,
 ) -> Any:
-    score, strengths, gaps, feedback = _grade_exercise_llm(request) or _grade_exercise(request)
-    before, after, update = _apply_mastery_update(
+    if request.course_id and not knowledge_graph_service.can_access_course(
+        db, user=current_user, course_id=request.course_id
+    ):
+        # Reject before invoking the grading model.
+        raise HTTPException(status_code=404, detail="未找到指定课程")
+    scoped_key = _scoped_exercise_idempotency_key(
+        course_id=request.course_id,
+        client_key=request.idempotency_key,
+    )
+    request_digest = _exercise_request_digest(request)
+    existing = _existing_exercise_evidence(
         db,
-        str(current_user.id),
+        user_id=current_user.id,
+        request=request,
+        scoped_key=scoped_key,
+        request_digest=request_digest,
+    )
+    stored_payload = existing.payload.get("grading_result", {}) if existing else {}
+    stored_result = stored_payload if isinstance(stored_payload, dict) else {}
+    if existing:
+        score = float(stored_result.get("score", float(existing.score or 0) * request.max_score))
+        stored_strengths = stored_result.get("strengths", [])
+        stored_gaps = stored_result.get("gaps", [])
+        strengths = [str(item) for item in stored_strengths] if isinstance(stored_strengths, list) else []
+        gaps = [str(item) for item in stored_gaps] if isinstance(stored_gaps, list) else []
+        feedback = str(stored_result.get("feedback") or "本次提交已完成判分。")
+    else:
+        score, strengths, gaps, feedback = _grade_exercise_llm(request) or _grade_exercise(request)
+    before, after, update = _apply_mastery_update_from_evidence(
+        db,
+        current_user,
         request,
         score,
+        strengths,
+        gaps,
+        feedback,
+        scoped_key=scoped_key,
+        request_digest=request_digest,
+        existing=existing,
     )
     topic = _normalize_topic(request.topic)
     follow_up = [
@@ -930,8 +1169,12 @@ async def analyze_image_problem(
     *,
     current_user: CurrentUser,
     request: ImageAnalyzeRequest,
+    http_request: Request,
+    response: Response,
 ) -> Any:
     _ = current_user
+    request_id = resolve_request_id(http_request)
+    response.headers["X-Request-ID"] = request_id
     try:
         parsed = await _call_qwen3_vl(request)
         return ImageAnalyzeResponse(
@@ -956,4 +1199,13 @@ async def analyze_image_problem(
             ][:4],
         )
     except Exception as exc:
-        return _fallback_image_analysis(request, str(exc))
+        logger.exception(
+            "Image analysis provider failed request_id=%s",
+            request_id,
+            exc_info=exc,
+        )
+        return _fallback_image_analysis(
+            request,
+            reason_code="VISION_PROVIDER_UNAVAILABLE",
+            request_id=request_id,
+        )

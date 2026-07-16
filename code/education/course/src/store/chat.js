@@ -145,7 +145,7 @@ const useChatStore = defineStore(
       if (!_messagesMap.value[key]) {
         _messagesMap.value[key] = [];
       }
-      _messagesMap.value[key].push({
+      const storedMessage = {
         id: Date.now(),
         timestamp: new Date().toISOString(),
         thoughts: [],
@@ -158,7 +158,11 @@ const useChatStore = defineStore(
         metrics: {},
         citation_hints: [],
         ...message,
-      });
+      };
+      _messagesMap.value[key].push(storedMessage);
+      // Return the object through Vue's reactive container. Returning the raw
+      // object makes later SSE mutations invisible to computed/template users.
+      return _messagesMap.value[key][_messagesMap.value[key].length - 1];
     };
 
     const setConversationMessages = (conversationId, messages) => {

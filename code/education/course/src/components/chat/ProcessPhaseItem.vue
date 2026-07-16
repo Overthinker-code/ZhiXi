@@ -1,142 +1,197 @@
 <script setup lang="ts">
-  defineProps<{
+  import { computed } from 'vue';
+  import {
+    Check,
+    CircleAlert,
+    FileSearch,
+    ListTree,
+    LoaderCircle,
+    Route,
+    ShieldCheck,
+    Sparkles,
+    Square,
+    Wrench,
+  } from 'lucide-vue-next';
+
+  const props = defineProps<{
     title: string;
     text: string;
     status?: 'pending' | 'running' | 'done' | 'error' | string;
     active?: boolean;
+    category?: string;
+    durationMs?: number;
+    itemCount?: number;
   }>();
+
+  const icon = computed(() => {
+    if (props.status === 'error') return CircleAlert;
+    if (['cancelled', 'stopped'].includes(String(props.status))) return Square;
+    if (props.status === 'running' || props.active) return LoaderCircle;
+    if (props.category === 'retrieval') return FileSearch;
+    if (props.category === 'tool') return Wrench;
+    if (props.category === 'safety') return ShieldCheck;
+    if (props.category === 'route') return Route;
+    if (props.category === 'plan') return ListTree;
+    if (props.category === 'model' || props.category === 'output') return Sparkles;
+    return Check;
+  });
+
+  const duration = computed(() => {
+    const value = Number(props.durationMs || 0);
+    if (!value) return '';
+    if (value < 1000) return `${Math.round(value)}ms`;
+    return `${(value / 1000).toFixed(value < 10000 ? 1 : 0)}s`;
+  });
 </script>
 
 <template>
-  <article class="process-phase-item" :class="[`is-${status || 'pending'}`, { 'is-active': active }]">
-    <span class="process-phase-item__node">
-      <i v-if="status === 'done'">✓</i>
+  <article class="trace-step" :class="[`is-${status || 'pending'}`, { 'is-active': active }]">
+    <span class="trace-step__icon">
+      <component :is="icon" :size="15" :stroke-width="2" />
     </span>
-    <div>
-      <strong>{{ title }}</strong>
-      <p>{{ text }}</p>
+    <div class="trace-step__content">
+      <div class="trace-step__heading">
+        <strong>{{ title }}</strong>
+        <span v-if="status === 'running'" class="trace-step__state">进行中</span>
+        <span v-else-if="status === 'error'" class="trace-step__state">未完成</span>
+        <span v-else-if="status === 'cancelled' || status === 'stopped'" class="trace-step__state">已停止</span>
+        <span v-if="itemCount" class="trace-step__meta">{{ itemCount }} 项</span>
+        <time v-if="duration">{{ duration }}</time>
+      </div>
+      <p v-if="text">{{ text }}</p>
     </div>
   </article>
 </template>
 
 <style scoped lang="scss">
-  .process-phase-item {
+  .trace-step {
     position: relative;
     display: grid;
-    grid-template-columns: 18px 1fr;
-    gap: 9px;
-    padding: 6px 0 12px;
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 10px;
+    padding: 8px 0;
     color: #667085;
-    animation: process-reveal 0.2s ease both;
 
-    &::before {
+    &:not(:last-child)::after {
       position: absolute;
-      top: 24px;
-      bottom: -2px;
-      left: 6px;
+      top: 36px;
+      bottom: -8px;
+      left: 13px;
       width: 1px;
-      background: linear-gradient(180deg, rgba(99, 102, 241, 0.18), rgba(99, 102, 241, 0.04));
+      background: #e4e7ec;
       content: '';
     }
-
-    &:last-child::before {
-      display: none;
-    }
-
-    strong {
-      display: inline-flex;
-      margin-bottom: 3px;
-      color: #475467;
-      font-size: 13px;
-      font-weight: 720;
-      line-height: 1.35;
-    }
-
-    p {
-      margin: 0;
-      color: #667085;
-      font-size: 13px;
-      line-height: 1.62;
-      white-space: pre-wrap;
-    }
   }
 
-  .process-phase-item.is-active strong,
-  .process-phase-item.is-running strong {
-    color: #4f46e5;
-  }
-
-  .process-phase-item__node {
+  .trace-step__icon {
     position: relative;
     z-index: 1;
     display: inline-flex;
-    width: 13px;
-    height: 13px;
+    width: 28px;
+    height: 28px;
     align-items: center;
     justify-content: center;
-    margin-top: 3px;
-    border: 2px solid #fff;
+    border: 1px solid #e4e7ec;
+    border-radius: 9px;
+    background: #fff;
+    color: #667085;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+  }
+
+  .trace-step__content {
+    min-width: 0;
+    padding-top: 3px;
+  }
+
+  .trace-step__heading {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 7px;
+
+    strong {
+      overflow: hidden;
+      color: #344054;
+      font-size: 13px;
+      font-weight: 650;
+      line-height: 1.4;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    time,
+    .trace-step__meta {
+      color: #98a2b3;
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    time {
+      margin-left: auto;
+    }
+  }
+
+  .trace-step__state {
+    flex: 0 0 auto;
+    padding: 1px 6px;
     border-radius: 999px;
-    background: #d0d5dd;
-    box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.08);
+    background: #eef2ff;
+    color: #4f46e5;
+    font-size: 10px;
+    line-height: 17px;
+  }
 
-    i {
-      color: #fff;
-      font-size: 8px;
-      font-style: normal;
-      line-height: 1;
+  p {
+    margin: 3px 0 0;
+    overflow: hidden;
+    color: #667085;
+    font-size: 12px;
+    line-height: 1.55;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .is-running .trace-step__icon,
+  .is-active .trace-step__icon {
+    border-color: rgba(79, 70, 229, 0.2);
+    background: #f5f6ff;
+    color: #4f46e5;
+
+    :deep(svg) {
+      animation: trace-spin 1.4s linear infinite;
     }
   }
 
-  .is-running .process-phase-item__node,
-  .is-active .process-phase-item__node {
-    background: #6366f1;
-    box-shadow: 0 0 0 5px rgba(99, 102, 241, 0.09);
-    animation: process-pulse 1.35s ease-in-out infinite;
+  .is-error .trace-step__icon {
+    border-color: rgba(217, 45, 32, 0.18);
+    background: #fff6f5;
+    color: #d92d20;
   }
 
-  .is-done .process-phase-item__node {
-    background: #667085;
-    box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.08);
-    animation: none;
+  .is-cancelled .trace-step__icon,
+  .is-stopped .trace-step__icon {
+    border-color: #e4e7ec;
+    background: #f2f4f7;
+    color: #667085;
   }
 
-  .is-error .process-phase-item__node {
-    background: #f04438;
-    box-shadow: 0 0 0 5px rgba(240, 68, 56, 0.1);
+  .is-cancelled .trace-step__state,
+  .is-stopped .trace-step__state {
+    background: #e9eaed;
+    color: #667085;
   }
 
-  @keyframes process-reveal {
-    from {
-      opacity: 0;
-      filter: blur(6px);
-      transform: translateY(8px);
-    }
-
-    to {
-      opacity: 1;
-      filter: blur(0);
-      transform: translateY(0);
-    }
+  .is-error .trace-step__state {
+    background: #fff1f0;
+    color: #b42318;
   }
 
-  @keyframes process-pulse {
-    0%, 100% {
-      opacity: 0.72;
-      transform: scale(0.94);
-    }
-
-    50% {
-      opacity: 1;
-      transform: scale(1);
-    }
+  @keyframes trace-spin {
+    to { transform: rotate(360deg); }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .process-phase-item,
-    .process-phase-item__node {
-      animation: none !important;
-      filter: none;
-    }
+    .trace-step__icon :deep(svg) { animation: none !important; }
   }
 </style>

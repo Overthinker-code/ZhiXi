@@ -53,7 +53,13 @@
             <div
               v-if="item.reasoning || item.loading"
               class="reasoning-toggle"
+              role="button"
+              tabindex="0"
+              :aria-expanded="item.showReasoning"
+              :aria-controls="`classroom-reasoning-${item.id}`"
               @click="item.showReasoning = !item.showReasoning"
+              @keydown.enter="item.showReasoning = !item.showReasoning"
+              @keydown.space.prevent="item.showReasoning = !item.showReasoning"
             >
               <span>{{ item.loading ? '正在思考中…' : '深度思考' }}</span>
               <span class="arrow">{{ item.showReasoning ? '▴' : '▾' }}</span>
@@ -61,6 +67,7 @@
             <!-- eslint-disable-next-line vue/no-v-html -->
             <div
               v-if="item.showReasoning && (item.reasoning || item.loading)"
+              :id="`classroom-reasoning-${item.id}`"
               class="reasoning-content markdown-body"
               v-html="
                 renderSafeMarkdown(
@@ -670,7 +677,7 @@
     const prompts: string[] = [];
     if (webSearchEnabled.value) {
       prompts.push(
-        '已开启联网搜索：如需外部事实或时效校验，请使用联网搜索，并在回答中说明来源类型和可信度。'
+        '已开启联网搜索：如需核对外部事实或时效信息，请使用联网搜索，并在回答中说明信息来源与必要的不确定性。'
       );
     }
     if (deepThinkEnabled.value) {
@@ -1233,6 +1240,19 @@
     border-radius: 16px;
     box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
     flex-shrink: 0;
+    transition: border-color 160ms ease, box-shadow 160ms ease;
+
+    &:focus-within {
+      border-color: #94a3b8;
+      box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.07), 0 8px 24px rgba(15, 23, 42, 0.06);
+    }
+
+    :deep(.arco-textarea-wrapper),
+    :deep(.arco-textarea-wrapper.arco-textarea-focus) {
+      border-color: transparent !important;
+      background: transparent !important;
+      box-shadow: none !important;
+    }
 
     &.is-dragging {
       background: rgba(239, 246, 255, 0.92);

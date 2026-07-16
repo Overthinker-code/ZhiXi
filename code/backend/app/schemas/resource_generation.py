@@ -9,8 +9,10 @@ from pydantic import BaseModel, Field
 
 ResourceKind = Literal[
     "lecture_markdown",
+    "lecture_docx",
     "lecture_pdf",
     "practice_markdown",
+    "practice_docx",
     "practice_pdf",
     "mind_map",
     "reading_list",
@@ -51,7 +53,50 @@ class GeneratedResourceArtifact(BaseModel):
     course_id: UUID | None = None
 
 
+class ResourceRunStepPublic(BaseModel):
+    id: UUID
+    step_key: str
+    agent_role: str
+    status: str
+    provider: str
+    model: str
+    input_digest: str
+    output_digest: str | None = None
+    input_summary: str = ""
+    output_summary: str = ""
+    citations: list[dict[str, Any]] = Field(default_factory=list)
+    error_code: str | None = None
+    error_message: str | None = None
+    retry_count: int = 0
+    started_at: datetime
+    finished_at: datetime | None = None
+    duration_ms: int | None = None
+
+
+class ResourceRunPublic(BaseModel):
+    run_id: str
+    package_id: str | None = None
+    result_url: str | None = None
+    course_id: UUID | None = None
+    status: Literal["requested", "running", "cancelled", "failed", "partial_success", "completed"]
+    current_step: str
+    cancel_requested: bool = False
+    attempt_sequence: int = 0
+    lease_expires_at: datetime | None = None
+    requested: dict[str, Any] = Field(default_factory=dict)
+    shared_state: dict[str, Any] = Field(default_factory=dict)
+    error_code: str | None = None
+    error_message: str | None = None
+    created_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    steps: list[ResourceRunStepPublic] = Field(default_factory=list)
+
+
 class ResourceGenerationResponse(BaseModel):
+    run_id: str | None = None
+    run_status: Literal["requested", "running", "cancelled", "failed", "partial_success", "completed"] | None = None
+    stage_status: dict[str, str] = Field(default_factory=dict)
     package_id: str
     course_id: UUID | None = None
     resource_id: str | None = None

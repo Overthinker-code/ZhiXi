@@ -85,15 +85,13 @@
   >
     <div class="setting-container">
       <div class="setting-item">
-        <div class="setting-label">当前模型</div>
-        <div class="readonly-value">{{
-          settingStore.settings.modelDisplay
-        }}</div>
-        <p class="setting-tip">当前仅显示模型，暂不支持切换。</p>
+        <div class="setting-label">回答方式</div>
+        <div class="readonly-value">智能学习助手</div>
+        <p class="setting-tip">会根据问题自动选择合适的学习能力。</p>
       </div>
 
       <div class="setting-item">
-        <div class="setting-label">推理强度等级</div>
+        <div class="setting-label">回答深度</div>
         <el-radio-group v-model="draft.ragK" class="level-group">
           <el-radio-button
             v-for="level in reasoningLevels"
@@ -103,31 +101,31 @@
             {{ level.label }}
           </el-radio-button>
         </el-radio-group>
-        <p class="setting-tip">强度越高召回片段越多，回答会更慢。</p>
+        <p class="setting-tip">回答越深入，所需时间可能更长。</p>
       </div>
 
       <div class="setting-item">
         <div class="setting-label-row">
-          <div class="setting-label">强约束模式</div>
+          <div class="setting-label">仅基于课程资料</div>
           <el-switch v-model="draft.strictMode" />
         </div>
         <p class="setting-tip">
-          开启后必须基于检索片段并附 citation，无法满足时会拒答。
+          开启后会优先使用已选择的课程资料；资料不足时会明确提醒。
         </p>
       </div>
 
       <div class="setting-item">
         <div class="setting-label-row">
-          <div class="setting-label">流式响应</div>
+          <div class="setting-label">实时显示进度</div>
           <el-switch v-model="draft.stream" />
         </div>
         <p class="setting-tip">
-          建议开启：可实时显示多智能体流水线（主管拆解→知识检索→专员/工具→汇总）与正文流式输出。
+          开启后可实时查看处理进度和回答内容。
         </p>
       </div>
 
       <div class="setting-item">
-        <div class="setting-label">MCP 工具开关</div>
+        <div class="setting-label">可用工具</div>
         <el-checkbox-group v-model="draft.activeTools" class="tool-grid">
           <el-checkbox
             v-for="tool in settingStore.toolOptions"
@@ -140,12 +138,12 @@
       </div>
 
       <div class="setting-item">
-        <div class="setting-label">Max Tokens</div>
+        <div class="setting-label">回答长度</div>
         <el-slider v-model="draft.maxTokens" :min="256" :max="8192" :step="128" />
       </div>
 
       <div class="setting-item">
-        <div class="setting-label">Temperature</div>
+        <div class="setting-label">表达灵活度</div>
         <el-slider
           v-model="draft.temperature"
           :min="0"
@@ -156,17 +154,17 @@
       </div>
 
       <div class="setting-item">
-        <div class="setting-label">Top-P</div>
+        <div class="setting-label">主题聚焦度</div>
         <el-slider v-model="draft.topP" :min="0" :max="1" :step="0.1" show-input />
       </div>
 
       <div class="setting-item">
-        <div class="setting-label">Top-K</div>
+        <div class="setting-label">内容选择范围</div>
         <el-slider v-model="draft.topK" :min="1" :max="100" :step="1" show-input />
       </div>
 
       <div class="setting-item">
-        <div class="setting-label">回答风格 Prompt</div>
+        <div class="setting-label">回答风格</div>
         <el-select
           v-model="draft.promptKey"
           class="full-width"

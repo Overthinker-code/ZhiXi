@@ -19,7 +19,7 @@ const DASHBOARD: AppRouteRecordRaw = {
       meta: {
         locale: '教学总览',
         requiresAuth: true,
-        roles: ['*'],
+        roles: ['teacher'],
       },
     },
   ],

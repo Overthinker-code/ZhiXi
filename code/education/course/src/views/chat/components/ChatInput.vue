@@ -347,8 +347,8 @@
     }
 
     &:focus-within {
-      border-color: rgba(99, 102, 241, 0.34);
-      box-shadow: 0 16px 30px rgba(15, 23, 42, 0.14);
+      border-color: #94a3b8;
+      box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.07), 0 16px 30px rgba(15, 23, 42, 0.14);
     }
 
     .drag-layer {
@@ -458,7 +458,8 @@
 
     :deep(.el-textarea__inner) {
       border: none;
-      box-shadow: none;
+      outline: none !important;
+      box-shadow: none !important;
       border-radius: 12px;
       padding: 0.7rem 0.8rem;
       background: #fbfaff;
@@ -469,6 +470,12 @@
       &::placeholder {
         color: #7c8ea8;
       }
+    }
+
+    :deep(.el-textarea:focus-within) {
+      border-color: transparent !important;
+      outline: none !important;
+      box-shadow: none !important;
     }
 
     .button-group {

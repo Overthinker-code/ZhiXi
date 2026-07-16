@@ -43,24 +43,24 @@
   );
 
   const trustBadges = [
-    { icon: ShieldCheck, label: '证据可追溯' },
-    { icon: LockKeyhole, label: '画像可更新' },
-    { icon: GraduationCap, label: '路径可回写' },
+    { icon: ShieldCheck, label: '回答有来源' },
+    { icon: LockKeyhole, label: '建议随学习更新' },
+    { icon: GraduationCap, label: '计划持续调整' },
   ];
 
   const statsBar = [
-    { icon: SearchCheck, tone: 'blue', value: '证据可追溯', label: '课程问答' },
-    { icon: Brain, tone: 'green', value: '画像可更新', label: '学习建议' },
-    { icon: Layers3, tone: 'violet', value: '资源可入库', label: '多类生成' },
-    { icon: Route, tone: 'orange', value: '路径可调整', label: '学习安排' },
+    { icon: SearchCheck, tone: 'blue', value: '回答有来源', label: '课程问答' },
+    { icon: Brain, tone: 'green', value: '建议会更新', label: '学习建议' },
+    { icon: Layers3, tone: 'violet', value: '资料自动整理', label: '多类生成' },
+    { icon: Route, tone: 'orange', value: '计划可调整', label: '学习安排' },
   ];
 
   const features = [
     {
       icon: Brain,
       tone: 'violet',
-      title: '课程证据问答',
-      desc: '自动检索课程证据，回答有出处。',
+      title: '课程资料问答',
+      desc: '结合课程资料回答，关键信息可查看来源。',
       link: '/tutor',
       action: '进入 AI 伴学',
     },
@@ -68,31 +68,31 @@
       icon: Target,
       tone: 'green',
       title: '个性化学习路径',
-      desc: '按掌握度生成今天的学习任务。',
+      desc: '结合学习进度安排今天的任务。',
       link: '/profile/learning-data',
       action: '查看学习路径',
     },
     {
       icon: SearchCheck,
       tone: 'blue',
-      title: '学情画像更新',
-      desc: '从问答和练习更新薄弱点画像。',
+      title: '学习状态更新',
+      desc: '从问答和练习中发现需要加强的内容。',
       link: '/profile/learning-data',
       action: '打开学情档案',
     },
     {
       icon: Layers3,
       tone: 'amber',
-      title: '多智能体资源生成',
-      desc: '讲义、练习、导图和案例可入库。',
+      title: '多形式学习资源',
+      desc: '按需生成讲义、练习、导图和案例。',
       link: '/course/resource-generation',
       action: '进入资源工坊',
     },
     {
       icon: Zap,
       tone: 'cyan',
-      title: '可控研究深度',
-      desc: '复杂任务启用深度检索与报告。',
+      title: '深入学习与研究',
+      desc: '复杂问题可以展开检索、分析和报告。',
       link: '/tutor',
       action: '选择思考强度',
     },
@@ -100,7 +100,7 @@
       icon: Bell,
       tone: 'rose',
       title: '智能预警',
-      desc: '提前发现风险，回写路径和提醒。',
+      desc: '及时发现学习风险并调整计划。',
       link: '/profile/messages',
       action: '查看提醒',
     },
@@ -281,8 +281,8 @@
                 <Bot :size="18" />
               </span>
               <div>
-                <strong>证据问答</strong>
-                <small>课程引用 · 精准解释</small>
+                <strong>课程问答</strong>
+                <small>结合资料 · 查看来源</small>
               </div>
             </div>
 
@@ -309,8 +309,8 @@
                 <Bot :size="18" />
               </span>
               <div>
-                <strong>资料入库</strong>
-                <small>资源同步 · 图谱关联</small>
+                <strong>资料归档</strong>
+                <small>自动整理 · 关联知识点</small>
               </div>
             </div>
           </div>
@@ -338,15 +338,15 @@
 
       <section class="features-section reveal-on-scroll">
         <div class="section-header section-header--center">
-          <h2 class="section-title">为什么选择智屿？</h2>
-          <p class="section-subtitle">把课程证据、AI 辅导和个性化复习组织成稳定的学习工作流</p>
+          <h2 class="section-title">智屿如何陪你学习</h2>
+          <p class="section-subtitle">把课程资料、智能辅导和个性化复习组织成清晰的学习流程</p>
         </div>
 
         <div class="feature-loop">
           <div class="feature-loop__intro">
-            <span class="feature-loop__eyebrow">学习工作流</span>
+            <span class="feature-loop__eyebrow">学习流程</span>
             <h3>从一次提问开始，形成可复用的学习记录</h3>
-            <p>围绕课程、作业和资料持续整理证据，让学生知道下一步该学什么、为什么这样学。</p>
+            <p>围绕课程、作业和资料持续整理学习记录，帮助你明确下一步学什么、为什么这样学。</p>
           </div>
           <router-link
             v-for="(feat, index) in features"

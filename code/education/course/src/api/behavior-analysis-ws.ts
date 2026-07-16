@@ -112,16 +112,18 @@ export class BehaviorWebSocketClient {
 
     this.courseId = courseId || '';
     this.emitStatus('connecting');
+    if (!this.token) {
+      this.emitStatus('error');
+      return;
+    }
 
     const params = new URLSearchParams();
     if (this.courseId) params.append('course_id', this.courseId);
-    // token 由外部传入，保持客户端无 Vue store 依赖
-    if (this.token) params.append('token', this.token);
-
     const query = params.toString();
     const url = `${WS_BASE_URL}/api/behavior/ws/realtime${query ? `?${query}` : ''}`;
 
-    this.ws = new WebSocket(url);
+    // 认证信息放在握手子协议头，不进入 URL、浏览历史或常规访问日志。
+    this.ws = new WebSocket(url, ['authorization', this.token]);
 
     this.ws.onopen = () => {
       this.reconnectAttempts = 0;

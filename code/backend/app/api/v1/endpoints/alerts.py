@@ -1,14 +1,16 @@
 import asyncio
 import json
-from typing import Optional, Dict, Any
-from fastapi import APIRouter, Query, Depends
+from typing import Optional
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from datetime import datetime
-from sqlmodel import Session
+from sqlmodel import Session, select
 
-from app.api.deps import CurrentUser
+from app.api.deps import CurrentUser, SessionDep, get_optional_current_user
 from app.core.security import verify_token_from_query
-from app.core.db import engine
+from app.models import Student, StudentTC, TC, User
 
 # 教育学参数联动3：真实预警
 try:
@@ -19,6 +21,60 @@ except ImportError:
     ALERT_ENGINE_AVAILABLE = False
 
 router = APIRouter()
+
+
+def _require_tc_access(session: Session, *, user: User, tc_id: UUID) -> TC:
+    """Enforce object-level access for a concrete teaching class."""
+
+    teaching_class = session.get(TC, tc_id)
+    if teaching_class is None:
+        raise HTTPException(status_code=404, detail="Teaching class not found")
+    if user.is_superuser:
+        return teaching_class
+    enrolled = session.exec(
+        select(StudentTC.id)
+        .join(Student, Student.id == StudentTC.student_id)
+        .where(Student.user_id == user.id, StudentTC.tc_id == tc_id)
+        .limit(1)
+    ).first()
+    if enrolled is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Teaching class access denied",
+        )
+    return teaching_class
+
+
+def _resolve_stream_user(
+    session: Session,
+    *,
+    header_user: User | None,
+    query_token: str | None,
+) -> tuple[User, bool]:
+    """Prefer Authorization and retain query JWT only as deprecated fallback."""
+
+    if header_user is not None:
+        return header_user, False
+    if not query_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+    subject = verify_token_from_query(query_token)
+    try:
+        user_id = UUID(str(subject))
+    except (TypeError, ValueError, AttributeError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+        )
+    user = session.get(User, user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+        )
+    return user, True
 
 
 class AlertEvent:
@@ -126,14 +182,14 @@ def generate_real_alert(tc_id: str) -> Optional[AlertEvent]:
     )
 
 
-async def event_generator(tc_id: str, current_user: CurrentUser):
+async def event_generator(tc_id: UUID, current_user: User):
     """
     Generate SSE events for alerts.
     教育学参数联动3：优先使用真实行为数据生成预警
     """
     try:
         while True:
-            alert = generate_real_alert(tc_id)
+            alert = generate_real_alert(str(tc_id))
             if alert:
                 event_data = json.dumps(alert.to_dict())
                 yield f"data: {event_data}\n\n"
@@ -144,8 +200,14 @@ async def event_generator(tc_id: str, current_user: CurrentUser):
 
 @router.get("/stream")
 async def stream_alerts(
-    tc_id: str = Query(..., description="Teaching class ID"),
-    token: str = Query(..., description="JWT token for authentication"),
+    session: SessionDep,
+    tc_id: UUID = Query(..., description="Teaching class ID"),
+    token: str | None = Query(
+        default=None,
+        description="Deprecated JWT fallback; use Authorization header",
+        deprecated=True,
+    ),
+    current_user: User | None = Depends(get_optional_current_user),
 ):
     """
     Stream real-time alerts via Server-Sent Events (SSE).
@@ -154,64 +216,73 @@ async def stream_alerts(
     The token is passed as a query parameter because EventSource 
     doesn't support custom headers.
     """
-    current_user = verify_token_from_query(token)
-    
+    resolved_user, query_token_used = _resolve_stream_user(
+        session,
+        header_user=current_user,
+        query_token=token,
+    )
+    _require_tc_access(session, user=resolved_user, tc_id=tc_id)
+    headers = {
+        "Cache-Control": "no-cache, no-store",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+        "Referrer-Policy": "no-referrer",
+    }
+    if query_token_used:
+        headers.update(
+            {
+                "Deprecation": "true",
+                "Warning": '299 - "Query token authentication is deprecated; use Authorization header"',
+            }
+        )
     return StreamingResponse(
-        event_generator(tc_id, current_user),
+        event_generator(tc_id, resolved_user),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
+        headers=headers,
     )
 
 
 @router.get("/history")
 async def get_alert_history(
-    tc_id: Optional[str] = Query(None, description="Teaching class ID"),
+    session: SessionDep,
+    current_user: CurrentUser,
+    tc_id: UUID = Query(..., description="Teaching class ID"),
     limit: int = Query(50, ge=1, le=200),
-    current_user: CurrentUser = None,
 ):
     """
     Get historical alerts for a teaching class.
     教育学参数联动3：优先返回真实预警记录
     """
+    _require_tc_access(session, user=current_user, tc_id=tc_id)
     # 尝试从数据库读取真实预警
     try:
-        from uuid import UUID
         from app.models import StudentBehaviorAlert
-        try:
-            tc_uuid = UUID(tc_id)
-        except ValueError:
-            tc_uuid = None
-        with Session(engine) as session:
-            query = session.query(StudentBehaviorAlert)
-            if tc_uuid is not None:
-                query = query.filter(StudentBehaviorAlert.tc_id == tc_uuid)
-            db_alerts = (
-                query.order_by(StudentBehaviorAlert.alert_time.desc())
-                .limit(limit)
-                .all()
-            )
-            if db_alerts:
-                return {
-                    "alerts": [
-                        {
-                            "id": str(a.id),
-                            "student_id": str(a.student_id) if a.student_id else None,
-                            "alert_time": a.alert_time.isoformat(),
-                            "reason": a.reason,
-                            "severity": a.severity,
-                            "alert_type": a.alert_type,
-                            "resolved": a.resolved,
-                        }
-                        for a in db_alerts
-                    ]
-                }
+        db_alerts = session.exec(
+            select(StudentBehaviorAlert)
+            .where(StudentBehaviorAlert.tc_id == tc_id)
+            .order_by(StudentBehaviorAlert.alert_time.desc())
+            .limit(limit)
+        ).all()
+        if db_alerts:
+            return {
+                "alerts": [
+                    {
+                        "id": str(a.id),
+                        "student_id": str(a.student_id) if a.student_id else None,
+                        "alert_time": a.alert_time.isoformat(),
+                        "reason": a.reason,
+                        "severity": a.severity,
+                        "alert_type": a.alert_type,
+                        "resolved": a.resolved,
+                    }
+                    for a in db_alerts
+                ]
+            }
     except Exception:
         pass
     
     # 回退到mock数据
-    mock_alerts = [generate_real_alert(tc_id).to_dict() for _ in range(min(limit, 10))]
+    mock_alerts = [
+        generate_real_alert(str(tc_id)).to_dict() for _ in range(min(limit, 10))
+    ]
     return {"alerts": mock_alerts}

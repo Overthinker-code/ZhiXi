@@ -1,15 +1,4 @@
-import { App } from 'vue';
-import { use } from 'echarts/core';
-import { CanvasRenderer } from 'echarts/renderers';
-import { BarChart, LineChart, PieChart, RadarChart } from 'echarts/charts';
-import {
-  GridComponent,
-  TooltipComponent,
-  LegendComponent,
-  DataZoomComponent,
-  GraphicComponent,
-} from 'echarts/components';
-import Chart from './chart/index.vue';
+import { App, defineAsyncComponent } from 'vue';
 import Breadcrumb from './breadcrumb/index.vue';
 import LoadingState from './state/LoadingState.vue';
 import EmptyState from './state/EmptyState.vue';
@@ -22,22 +11,13 @@ import AiProcessTimeline from './zy/AiProcessTimeline.vue';
 import MetricCountUp from './zy/MetricCountUp.vue';
 import ResultReveal from './zy/ResultReveal.vue';
 import SegmentTabs from './zy/SegmentTabs.vue';
-import PortraitRadarChart from './zy/PortraitRadarChart.vue';
 import AgentStagePanel from './zy/AgentStagePanel.vue';
 import ZyMediaHero from './zy/ZyMediaHero.vue';
 
-use([
-  CanvasRenderer,
-  BarChart,
-  LineChart,
-  PieChart,
-  RadarChart,
-  GridComponent,
-  TooltipComponent,
-  LegendComponent,
-  DataZoomComponent,
-  GraphicComponent,
-]);
+const Chart = defineAsyncComponent(() => import('./chart/index.vue'));
+const PortraitRadarChart = defineAsyncComponent(
+  () => import('./zy/PortraitRadarChart.vue')
+);
 
 export default {
   install(Vue: App) {

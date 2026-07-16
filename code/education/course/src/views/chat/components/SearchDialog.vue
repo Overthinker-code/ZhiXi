@@ -224,12 +224,21 @@
         display: flex;
         align-items: center;
         position: relative;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        transition: border-color 160ms ease, box-shadow 160ms ease;
+
+        &:focus-within {
+          border-color: #94a3b8;
+          box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.08);
+        }
 
         input {
           flex: 1; // 输入框占据剩余空间
           height: 100%;
           border: none;
-          outline: none;
+          outline: none !important;
+          box-shadow: none !important;
           background: none;
           font-size: 1rem;
           color: #000;

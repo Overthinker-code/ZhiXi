@@ -1,0 +1,142 @@
+{
+  "bank_id": "database_systems.normal_forms.verified.v1",
+  "version": "1.0.0",
+  "course_scope": {
+    "course_contains": ["数据库"],
+    "knowledge_point_any": ["范式", "BCNF"]
+  },
+  "review_status": "curated_and_tested",
+  "questions_sha256": "a4e1501bcbdd9a7f614efdbdd97c709a117f500aa7c53968956dfb5ee936e249",
+  "questions": [
+    {
+      "knowledge_point": "范式级别",
+      "content": "已满足 1NF 的关系模式 R(A,B,C) 的候选键为 A，且存在函数依赖 A→B、B→C。R 最高满足哪个范式？",
+      "options": [
+        {"key": "A", "text": "1NF"},
+        {"key": "B", "text": "2NF"},
+        {"key": "C", "text": "3NF"},
+        {"key": "D", "text": "BCNF"}
+      ],
+      "answer": "B",
+      "analysis": "单属性候选键不存在部分依赖，因此满足 2NF；B→C 形成非主属性对候选键的传递依赖，因此不满足 3NF。",
+      "difficulty": "standard"
+    },
+    {
+      "knowledge_point": "BCNF 定义",
+      "content": "BCNF 对关系模式中非平凡函数依赖的决定因素有什么要求？",
+      "options": [
+        {"key": "A", "text": "决定因素必须恰好是候选键"},
+        {"key": "B", "text": "决定因素必须是超键"},
+        {"key": "C", "text": "关系模式中不能存在函数依赖"},
+        {"key": "D", "text": "所有属性都必须是非主属性"}
+      ],
+      "answer": "B",
+      "analysis": "BCNF 要求每个非平凡函数依赖的决定因素都是超键；超键可以是候选键，也可以包含候选键和其他属性。",
+      "difficulty": "foundation"
+    },
+    {
+      "knowledge_point": "2NF 定义",
+      "content": "在关系模式已经满足 1NF 的前提下，哪项条件可以准确刻画 2NF？",
+      "options": [
+        {"key": "A", "text": "不存在非主属性对任何候选键的部分函数依赖"},
+        {"key": "B", "text": "不存在非主属性对候选键的传递函数依赖"},
+        {"key": "C", "text": "每个非平凡函数依赖的决定因素都是超键"},
+        {"key": "D", "text": "每个属性都不可再分"}
+      ],
+      "answer": "A",
+      "analysis": "2NF 在 1NF 基础上排除非主属性对候选键的部分函数依赖；B 是 3NF 相关条件，C 是 BCNF 条件。",
+      "difficulty": "foundation"
+    },
+    {
+      "knowledge_point": "3NF 定义",
+      "content": "使用函数依赖定义判断 3NF 时，对每个非平凡函数依赖 X→A，应满足哪项条件？",
+      "options": [
+        {"key": "A", "text": "X 是超键，或者 A 是主属性"},
+        {"key": "B", "text": "X 必须恰好是候选键"},
+        {"key": "C", "text": "A 必须是非主属性"},
+        {"key": "D", "text": "X 与 A 必须没有交集"}
+      ],
+      "answer": "A",
+      "analysis": "3NF 的函数依赖判定条件是：对每个非平凡 X→A，X 为超键或 A 为主属性。",
+      "difficulty": "standard"
+    },
+    {
+      "knowledge_point": "范式层次",
+      "content": "关于 BCNF、3NF、2NF 与 1NF 的层次关系，哪项表述正确？",
+      "options": [
+        {"key": "A", "text": "BCNF ⊆ 3NF ⊆ 2NF ⊆ 1NF"},
+        {"key": "B", "text": "1NF ⊆ 2NF ⊆ 3NF ⊆ BCNF"},
+        {"key": "C", "text": "3NF ⊆ BCNF ⊆ 2NF ⊆ 1NF"},
+        {"key": "D", "text": "2NF 与 3NF 互不包含"}
+      ],
+      "answer": "A",
+      "analysis": "范式强度依次为 BCNF、3NF、2NF、1NF，因此满足更高范式必然满足所有较低范式。",
+      "difficulty": "foundation"
+    },
+    {
+      "knowledge_point": "BCNF 分解",
+      "content": "按照标准 BCNF 逐步分解算法进行分解时，可以保证哪项性质？",
+      "options": [
+        {"key": "A", "text": "分解是无损连接的"},
+        {"key": "B", "text": "保持原函数依赖集中的全部依赖"},
+        {"key": "C", "text": "分解后的关系模式数量最少"},
+        {"key": "D", "text": "每个子模式都只有一个候选键"}
+      ],
+      "answer": "A",
+      "analysis": "标准 BCNF 逐步分解算法保证无损连接，但不保证依赖保持，也不保证子模式数量最少。",
+      "difficulty": "standard"
+    },
+    {
+      "knowledge_point": "依赖保持",
+      "content": "设 F_i 是函数依赖集 F 在分解后关系模式 R_i 上的投影。哪项条件准确表示分解保持函数依赖？",
+      "options": [
+        {"key": "A", "text": "各 F_i 的并集与 F 具有相同的逻辑闭包"},
+        {"key": "B", "text": "分解后的自然连接能恢复原关系"},
+        {"key": "C", "text": "每个 R_i 都满足 BCNF"},
+        {"key": "D", "text": "任意两个 R_i 的交集都是候选键"}
+      ],
+      "answer": "A",
+      "analysis": "依赖保持要求各子模式上的投影依赖之并能够逻辑蕴含原依赖集，等价地二者闭包相同。",
+      "difficulty": "challenge"
+    },
+    {
+      "knowledge_point": "无损连接分解",
+      "content": "将 R 二元分解为 R1 与 R2 时，哪项条件能够判定该分解关于 F 是无损连接的？",
+      "options": [
+        {"key": "A", "text": "F+ 中包含 (R1∩R2)→R1 或 (R1∩R2)→R2"},
+        {"key": "B", "text": "R1∪R2=R"},
+        {"key": "C", "text": "R1 与 R2 都满足 BCNF"},
+        {"key": "D", "text": "分解保持全部函数依赖"}
+      ],
+      "answer": "A",
+      "analysis": "二元分解无损当且仅当公共属性在 F+ 下能函数决定 R1 或 R2；属性并集覆盖 R 只是分解的基本要求。",
+      "difficulty": "challenge"
+    },
+    {
+      "knowledge_point": "超键与候选键",
+      "content": "为什么 BCNF 定义使用“超键”而不是“候选键”描述函数依赖的决定因素？",
+      "options": [
+        {"key": "A", "text": "超键可以包含某个候选键以及额外属性"},
+        {"key": "B", "text": "候选键不具备唯一标识元组的能力"},
+        {"key": "C", "text": "超键一定比候选键包含更少属性"},
+        {"key": "D", "text": "候选键只能由单个属性组成"}
+      ],
+      "answer": "A",
+      "analysis": "候选键是最小超键，而超键还可以包含候选键和额外属性；BCNF 要求决定因素具有超键能力，并不要求其最小。",
+      "difficulty": "standard"
+    },
+    {
+      "knowledge_point": "BCNF 判定",
+      "content": "关系模式 R(A,B,C) 上有 F={A→B, B→C}，且 A 是候选键。哪个给定函数依赖违反 BCNF？",
+      "options": [
+        {"key": "A", "text": "A→B"},
+        {"key": "B", "text": "B→C"},
+        {"key": "C", "text": "A→C"},
+        {"key": "D", "text": "AB→C"}
+      ],
+      "answer": "B",
+      "analysis": "B 不能决定 A，因此 B 不是超键，非平凡依赖 B→C 违反 BCNF；A 和 AB 都是超键。",
+      "difficulty": "challenge"
+    }
+  ]
+}

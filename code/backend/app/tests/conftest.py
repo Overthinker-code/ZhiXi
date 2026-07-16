@@ -3,12 +3,21 @@ import os
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session, delete, select
+from sqlmodel import Session, delete
 
 from app.core.config import settings
 from app.core.db import engine, init_db
 from app.main import app
-from app.models import Item, Log, User
+from app.models import (
+    CourseKnowledgeEdge,
+    CourseKnowledgeNodeAction,
+    LearningEvidence,
+    LearningPathUpdateEvent,
+    ProfileUpdateEvent,
+    ResourceGenerationRun,
+    ResourceGenerationStep,
+    ResourceKnowledgeLink,
+)
 from app.tests.utils.user import authentication_token_from_email
 from app.tests.utils.utils import get_superuser_token_headers
 
@@ -20,27 +29,35 @@ def db() -> Generator[Session, None, None]:
         return
     with Session(engine) as session:
         init_db(session)
-        baseline_item_ids = set(session.exec(select(Item.id)).all())
-        baseline_log_ids = set(session.exec(select(Log.id)).all())
-        baseline_user_ids = set(session.exec(select(User.id)).all())
         yield session
         session.rollback()
-        item_cleanup = delete(Item)
-        if baseline_item_ids:
-            item_cleanup = item_cleanup.where(Item.id.not_in(baseline_item_ids))
-        session.execute(item_cleanup)
-        # Login and API tests commit audit rows through independent TestClient
-        # sessions. Remove only rows created during this test run before users,
-        # otherwise log_user_id_fkey correctly blocks user cleanup.
-        log_cleanup = delete(Log)
-        if baseline_log_ids:
-            log_cleanup = log_cleanup.where(Log.id.not_in(baseline_log_ids))
-        session.execute(log_cleanup)
-        user_cleanup = delete(User)
-        if baseline_user_ids:
-            user_cleanup = user_cleanup.where(User.id.not_in(baseline_user_ids))
-        session.execute(user_cleanup)
-        session.commit()
+
+
+def _clear_resource_run_state(session: Session) -> None:
+    """Remove run-scoped rows so a failed test cannot block the next test."""
+    session.rollback()
+    session.exec(delete(ResourceKnowledgeLink))
+    session.exec(delete(CourseKnowledgeNodeAction))
+    session.exec(delete(CourseKnowledgeEdge).where(CourseKnowledgeEdge.run_id.is_not(None)))
+    session.exec(delete(ProfileUpdateEvent))
+    session.exec(delete(LearningPathUpdateEvent))
+    session.exec(delete(LearningEvidence).where(LearningEvidence.run_id.is_not(None)))
+    session.exec(delete(ResourceGenerationStep))
+    session.exec(delete(ResourceGenerationRun))
+    session.commit()
+
+
+@pytest.fixture(autouse=True)
+def isolate_resource_runs(db: Session | None) -> Generator[None, None, None]:
+    """Guarantee that active ResourceRun records never cross test boundaries."""
+    if db is None:
+        yield
+        return
+    _clear_resource_run_state(db)
+    try:
+        yield
+    finally:
+        _clear_resource_run_state(db)
 
 
 @pytest.fixture(scope="module")

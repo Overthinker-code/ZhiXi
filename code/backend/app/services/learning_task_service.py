@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timedelta, timezone
+from uuid import UUID
 
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
@@ -13,6 +14,40 @@ from app.models.chat_thread import ChatThread
 
 class LearningTaskService:
     _TASK_HINTS = ("学习任务", "学习计划", "设置任务", "创建任务", "制定任务")
+
+    @staticmethod
+    def _record_task_signal(
+        db: Session,
+        *,
+        user_id: str,
+        task: LearningTask,
+        event_type: str,
+    ) -> None:
+        try:
+            uid = UUID(user_id)
+        except (TypeError, ValueError):
+            return
+        from app.services.learning_report_service import learning_report_service
+
+        learning_report_service.record_evidence(
+            db,
+            user_id=uid,
+            knowledge_point=task.title,
+            source_type="learning_task",
+            source_id=f"{task.id}:{task.updated_at.isoformat() if task.updated_at else event_type}",
+            event_type=event_type,
+            weight=0.3,
+            score=None,
+            payload={
+                "task_execution": {
+                    "task_id": task.id,
+                    "goal": task.goal,
+                    "progress": task.progress,
+                    "status": task.status,
+                    "deadline": task.deadline.isoformat() if task.deadline else None,
+                }
+            },
+        )
 
     def extract_task(self, message: str, *, now: datetime | None = None) -> dict | None:
         text = re.sub(r"\s+", "", message or "").strip("，。！？ ")
@@ -114,6 +149,10 @@ class LearningTaskService:
         if "deadline" in changes:
             task.deadline = changes["deadline"]
         db.add(task)
+        db.flush([task])
+        self._record_task_signal(
+            db, user_id=user_id, task=task, event_type="task_updated"
+        )
         db.commit()
         db.refresh(task)
         return task
@@ -141,6 +180,10 @@ class LearningTaskService:
             **parsed,
         )
         db.add(task)
+        db.flush([task])
+        self._record_task_signal(
+            db, user_id=user_id, task=task, event_type="task_created"
+        )
         db.commit()
         db.refresh(task)
         return task

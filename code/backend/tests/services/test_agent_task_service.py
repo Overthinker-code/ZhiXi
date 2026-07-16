@@ -67,3 +67,28 @@ def test_fail_run_closes_running_and_waiting_tasks() -> None:
     evaluator = next(task for task in tasks if task.task_key == "evaluator")
     assert executor.status == "failed"
     assert evaluator.status == "failed"
+
+
+def test_complete_run_closes_every_non_terminal_task() -> None:
+    db = _session()
+    agent_task_service.start_run(
+        db,
+        session_id="session-1",
+        user_id="user-1",
+        run_id="run-1",
+        use_knowledge=True,
+        resource_mode=True,
+    )
+    tasks = agent_task_service.complete_run(
+        db,
+        run_id="run-1",
+        message="任务已完成",
+    )
+
+    assert all(task.status == "completed" for task in tasks)
+    assert all(task.progress == 100 for task in tasks)
+    assert all(
+        task.message == "任务已完成"
+        for task in tasks
+        if task.task_key in {"knowledge", "executor", "evaluator"}
+    )

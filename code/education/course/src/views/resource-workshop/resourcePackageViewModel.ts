@@ -10,6 +10,28 @@ export type ResourceDifficulty =
   | 'standard'
   | 'challenge';
 
+export type ResourceDocumentFormat = 'docx' | 'pdf' | 'both';
+
+export function buildProductionResourceTypes(
+  format: ResourceDocumentFormat
+): ResourceKind[] {
+  const documentKinds: ResourceKind[] = [];
+  if (format === 'docx' || format === 'both') {
+    documentKinds.push('lecture_docx', 'practice_docx');
+  }
+  if (format === 'pdf' || format === 'both') {
+    documentKinds.push('lecture_pdf', 'practice_pdf');
+  }
+  return [
+    ...documentKinds,
+    'mind_map',
+    'reading_list',
+    'case_project',
+    'video_script',
+    'quality_checklist',
+  ];
+}
+
 export type ResourceItemType =
   | 'lecture_doc'
   | 'mind_map'
@@ -60,7 +82,7 @@ interface ResourceDefinition {
 const RESOURCE_DEFINITIONS: ResourceDefinition[] = [
   {
     type: 'lecture_doc',
-    kinds: ['lecture_markdown', 'lecture_pdf'],
+    kinds: ['lecture_docx', 'lecture_pdf', 'lecture_markdown'],
     description: '围绕学习目标梳理概念、证据、例题与迁移方法。',
   },
   {
@@ -70,7 +92,7 @@ const RESOURCE_DEFINITIONS: ResourceDefinition[] = [
   },
   {
     type: 'practice_set',
-    kinds: ['practice_markdown', 'practice_pdf'],
+    kinds: ['practice_docx', 'practice_pdf', 'practice_markdown'],
     description: '包含分层练习、答案框架、评分点与错因追练。',
   },
   {
@@ -93,27 +115,32 @@ const RESOURCE_DEFINITIONS: ResourceDefinition[] = [
 const TRACE_GROUPS = [
   {
     agent: 'context',
-    label: '画像与课程分析',
+    label: '分析学习需求',
+    message: '已结合学习目标、课程进度和需要加强的内容',
     pattern: /ProfileAgent|DomainAgent|EvidenceAgent/,
   },
   {
     agent: 'content',
-    label: '核心内容生成',
+    label: '生成核心内容',
+    message: '已生成讲义与分层练习',
     pattern: /ResourcePlannerAgent|ContentAgent|LectureAgent|ExerciseAgent/,
   },
   {
     agent: 'multimodal',
-    label: '多模态资源组装',
+    label: '整理图文和讲解资源',
+    message: '已整理知识导图、案例和讲解脚本',
     pattern: /MindMapAgent|ReadingAgent|CaseAgent|ScriptAgent/,
   },
   {
     agent: 'quality',
-    label: '质量与安全审查',
+    label: '检查内容质量',
+    message: '已检查结构、完整性和输出格式',
     pattern: /QualityAgent|SafetyReviewAgent/,
   },
   {
     agent: 'finalize',
-    label: '资源包归档',
+    label: '整理下载文件',
+    message: '已汇总为可预览、可下载的学习资源',
     pattern: /FinalizerAgent/,
   },
 ] as const;
@@ -129,24 +156,23 @@ function findPreferredArtifact(
   return null;
 }
 
-function traceMessage(trace: string) {
-  const separator = trace.indexOf(':');
-  return separator >= 0 ? trace.slice(separator + 1).trim() : trace.trim();
-}
-
 function buildAgentSteps(trace: string[]) {
   return TRACE_GROUPS.flatMap((group) => {
-    const messages = trace.filter((item) => group.pattern.test(item)).map(traceMessage);
-    if (!messages.length) return [];
+    const matched = trace.some((item) => group.pattern.test(item));
+    if (!matched) return [];
     return [
       {
         agent: group.agent,
         label: group.label,
-        message: messages.join('；'),
+        message: group.message,
         status: 'done' as const,
       },
     ];
   });
+}
+
+export function buildFriendlyGenerationTrace(trace: string[]) {
+  return buildAgentSteps(trace).map((item) => `${item.label}：${item.message}`);
 }
 
 export function buildResourcePackageViewModel(

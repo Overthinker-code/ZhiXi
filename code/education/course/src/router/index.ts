@@ -6,7 +6,14 @@ import { appRoutes } from './routes';
 import { REDIRECT_MAIN, NOT_FOUND_ROUTE } from './routes/base';
 import createRouteGuard from './guard';
 
-NProgress.configure({ showSpinner: false }); // NProgress Configuration
+NProgress.configure({
+  showSpinner: false,
+  barSelector: '[data-nprogress-bar]',
+  // Route loading is decorative and too brief to announce reliably. Keep it out
+  // of the accessibility tree instead of exposing NProgress' invalid role="bar".
+  template:
+    '<div class="bar" data-nprogress-bar aria-hidden="true"><div class="peg"></div></div>',
+});
 
 const router = createRouter({
   history: createWebHistory(),

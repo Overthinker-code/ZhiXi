@@ -87,6 +87,20 @@ class AgentTaskService:
         db.commit()
         return self.list_run(db, run_id=run_id)
 
+    def complete_run(self, db: Session, *, run_id: str, message: str) -> list[AgentTask]:
+        """Close every non-terminal task before a successful run is published."""
+
+        db.execute(
+            update(AgentTask)
+            .where(
+                AgentTask.run_id == run_id,
+                AgentTask.status.in_(("running", "waiting")),
+            )
+            .values(status="completed", progress=100, message=message[:500])
+        )
+        db.commit()
+        return self.list_run(db, run_id=run_id)
+
     def list_run(self, db: Session, *, run_id: str) -> list[AgentTask]:
         statement = select(AgentTask).where(AgentTask.run_id == run_id).order_by(AgentTask.id)
         return list(db.scalars(statement).all())

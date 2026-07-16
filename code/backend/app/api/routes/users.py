@@ -29,6 +29,20 @@ from app.utils import generate_new_account_email, send_email
 
 router = APIRouter(prefix="/users", tags=["users"])
 
+_DELETED_ACCOUNT_AUDIT_DETAILS = (
+    "Associated account deleted; identifying details removed"
+)
+
+
+def _anonymize_user_audit_logs(*, session: SessionDep, user_id: uuid.UUID) -> None:
+    """Retain audit events while removing the deleted account's identity."""
+    statement = (
+        update(Log)
+        .where(Log.user_id == user_id)
+        .values(user_id=None, details=_DELETED_ACCOUNT_AUDIT_DETAILS)
+    )
+    session.exec(statement)
+
 
 @router.get(
     "/",
@@ -135,11 +149,7 @@ def delete_user_me(session: SessionDep, current_user: CurrentUser) -> Any:
         raise HTTPException(
             status_code=403, detail="Super users are not allowed to delete themselves"
         )
-    # Audit logs are intentionally retained when an account is removed. The
-    # FK is nullable, so detach those rows before deleting the user.
-    session.exec(
-        update(Log).where(Log.user_id == current_user.id).values(user_id=None)
-    )
+    _anonymize_user_audit_logs(session=session, user_id=current_user.id)
     session.delete(current_user)
     session.commit()
     return MessageResponse(message="User deleted successfully")
@@ -227,6 +237,7 @@ def delete_user(
         )
     statement = delete(Item).where(col(Item.owner_id) == user_id)
     session.exec(statement)  # type: ignore
+    _anonymize_user_audit_logs(session=session, user_id=user_id)
     session.delete(user)
     session.commit()
     return MessageResponse(message="User deleted successfully")

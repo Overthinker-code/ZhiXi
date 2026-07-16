@@ -33,7 +33,7 @@
             </a-list-item>
           </template>
         </a-list>
-        <a-empty v-else description="暂无消息" />
+        <a-empty v-else description="暂时没有新消息" />
       </a-card>
     </ZyPageEnter>
   </div>

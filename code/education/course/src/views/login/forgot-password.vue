@@ -39,7 +39,7 @@
     loading.value = true;
     try {
       await recoverPassword(form.email);
-      Message.success('重置邮件已发送，请检查邮箱');
+      Message.success('如该邮箱已注册，重置说明将发送到邮箱');
       goLogin();
     } catch (error) {
       Message.error((error as Error).message || '发送失败');

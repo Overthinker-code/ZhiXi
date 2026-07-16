@@ -15,6 +15,7 @@
 
   const route = useRoute();
   const router = useRouter();
+  const isCourseHome = computed(() => route.name === 'StudentCourseHome');
   const detailDrawerVisible = ref(false);
   const course = computed(() => getClassroomCourse(String(route.params.courseId || '')));
   const allLessons = computed(
@@ -55,7 +56,7 @@
     {
       label: '知识基础',
       value: `${course.value?.progress || 0}%`,
-      desc: '以课节完成度和章节掌握度综合估算',
+      desc: '结合课程进度和近期学习表现整理',
     },
     {
       label: '学习节奏',
@@ -65,7 +66,7 @@
     {
       label: '资源偏好',
       value: '讲义 + 练习',
-      desc: '适合先看证据，再做检查题',
+      desc: '适合先看讲解，再用练习检查理解',
     },
   ]);
   const topWeakPoints = computed(() => weakPoints.value.slice(0, 3));
@@ -90,9 +91,9 @@
   <section v-if="course" class="course-analytics">
     <header class="analytics-heading">
       <div>
-        <span>学情概览</span>
-        <h1>课程学情</h1>
-        <p>围绕当前课程沉淀进度、薄弱点和下一步行动，让学习闭环有明确依据。</p>
+        <span>{{ isCourseHome ? '课程概览' : '学情概览' }}</span>
+        <h1>{{ isCourseHome ? '继续学习' : '课程学情' }}</h1>
+        <p>{{ isCourseHome ? '查看当前进度、学习重点和下一步安排。' : '结合当前课程进度和需要加强的内容，帮助你明确下一步学习重点。' }}</p>
       </div>
       <button type="button" @click="askForPlan"><icon-robot /> 生成个性化计划</button>
     </header>
@@ -129,8 +130,8 @@
       </article>
       <article>
         <span class="summary-icon"><icon-clock-circle /></span>
-        <div><small>近 7 日投入</small><strong>4.8h</strong></div>
-        <em>建议分散复习</em>
+        <div><small>近期学习节奏</small><strong>待积累</strong></div>
+        <em>完成学习后更新</em>
       </article>
     </div>
 
@@ -175,27 +176,26 @@
       <section class="panel rhythm-panel">
         <div class="panel-title">
           <div><icon-clock-circle /><strong>本周学习节奏</strong></div>
-          <span>保持连续学习比单次时长更重要</span>
+          <span>完成学习任务后自动更新</span>
         </div>
-        <div class="rhythm-chart" aria-label="近七日学习时长">
-          <div v-for="(value, index) in [42, 68, 36, 82, 58, 74, 50]" :key="index">
-            <i :style="{ height: `${value}%` }"></i>
-            <span>{{ ['一', '二', '三', '四', '五', '六', '日'][index] }}</span>
-          </div>
+        <div class="rhythm-empty" role="status">
+          <icon-clock-circle />
+          <strong>还没有足够的学习记录</strong>
+          <p>完成课程任务后，这里会展示你的每周学习节奏。</p>
         </div>
       </section>
 
       <section class="panel next-panel">
         <div class="panel-title">
-          <div><icon-check-circle /><strong>学习闭环</strong></div>
+          <div><icon-check-circle /><strong>本次学习安排</strong></div>
           <span>预计 45 分钟完成</span>
         </div>
         <div class="loop-steps">
           <div>
             <span>01</span>
             <div>
-              <strong>补证据</strong>
-              <small>回看章节资料与课堂笔记</small>
+              <strong>回看讲解</strong>
+              <small>复习章节资料与课堂笔记</small>
             </div>
           </div>
           <div>
@@ -209,7 +209,7 @@
             <span>03</span>
             <div>
               <strong>问小智</strong>
-              <small>把错因写回学习画像</small>
+              <small>记录错因并更新后续学习建议</small>
             </div>
           </div>
         </div>
@@ -459,6 +459,34 @@
       margin: 7px 0 8px;
       color: #919aac;
       font-size: 9px;
+    }
+  }
+
+  .rhythm-empty {
+    min-height: 170px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 8px;
+    padding: 24px;
+    text-align: center;
+    color: #98a1b1;
+
+    svg {
+      font-size: 28px;
+      color: #7a88f8;
+    }
+
+    strong {
+      color: #566177;
+      font-size: 12px;
+    }
+
+    p {
+      margin: 0;
+      font-size: 10px;
+      line-height: 1.6;
     }
   }
 

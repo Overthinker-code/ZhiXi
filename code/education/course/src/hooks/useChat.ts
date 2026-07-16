@@ -721,15 +721,12 @@ export function useChat() {
             uploadError instanceof Error && uploadError.message
               ? uploadError.message
               : '';
-          Message.error(
-            detail.includes('404')
-              ? '文档挂载失败：后端缺少 /api/v1/file/upload 接口（当前服务未更新到最新代码）。'
-              : `文档挂载失败，本轮未发送。${detail || '请检查文件格式或后端日志。'}`
-          );
+          console.warn('[chat-upload] 文件上传失败', detail);
+          Message.error('文件暂时无法上传，请重新选择或稍后重试。');
           return false;
         }
         if (!mountedFile?.file_id) {
-          Message.error('文档未返回有效文件 ID，本轮未发送。');
+          Message.error('文件上传未完成，请重新选择文件。');
           return false;
         }
       }

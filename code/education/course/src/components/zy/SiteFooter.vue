@@ -237,7 +237,7 @@
       background: #fff;
       color: #1c2742;
       font-size: 13px;
-      outline: none;
+      outline: none !important;
       transition: border-color 0.2s;
 
       &::placeholder {
@@ -245,7 +245,9 @@
       }
 
       &:focus {
-        border-color: rgba(81, 98, 245, 0.6);
+        border-color: #94a3b8;
+        outline: none !important;
+        box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.08);
       }
     }
 

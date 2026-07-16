@@ -140,7 +140,7 @@ def test_document_reasoning_stream_uses_native_channels_and_citations(monkeypatc
     assert events[-1]["citations"][0]["source"] == "paper.pdf"
 
 
-def test_current_file_citation_is_recovered_when_model_cites_general_source():
+def test_current_file_citation_is_not_synthesized_when_model_cites_general_source():
     citations = chat_engine._normalize_structured_citations(
         [
             {
@@ -166,11 +166,10 @@ def test_current_file_citation_is_recovered_when_model_cites_general_source():
         [{"citation_id": 2, "reason": "模型误选课程库"}],
     )
 
-    assert citations[0]["context_scope"] == "uploaded_document"
-    assert citations[0]["source"] == "paper.pdf"
-    assert citations[0]["file_id"] == "file-1"
-    assert citations[0]["reason"] == "当前挂载文件的高相关片段，已自动用于校准回答依据。"
-    assert citations[1]["context_scope"] == "knowledge_base"
+    assert len(citations) == 1
+    assert citations[0]["context_scope"] == "knowledge_base"
+    assert citations[0]["source"] == "course.md"
+    assert citations[0]["reason"] == "模型误选课程库"
 
 
 def test_document_reasoning_stream_flushes_meaningful_partial_sentence(monkeypatch):

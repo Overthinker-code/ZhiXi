@@ -12,16 +12,16 @@
             <span><strong>{{ pagination.total || courses.length }}</strong> 门符合筛选</span>
           </div>
         </div>
-        <div class="course-hero__resume">
+        <div v-if="resumeCourse" class="course-hero__resume">
           <div>
             <span>继续学习</span>
-            <strong>数据库系统原理</strong>
-            <small>第 3 章 ER 模型 · 58% · 下一步复习关系模型</small>
+            <strong>{{ resumeCourse.name }}</strong>
+            <small>当前进度 {{ resumeProgress }}% · 从上次位置继续</small>
           </div>
           <div class="resume-progress">
-            <i style="width: 58%" />
+            <i :style="{ width: `${resumeProgress}%` }" />
           </div>
-          <button type="button" @click="goToCourseDetail('c1111111-1111-4111-9111-111111111101')">
+          <button type="button" @click="goToCourseDetail(resumeCourse.id)">
             进入课程
           </button>
         </div>
@@ -37,6 +37,7 @@
         <div class="search-row">
           <a-input
             v-model="searchQuery"
+            aria-label="搜索课程"
             placeholder="搜索课程名称、教师或关键词"
             class="search-input"
             allow-clear
@@ -60,41 +61,42 @@
             type="button"
             class="category-tab"
             :class="{ 'category-tab--active': selectedCategory === category }"
+            :aria-pressed="selectedCategory === category"
             @click="selectCategory(category)"
           >
             {{ category }}
           </button>
         </div>
         <div class="filter-panel__selects">
-          <a-select
+          <select
             v-model="statusFilter"
+            aria-label="按学习状态筛选"
             class="toolbar-select"
-            placeholder="状态"
           >
-            <a-option value="all">全部状态</a-option>
-            <a-option value="learning">学习中</a-option>
-            <a-option value="done">已完成</a-option>
-            <a-option value="new">未开始</a-option>
-          </a-select>
-          <a-select
+            <option value="all">全部状态</option>
+            <option value="learning">学习中</option>
+            <option value="done">已完成</option>
+            <option value="new">未开始</option>
+          </select>
+          <select
             v-model="typeFilter"
+            aria-label="按课程类型筛选"
             class="toolbar-select"
-            placeholder="类型"
           >
-            <a-option value="all">全部类型</a-option>
-            <a-option value="core">专业核心</a-option>
-            <a-option value="elective">专业选修</a-option>
-          </a-select>
-          <a-select
+            <option value="all">全部类型</option>
+            <option value="core">专业核心</option>
+            <option value="elective">专业选修</option>
+          </select>
+          <select
             v-model="sortBy"
+            aria-label="课程排序方式"
             class="toolbar-select toolbar-select--sort"
-            placeholder="排序"
           >
-            <a-option value="recommend">推荐排序</a-option>
-            <a-option value="progress">学习进度</a-option>
-            <a-option value="rating">评分最高</a-option>
-            <a-option value="newest">最新发布</a-option>
-          </a-select>
+            <option value="recommend">推荐排序</option>
+            <option value="progress">学习进度</option>
+            <option value="rating">评分最高</option>
+            <option value="newest">最新发布</option>
+          </select>
         </div>
       </div>
 
@@ -138,7 +140,12 @@
           v-for="course in displayCourses"
           :key="course.id"
           class="course-card"
+          role="link"
+          tabindex="0"
+          :aria-label="`${course.name}，当前进度 ${courseProgressPercent(course)}%，${courseProgressPercent(course) > 0 ? '继续学习' : '开始学习'}`"
           @click="goToCourseDetail(course.id)"
+          @keydown.enter="goToCourseDetail(course.id)"
+          @keydown.space.prevent="goToCourseDetail(course.id)"
         >
           <div class="course-card__cover">
             <img :src="courseCover(course)" :alt="course.name" />
@@ -152,11 +159,11 @@
             <div class="course-card__title">
               <strong>{{ course.name }}</strong>
             </div>
-            <p>{{ course.description || '围绕课程核心概念、资料证据和学习任务持续推进。' }}</p>
+            <p>{{ course.description || '围绕课程核心概念、学习资料和课程任务持续推进。' }}</p>
             <div class="course-card__meta">
               <span>{{ courseDepartment(course) }}</span>
               <span>{{ courseTeacher(course) }}</span>
-              <span>{{ courseRating(course) }} 分</span>
+              <span v-if="courseRating(course)">{{ courseRating(course) }} 分</span>
             </div>
           </div>
           <div class="course-card__footer">
@@ -164,29 +171,58 @@
               <span>{{ courseProgressPercent(course) }}%</span>
               <small>{{ courseProgressPercent(course) > 0 ? '已完成' : '待开始' }}</small>
             </div>
-            <div class="progress-track">
+            <div
+              class="progress-track"
+              role="progressbar"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              :aria-valuenow="courseProgressPercent(course)"
+              :aria-label="`${course.name}学习进度`"
+            >
               <i :style="{ width: `${courseProgressPercent(course)}%` }" />
             </div>
-            <button type="button" @click.stop="goToCourseDetail(course.id)">
+            <span class="course-card__action" aria-hidden="true">
               {{ courseProgressPercent(course) > 0 ? '继续学习' : '开始学习' }}
-            </button>
+            </span>
           </div>
         </article>
       </div>
 
-      <div
+      <nav
         v-if="!loading && displayCourses.length > 0"
         class="pagination-container"
+        aria-label="课程分页"
       >
-        <a-pagination
-          :current="pagination.current"
-          :page-size="pagination.pageSize"
-          :total="pagination.total"
-          show-total
-          @change="handlePageChange"
-          @page-size-change="handlePageSizeChange"
-        />
-      </div>
+        <button
+          type="button"
+          :disabled="pagination.current <= 1"
+          aria-label="上一页"
+          @click="handlePageChange(pagination.current - 1)"
+        >
+          上一页
+        </button>
+        <ol>
+          <li v-for="page in pageCount" :key="page">
+            <button
+              type="button"
+              :class="{ active: pagination.current === page }"
+              :aria-current="pagination.current === page ? 'page' : undefined"
+              :aria-label="`第 ${page} 页`"
+              @click="handlePageChange(page)"
+            >
+              {{ page }}
+            </button>
+          </li>
+        </ol>
+        <button
+          type="button"
+          :disabled="pagination.current >= pageCount"
+          aria-label="下一页"
+          @click="handlePageChange(pagination.current + 1)"
+        >
+          下一页
+        </button>
+      </nav>
     </section>
   </ZyPageShell>
 </template>
@@ -230,17 +266,31 @@
     pageSize: 6,
     total: scenarioCourses.length,
   });
+  const pageCount = computed(() =>
+    Math.max(1, Math.ceil(pagination.value.total / pagination.value.pageSize))
+  );
 
   const totalCourses = computed(
-    () => pagination.value.total || scenarioCourses.length || 23
+    () => pagination.value.total || sourceCourses.value.length
   );
   const learningCount = computed(() => {
     const count = scenarioCourses.filter((c) => {
       const p = scenarioCourseMetrics[c.id]?.progress ?? 0;
       return p > 0 && p < 100;
     }).length;
-    return count || 12;
+    return count;
   });
+
+  const resumeCourse = computed(() => {
+    const candidates = sourceCourses.value
+      .map((course) => ({ course, progress: courseProgressPercent(course) }))
+      .filter((item) => item.progress > 0 && item.progress < 100)
+      .sort((a, b) => b.progress - a.progress);
+    return candidates[0]?.course;
+  });
+  const resumeProgress = computed(() =>
+    resumeCourse.value ? courseProgressPercent(resumeCourse.value) : 0
+  );
 
   function applyScenarioCoursesPage() {
     const q = (searchQuery.value || '').trim().toLowerCase();
@@ -355,12 +405,6 @@
     loadCourses();
   }
 
-  function handlePageSizeChange(pageSize: number) {
-    pagination.value.pageSize = pageSize;
-    pagination.value.current = 1;
-    loadCourses();
-  }
-
   function goToCourseDetail(courseId: string) {
     router.push({
       name: 'StudentCourseHome',
@@ -379,12 +423,12 @@
 
   function courseTeacher(course: Course) {
     const c = course as any;
-    return c.teacher_name || scenarioCourseMetrics[course.id]?.teacher || '智屿教师';
+    return c.teacher_name || scenarioCourseMetrics[course.id]?.teacher || '课程团队';
   }
 
   function courseRating(course: Course) {
     const c = course as any;
-    return c.rating || scenarioCourseMetrics[course.id]?.rating || '4.6';
+    return c.rating || '';
   }
 
   function courseDepartment(course: Course) {
@@ -407,7 +451,7 @@
 </script>
 
 <style scoped lang="less">
-  @brand: var(--zy-color-brand, #6366f1);
+  @brand: #4f46e5;
   @text-primary: var(--zy-color-text-primary, #0f172a);
   @text-secondary: var(--zy-color-text-secondary, #64748b);
   @line: rgba(15, 23, 42, 0.08);
@@ -637,8 +681,14 @@
 
       &:focus-within {
         z-index: 1;
-        border-color: @brand;
+        border-color: #94a3b8;
+        box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.08);
       }
+    }
+
+    :deep(.arco-input),
+    :deep(.arco-input::placeholder) {
+      color: #475569;
     }
   }
 
@@ -680,23 +730,23 @@
     gap: 8px;
   }
 
-  :deep(.toolbar-select.arco-select) {
+  .toolbar-select {
     width: 112px;
-    flex: 0 0 112px;
-  }
-
-  :deep(.toolbar-select--sort.arco-select) {
-    width: 132px;
-    flex-basis: 132px;
-  }
-
-  :deep(.toolbar-select.arco-select .arco-select-view) {
     height: 34px;
-    border-color: #e0e4ed;
+    flex: 0 0 112px;
+    padding: 0 28px 0 12px;
+    border: 1px solid #e0e4ed;
     border-radius: 999px;
     background: #fff;
     color: #475569;
     box-shadow: none;
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  .toolbar-select--sort {
+    width: 132px;
+    flex-basis: 132px;
   }
 
   .skeleton-grid {
@@ -870,25 +920,24 @@
     gap: 10px;
     padding: 0 14px 13px;
 
-    button {
+    .course-card__action {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       height: 32px;
       padding: 0 12px;
       border: 1px solid rgba(99, 102, 241, 0.18);
       border-radius: 999px;
       color: @brand;
       background: #eef2ff;
-      cursor: pointer;
+      cursor: inherit;
       font-size: 12px;
       font-weight: 700;
       transition: transform 150ms ease, background 150ms ease;
 
-      &:hover {
+      .course-card:hover & {
         color: #fff;
         background: #4f46e5;
-      }
-
-      &:active {
-        transform: scale(0.98);
       }
     }
   }
@@ -958,15 +1007,41 @@
 
   .pagination-container {
     display: flex;
+    align-items: center;
     justify-content: center;
+    gap: 8px;
     margin-top: 20px;
     padding: 4px 0 2px;
-  }
 
-  :deep(.arco-pagination-item-active) {
-    border-color: @brand !important;
-    background-color: @brand !important;
-    color: #fff !important;
+    ol {
+      display: flex;
+      gap: 6px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    button {
+      min-width: 34px;
+      height: 34px;
+      padding: 0 10px;
+      border: 1px solid #e0e4ed;
+      border-radius: 8px;
+      color: #475569;
+      background: #fff;
+      cursor: pointer;
+
+      &.active {
+        border-color: @brand;
+        color: #fff;
+        background: @brand;
+      }
+
+      &:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+    }
   }
 
   @media (max-width: 1120px) {
@@ -1012,8 +1087,8 @@
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    :deep(.toolbar-select.arco-select),
-    :deep(.toolbar-select--sort.arco-select) {
+    .toolbar-select,
+    .toolbar-select--sort {
       min-width: 120px;
       flex: 1 1 120px;
     }
@@ -1179,7 +1254,7 @@
     font-size: 12px;
   }
 
-  :deep(.toolbar-select.arco-select .arco-select-view) {
+  .toolbar-select {
     height: 30px;
     font-size: 12px;
   }
@@ -1283,7 +1358,7 @@
     font-size: 16px;
   }
 
-  .course-card__footer button {
+  .course-card__footer .course-card__action {
     height: 29px;
     padding: 0 10px;
     font-size: 11px;

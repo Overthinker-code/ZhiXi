@@ -4,12 +4,15 @@ import os
 import shutil
 from pathlib import Path
 from datetime import datetime, timezone
+from uuid import UUID
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from app.api import deps
 from app.api.deps import CurrentUser
+from app.models import User
 from app.core.config import settings
 from app.services.digital_human_assets import digital_human_asset_service
 from app.services.digital_human_service import digital_human_service
@@ -54,6 +57,35 @@ def _ensure_async_result():
         )
 
 
+def _require_job_access(task_id: str, current_user: User) -> UUID:
+    owner_id = digital_human_service.job_owner_id(task_id)
+    if owner_id is None or (
+        not current_user.is_superuser and owner_id != current_user.id
+    ):
+        raise HTTPException(status_code=404, detail="未找到数字人任务")
+    return owner_id
+
+
+def _require_artifact_access(
+    *,
+    filename: str,
+    current_user: User | None,
+    ticket: str | None,
+) -> UUID:
+    owner_id = digital_human_service.artifact_owner_id(filename)
+    if owner_id is None:
+        raise HTTPException(status_code=404, detail="未找到数字人作品")
+    if current_user is not None and (
+        current_user.is_superuser or current_user.id == owner_id
+    ):
+        return owner_id
+    if ticket and digital_human_service.verify_artifact_ticket(
+        filename=filename, ticket=ticket
+    ) == owner_id:
+        return owner_id
+    raise HTTPException(status_code=404, detail="未找到数字人作品")
+
+
 @router.post("/jobs/text-to-video")
 def create_text_to_video_job(
     request: TextToVideoRequest,
@@ -61,6 +93,7 @@ def create_text_to_video_job(
 ):
     try:
         return digital_human_service.create_text_job(
+            owner_id=current_user.id,
             text=request.text,
             voice_id=request.voice_id,
             digital_human_id=request.digital_human_id,
@@ -80,6 +113,7 @@ async def create_ppt_to_video_job(
 ):
     try:
         return await digital_human_service.create_ppt_job(
+            owner_id=current_user.id,
             file=file,
             voice_id=voice_id,
             digital_human_id=digital_human_id,
@@ -96,6 +130,7 @@ def get_digital_human_job_status(
     task_id: str,
     current_user: CurrentUser,
 ):
+    owner_id = _require_job_access(task_id, current_user)
     _ensure_async_result()
     task = AsyncResult(task_id, app=celery)
     if task.state == "PENDING":
@@ -119,13 +154,29 @@ def get_digital_human_job_status(
                 "message": result.get("message") or "渲染失败",
                 "stage": result.get("stage") or "failed",
             }
+        video_name = f"{task_id}.mp4"
+        script_name = f"{task_id}_script.json"
+        video_url = (
+            digital_human_service.signed_artifact_url(
+                filename=video_name, owner_id=owner_id
+            )
+            if (Path(settings.DIGITAL_HUMAN_OUTPUT_DIR) / video_name).is_file()
+            else None
+        )
+        script_url = (
+            digital_human_service.signed_artifact_url(
+                filename=script_name, owner_id=owner_id
+            )
+            if (Path(settings.DIGITAL_HUMAN_OUTPUT_DIR) / script_name).is_file()
+            else None
+        )
         return {
             "status": "success",
             "progress": _normalize_progress(result.get("progress") or 100, success=True),
             "message": result.get("message") or "渲染完成",
             "stage": result.get("stage") or "done",
-            "video_url": result.get("video_url"),
-            "script_url": result.get("script_url"),
+            "video_url": video_url,
+            "script_url": script_url,
             "render_engine": result.get("render_engine"),
             "gesture_timeline": result.get("gesture_timeline") or [],
         }
@@ -140,28 +191,40 @@ def get_digital_human_job_status(
 
 
 @router.get("/media/{filename}")
-def stream_digital_human_media(filename: str):
-    safe_name = os.path.basename(filename)
-    file_path = Path(settings.DIGITAL_HUMAN_OUTPUT_DIR) / safe_name
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="生成视频不存在")
+def stream_digital_human_media(
+    filename: str,
+    ticket: str | None = Query(default=None),
+    current_user: User | None = Depends(deps.get_optional_current_user),
+):
+    _require_artifact_access(
+        filename=filename, current_user=current_user, ticket=ticket
+    )
+    file_path = Path(settings.DIGITAL_HUMAN_OUTPUT_DIR) / filename
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="未找到数字人作品")
     return FileResponse(
         file_path,
         media_type="video/mp4",
-        filename=safe_name,
+        filename=filename,
     )
 
 
 @router.get("/scripts/{filename}")
-def stream_digital_human_script(filename: str):
-    safe_name = os.path.basename(filename)
-    file_path = Path(settings.DIGITAL_HUMAN_OUTPUT_DIR) / safe_name
-    if file_path.suffix.lower() != ".json" or not file_path.exists():
-        raise HTTPException(status_code=404, detail="生成脚本不存在")
+def stream_digital_human_script(
+    filename: str,
+    ticket: str | None = Query(default=None),
+    current_user: User | None = Depends(deps.get_optional_current_user),
+):
+    _require_artifact_access(
+        filename=filename, current_user=current_user, ticket=ticket
+    )
+    file_path = Path(settings.DIGITAL_HUMAN_OUTPUT_DIR) / filename
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="未找到数字人作品")
     return FileResponse(
         file_path,
         media_type="application/json",
-        filename=safe_name,
+        filename=filename,
     )
 
 
@@ -183,6 +246,11 @@ def list_digital_human_works(current_user: CurrentUser):
         key=lambda item: item.stat().st_mtime,
         reverse=True,
     ):
+        owner_id = digital_human_service.artifact_owner_id(video_path.name)
+        if owner_id is None or (
+            not current_user.is_superuser and owner_id != current_user.id
+        ):
+            continue
         script_path = output_dir / f"{video_path.stem}_script.json"
         title = video_path.stem
         job_type = "text"
@@ -210,9 +278,13 @@ def list_digital_human_works(current_user: CurrentUser):
                 "created_at": datetime.fromtimestamp(
                     stat.st_mtime, tz=timezone.utc
                 ).isoformat(),
-                "video_url": f"/api/digital-human/media/{video_path.name}",
+                "video_url": digital_human_service.signed_artifact_url(
+                    filename=video_path.name, owner_id=owner_id
+                ),
                 "script_url": (
-                    f"/api/digital-human/scripts/{script_path.name}"
+                    digital_human_service.signed_artifact_url(
+                        filename=script_path.name, owner_id=owner_id
+                    )
                     if script_path.exists()
                     else None
                 ),

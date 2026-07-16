@@ -1,162 +1,182 @@
 <script setup lang="ts">
   import { computed, onUnmounted, ref, watch } from 'vue';
+  import {
+    ChevronDown,
+    CircleCheck,
+    CircleStop,
+    LoaderCircle,
+    Square,
+    TriangleAlert,
+  } from 'lucide-vue-next';
   import ProcessPhaseItem from './ProcessPhaseItem.vue';
 
-  type ProcessStatus = 'idle' | 'running' | 'done' | 'error';
+  type ProcessStatus =
+    | 'idle'
+    | 'running'
+    | 'stopping'
+    | 'stopped'
+    | 'done'
+    | 'error';
 
   const props = defineProps<{
     state?: Record<string, any> | null;
     loading?: boolean;
   }>();
 
-  const open = ref(true);
-  const manuallyToggled = ref(false);
+  const emit = defineEmits<{
+    (e: 'stop'): void;
+  }>();
+
+  const open = ref(false);
   const now = ref(Date.now());
   let timer: ReturnType<typeof window.setInterval> | null = null;
 
   const process = computed(() => props.state || {});
+  const status = computed<ProcessStatus>(
+    () => String(process.value.status || 'idle') as ProcessStatus
+  );
   const phases = computed<Record<string, any>[]>(() =>
     Array.isArray(process.value.phases) ? process.value.phases : []
   );
   const tools = computed<Record<string, any>[]>(() =>
     Array.isArray(process.value.tools) ? process.value.tools : []
   );
-  const logs = computed<Record<string, any>[]>(() =>
-    Array.isArray(process.value.logs) ? process.value.logs : []
-  );
-  const status = computed<ProcessStatus>(() => String(process.value.status || 'idle') as ProcessStatus);
-  const startedAt = computed(() => Number(process.value.startedAt || phases.value[0]?.startedAt || 0));
   const answerChars = computed(() => Number(process.value.answerChars || 0));
-  const hasProcess = computed(() =>
-    status.value !== 'idle' || phases.value.length > 0 || tools.value.length > 0 || logs.value.length > 0
-  );
-  const elapsed = computed(() => {
-    if (!props.loading || !startedAt.value) return '';
-    return `${Math.max(0, Math.floor((now.value - startedAt.value) / 1000))}s`;
+  const panelId = computed(() => {
+    const runId = String(process.value.runId || 'current').replace(/[^a-zA-Z0-9_-]/g, '');
+    return `execution-trace-${runId}`;
   });
-  const activePhase = computed(() =>
-    [...phases.value].reverse().find((item) => item.status === 'running') ||
-    [...phases.value].reverse().find((item) => item.status === 'done') ||
-    null
-  );
-  const runningPhase = computed(() => [...phases.value].reverse().find((item) => item.status === 'running') || null);
-  const activeTool = computed(() =>
-    [...tools.value].reverse().find((item) => item.status === 'running') ||
-    [...tools.value].reverse().find((item) => item.status === 'done') ||
-    null
-  );
-  const runningTool = computed(() => [...tools.value].reverse().find((item) => item.status === 'running') || null);
-  const barTitle = computed(() => {
-    if (status.value === 'error') return '处理遇到问题';
-    if (status.value === 'done') return '已完成处理';
-    if (props.loading && answerChars.value > 0) return '正在输出回答';
-    if (runningTool.value?.title) return '正在工具调用';
-    if (runningPhase.value?.title?.includes('检索')) return '正在检索';
-    if (runningPhase.value?.title?.includes('校验')) return '正在校验输出';
-    if (
-      runningPhase.value?.title?.includes('专项练习') ||
-      runningPhase.value?.title?.includes('知识图谱') ||
-      runningPhase.value?.title?.includes('生成资源')
-    ) return '正在生成学习资源';
-    if (runningPhase.value?.title?.includes('组织')) return '正在组织回答';
-    return '正在处理';
-  });
-  const barDetail = computed(() => {
-    if (props.loading && answerChars.value > 0) {
-      return '正文正在流式生成，处理记录可展开查看。';
-    }
-    const raw =
-      process.value.currentSummary ||
-      activeTool.value?.resultSummary ||
-      activeTool.value?.text ||
-      activePhase.value?.summary ||
-      activePhase.value?.text ||
-      '正在从问题、资料和上下文中整理回答依据';
-    return String(raw).replace(/\s+/g, ' ').trim();
-  });
-  const streamItems = computed(() => {
-    const phaseItems = phases.value.map((item) => ({
-      key: `phase-${item.id}`,
-      title: item.title || '处理阶段',
-      text: item.summary || item.text || '进行中',
-      status: item.status || 'running',
-      time: item.startedAt || item.finishedAt || 0,
-    }));
-    const toolItems = tools.value.map((item) => ({
-      key: `tool-${item.tool}`,
-      title: item.title || '工具调用',
-      text: item.resultSummary || item.text || '工具正在运行',
-      status: item.status || 'running',
-      time: item.startedAt || item.finishedAt || 0,
-    }));
-    const logItems = logs.value
-      .slice(-6)
-      .map((item: Record<string, any>) => ({
-        key: `log-${item.id || item.timestamp || item.text}`,
-        title: item.title || '处理过程',
-        text: item.text,
-        status: item.status || 'running',
-        time: item.timestamp || Date.now(),
-      }));
 
-    const merged = [...phaseItems, ...toolItems, ...logItems]
-      .filter((item) => String(item.text || '').trim())
-      .sort((a, b) => Number(a.time || 0) - Number(b.time || 0));
-
-    const seen = new Set<string>();
-    return merged
-      .filter((item) => {
-        const signature = `${item.title}-${String(item.text).slice(0, 80)}`;
-        if (seen.has(signature)) return false;
-        seen.add(signature);
-        return true;
-      })
-      .slice(-12);
-  });
-  const activeKey = computed(() =>
-    [...streamItems.value].reverse().find((item) => item.status === 'running')?.key || ''
-  );
-  const hasAnswer = computed(() => answerChars.value > 0);
-
-  function toggle() {
-    manuallyToggled.value = true;
-    open.value = !open.value;
+  function timestamp(value: unknown) {
+    if (typeof value === 'number') return value;
+    const parsed = Date.parse(String(value || ''));
+    return Number.isFinite(parsed) ? parsed : 0;
   }
+
+  function inferCategory(item: Record<string, any>, isTool = false) {
+    if (item.category) return String(item.category);
+    if (isTool) return String(item.tool || '').includes('retriev') ? 'retrieval' : 'tool';
+    const key = `${item.id || ''} ${item.title || ''}`.toLowerCase();
+    if (/retriev|检索|资料|引用/.test(key)) return 'retrieval';
+    if (/verify|safe|校验|检查/.test(key)) return 'safety';
+    if (/plan|规划|选择能力/.test(key)) return 'plan';
+    if (/understand|route|理解|识别/.test(key)) return 'route';
+    if (/compose|answer|model|组织回答|生成/.test(key)) return 'model';
+    return 'output';
+  }
+
+  const streamItems = computed(() => {
+    const phaseItems = phases.value.map((item, index) => ({
+      key: `phase-${item.traceKey || item.stepId || item.id || index}`,
+      title: item.title || '处理任务',
+      text: item.summary || item.text || (item.status === 'done' ? '已完成' : '正在处理'),
+      status: item.status || 'running',
+      category: inferCategory(item),
+      durationMs: Number(item.durationMs || 0),
+      itemCount: 0,
+      sequence: Number.isFinite(Number(item.sequence))
+        ? Number(item.sequence)
+        : Number.MAX_SAFE_INTEGER,
+      time: timestamp(item.startedAt || item.finishedAt),
+    }));
+    const toolItems = tools.value.map((item, index) => ({
+      key: `tool-${item.traceKey || item.callId || item.stepId || item.tool || index}`,
+      title: item.title || '调用学习工具',
+      text:
+        item.resultSummary ||
+        item.summary ||
+        item.text ||
+        (item.status === 'done' ? '调用完成' : '正在执行'),
+      status: item.status || 'running',
+      category: inferCategory(item, true),
+      durationMs: Number(item.durationMs || 0),
+      itemCount: Array.isArray(item.items) ? item.items.length : Number(item.itemCount || 0),
+      sequence: Number.isFinite(Number(item.sequence))
+        ? Number(item.sequence)
+        : Number.MAX_SAFE_INTEGER,
+      time: timestamp(item.startedAt || item.finishedAt),
+    }));
+
+    return [...phaseItems, ...toolItems]
+      .sort((a, b) => a.sequence - b.sequence || a.time - b.time)
+      .slice(-16);
+  });
+
+  const runningItem = computed(() =>
+    [...streamItems.value]
+      .reverse()
+      .find((item) => ['running', 'stopping'].includes(String(item.status)))
+  );
+  const activeKey = computed(() => runningItem.value?.key || '');
+  const completedCount = computed(
+    () => streamItems.value.filter((item) => item.status === 'done').length
+  );
+  const hasProcess = computed(
+    () => status.value !== 'idle' || phases.value.length > 0 || tools.value.length > 0
+  );
+  const startedAt = computed(() =>
+    timestamp(process.value.startedAt || phases.value[0]?.startedAt || tools.value[0]?.startedAt)
+  );
+  const finishedAt = computed(() => timestamp(process.value.finishedAt));
+  const elapsedSeconds = computed(() => {
+    if (!startedAt.value) return 0;
+    return Math.max(0, Math.floor(((finishedAt.value || now.value) - startedAt.value) / 1000));
+  });
+  const elapsed = computed(() => (elapsedSeconds.value ? `${elapsedSeconds.value} 秒` : ''));
+
+  const heading = computed(() => {
+    if (status.value === 'error') return '执行出现问题';
+    if (status.value === 'stopping') return '正在停止';
+    if (status.value === 'stopped') return '已停止';
+    if (status.value === 'done') return '已完成';
+    if (answerChars.value > 0) return '正在回答';
+    return '正在分析';
+  });
+  const summary = computed(() => {
+    if (status.value === 'stopping') return '正在结束模型输出和本轮工具连接';
+    if (status.value === 'stopped') return '已保留停止前生成的内容';
+    if (status.value === 'done') return process.value.currentSummary || '本轮处理完成';
+    if (status.value === 'error') return process.value.currentSummary || '部分步骤未完成';
+    return runningItem.value?.text || process.value.currentSummary || '正在准备本轮回答';
+  });
+  const statusLabel = computed(() => {
+    if (status.value === 'done') return '完成';
+    if (status.value === 'stopped') return '已停止';
+    if (status.value === 'error') return '异常';
+    return '实时';
+  });
+  const statusIcon = computed(() => {
+    if (status.value === 'done') return CircleCheck;
+    if (status.value === 'stopped') return CircleStop;
+    if (status.value === 'error') return TriangleAlert;
+    return LoaderCircle;
+  });
+  const canStop = computed(
+    () => Boolean(props.loading) && status.value === 'running'
+  );
+
+  watch(
+    () => process.value.runId,
+    () => {
+      open.value = false;
+    }
+  );
 
   watch(
     () => props.loading,
     (loading) => {
-      if (loading) {
-        if (!manuallyToggled.value) open.value = true;
-        if (!timer) {
+      if (loading && !timer) {
+        now.value = Date.now();
+        timer = window.setInterval(() => {
           now.value = Date.now();
-          timer = window.setInterval(() => {
-            now.value = Date.now();
-          }, 1000);
-        }
-      } else {
-        if (!manuallyToggled.value) open.value = false;
-        if (timer) {
-          window.clearInterval(timer);
-          timer = null;
-        }
+        }, 1000);
+      } else if (!loading && timer) {
+        window.clearInterval(timer);
+        timer = null;
       }
     },
     { immediate: true }
   );
-
-  watch(answerChars, (chars) => {
-    if (props.loading && chars > 24 && !manuallyToggled.value) {
-      open.value = false;
-    }
-  });
-
-  watch(status, (next) => {
-    if (next === 'done') {
-      open.value = false;
-      manuallyToggled.value = false;
-    }
-  });
 
   onUnmounted(() => {
     if (timer) window.clearInterval(timer);
@@ -164,221 +184,277 @@
 </script>
 
 <template>
-  <section v-if="hasProcess" class="live-process" :class="[`is-${status}`, { 'is-open': open }]">
-    <button type="button" class="live-process-bar" @click="toggle">
-      <span class="live-process-bar__dot">
-        <i v-if="status === 'done'">✓</i>
-      </span>
-      <span class="live-process-bar__title">{{ barTitle }}</span>
-      <span class="live-process-bar__detail">{{ barDetail }}</span>
-      <time v-if="elapsed">{{ elapsed }}</time>
-      <span class="live-process-bar__toggle">{{ open ? '收起' : '展开' }}</span>
-    </button>
+  <section
+    v-if="hasProcess"
+    class="execution-trace"
+    :class="[`is-${status}`, { 'is-open': open }]"
+  >
+    <div class="execution-trace__bar">
+      <button
+        type="button"
+        class="execution-trace__summary"
+        :aria-expanded="open"
+        :aria-controls="panelId"
+        @click="open = !open"
+      >
+        <component :is="statusIcon" class="execution-trace__status-icon" :size="16" />
+        <span class="execution-trace__copy">
+          <span class="execution-trace__title-row">
+            <strong>{{ heading }}</strong>
+            <time v-if="elapsed">{{ elapsed }}</time>
+          </span>
+          <span class="execution-trace__detail">{{ summary }}</span>
+        </span>
+        <ChevronDown class="execution-trace__chevron" :size="16" aria-hidden="true" />
+      </button>
+      <button
+        v-if="loading && ['running', 'stopping'].includes(status)"
+        type="button"
+        class="execution-trace__stop"
+        :disabled="!canStop"
+        :aria-label="status === 'stopping' ? '正在停止生成' : '停止生成'"
+        :title="status === 'stopping' ? '正在停止' : '停止生成'"
+        data-testid="trace-stop-generation"
+        @click="emit('stop')"
+      >
+        <Square :size="11" fill="currentColor" />
+      </button>
+    </div>
 
-    <div v-if="open" class="live-process-stream" aria-live="polite">
-      <ProcessPhaseItem
-        v-for="item in streamItems"
-        :key="item.key"
-        :title="item.title"
-        :text="item.text"
-        :status="item.status"
-        :active="item.key === activeKey"
-      />
-      <div v-if="!streamItems.length" class="live-process-empty">
-        <span />
-        <p>正在建立流式连接，等待后端处理事件。</p>
+    <div
+      v-if="open"
+      :id="panelId"
+      class="execution-trace__panel"
+      role="status"
+      aria-live="polite"
+      aria-atomic="false"
+    >
+      <header>
+        <div>
+          <strong>活动</strong>
+          <span>{{ statusLabel }}</span>
+        </div>
+        <p>展示任务和工具摘要，不展示模型内部推理</p>
+      </header>
+
+      <div v-if="streamItems.length" class="execution-trace__steps">
+        <ProcessPhaseItem
+          v-for="item in streamItems"
+          :key="item.key"
+          :title="item.title"
+          :text="item.text"
+          :status="item.status"
+          :active="item.key === activeKey"
+          :category="item.category"
+          :duration-ms="item.durationMs"
+          :item-count="item.itemCount"
+        />
       </div>
-      <div v-if="loading && hasAnswer" class="live-process-hint">回答已开始输出，处理过程将自动收敛为状态条。</div>
+      <div v-else class="execution-trace__connecting">
+        <LoaderCircle :size="15" />
+        <span>正在连接执行服务…</span>
+      </div>
+
+      <footer>
+        <span>{{ completedCount }}/{{ streamItems.length || 1 }} 项已完成</span>
+        <time v-if="elapsed">用时 {{ elapsed }}</time>
+      </footer>
     </div>
   </section>
 </template>
 
 <style scoped lang="scss">
-  .live-process {
+  .execution-trace {
     width: min(820px, 100%);
-    margin: 4px auto 14px;
+    margin: 0 auto 12px;
+    color: #475467;
   }
 
-  .live-process-bar {
-    display: inline-flex;
+  .execution-trace__bar {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    width: fit-content;
     max-width: 100%;
-    min-height: 36px;
+  }
+
+  .execution-trace__summary {
+    display: grid;
+    min-width: 0;
+    max-width: min(720px, calc(100vw - 410px));
+    min-height: 42px;
+    grid-template-columns: 20px minmax(0, 1fr) 18px;
     align-items: center;
     gap: 8px;
-    padding: 6px 11px 6px 9px;
-    border: 1px solid rgba(79, 70, 229, 0.16);
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.94);
+    padding: 5px 9px 5px 7px;
+    border: 0;
+    border-radius: 10px;
     color: #475467;
+    background: transparent;
+    text-align: left;
     cursor: pointer;
-    box-shadow: 0 8px 28px rgba(15, 23, 42, 0.04);
-    backdrop-filter: blur(8px);
-    transition:
-      border-color 0.16s ease,
-      box-shadow 0.16s ease,
-      background 0.16s ease;
+    transition: background 160ms ease;
 
-    &:hover {
-      border-color: rgba(79, 70, 229, 0.28);
-      box-shadow: 0 12px 34px rgba(15, 23, 42, 0.07);
+    &:hover,
+    &:focus-visible {
+      background: #f5f5f5;
+      outline: none;
+    }
+  }
+
+  .execution-trace__status-icon {
+    color: #667085;
+  }
+
+  .is-running .execution-trace__status-icon,
+  .is-stopping .execution-trace__status-icon {
+    animation: trace-rotate 1.4s linear infinite;
+  }
+
+  .is-done .execution-trace__status-icon { color: #067647; }
+  .is-stopped .execution-trace__status-icon { color: #667085; }
+  .is-error .execution-trace__status-icon { color: #d92d20; }
+
+  .execution-trace__copy { min-width: 0; }
+
+  .execution-trace__title-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+
+    strong {
+      color: #344054;
+      font-size: 13px;
+      font-weight: 650;
     }
 
     time {
       color: #98a2b3;
-      font-size: 12px;
+      font-size: 11px;
       font-variant-numeric: tabular-nums;
-      white-space: nowrap;
     }
   }
 
-  .live-process-bar__dot {
-    display: inline-flex;
-    width: 9px;
-    height: 9px;
-    flex: 0 0 auto;
-    align-items: center;
-    justify-content: center;
-    border-radius: 999px;
-    background: #6366f1;
-    box-shadow: 0 0 0 6px rgba(99, 102, 241, 0.1);
-    animation: process-pulse 1.35s ease-in-out infinite;
-
-    i {
-      color: #fff;
-      font-size: 7px;
-      font-style: normal;
-      line-height: 1;
-    }
-  }
-
-  .is-done .live-process-bar__dot {
-    width: 14px;
-    height: 14px;
-    background: #667085;
-    box-shadow: none;
-    animation: none;
-  }
-
-  .is-error .live-process-bar__dot {
-    background: #f04438;
-    box-shadow: 0 0 0 6px rgba(240, 68, 56, 0.1);
-    animation: none;
-  }
-
-  .live-process-bar__title {
-    color: #4f46e5;
-    font-size: 13px;
-    font-weight: 760;
-    white-space: nowrap;
-  }
-
-  .is-done .live-process-bar__title {
-    color: #475467;
-  }
-
-  .live-process-bar__detail {
-    min-width: 0;
-    max-width: min(560px, 52vw);
+  .execution-trace__detail {
+    display: block;
+    margin-top: 1px;
     overflow: hidden;
-    color: #667085;
-    font-size: 13px;
-    font-weight: 600;
+    color: #7a8494;
+    font-size: 12px;
+    line-height: 1.35;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .live-process-bar__toggle {
-    color: #4f46e5;
-    font-size: 13px;
-    font-weight: 720;
-    white-space: nowrap;
+  .execution-trace__chevron {
+    color: #98a2b3;
+    transition: transform 180ms ease;
   }
 
-  .live-process-stream {
-    position: relative;
+  .is-open .execution-trace__chevron { transform: rotate(180deg); }
+
+  .execution-trace__stop {
+    display: inline-flex;
+    flex: 0 0 auto;
+    width: 30px;
+    height: 30px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #e4e7ec;
+    border-radius: 999px;
+    color: #475467;
+    background: #fff;
+    cursor: pointer;
+    transition: border-color 160ms ease, background 160ms ease, transform 120ms ease;
+
+    &:hover:not(:disabled) {
+      border-color: #cfd4dc;
+      background: #f7f7f8;
+    }
+
+    &:active:not(:disabled) { transform: scale(0.96); }
+    &:disabled { cursor: wait; opacity: 0.55; }
+  }
+
+  .execution-trace__panel {
+    width: min(760px, 100%);
+    margin: 3px 0 0 27px;
+    padding: 12px 14px 9px;
+    border-radius: 14px;
+    background: #f7f7f8;
+    animation: trace-enter 160ms ease both;
+
+    > header,
+    > footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    > header {
+      padding: 0 1px 8px;
+      border-bottom: 1px solid #e8e9eb;
+
+      div { display: flex; align-items: center; gap: 7px; }
+      strong { color: #344054; font-size: 12px; font-weight: 680; }
+      span {
+        padding: 1px 6px;
+        border-radius: 999px;
+        color: #667085;
+        background: #e9eaed;
+        font-size: 10px;
+      }
+      p { margin: 0; color: #98a2b3; font-size: 11px; }
+    }
+
+    > footer {
+      padding: 8px 1px 0 38px;
+      border-top: 1px solid #e8e9eb;
+      color: #98a2b3;
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+    }
+  }
+
+  .execution-trace__steps {
     max-height: 300px;
-    margin-top: 10px;
-    overflow: auto;
-    padding: 14px 16px 8px;
-    border: 1px solid rgba(15, 23, 42, 0.06);
-    border-radius: 18px;
-    background:
-      radial-gradient(circle at 18% 0%, rgba(99, 102, 241, 0.065), transparent 34%),
-      linear-gradient(180deg, rgba(248, 250, 255, 0.86), rgba(255, 255, 255, 0.96));
-    box-shadow: 0 18px 48px rgba(15, 23, 42, 0.045);
-    animation: process-stream-enter 0.18s ease both;
+    overflow-y: auto;
+    padding: 5px 1px;
     scrollbar-width: thin;
   }
 
-  .live-process-empty {
+  .execution-trace__connecting {
     display: flex;
+    min-height: 44px;
     align-items: center;
-    gap: 9px;
-    min-height: 42px;
+    gap: 8px;
+    padding: 7px 4px;
     color: #667085;
-
-    span {
-      width: 8px;
-      height: 8px;
-      border-radius: 999px;
-      background: #6366f1;
-      animation: process-pulse 1.35s ease-in-out infinite;
-    }
-
-    p {
-      margin: 0;
-      font-size: 13px;
-    }
-  }
-
-  .live-process-hint {
-    margin: 3px 0 6px 27px;
-    color: #98a2b3;
     font-size: 12px;
+
+    svg { animation: trace-rotate 1.4s linear infinite; }
   }
 
-  @keyframes process-stream-enter {
-    from {
-      opacity: 0;
-      filter: blur(6px);
-      transform: translateY(8px);
-    }
-
-    to {
-      opacity: 1;
-      filter: blur(0);
-      transform: translateY(0);
-    }
+  @keyframes trace-rotate { to { transform: rotate(360deg); } }
+  @keyframes trace-enter {
+    from { opacity: 0; transform: translateY(-3px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 
-  @keyframes process-pulse {
-    0%, 100% {
-      opacity: 0.7;
-      transform: scale(0.94);
-    }
+  @media (max-width: 1280px) {
+    .execution-trace__summary { max-width: calc(100vw - 380px); }
+  }
 
-    50% {
-      opacity: 1;
-      transform: scale(1);
-    }
+  @media (max-width: 720px) {
+    .execution-trace__summary { max-width: calc(100vw - 92px); }
+    .execution-trace__panel { margin-left: 0; }
+    .execution-trace__panel > header p { display: none; }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .live-process-bar__dot,
-    .live-process-stream,
-    .live-process-empty span {
-      animation: none !important;
-      filter: none;
-    }
-  }
-
-  @media (max-width: 900px) {
-    .live-process-bar__detail {
-      max-width: 42vw;
-    }
-
-    .live-process-stream {
-      max-height: 260px;
-    }
+    .execution-trace__status-icon,
+    .execution-trace__connecting svg,
+    .execution-trace__panel { animation: none !important; }
   }
 </style>

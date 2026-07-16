@@ -32,10 +32,10 @@
     { key: 'home', label: '课程首页', desc: '概览与动态', icon: IconHome },
     { key: 'content', label: '课堂内容', desc: '章节、笔记与导图', icon: IconBook },
     { key: 'tasks', label: '任务中心', desc: '作业、测验与复习', icon: IconFile },
-    { key: 'resources', label: '课程资料', desc: '课件与资源分配', icon: IconStorage },
+    { key: 'resources', label: '课程资料', desc: '课件、讲义与学习资料', icon: IconStorage },
     { key: 'knowledge', label: '课程图谱', desc: '知识、问题与能力', icon: IconMindMapping },
-    { key: 'analytics', label: '课程学情', desc: '进度与薄弱点', icon: IconBarChart },
-    { key: 'agent', label: 'AI 课程助手', desc: '定制任务工作台', icon: IconRobot },
+    { key: 'analytics', label: '学习分析', desc: '进度与需要加强的内容', icon: IconBarChart },
+    { key: 'agent', label: 'AI 课程助手', desc: '按需完成学习任务', icon: IconRobot },
   ] as const;
 
   const activeSection = computed(() => String(route.meta.courseSection || 'home'));
@@ -73,7 +73,7 @@
   const dataCaption = computed(() => {
     const summary = workspaceData.value?.summary;
     if (!summary) return `${completedLessons.value} / ${totalLessons.value} 个课节已完成`;
-    return `${summary.plan_count} 个教学计划 · ${summary.assignment_count} 项课程作业`;
+    return `${summary.plan_count} 个学习计划 · ${summary.assignment_count} 项课程作业`;
   });
 
   function readLocalCompletedLessons(id: string) {
@@ -257,7 +257,7 @@
     gap: 7px;
     padding: 6px 8px;
     border: 0;
-    color: #7a8497;
+    color: #586274;
     background: transparent;
     font-size: 12px;
     cursor: pointer;
@@ -287,7 +287,7 @@
     span,
     small {
       margin: 0;
-      color: #8993a6;
+      color: #5b6575;
       font-size: 10px;
     }
 
@@ -305,7 +305,7 @@
     border-top: 1px solid #eceff5;
 
     strong {
-      color: #5266f6;
+      color: #4053e6;
       font-size: 12px;
     }
 
@@ -365,7 +365,7 @@
 
       small {
         margin-top: 2px;
-        color: #98a1b2;
+        color: #5b6575;
         font-size: 9px;
       }
 
@@ -420,7 +420,7 @@
     border: 0;
     border-radius: 12px;
     color: #fff;
-    background: #5367f8;
+    background: #4338ca;
     text-align: left;
     cursor: pointer;
     box-shadow: 0 8px 18px rgba(83, 103, 248, 0.2);
@@ -432,7 +432,7 @@
 
     small {
       margin-top: 2px;
-      color: rgba(255, 255, 255, 0.72);
+      color: #fff;
       font-size: 9px;
     }
   }
@@ -462,7 +462,7 @@
     nav button {
       padding: 0;
       border: 0;
-      color: #7d8799;
+      color: #586274;
       background: transparent;
       cursor: pointer;
     }
@@ -481,7 +481,7 @@
     > span {
       padding: 4px 8px;
       border-radius: 7px;
-      color: #687388;
+      color: #596579;
       background: #f1f3f7;
       font-size: 10px;
     }
@@ -494,7 +494,7 @@
       padding: 0 11px;
       border: 1px solid #dce2ff;
       border-radius: 8px;
-      color: #5367f8;
+      color: #4053e6;
       background: #f6f7ff;
       font-size: 11px;
       cursor: pointer;

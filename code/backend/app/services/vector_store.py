@@ -73,6 +73,24 @@ class VectorStore:
         metadatas = data.get("metadatas") or []
         return [m for m in metadatas if isinstance(m, dict)]
 
+    def get_documents(self, filter: Optional[dict] = None) -> List[Document]:
+        """Return persisted documents for an auditable lexical retrieval pass."""
+
+        kwargs = {
+            "include": ["documents", "metadatas"],
+            "limit": settings.RAG_LEXICAL_MAX_DOCUMENTS,
+        }
+        if filter:
+            kwargs["where"] = filter
+        data = self.db.get(**kwargs)
+        contents = data.get("documents") or []
+        metadatas = data.get("metadatas") or []
+        return [
+            Document(page_content=str(content or ""), metadata=dict(metadata or {}))
+            for content, metadata in zip(contents, metadatas)
+            if str(content or "").strip()
+        ]
+
     def delete_collection(self) -> None:
         if hasattr(self.db, "delete_collection"):
             self.db.delete_collection()

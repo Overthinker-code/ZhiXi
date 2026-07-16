@@ -1,15 +1,15 @@
-from typing import Any, List
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from sqlmodel import select, and_, or_
 import os
-import shutil
-from datetime import datetime
+import aiofiles
 
 from app import models
 from app.api import deps
 from app.core.config import settings
+from app.core.upload_security import random_storage_name, validate_upload
 from uuid import UUID
 
 router = APIRouter()
@@ -17,6 +17,37 @@ router = APIRouter()
 # 创建存储视频的目录
 UPLOAD_DIR = os.path.join(settings.BASE_PATH, "files", "videos")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+
+def _authorized_tc_ids(db: Any, current_user: models.User) -> list[UUID]:
+    """Return only teaching classes the current student is actually enrolled in."""
+    return list(
+        db.exec(
+            select(models.StudentTC.tc_id)
+            .join(models.Student, models.Student.id == models.StudentTC.student_id)
+            .where(models.Student.user_id == current_user.id)
+        ).all()
+    )
+
+
+def _can_access_video(
+    db: Any, *, current_user: models.User, video: models.Video
+) -> bool:
+    if current_user.is_superuser or video.uploader_id == current_user.id:
+        return True
+    return video.tc_id in set(_authorized_tc_ids(db, current_user))
+
+
+def _get_accessible_video(
+    db: Any, *, current_user: models.User, video_id: UUID
+) -> models.Video:
+    video = db.get(models.Video, video_id)
+    if not video or not _can_access_video(
+        db, current_user=current_user, video=video
+    ):
+        # An inaccessible object is indistinguishable from a missing object.
+        raise HTTPException(status_code=404, detail="未找到指定的视频")
+    return video
 
 
 @router.get("/", response_model=models.VideosPublic)
@@ -36,6 +67,14 @@ def read_videos(
     """
     query = select(models.Video)
     conditions = []
+
+    if not current_user.is_superuser:
+        conditions.append(
+            or_(
+                models.Video.uploader_id == current_user.id,
+                models.Video.tc_id.in_(_authorized_tc_ids(db, current_user)),
+            )
+        )
 
     if title:
         conditions.append(models.Video.title.contains(title))
@@ -58,7 +97,13 @@ def read_videos(
 
     total = len(db.exec(count_query).all())
 
-    return models.VideosPublic(data=videos, count=total)
+    return models.VideosPublic(
+        data=[
+            models.VideoPublic.model_validate(video, from_attributes=True)
+            for video in videos
+        ],
+        count=total,
+    )
 
 
 @router.post("/", response_model=models.VideoPublic)
@@ -89,25 +134,29 @@ async def create_video(
             detail="周次必须在1到20之间",
         )
 
-    # 生成唯一的文件名
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    file_extension = os.path.splitext(file.filename)[1]
-    unique_filename = f"{timestamp}_{file.filename}"
+    safe_name, file_extension = await validate_upload(
+        file, allowed_extensions={".mp4", ".webm"}
+    )
+    unique_filename = random_storage_name(file_extension)
     file_path = os.path.join("videos", unique_filename)
     abs_file_path = os.path.join(UPLOAD_DIR, unique_filename)
 
     # 保存文件
-    with open(abs_file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    # 获取文件大小
-    file_size = os.path.getsize(abs_file_path)
+    file_size = 0
+    async with aiofiles.open(abs_file_path, "wb") as buffer:
+        while chunk := await file.read(1024 * 1024):
+            file_size += len(chunk)
+            if file_size > settings.MAX_UPLOAD_SIZE:
+                await buffer.close()
+                os.remove(abs_file_path)
+                raise HTTPException(status_code=413, detail="Uploaded file is too large")
+            await buffer.write(chunk)
 
     # 创建视频记录
     video = models.Video(
         title=title,
         file_path=file_path,
-        file_name=file.filename,
+        file_name=safe_name,
         file_size=file_size,
         content_type=file.content_type,
         tc_id=tc_id,
@@ -132,14 +181,9 @@ def read_video(
     """
     通过ID获取视频信息。
     """
-    video = db.get(models.Video, video_id)
-    if not video:
-        raise HTTPException(
-            status_code=404,
-            detail="未找到指定的视频",
-        )
-
-    return video
+    return _get_accessible_video(
+        db, current_user=current_user, video_id=video_id
+    )
 
 
 @router.get("/{video_id}/download")
@@ -152,12 +196,9 @@ def download_video(
     """
     下载视频文件。
     """
-    video = db.get(models.Video, video_id)
-    if not video:
-        raise HTTPException(
-            status_code=404,
-            detail="未找到指定的视频",
-        )
+    video = _get_accessible_video(
+        db, current_user=current_user, video_id=video_id
+    )
 
     file_path = os.path.join(UPLOAD_DIR, os.path.basename(video.file_path))
     if not os.path.exists(file_path):

@@ -1,5 +1,5 @@
 <template>
-  <ZyPageShell title="用户设置" subtitle="管理个人资料、账号安全与实名认证">
+  <ZyPageShell title="个人设置" subtitle="管理个人资料与账号信息">
     <ZyPageEnter>
       <section class="profile-header zy-stagger-child">
         <a-avatar :size="96" class="profile-avatar">
@@ -11,16 +11,15 @@
         <div class="profile-meta-block">
           <h2>{{ displayName }}</h2>
           <div class="meta-row">
-            <span>账号 ID：{{ userStore.accountId || '—' }}</span>
+            <span>智屿账号：{{ displayName }}</span>
             <span v-if="userStore.email">邮箱：{{ userStore.email }}</span>
           </div>
           <div class="verify-row">
-            <a-tag color="green" size="small">
+            <a-tag :color="isCertified ? 'green' : 'gray'" size="small">
               <template #icon><icon-check-circle /></template>
-              实名认证 · 已认证
+              {{ isCertified ? '身份信息已认证' : '身份信息未认证' }}
             </a-tag>
             <span v-if="userStore.registrationDate">注册于 {{ userStore.registrationDate }}</span>
-            <span>最近更新：今天</span>
           </div>
         </div>
       </section>
@@ -91,46 +90,44 @@
             <template #title>安全设置</template>
             <div class="setting-row">
               <div>
-                <strong>登录密码</strong>
-                <p>定期更新密码可提升账号安全</p>
+                <strong>登录安全</strong>
+                <p>密码与登录验证由统一账号服务管理。</p>
               </div>
-              <a-button type="outline" @click="router.push('/login')">修改密码</a-button>
             </div>
             <div class="setting-row">
               <div>
                 <strong>手机号</strong>
                 <p>{{ userStore.phone || '未绑定' }}</p>
               </div>
-              <a-button type="text">绑定</a-button>
-            </div>
-            <div class="setting-row">
-              <div>
-                <strong>两步验证</strong>
-                <p>开启后登录需额外验证码</p>
-              </div>
-              <a-switch v-model="securityPrefs.twoFactor" />
             </div>
           </a-card>
 
           <a-card v-show="activeSection === 'verify'" class="card-block form-card">
             <template #title>实名认证</template>
-            <div class="verify-card">
+            <div v-if="isCertified" class="verify-card">
               <icon-check-circle class="verify-icon" />
               <div>
                 <strong>已完成实名认证</strong>
                 <p>你的账号已通过身份核验，可正常使用全部学习功能。</p>
               </div>
             </div>
-            <div class="setting-row">
+            <div v-else class="verify-card verify-card--pending">
+              <icon-info-circle class="verify-icon" />
+              <div>
+                <strong>尚未完成身份认证</strong>
+                <p>当前学习功能不受影响；如后续需要认证，平台会在这里提供指引。</p>
+              </div>
+            </div>
+            <div v-if="isCertified" class="setting-row">
               <div>
                 <strong>认证姓名</strong>
                 <p>{{ displayName }}</p>
               </div>
             </div>
-            <div class="setting-row">
+            <div v-if="isCertified" class="setting-row">
               <div>
                 <strong>认证时间</strong>
-                <p>{{ userStore.registrationDate || '2024-09-01' }}</p>
+                <p>{{ userStore.registrationDate || '以认证记录为准' }}</p>
               </div>
             </div>
           </a-card>
@@ -140,7 +137,20 @@
           <a-card class="card-block widget-card">
             <template #title>资料完整度</template>
             <div class="completeness-wrap">
-              <a-progress type="circle" :percent="profileCompleteness" :width="100" />
+              <a-progress
+                aria-hidden="true"
+                type="circle"
+                :percent="profileCompleteness"
+                :width="100"
+              />
+              <span
+                class="zy-sr-only"
+                role="progressbar"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                :aria-valuenow="profileCompleteness"
+                :aria-label="`个人资料完整度 ${profileCompleteness}%`"
+              >个人资料完整度 {{ profileCompleteness }}%</span>
               <p>完善资料可获得更多个性化推荐</p>
             </div>
           </a-card>
@@ -157,12 +167,7 @@
 
           <a-card class="card-block widget-card">
             <template #title>最近活动</template>
-            <ul class="activity-list">
-              <li v-for="item in recentActivities" :key="item.text">
-                <span class="activity-time">{{ item.time }}</span>
-                <span>{{ item.text }}</span>
-              </li>
-            </ul>
+            <p class="activity-empty">完成资料修改后，相关记录会显示在这里。</p>
           </a-card>
         </a-col>
       </a-row>
@@ -173,12 +178,11 @@
 <script lang="ts" setup>
   import { computed, reactive, ref } from 'vue';
   import { Message } from '@arco-design/web-vue';
-  import { useRouter } from 'vue-router';
   import { useUserStore } from '@/store';
 
   const userStore = useUserStore();
-  const router = useRouter();
   const displayName = computed(() => userStore.name || '同学');
+  const isCertified = computed(() => userStore.certification === 1);
   const activeSection = ref('basic');
 
   const tabs = [
@@ -196,10 +200,6 @@
     introduction: userStore.introduction || '',
   });
 
-  const securityPrefs = reactive({
-    twoFactor: false,
-  });
-
   const profileCompleteness = computed(() => {
     let score = 40;
     if (formData.nickname) score += 15;
@@ -211,15 +211,9 @@
   });
 
   const securityTips = [
-    '建议每 90 天更新一次登录密码',
-    '不要在公共设备上保持登录状态',
-    '绑定手机号可提升账号找回成功率',
-  ];
-
-  const recentActivities = [
-    { time: '今天', text: '更新了个人简介' },
-    { time: '昨天', text: '完成学情诊断更新' },
-    { time: '3 天前', text: '登录智屿学习平台' },
+    '请勿向他人透露验证码或登录凭据',
+    '使用公共设备后请及时退出账号',
+    '如发现异常登录，请联系平台管理员',
   ];
 
   function handleSaveBasic() {
@@ -381,6 +375,17 @@
     }
   }
 
+  .verify-card--pending {
+    background: #f8fafc;
+    border-color: #e2e8f0;
+
+    .verify-icon,
+    strong,
+    p {
+      color: var(--zy-color-text-secondary);
+    }
+  }
+
   .completeness-wrap {
     display: flex;
     flex-direction: column;
@@ -438,6 +443,13 @@
   .activity-time {
     font-size: 11px;
     color: var(--zy-color-text-secondary);
+  }
+
+  .activity-empty {
+    margin: 0;
+    color: var(--zy-color-text-secondary);
+    font-size: 13px;
+    line-height: 1.7;
   }
 
   @media (max-width: 900px) {

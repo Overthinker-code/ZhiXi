@@ -82,11 +82,12 @@ const PROFILE: AppRouteRecordRaw = {
     {
       path: 'basic',
       name: 'Basic',
-      component: () => import('@/views/profile/basic/index.vue'),
+      redirect: '/profile/user-info',
       meta: {
-        locale: 'menu.profile.basic',
+        locale: '个人资料',
         requiresAuth: true,
         roles: ['*'],
+        hideInMenu: true,
       },
     },
   ],

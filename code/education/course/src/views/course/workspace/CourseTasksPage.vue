@@ -104,7 +104,7 @@
     <header class="section-heading">
       <div>
         <h1>任务中心</h1>
-        <p>按截止时间查看作业、测验和复习任务；点击任务查看执行步骤和 AI 检查。</p>
+        <p>按截止时间查看作业、测验和复习任务；点击任务查看完成步骤和智能复查。</p>
       </div>
       <button type="button" @click="assistantDrawerVisible = true">
         <icon-robot /> 任务助手
@@ -125,7 +125,7 @@
       <article class="task-summary__focus">
         <span>建议投入</span>
         <strong>45<small> 分钟</small></strong>
-        <small>完成一次学习闭环</small>
+        <small>完成一轮学习与复盘</small>
       </article>
     </div>
 
@@ -138,6 +138,7 @@
               :key="filter.key"
               type="button"
               :class="{ active: activeFilter === filter.key }"
+              :aria-pressed="activeFilter === filter.key"
               @click="activeFilter = filter.key"
             >
               {{ filter.label }}
@@ -155,7 +156,12 @@
               `task-row--${task.status}`,
               { active: selectedTask?.id === task.id }
             ]"
+            role="button"
+            tabindex="0"
+            :aria-label="`${task.title}，${taskStatusLabel(task.status)}，进度 ${task.progress}%，查看详情`"
             @click="selectTask(task.id, true)"
+            @keydown.enter="selectTask(task.id, true)"
+            @keydown.space.prevent="selectTask(task.id, true)"
           >
             <span class="task-status">
               <icon-check-circle v-if="task.status === 'done'" />
@@ -175,7 +181,13 @@
             </div>
             <div class="task-progress">
               <span>{{ task.progress }}%</span>
-              <div><i :style="{ width: `${task.progress}%` }"></i></div>
+              <div
+                role="progressbar"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                :aria-valuenow="task.progress"
+                :aria-label="`${task.title}完成进度`"
+              ><i :style="{ width: `${task.progress}%` }"></i></div>
             </div>
             <span class="task-row__cta">详情</span>
           </article>
@@ -213,7 +225,7 @@
           <ul>
             <li>任务要求是否已经明确</li>
             <li>是否留下可复盘的错因或笔记</li>
-            <li>需要时生成一次结构化检查</li>
+            <li>需要时请 AI 帮你复查</li>
           </ul>
         </details>
         <div class="task-detail__actions">
@@ -239,7 +251,7 @@
         <section class="assistant-panel">
           <div class="assistant-panel__head">
             <span>本周任务</span>
-            <p>只保留能推动行动的辅助能力，默认不占用主屏。</p>
+            <p>集中查看本周最需要处理的任务。</p>
           </div>
           <div class="assistant-stats">
             <article>
@@ -292,12 +304,12 @@
         <section class="assistant-panel">
           <div class="assistant-panel__head">
             <span>提交检查</span>
-            <p>保持任务完成质量，不在列表中堆额外说明。</p>
+            <p>提交前快速确认任务是否完整。</p>
           </div>
           <ul class="assistant-checklist">
             <li>任务要求是否已经明确</li>
             <li>是否留下可复盘的错因或笔记</li>
-            <li>是否需要生成一次结构化检查</li>
+            <li>是否需要请 AI 帮你复查</li>
           </ul>
         </section>
       </div>

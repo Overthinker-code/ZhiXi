@@ -1,7 +1,9 @@
+import asyncio
 import json
+import time
 from datetime import datetime
 from typing import Any, Optional
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
@@ -14,6 +16,8 @@ from app.core.db import engine
 from app.services.behavior_analysis import behavior_service
 from app.services.behavior_ws import behavior_ws_service, FrameMessage
 from app.models import TokenPayload
+from app.core.config import settings
+from app.core.upload_security import read_upload_limited, validate_upload
 
 router = APIRouter()
 
@@ -87,7 +91,8 @@ async def analyze_image(
     分析单张图片中的学生行为
     """
     try:
-        image_data = await file.read()
+        await validate_upload(file, allowed_extensions={".jpg", ".jpeg", ".png"})
+        image_data = await read_upload_limited(file, max_bytes=10 * 1024 * 1024)
         result = await behavior_service.analyze_image(image_data)
 
         if result["status"] == "error":
@@ -133,7 +138,8 @@ async def analyze_video(
     - sample_interval: 采样间隔（帧数），默认30帧
     """
     try:
-        video_data = await file.read()
+        await validate_upload(file, allowed_extensions={".mp4", ".webm"})
+        video_data = await read_upload_limited(file)
         # 传入 course_id 触发数据库持久化（CourseEngagementRecord + BehaviorSummaryRecord）
         result = await behavior_service.analyze_video(
             video_data, sample_interval, course_id=course_id
@@ -311,7 +317,7 @@ async def get_behavior_definitions(
 # ---------------------------------------------------------------------------
 # WebSocket 实时行为检测接口
 # 后端2 —— 张伟杰
-# 路径: WS /api/v1/behavior/ws/realtime?course_id=<uuid>&token=<jwt>
+# JWT 优先通过 Sec-WebSocket-Protocol 传递，避免出现在 URL 和访问日志中。
 # ---------------------------------------------------------------------------
 
 async def _verify_ws_token(token: str) -> Optional[models.User]:
@@ -328,6 +334,24 @@ async def _verify_ws_token(token: str) -> Optional[models.User]:
         if user and user.is_active:
             return user
     return None
+
+
+def _extract_ws_token(websocket: WebSocket, query_token: str | None) -> tuple[str | None, bool]:
+    protocols = [
+        item.strip()
+        for item in websocket.headers.get("sec-websocket-protocol", "").split(",")
+    ]
+    protocol_token = (
+        protocols[1]
+        if len(protocols) == 2 and protocols[0] == "authorization"
+        else None
+    )
+    query_allowed = (
+        settings.ENVIRONMENT == "local" and settings.WS_ALLOW_QUERY_TOKEN_IN_LOCAL
+    )
+    if query_token and not query_allowed:
+        return None, False
+    return protocol_token or query_token, bool(protocol_token)
 
 
 @router.websocket("/ws/realtime")
@@ -367,6 +391,15 @@ async def behavior_realtime_ws(
         }
     }
     """
+    origin = websocket.headers.get("origin")
+    if origin and origin.rstrip("/") not in settings.all_cors_origins:
+        await websocket.close(code=4403, reason="Origin not allowed")
+        return
+    query_token_supplied = bool(token)
+    token, used_subprotocol = _extract_ws_token(websocket, token)
+    if query_token_supplied and token is None:
+        await websocket.close(code=4401, reason="Query token authentication is disabled")
+        return
     if not token:
         await websocket.close(code=4401, reason="Missing token")
         return
@@ -375,11 +408,23 @@ async def behavior_realtime_ws(
         await websocket.close(code=4401, reason="Invalid token")
         return
 
-    await websocket.accept()
+    await websocket.accept(subprotocol="authorization" if used_subprotocol else None)
 
     try:
+        message_times: list[float] = []
         while True:
-            raw_msg = await websocket.receive_text()
+            raw_msg = await asyncio.wait_for(
+                websocket.receive_text(), timeout=settings.WS_IDLE_TIMEOUT_SECONDS
+            )
+            if len(raw_msg.encode("utf-8")) > settings.WS_MAX_MESSAGE_SIZE:
+                await websocket.close(code=1009, reason="Message too large")
+                return
+            now = time.monotonic()
+            message_times = [stamp for stamp in message_times if stamp > now - 1]
+            if len(message_times) >= settings.WS_MESSAGE_RATE_PER_SECOND:
+                await websocket.close(code=4408, reason="Message rate exceeded")
+                return
+            message_times.append(now)
             try:
                 msg_dict = json.loads(raw_msg)
                 frame_msg = FrameMessage.model_validate(msg_dict)
@@ -403,6 +448,8 @@ async def behavior_realtime_ws(
     except WebSocketDisconnect:
         # 正常断开，无需处理
         pass
+    except TimeoutError:
+        await websocket.close(code=4408, reason="Idle timeout")
     except Exception as e:
         # 连接异常时尝试发送错误信息后关闭
         try:

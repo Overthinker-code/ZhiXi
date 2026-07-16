@@ -18,10 +18,10 @@
 </script>
 
 <template>
-  <ZyPageShell title="题库练习" subtitle="分层练习、错题复盘与 AI 批改联动">
+  <ZyPageShell title="题库练习" subtitle="分层练习、错题复盘与即时反馈">
     <template #actions>
       <a-button type="primary" @click="router.push({ name: 'TutorChat' })">
-        去 AI 批改
+        批改作业
       </a-button>
     </template>
 
@@ -61,7 +61,7 @@
             <a-progress :percent="Math.round(topic.avg_score * 100)" size="small" style="width: 120px" />
           </div>
         </div>
-        <a-empty v-if="!loading && !(summary?.topics?.length)" description="暂无练习记录" />
+        <a-empty v-if="!loading && !(summary?.topics?.length)" description="完成一次练习后，这里会帮你整理需要加强的主题" />
       </a-card>
     </ZyPageEnter>
   </ZyPageShell>

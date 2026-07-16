@@ -19,7 +19,6 @@
   const result = ref<WrongBookSubmitResult | null>(null);
   const activeSubject = ref('全部学科');
 
-  const answeredCount = computed(() => Object.values(answers.value).filter(Boolean).length);
   const subjectOptions = computed(() => [
     '全部学科',
     ...Array.from(new Set(items.value.map((item) => item.subject || '未分类'))).sort(
@@ -30,6 +29,11 @@
     activeSubject.value === '全部学科'
       ? items.value
       : items.value.filter((item) => (item.subject || '未分类') === activeSubject.value)
+  );
+  const answeredCount = computed(
+    () =>
+      visibleItems.value.filter((item) => Boolean(answers.value[item.question.id]))
+        .length
   );
   const resultByQuestion = computed<Record<string, QuizQuestionResult>>(() =>
     Object.fromEntries((result.value?.results || []).map((item) => [item.question_id, item]))
@@ -57,13 +61,20 @@
   }
 
   async function submit() {
-    if (answeredCount.value !== items.value.length) {
-      Message.warning('请完成全部错题后再提交');
+    if (!visibleItems.value.length) return;
+    if (answeredCount.value !== visibleItems.value.length) {
+      Message.warning('请完成当前筛选下的全部错题后再提交');
       return;
     }
+    const visibleAnswers = Object.fromEntries(
+      visibleItems.value.map((item) => [
+        item.question.id,
+        answers.value[item.question.id],
+      ])
+    );
     submitting.value = true;
     try {
-      result.value = (await submitWrongQuestionBook(answers.value)).data;
+      result.value = (await submitWrongQuestionBook(visibleAnswers)).data;
       await loadBook();
       Message.success('错题重做结果已保存，并更新个人画像');
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -154,7 +165,7 @@
       </section>
 
       <footer>
-        <span>已完成 {{ answeredCount }} / {{ items.length }} 题</span>
+        <span>已完成 {{ answeredCount }} / {{ visibleItems.length }} 题</span>
         <button v-if="!result" type="button" :disabled="submitting" @click="submit">
           {{ submitting ? '正在评估…' : '提交错题重做' }}
         </button>

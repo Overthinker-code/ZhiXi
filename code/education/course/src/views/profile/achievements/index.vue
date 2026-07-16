@@ -44,7 +44,10 @@
             <small>+{{ item.points_awarded }} 分 · {{ item.earned_at }}</small>
           </div>
         </div>
-        <a-empty v-if="!loading && !(payload?.data?.length)" description="暂无成就" />
+        <a-empty
+          v-if="!loading && !(payload?.data?.length)"
+          description="完成课程学习和练习后，这里会记录你的成长"
+        />
       </a-card>
     </ZyPageEnter>
   </div>

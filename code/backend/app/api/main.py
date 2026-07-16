@@ -27,11 +27,10 @@ from app.api.v1.endpoints import (
     resource_generation,
     ai_chat,
     student_hub,
+    knowledge_graph,
     agent_workspace,
-    student_profile,
     agent_tasks,
     learning_task,
-    knowledge_graph,
     resource_hub,
     quiz,
 )
@@ -44,12 +43,8 @@ api_router.include_router(education.router, prefix="/education", tags=["educatio
 api_router.include_router(chat_threads.router, prefix="/chat", tags=["chat"])
 api_router.include_router(chat.router, prefix="/chat", tags=["chat"])
 api_router.include_router(agent_workspace.router, prefix="/chat", tags=["agent-workspace"])
-api_router.include_router(student_profile.router, prefix="/profile", tags=["student-profile"])
 api_router.include_router(agent_tasks.router, tags=["agent-tasks"])
 api_router.include_router(learning_task.router, tags=["learning-task"])
-api_router.include_router(knowledge_graph.router, tags=["knowledge-graph"])
-api_router.include_router(resource_hub.router, prefix="/resource-hub", tags=["resource-hub"])
-api_router.include_router(quiz.router, prefix="/resource-hub", tags=["quiz"])
 api_router.include_router(file.router, prefix="/file", tags=["file"])
 api_router.include_router(rag.router, prefix="/rag", tags=["rag"])
 api_router.include_router(
@@ -62,6 +57,9 @@ api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboar
 api_router.include_router(learning_report.router, prefix="/learning-report", tags=["learning-report"])
 api_router.include_router(learning_path.router, prefix="/learning-path", tags=["learning-path"])
 api_router.include_router(student_hub.router, prefix="/student-hub", tags=["student-hub"])
+api_router.include_router(knowledge_graph.router, prefix="/knowledge-graph", tags=["knowledge-graph"])
+api_router.include_router(resource_hub.router, prefix="/resource-hub", tags=["resource-hub"])
+api_router.include_router(quiz.router, prefix="/resource-hub", tags=["quiz"])
 api_router.include_router(ai_metrics.router, prefix="/ai-metrics", tags=["ai-metrics"])
 api_router.include_router(resource_workshop.router, prefix="/resource-workshop", tags=["resource-workshop"])
 api_router.include_router(resource_generation.router, prefix="/resource-generation", tags=["resource-generation"])

@@ -9,7 +9,7 @@
     fetchStudyGroups,
   } from '@/api/student-hub';
   import { fetchCourses, type Course } from '@/api/course';
-  import { classroomCourses } from '@/data/classroomCourses';
+  import { getClassroomCourse } from '@/data/classroomCourses';
 
   const userStore = useUserStore();
   const router = useRouter();
@@ -26,24 +26,29 @@
   const courses = ref<Course[]>([]);
 
   const displayCourses = computed(() => {
-    if (courses.value.length) {
-      return courses.value.slice(0, 3).map((course, index) => ({
+    return courses.value.slice(0, 3).map((course) => {
+      const detail = getClassroomCourse(course.id);
+      return {
         id: course.id,
         name: course.name,
-        progress: [68, 42, 85][index] ?? 50,
-        nextStudy: ['第 4 章 函数式编程', '第 6 章 二叉树', '第 3 章 Vue 组件'][index] ?? '继续学习',
-      }));
-    }
-    return classroomCourses.slice(0, 3).map((course) => ({
-      id: course.id,
-      name: course.title,
-      progress: course.progress,
-      nextStudy:
-        course.chapters
+        progress: detail?.progress ?? 0,
+        nextStudy:
+          detail?.chapters
           .flatMap((chapter) => chapter.lessons)
-          .find((lesson) => lesson.status === 'pending')?.label || '继续学习',
-    }));
+          .find((lesson) => lesson.status === 'pending')?.label || '选择下一节开始学习',
+      };
+    });
   });
+
+  const userSummary = computed(() =>
+    [
+      userStore.organizationName || userStore.organization,
+      userStore.jobName || userStore.job,
+      userStore.locationName || userStore.location,
+    ]
+      .filter(Boolean)
+      .join(' · ')
+  );
 
   const activityFeed = computed(() => {
     const items = messages.value.slice(0, 3).map((m) => ({
@@ -51,12 +56,7 @@
       time: m.created_at ? new Date(m.created_at).toLocaleDateString() : '今天',
       type: m.category || '通知',
     }));
-    if (items.length) return items;
-    return [
-      { title: '完成 Python 第 3 章练习', time: '今天', type: '学习' },
-      { title: '获得「连续学习 7 天」徽章', time: '昨天', type: '成就' },
-      { title: '加入数据结构学习小组', time: '2 天前', type: '协作' },
-    ];
+    return items;
   });
 
   const weekTodos = [
@@ -78,8 +78,8 @@
       courses.value = coursesRes?.data ?? [];
       courseCount.value = coursesRes?.count ?? coursesRes?.data?.length ?? 0;
       practiceTotal.value = practice?.total_questions ?? 0;
-      studyHours.value = Math.max(1, Math.round((practice?.total_sessions ?? 3) * 1.5));
-      studyProgress.value = Math.round((practice?.correct_rate ?? 0.62) * 100);
+      studyHours.value = Math.max(0, Math.round((practice?.total_sessions ?? 0) * 1.5));
+      studyProgress.value = Math.round((practice?.correct_rate ?? 0) * 100);
       points.value = ach?.total_points ?? 0;
       messages.value = msgs;
       unread.value = msgs.filter((m) => !m.is_read).length;
@@ -115,8 +115,8 @@
             <h2>{{ userStore.name || 'student' }}</h2>
             <a-tag color="arcoblue" size="small">学生</a-tag>
           </div>
-          <p class="hero-school">智屿大学 · 计算机科学与技术 · 2022 级</p>
-          <p class="hero-quote">在知识的岛屿上，开启智慧航行。</p>
+          <p v-if="userSummary" class="hero-school">{{ userSummary }}</p>
+          <p class="hero-quote">把每次学习积累成看得见的进步。</p>
         </div>
         <a-button type="primary" class="edit-btn" @click="router.push({ name: 'ProfileUserInfo' })">
           <template #icon><icon-edit /></template>
@@ -125,28 +125,60 @@
       </section>
 
       <div class="kpi-grid zy-stagger-child">
-        <article class="kpi-card" @click="router.push({ name: 'CourseList' })">
+        <article
+          class="kpi-card"
+          role="link"
+          tabindex="0"
+          aria-label="查看我的课程"
+          @click="router.push({ name: 'CourseList' })"
+          @keydown.enter="router.push({ name: 'CourseList' })"
+          @keydown.space.prevent="router.push({ name: 'CourseList' })"
+        >
           <span class="kpi-icon"><icon-book /></span>
           <div>
             <span class="kpi-label">我的课程</span>
             <strong><MetricCountUp :value="courseCount" suffix=" 门" /></strong>
           </div>
         </article>
-        <article class="kpi-card" @click="router.push({ name: 'ProfileLearningData' })">
+        <article
+          class="kpi-card"
+          role="link"
+          tabindex="0"
+          aria-label="查看学习时长分析"
+          @click="router.push({ name: 'ProfileLearningData' })"
+          @keydown.enter="router.push({ name: 'ProfileLearningData' })"
+          @keydown.space.prevent="router.push({ name: 'ProfileLearningData' })"
+        >
           <span class="kpi-icon"><icon-clock-circle /></span>
           <div>
             <span class="kpi-label">学习时长</span>
             <strong><MetricCountUp :value="studyHours" suffix=" 小时" /></strong>
           </div>
         </article>
-        <article class="kpi-card" @click="router.push({ name: 'ProfileLearningData' })">
+        <article
+          class="kpi-card"
+          role="link"
+          tabindex="0"
+          aria-label="查看学习进度分析"
+          @click="router.push({ name: 'ProfileLearningData' })"
+          @keydown.enter="router.push({ name: 'ProfileLearningData' })"
+          @keydown.space.prevent="router.push({ name: 'ProfileLearningData' })"
+        >
           <span class="kpi-icon"><icon-bar-chart /></span>
           <div>
             <span class="kpi-label">学习进度</span>
             <strong><MetricCountUp :value="studyProgress" suffix="%" /></strong>
           </div>
         </article>
-        <article class="kpi-card" @click="router.push({ name: 'ProfileAchievements' })">
+        <article
+          class="kpi-card"
+          role="link"
+          tabindex="0"
+          aria-label="查看积分成就"
+          @click="router.push({ name: 'ProfileAchievements' })"
+          @keydown.enter="router.push({ name: 'ProfileAchievements' })"
+          @keydown.space.prevent="router.push({ name: 'ProfileAchievements' })"
+        >
           <span class="kpi-icon"><icon-trophy /></span>
           <div>
             <span class="kpi-label">积分成就</span>
@@ -161,21 +193,40 @@
           <a-button type="text" @click="router.push({ name: 'CourseList' })">全部 →</a-button>
         </div>
         <a-skeleton v-if="loading" :animation="true" />
-        <div v-else class="course-scroll">
+        <div v-else-if="displayCourses.length" class="course-scroll">
           <article
             v-for="course in displayCourses"
             :key="course.id"
             class="course-card"
+            role="link"
+            tabindex="0"
+            :aria-label="`${course.name}，当前进度 ${course.progress}%，继续学习`"
             @click="goCourse(course.id)"
+            @keydown.enter="goCourse(course.id)"
+            @keydown.space.prevent="goCourse(course.id)"
           >
             <div class="course-card__head">
               <strong>{{ course.name }}</strong>
               <span>{{ course.progress }}%</span>
             </div>
-            <a-progress :percent="course.progress" :show-text="false" size="small" />
+            <a-progress
+              aria-hidden="true"
+              :percent="course.progress"
+              :show-text="false"
+              size="small"
+            />
+            <span
+              class="zy-sr-only"
+              role="progressbar"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              :aria-valuenow="course.progress"
+              :aria-label="`${course.name}学习进度 ${course.progress}%`"
+            >{{ course.name }}学习进度 {{ course.progress }}%</span>
             <p class="course-next">下次学习：{{ course.nextStudy }}</p>
           </article>
         </div>
+        <a-empty v-else description="还没有在学课程，先去课程中心选择一门课程" />
       </section>
 
       <section class="section-card zy-stagger-child">
@@ -201,7 +252,7 @@
       <div class="bottom-grid zy-stagger-child">
         <section class="bottom-card">
           <h3>最新动态</h3>
-          <ul class="feed-list">
+          <ul v-if="activityFeed.length" class="feed-list">
             <li v-for="(item, i) in activityFeed" :key="i">
               <span class="feed-type">{{ item.type }}</span>
               <div>
@@ -210,6 +261,7 @@
               </div>
             </li>
           </ul>
+          <a-empty v-else description="完成学习任务后，这里会记录你的最新动态" />
         </section>
 
         <section class="bottom-card">
@@ -223,7 +275,7 @@
               <p>{{ item.body }}</p>
             </li>
           </ul>
-          <a-empty v-else description="暂无通知" />
+          <a-empty v-else description="暂时没有新通知" />
           <a-button type="text" long @click="router.push({ name: 'ProfileMessages' })">查看全部</a-button>
         </section>
 

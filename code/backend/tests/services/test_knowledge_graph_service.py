@@ -8,13 +8,14 @@ from app.api.v1.endpoints.ai_chat import (
     _is_knowledge_graph_intent,
     _is_resource_generation_intent,
     _knowledge_graph_context,
+    _knowledge_graph_package,
 )
 from app.models import Resource
 from app.models.knowledge_graph import KnowledgeGraph
 from app.models.user import User  # noqa: F401
 from app.models.user_memory_profile import UserMemoryProfile
 from app.schemas.knowledge_graph import KnowledgeGraphDraft
-from app.services.knowledge_graph_service import knowledge_graph_service
+from app.services.generated_knowledge_graph_service import knowledge_graph_service
 
 
 def _session() -> Session:
@@ -46,10 +47,11 @@ def test_natural_language_resource_intent_and_type_inference() -> None:
 def test_structured_graph_is_persisted_and_enriched_with_mastery(monkeypatch) -> None:
     db = _session()
     owner_id = uuid4()
+    course_id = uuid4()
     db.add(
         UserMemoryProfile(
             user_id=owner_id,
-            memory_profile={"knowledge_state": {"锁机制": 0.35}},
+            memory_profile={"mastery_map": {"锁机制": 0.35}},
         )
     )
     db.commit()
@@ -80,6 +82,7 @@ def test_structured_graph_is_persisted_and_enriched_with_mastery(monkeypatch) ->
         owner_id=owner_id,
         course="数据库",
         knowledge_point="事务",
+        course_id=course_id,
     )
 
     assert result.resource_type == "knowledge_graph"
@@ -92,6 +95,13 @@ def test_structured_graph_is_persisted_and_enriched_with_mastery(monkeypatch) ->
     assert stored.resource_id == resource.id
     assert result.resource_id == str(resource.id)
     assert resource.type == "knowledge_graph"
+    assert resource.course_id == course_id
     assert resource.content["nodes"]
     assert "nodes" in stored.graph_json and "edges" in stored.graph_json
     assert "mermaid" not in stored.graph_json
+    package = _knowledge_graph_package(result)
+    artifact = package["artifacts"][0]
+    assert artifact["course"] == "数据库"
+    assert artifact["knowledge_point"] == "事务"
+    assert artifact["graph_json"]["nodes"] == result.graph_json.model_dump()["nodes"]
+    assert artifact["graph_json"]["edges"] == result.graph_json.model_dump()["edges"]

@@ -105,8 +105,7 @@ const COURSE: AppRouteRecordRaw = {
     {
       path: 'resources',
       name: 'ResourceHub',
-      component: () =>
-        import('@/views/course/workspace/CourseResourcesPage.vue'),
+      component: () => import('@/views/course/ResourceHubPage.vue'),
       meta: {
         locale: 'AI 资料中心',
         requiresAuth: true,
@@ -145,7 +144,8 @@ const COURSE: AppRouteRecordRaw = {
         {
           path: 'home',
           name: 'StudentCourseHome',
-          component: () => import('@/views/course/courseone/index.vue'),
+          component: () =>
+            import('@/views/course/workspace/CourseAnalyticsPage.vue'),
           meta: {
             locale: '课程首页',
             requiresAuth: true,

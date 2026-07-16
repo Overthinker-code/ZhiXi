@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import base64
+import contextvars
 import json
 import mimetypes
-import os
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -12,31 +14,49 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlmodel import Session
 
 from app.ai.chat_engine import (
     resolve_stream_user_text_for_storage,
     stream_chat_events,
 )
+from app.ai.course_agent_registry import (
+    CourseAgentContract,
+    get_course_agent_contract,
+    list_course_agent_contracts,
+)
 from app.ai.chat_models import ChatRequest
 from app.ai.chat_service import resolve_system_prompt
 from app.api import deps
 from app.api.deps import CurrentUser
 from app.core.config import settings
+from app.core.upload_security import read_upload_limited, validate_upload
+from app.models import Course
 from app.providers.chat_provider import chat_provider
 from app.providers.chat_thread_provider import chat_thread_provider
 from app.schemas.chat_thread import ChatThreadCreate
 from app.schemas.resource_generation import ResourceGenerationRequest, ResourceKind
 from app.services.background_tasks import schedule_memory_profile_refresh
+from app.services.course_agent_output_guard import (
+    CourseAgentOutputGuard,
+    is_initial_quiz_request,
+)
+from app.services.content_safety_service import (
+    ContentSafetyBlockedError,
+    ContentSafetyStreamGuard,
+    content_safety_service,
+    stable_block_message,
+)
+from app.services.rag_service import RAGService
+from app.services import knowledge_graph_service
 from app.services.agent_task_service import agent_task_service
 from app.services.learning_task_service import learning_task_service
-from app.services.knowledge_graph_service import (
+from app.services.generated_knowledge_graph_service import (
     KnowledgeGraphGenerationError,
-    knowledge_graph_service,
+    knowledge_graph_service as generated_knowledge_graph_service,
 )
 from app.services.quiz_service import QuizGenerationError, quiz_service
-from app.services.rag_service import RAGService
 from app.services.reasoning_adapter import (
     ReasoningAdapterContext,
     ReasoningProcessNormalizer,
@@ -45,7 +65,10 @@ from app.services.reasoning_adapter import (
     normalize_reasoning_to_product_process,
     sanitize_visible_answer_delta,
 )
-from app.services.resource_package_service import resource_package_service
+from app.services.resource_package_service import (
+    ResourcePackagePersistenceError,
+    resource_package_service,
+)
 
 router = APIRouter()
 rag_service = RAGService()
@@ -174,18 +197,130 @@ class ResourceRequest(CamelModel):
 
 class AIChatStreamRequest(CamelModel):
     session_id: str | None = Field(default=None, alias="sessionId")
-    message: str = ""
+    message: str = Field(default="", max_length=8000)
     mode: Literal["tutor", "homework_review", "resource_generation", "deep_research"] = "tutor"
     action_id: str | None = Field(default=None, alias="actionId")
+    agent_key: str | None = Field(default=None, alias="agentKey")
     course_context: CourseContext = Field(default_factory=CourseContext, alias="courseContext")
     tools: ToolOptions = Field(default_factory=ToolOptions)
     reasoning: ReasoningOptions = Field(default_factory=ReasoningOptions)
     attachments: list[AttachmentRef] = Field(default_factory=list)
     resource_request: ResourceRequest = Field(default_factory=ResourceRequest, alias="resourceRequest")
 
+    @model_validator(mode="after")
+    def require_user_input(self) -> "AIChatStreamRequest":
+        has_message = bool(self.message.strip())
+        has_attachment = bool(self.attachments)
+        has_resource_target = bool(self.resource_request.target.strip())
+        if not has_message and not has_attachment and not (
+            self.mode == "resource_generation" and has_resource_target
+        ):
+            raise ValueError("message, attachment, or resource target is required")
+        self.message = self.message.strip()
+        return self
+
+
+_TRACE_VERSION = "1.0"
+
+
+class _ChatTraceRecorder:
+    """Add auditable timing metadata without exposing prompts or model CoT."""
+
+    _CATEGORY_BY_PHASE = {
+        "understand_problem": "route",
+        "select_capability": "plan",
+        "prepare_context": "retrieval",
+        "retrieve_knowledge": "retrieval",
+        "call_tool": "tool",
+        "generate_answer": "model",
+        "verify_output": "safety",
+        "update_learning_profile": "profile",
+        "suggest_next_step": "output",
+    }
+
+    def __init__(self, run_id: str) -> None:
+        self.run_id = run_id
+        self.sequence = 0
+        self._started: dict[str, tuple[float, str]] = {}
+
+    @staticmethod
+    def _iso_now() -> str:
+        return datetime.utcnow().isoformat(timespec="milliseconds") + "Z"
+
+    @staticmethod
+    def _safe_key(value: Any) -> str:
+        return re.sub(r"[^a-zA-Z0-9_-]+", "_", str(value or "").strip())[:80]
+
+    def _identity(self, event: str, payload: dict[str, Any]) -> tuple[str, str, str]:
+        phase_id = _phase_id(str(payload.get("phaseId") or ""))
+        if event.startswith("tool_"):
+            tool = self._safe_key(payload.get("tool") or "tool")
+            return f"tool:{tool}", "call_tool", "tool"
+        if event in {"answer_delta", "suggestions", "citation", "artifact_finished"}:
+            return "output:answer", "generate_answer", "output"
+        if event in {"run_started", "message_started", "session_created"}:
+            return "run:lifecycle", phase_id, "route"
+        if event in {"run_finished", "done"}:
+            return "run:lifecycle", phase_id, "output"
+        if event in {"safety_check", "process_sanitized"}:
+            return "phase:verify_output", "verify_output", "safety"
+        if event == "profile_update":
+            return "phase:update_learning_profile", "update_learning_profile", "profile"
+        safe_phase = self._safe_key(phase_id or event)
+        return (
+            f"phase:{safe_phase}",
+            phase_id,
+            self._CATEGORY_BY_PHASE.get(phase_id, "output"),
+        )
+
+    def enrich(self, event: str, payload: dict[str, Any]) -> dict[str, Any]:
+        enriched = dict(payload)
+        self.sequence += 1
+        now_mono = time.perf_counter()
+        now_iso = self._iso_now()
+        step_id, phase_id, category = self._identity(event, enriched)
+        enriched.setdefault("runId", self.run_id)
+        enriched.setdefault("traceVersion", _TRACE_VERSION)
+        enriched.setdefault("sequence", self.sequence)
+        enriched.setdefault("stepId", step_id)
+        enriched.setdefault("phaseId", phase_id)
+        enriched.setdefault("category", category)
+        enriched.setdefault("timestamp", now_iso)
+
+        is_started = event in {"phase_started", "tool_started", "run_started", "message_started"}
+        is_finished = event in {
+            "phase_finished",
+            "tool_result",
+            "run_finished",
+            "done",
+            "error",
+        }
+        if is_started:
+            self._started.setdefault(step_id, (now_mono, now_iso))
+            enriched.setdefault("startedAt", self._started[step_id][1])
+            enriched.setdefault("status", "running")
+        elif step_id in self._started:
+            enriched.setdefault("startedAt", self._started[step_id][1])
+
+        if is_finished:
+            started_mono, started_iso = self._started.pop(step_id, (now_mono, now_iso))
+            enriched.setdefault("startedAt", started_iso)
+            enriched.setdefault("finishedAt", now_iso)
+            enriched.setdefault("durationMs", max(0, round((now_mono - started_mono) * 1000)))
+            if event not in {"error"}:
+                enriched.setdefault("status", "done")
+        return enriched
+
+
+_trace_recorder: contextvars.ContextVar[_ChatTraceRecorder | None] = contextvars.ContextVar(
+    "chat_trace_recorder", default=None
+)
+
 
 def _sse(event: str, payload: dict[str, Any]) -> str:
-    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+    recorder = _trace_recorder.get()
+    safe_payload = recorder.enrich(event, payload) if recorder is not None else payload
+    return f"event: {event}\ndata: {json.dumps(safe_payload, ensure_ascii=False)}\n\n"
 
 
 def _now_iso() -> str:
@@ -363,10 +498,6 @@ def _phase_updated_sse(payload: dict[str, Any]) -> str:
     return _sse("phase_updated", payload)
 
 
-def _show_raw_reasoning_debug() -> bool:
-    return settings.ENVIRONMENT == "local" and os.getenv("ZHIXI_SHOW_RAW_REASONING", "").lower() == "true"
-
-
 def _safe_final_text(raw_text: str, context: ReasoningAdapterContext) -> tuple[str, bool]:
     if not raw_text:
         return "", False
@@ -380,6 +511,202 @@ def _safe_final_text(raw_text: str, context: ReasoningAdapterContext) -> tuple[s
     return guarded_fallback_answer(context), True
 
 
+def _is_resource_generation_intent(message: str) -> bool:
+    """Recognize explicit resource-creation requests from natural language.
+
+    Quiz and graph intents are included because they are resource-producing
+    agents, but their dedicated branches still run before the generic resource
+    package branch.
+    """
+
+    text = re.sub(r"\s+", "", message or "")
+    if _is_quiz_generation_intent(text) or _is_knowledge_graph_intent(text):
+        return True
+    resource_word = any(
+        word in text
+        for word in (
+            "学习资料",
+            "讲解文档",
+            "学习文档",
+            "讲义",
+            "练习题",
+            "习题",
+            "题库",
+            "专项练习",
+            "思维导图",
+            "代码案例",
+            "视频脚本",
+        )
+    )
+    action_word = any(
+        word in text
+        for word in ("生成", "创建", "制作", "整理", "给我出", "出一", "出题")
+    )
+    return resource_word and action_word
+
+
+def _infer_resource_request(message: str) -> ResourceRequest:
+    """Infer only the resource type and target; never infer learner mastery."""
+
+    text = re.sub(r"\s+", "", message or "")
+    if any(word in text for word in ("练习题", "习题", "题库", "专项练习")):
+        types = ["quiz"]
+    elif any(word in text for word in ("思维导图", "导图")):
+        types = ["mind_map"]
+    elif any(word in text for word in ("代码案例", "代码示例")):
+        types = ["code_case"]
+    elif any(word in text for word in ("视频脚本", "动画讲解脚本")):
+        types = ["video_script"]
+    else:
+        types = ["lecture_note"]
+
+    target = re.sub(r"^(?:请|请你|帮我|麻烦你|给我|我想要|我要)+", "", text)
+    target = re.sub(r"^(?:生成|创建|制作|整理|出)(?:一份|一个|一下|\d+道)?", "", target)
+    target = re.sub(
+        r"(?:的)?(?:学习资料|讲解文档|学习文档|讲义|专项练习|练习题|习题|题库|"
+        r"思维导图|导图|代码案例|代码示例|视频脚本|动画讲解脚本).*$",
+        "",
+        target,
+    )
+    target = target.strip("，。！？:：的 ") or "当前学习主题"
+    return ResourceRequest(types=types, target=target)
+
+
+def _is_quiz_generation_intent(message: str) -> bool:
+    text = re.sub(r"\s+", "", message or "")
+    quiz_word = any(
+        word in text
+        for word in (
+            "练习题", "习题", "题库", "专项练习", "测试题", "题目", "试题",
+            "试卷", "期末题", "期末考试", "模拟题", "考试题",
+        )
+    )
+    action_word = any(
+        word in text for word in ("生成", "创建", "给我出", "出题", "出一", "制作", "帮我出")
+    )
+    return quiz_word and action_word
+
+
+def _quiz_context(message: str) -> tuple[str, str, int, str]:
+    text = re.sub(r"\s+", "", message or "")
+    is_exam = any(word in text for word in ("期末", "考试", "试卷", "模拟题"))
+    count_match = re.search(r"(\d{1,2})道", text)
+    count = max(1, min(30, int(count_match.group(1)))) if count_match else 10
+    difficulty = (
+        "foundation"
+        if any(word in text for word in ("入门", "基础", "初学者", "简单"))
+        else "challenge"
+        if any(word in text for word in ("进阶", "挑战", "困难", "高难"))
+        else "standard"
+    )
+    target = re.sub(r"^(?:请|请你|帮我|麻烦你|给我|我想要|我要)+", "", text)
+    target = re.sub(r"^(?:生成|创建|制作|出)(?:一份|一套|一下|\d+道)?", "", target)
+    target = re.sub(
+        r"(?:的)?(?:期末考试题目|期末考试试题|期末题目|期末试题|期末试卷|专项练习|练习题|"
+        r"测试题|考试题|模拟题|习题|题库|试题|试卷|题目).*$",
+        "",
+        target,
+    )
+    target = re.sub(r"(?:入门|基础|初学者|简单|进阶|挑战|困难|高难)(?:版|难度)?", "", target)
+    target = target.strip("，。！？:：的 ") or "当前学习主题"
+    known_courses = (
+        ("数据库", "数据库"),
+        ("TCP", "计算机网络"),
+        ("计算机网络", "计算机网络"),
+        ("数据结构", "数据结构"),
+        ("机器学习", "机器学习"),
+        ("人工智能", "人工智能"),
+        ("计算机组成原理", "计算机组成原理"),
+        ("计算机组成", "计算机组成原理"),
+        ("Python", "Python"),
+    )
+    for prefix, course in known_courses:
+        if target.startswith(prefix):
+            point = target[len(prefix):].strip("：:的 ")
+            return course, point or ("期末综合" if is_exam else prefix), count, difficulty
+    return "通用课程", target, count, difficulty
+
+
+def _quiz_package(quiz: Any) -> dict[str, Any]:
+    payload = quiz.model_dump(mode="json")
+    artifact = {
+        "kind": "question",
+        "resource_type": "question",
+        "resource_id": payload["resource_id"],
+        "title": payload["title"],
+        "knowledge_point": payload["knowledge_point"],
+        "difficulty": payload["difficulty"],
+        "question_count": len(payload["questions"]),
+        "generated_at": _now_iso(),
+        "file_name": payload.get("file_name"),
+        "download_url": payload.get("download_url"),
+        "preview": f"包含 {len(payload['questions'])} 道结构化单选题，点击进入答题",
+    }
+    return {
+        "package_id": f"quiz-{payload['resource_id']}",
+        "resource_type": "question",
+        "resource_id": payload["resource_id"],
+        "title": payload["title"],
+        "artifacts": [artifact],
+    }
+
+
+def _is_knowledge_graph_intent(message: str) -> bool:
+    text = re.sub(r"\s+", "", message or "")
+    return any(word in text for word in ("知识图谱", "知识结构图", "概念关系图")) and any(
+        word in text for word in ("生成", "创建", "画", "绘制", "整理", "制作")
+    )
+
+
+def _knowledge_graph_context(message: str) -> tuple[str, str]:
+    text = re.sub(r"\s+", "", message or "")
+    text = re.sub(r"^(?:请|请你|帮我|麻烦你|给我|我想要|我要)+", "", text)
+    text = re.sub(r"^(?:生成|创建|画|绘制|整理|制作)(?:一个|一份|一下)?", "", text)
+    text = re.sub(r"(?:的)?(?:知识图谱|知识结构图|概念关系图).*$", "", text)
+    text = text.strip("，。！？:：的 ") or "当前知识点"
+    for prefix, course in (
+        ("数据库", "数据库"),
+        ("TCP", "计算机网络"),
+        ("计算机网络", "计算机网络"),
+        ("数据结构", "数据结构"),
+        ("机器学习", "机器学习"),
+        ("人工智能", "人工智能"),
+        ("Python", "Python"),
+    ):
+        if text.startswith(prefix):
+            point = text[len(prefix):].strip("：:的 ")
+            return course, point or prefix
+    return "通用课程", text
+
+
+def _knowledge_graph_package(graph: Any) -> dict[str, Any]:
+    payload = graph.model_dump(mode="json")
+    artifact = {
+        "kind": "knowledge_graph",
+        "resource_type": "knowledge_graph",
+        "resource_id": payload["resource_id"],
+        "graph_id": str(payload["id"]),
+        "title": payload["title"],
+        "course": payload["course"],
+        "knowledge_point": payload["knowledge_point"],
+        "root": payload["root"],
+        "graph_json": payload["graph_json"],
+        "node_count": len(payload["graph_json"]["nodes"]),
+        "edge_count": len(payload["graph_json"]["edges"]),
+        "generated_at": _now_iso(),
+        "preview": "结构化知识节点与关系，可在资料中心查看",
+    }
+    return {
+        "package_id": f"knowledge-graph-{payload['id']}",
+        "resource_type": "knowledge_graph",
+        "resource_id": payload["resource_id"],
+        "title": payload["title"],
+        "course": payload["course"],
+        "knowledge_point": payload["knowledge_point"],
+        "artifacts": [artifact],
+    }
+
+
 def _mode_label(req: AIChatStreamRequest) -> str:
     if req.mode == "homework_review" or req.tools.homework_review:
         return "作业批改"
@@ -390,7 +717,7 @@ def _mode_label(req: AIChatStreamRequest) -> str:
     if _is_knowledge_graph_intent(req.message or ""):
         return "知识图谱生成"
     if _is_resource_generation_intent(req.message or ""):
-        return "资料生成"
+        return "学习资源生成"
     if req.mode == "deep_research" or req.tools.deep_research:
         return "深度研究"
     if req.course_context.use_course_rag or req.tools.course_rag:
@@ -417,7 +744,7 @@ def _visible_tools(req: AIChatStreamRequest) -> list[str]:
     elif _is_knowledge_graph_intent(req.message or ""):
         tools.append("知识图谱 Agent")
     elif _is_resource_generation_intent(req.message or ""):
-        tools.append("资料生成 Agent")
+        tools.append("资料生成")
     if req.reasoning.level == "deep":
         tools.append("深度思考")
     return tools or ["模型回答"]
@@ -469,6 +796,31 @@ def _read_attachment_index() -> dict[str, Any]:
         return {}
 
 
+def _get_owned_attachment(
+    file_id: str,
+    current_user: CurrentUser,
+    *,
+    index: dict[str, Any] | None = None,
+    expected_session_id: str | None = None,
+    expected_course_id: str | None = None,
+    expected_type: str | None = None,
+) -> dict[str, Any]:
+    item = (index if index is not None else _read_attachment_index()).get(file_id)
+    if not isinstance(item, dict):
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    if item.get("ownerId") != str(current_user.id) and not current_user.is_superuser:
+        # Use the same response for missing and unauthorized attachments to
+        # avoid disclosing attachment identifiers across users.
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    if expected_session_id is not None and str(item.get("sessionId") or "") != expected_session_id:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    if expected_course_id is not None and str(item.get("courseId") or "") != expected_course_id:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    if expected_type is not None and str(item.get("type") or "") != expected_type:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    return item
+
+
 def _write_attachment_index(index: dict[str, Any]) -> None:
     ATTACHMENT_DIR.mkdir(parents=True, exist_ok=True)
     ATTACHMENT_INDEX.write_text(json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -493,7 +845,7 @@ def _course_title(course_id: str | None) -> str:
     for course in COURSES:
         if course["courseId"] == course_id:
             return str(course["title"])
-    return "数据库系统原理"
+    return "通用学习"
 
 
 def _chapter_title(course_id: str | None, chapter_id: str | None) -> str:
@@ -518,16 +870,47 @@ def _prior_turns(db: Session, thread_id: str, user_id: str | None) -> list[dict[
 
 
 def _ensure_session(db: Session, user_id: str | None, session_id: str | None) -> tuple[str, bool]:
-    if session_id and user_id:
-        thread = chat_thread_provider.get_by_thread_id_and_user(db, thread_id=session_id, user_id=user_id)
+    if session_id:
+        thread = (
+            chat_thread_provider.get_by_thread_id_and_user(
+                db, thread_id=session_id, user_id=user_id
+            )
+            if user_id
+            else chat_thread_provider.get_by_thread_id(db, thread_id=session_id)
+        )
         if thread:
             return thread.thread_id, False
-    if session_id:
-        thread = chat_thread_provider.get_by_thread_id(db, thread_id=session_id)
-        if thread and (not user_id or thread.user_id == user_id):
-            return thread.thread_id, False
+        # A caller-provided session id is an ownership boundary, not a hint for
+        # silently creating a replacement thread.
+        raise HTTPException(status_code=404, detail="Chat session not found")
     thread = chat_thread_provider.create_with_defaults(db, obj_in=ChatThreadCreate(), user_id=user_id)
     return thread.thread_id, True
+
+
+def _apply_course_agent_contract(req: AIChatStreamRequest) -> CourseAgentContract | None:
+    """Make the server registry authoritative for every specialized Agent run."""
+    contract = _agent_contract(req)
+    if req.agent_key and contract is None:
+        raise HTTPException(status_code=422, detail="Unknown course agent key")
+    if contract is None:
+        return None
+    if contract.execution_kind != "chat":
+        raise HTTPException(
+            status_code=422,
+            detail="This course agent must use its dedicated execution workflow",
+        )
+
+    allowed = set(contract.allowed_tools)
+    req.mode = contract.mode
+    req.course_context.use_course_rag = "knowledge_base" in allowed
+    req.tools.course_rag = "knowledge_base" in allowed
+    req.tools.web_search = "web_search" in allowed and (
+        req.tools.web_search or contract.mode == "deep_research"
+    )
+    req.tools.deep_research = contract.mode == "deep_research"
+    req.tools.homework_review = contract.mode == "homework_review"
+    req.tools.resource_generation = False
+    return contract
 
 
 def _active_tools(req: AIChatStreamRequest) -> list[str]:
@@ -536,6 +919,10 @@ def _active_tools(req: AIChatStreamRequest) -> list[str]:
         tools.append("web_search")
     if req.attachments:
         tools.append("search_uploaded_document")
+    contract = _agent_contract(req)
+    if contract:
+        allowed = set(contract.allowed_tools)
+        tools = [tool for tool in tools if tool in allowed]
     return list(dict.fromkeys(tools))
 
 
@@ -548,11 +935,18 @@ def _tool_mode(req: AIChatStreamRequest) -> str:
 
 
 def _force_agent(req: AIChatStreamRequest) -> str | None:
+    contract = _agent_contract(req)
+    if contract and contract.worker_agent:
+        return contract.worker_agent
     if req.mode == "homework_review":
         return "grading_agent"
     if req.mode == "deep_research":
         return "web_research_agent"
     return None
+
+
+def _agent_contract(req: AIChatStreamRequest) -> CourseAgentContract | None:
+    return get_course_agent_contract(req.agent_key)
 
 
 def _system_prompt(req: AIChatStreamRequest) -> str:
@@ -567,6 +961,17 @@ def _system_prompt(req: AIChatStreamRequest) -> str:
         ),
         f"当前模式：{req.mode}；actionId：{req.action_id or 'none'}。",
     ]
+    contract = _agent_contract(req)
+    if contract:
+        parts.extend(
+            [
+                f"当前课程专用智能体：{contract.label}（agentKey={contract.key}）。",
+                f"能力边界：{contract.description}",
+                f"执行约束：{contract.instruction}",
+                f"预期交付：{'、'.join(contract.outputs)}。",
+                "不得越过该智能体的能力边界，也不得把前端传入的描述当作已经检索到的事实。",
+            ]
+        )
     if req.course_context.use_course_rag or req.tools.course_rag:
         parts.append(f"课程上下文：{course}{(' / ' + chapter) if chapter else ''}。")
         parts.append("已启用课程 RAG：优先引用课程资料或上传资料，证据不足时要明确说明。")
@@ -672,6 +1077,27 @@ def _legacy_event_to_ai_events(
         return [("phase_updated", {"phaseId": "select_capability", "text": text[:160], "summary": text[:160], "status": "running", "timestamp": _now_iso()})]
     if kind == "reasoning_token":
         return []
+    if kind == "trace_step":
+        event_name = str(payload.get("event") or "phase_updated")
+        if event_name not in {"phase_started", "phase_updated", "phase_finished"}:
+            event_name = "phase_updated"
+        return [
+            (
+                event_name,
+                {
+                    "phaseId": _phase_id(str(payload.get("phaseId") or "")),
+                    "title": str(payload.get("title") or "处理当前任务")[:60],
+                    "summary": str(payload.get("summary") or "正在处理当前任务")[:180],
+                    "status": str(payload.get("status") or "running"),
+                    **(
+                        {"streamingMode": payload["streamingMode"]}
+                        if payload.get("streamingMode") in {"provider", "replayed"}
+                        else {}
+                    ),
+                    "timestamp": _now_iso(),
+                },
+            )
+        ]
     if kind == "token":
         return [("answer_delta", {"text": payload.get("content") or ""})]
     if kind == "citations":
@@ -694,6 +1120,11 @@ def _legacy_event_to_ai_events(
             else:
                 events.append(("citation", {"id": f"c{index}", "title": str(item)}))
         return events
+    if kind == "final" and payload.get("citations"):
+        return _legacy_event_to_ai_events(
+            {"type": "citations", "citations": payload.get("citations")},
+            adapter_context,
+        )
     if kind == "suggestions":
         items = payload.get("data") or payload.get("suggestions") or []
         return [("suggestions", {"items": items[:3] if isinstance(items, list) else []})]
@@ -703,21 +1134,30 @@ def _legacy_event_to_ai_events(
 
 
 def _resource_kinds(types: list[str]) -> list[ResourceKind]:
-    mapping: dict[str, ResourceKind] = {
-        "lecture_note": "lecture_markdown",
-        "document": "lecture_markdown",
-        "mind_map": "mind_map",
-        "mindmap": "mind_map",
-        "quiz": "practice_markdown",
-        "question": "practice_markdown",
-        "reading": "reading_list",
-        "code_case": "case_project",
-        "code": "case_project",
-        "video_script": "video_script",
-        "video": "video_script",
+    mapping: dict[str, list[ResourceKind]] = {
+        "lecture_note": ["lecture_markdown", "lecture_docx", "lecture_pdf"],
+        "mind_map": ["mind_map"],
+        "quiz": ["practice_markdown", "practice_docx", "practice_pdf"],
+        "reading": ["reading_list"],
+        "code_case": ["case_project"],
+        "video_script": ["video_script"],
     }
-    values = [mapping[item] for item in types if item in mapping]
-    return values or ["lecture_markdown", "practice_markdown", "mind_map", "case_project", "video_script"]
+    values: list[ResourceKind] = []
+    for item in types:
+        for kind in mapping.get(item, []):
+            if kind not in values:
+                values.append(kind)
+    return values or [
+        "lecture_markdown",
+        "lecture_docx",
+        "lecture_pdf",
+        "practice_markdown",
+        "practice_docx",
+        "practice_pdf",
+        "mind_map",
+        "case_project",
+        "video_script",
+    ]
 
 
 def _generate_resource_package(
@@ -725,27 +1165,7 @@ def _generate_resource_package(
     db: Session,
     owner_id: UUID,
 ) -> dict[str, Any]:
-    inferred = _infer_resource_request(req.message or "")
-    target = req.resource_request.target or inferred.target or req.message or "课程重点"
-    requested_types = req.resource_request.types or inferred.types
-    difficulty = {
-        "basic": "foundation",
-        "normal": "standard",
-        "advanced": "challenge",
-    }.get(req.resource_request.difficulty, "standard")
-    request = ResourceGenerationRequest(
-        course_id=UUID(req.course_context.course_id) if req.course_context.course_id else None,
-        node_id=(req.course_context.knowledge_point_ids or [""])[0] or None,
-        node_label=target[:120],
-        source="tutor-chat",
-        subject=_course_title(req.course_context.course_id),
-        topic=target[:120],
-        learning_goal=req.message[:240] if req.message else "围绕当前薄弱点生成个性化学习资源",
-        difficulty=difficulty,  # type: ignore[arg-type]
-        target_minutes=45,
-        resource_types=_resource_kinds(requested_types),
-        use_web_search=bool(req.tools.web_search),
-    )
+    request = _resource_generation_request(req)
     return resource_package_service.generate(
         db,
         request,
@@ -753,176 +1173,28 @@ def _generate_resource_package(
     ).model_dump(mode="json")
 
 
-def _is_resource_generation_intent(message: str) -> bool:
-    text = re.sub(r"\s+", "", message or "")
-    if _is_knowledge_graph_intent(text) or _is_quiz_generation_intent(text):
-        return True
-    resource_word = any(
-        word in text
-        for word in (
-            "学习资料", "讲解文档", "学习文档", "讲义", "练习题", "习题",
-            "题库", "专项练习", "思维导图", "代码案例", "视频脚本",
-        )
+def _resource_generation_request(req: AIChatStreamRequest) -> ResourceGenerationRequest:
+    inferred = _infer_resource_request(req.message)
+    requested_types = req.resource_request.types or inferred.types
+    requested_target = req.resource_request.target or inferred.target
+    difficulty = {
+        "basic": "foundation",
+        "normal": "standard",
+        "advanced": "challenge",
+    }.get(req.resource_request.difficulty, "standard")
+    return ResourceGenerationRequest(
+        course_id=UUID(req.course_context.course_id) if req.course_context.course_id else None,
+        node_id=(req.course_context.knowledge_point_ids or [""])[0] or None,
+        node_label=(requested_target or req.message or "课程重点")[:120],
+        source="tutor-chat",
+        subject=_course_title(req.course_context.course_id),
+        topic=(requested_target or req.message or "课程重点")[:120],
+        learning_goal=req.message[:240] if req.message else "围绕当前薄弱点生成个性化学习资源",
+        difficulty=difficulty,  # type: ignore[arg-type]
+        target_minutes=45,
+        resource_types=_resource_kinds(requested_types),
+        use_web_search=bool(req.tools.web_search),
     )
-    action_word = any(
-        word in text for word in ("生成", "创建", "制作", "整理", "给我出", "出一", "出10", "出20")
-    )
-    return resource_word and action_word
-
-
-def _is_quiz_generation_intent(message: str) -> bool:
-    text = re.sub(r"\s+", "", message or "")
-    quiz_word = any(
-        word in text
-        for word in (
-            "练习题", "习题", "题库", "专项练习", "测试题", "题目", "试题",
-            "试卷", "期末题", "期末考试", "模拟题", "考试题",
-        )
-    )
-    action_word = any(word in text for word in ("生成", "创建", "给我出", "出题", "出一", "制作", "帮我出"))
-    return quiz_word and action_word
-
-
-def _quiz_context(message: str) -> tuple[str, str, int, str]:
-    text = re.sub(r"\s+", "", message or "")
-    is_exam = any(word in text for word in ("期末", "考试", "试卷", "模拟题"))
-    count_match = re.search(r"(\d{1,2})道", text)
-    count = max(1, min(30, int(count_match.group(1)))) if count_match else 10
-    difficulty = (
-        "foundation"
-        if any(word in text for word in ("入门", "基础", "初学者", "简单"))
-        else "challenge"
-        if any(word in text for word in ("进阶", "挑战", "困难", "高难"))
-        else "standard"
-    )
-    target = re.sub(r"^(?:请|请你|帮我|麻烦你|给我|我想要|我要)+", "", text)
-    target = re.sub(r"^(?:生成|创建|制作|出)(?:一份|一套|一下|\d+道)?", "", target)
-    target = re.sub(
-        r"(?:的)?(?:期末考试题目|期末考试试题|期末题目|期末试题|期末试卷|专项练习|练习题|"
-        r"测试题|考试题|模拟题|习题|题库|试题|试卷|题目).*$",
-        "",
-        target,
-    )
-    target = re.sub(r"(?:入门|基础|初学者|简单|进阶|挑战|困难|高难)(?:版|难度)?", "", target)
-    target = target.strip("，。！？:：的 ") or "当前学习主题"
-    known_courses = (
-        ("数据库", "数据库"),
-        ("TCP", "计算机网络"),
-        ("计算机网络", "计算机网络"),
-        ("数据结构", "数据结构"),
-        ("机器学习", "机器学习"),
-        ("人工智能", "人工智能"),
-        ("计算机组成原理", "计算机组成原理"),
-        ("计算机组成", "计算机组成原理"),
-        ("Python", "Python"),
-    )
-    for prefix, course in known_courses:
-        if target.startswith(prefix):
-            point = target[len(prefix):].strip("：:的 ")
-            return course, point or ("期末综合" if is_exam else prefix), count, difficulty
-    return "通用课程", target, count, difficulty
-
-
-def _quiz_package(quiz) -> dict[str, Any]:
-    payload = quiz.model_dump(mode="json")
-    artifact = {
-        "kind": "question",
-        "resource_type": "question",
-        "resource_id": payload["resource_id"],
-        "title": payload["title"],
-        "knowledge_point": payload["knowledge_point"],
-        "difficulty": payload["difficulty"],
-        "question_count": len(payload["questions"]),
-        "generated_at": _now_iso(),
-        "file_name": payload.get("file_name"),
-        "download_url": payload.get("download_url"),
-        "preview": f"包含 {len(payload['questions'])} 道结构化单选题，点击进入答题",
-    }
-    return {
-        "package_id": f"quiz-{payload['resource_id']}",
-        "resource_type": "question",
-        "resource_id": payload["resource_id"],
-        "title": payload["title"],
-        "artifacts": [artifact],
-    }
-
-
-def _infer_resource_request(message: str) -> ResourceRequest:
-    text = re.sub(r"\s+", "", message or "")
-    if any(word in text for word in ("练习题", "习题", "题库", "专项练习")):
-        types = ["quiz"]
-    elif any(word in text for word in ("思维导图", "导图")):
-        types = ["mind_map"]
-    elif any(word in text for word in ("代码案例", "代码示例")):
-        types = ["code_case"]
-    elif any(word in text for word in ("视频脚本", "动画讲解脚本")):
-        types = ["video_script"]
-    else:
-        types = ["lecture_note"]
-
-    target = re.sub(r"^(?:请|请你|帮我|麻烦你|给我|我想要|我要)+", "", text)
-    target = re.sub(r"^(?:生成|创建|制作|整理|出)(?:一份|一个|一下|\d+道)?", "", target)
-    target = re.sub(
-        r"(?:的)?(?:学习资料|讲解文档|学习文档|讲义|专项练习|练习题|习题|题库|思维导图|导图|代码案例|代码示例|视频脚本|动画讲解脚本).*$",
-        "",
-        target,
-    )
-    target = target.strip("，。！？:：的 ") or "当前学习主题"
-    return ResourceRequest(types=types, target=target)
-
-
-def _is_knowledge_graph_intent(message: str) -> bool:
-    text = re.sub(r"\s+", "", message or "")
-    graph_word = any(word in text for word in ("知识图谱", "知识结构图", "概念关系图"))
-    action_word = any(word in text for word in ("生成", "创建", "画", "绘制", "整理", "制作"))
-    return graph_word and action_word
-
-
-def _knowledge_graph_context(message: str) -> tuple[str, str]:
-    text = re.sub(r"\s+", "", message or "")
-    text = re.sub(r"^(?:请|请你|帮我|麻烦你|给我|我想要|我要)+", "", text)
-    text = re.sub(r"^(?:生成|创建|画|绘制|整理|制作)(?:一个|一份|一下)?", "", text)
-    text = re.sub(r"(?:的)?(?:知识图谱|知识结构图|概念关系图).*$", "", text)
-    text = text.strip("，。！？:：的 ") or "当前知识点"
-    known_courses = (
-        ("数据库", "数据库"),
-        ("TCP", "计算机网络"),
-        ("计算机网络", "计算机网络"),
-        ("数据结构", "数据结构"),
-        ("机器学习", "机器学习"),
-        ("人工智能", "人工智能"),
-        ("Python", "Python"),
-    )
-    for prefix, course in known_courses:
-        if text.startswith(prefix):
-            point = text[len(prefix):].strip("：:的 ")
-            return course, point or prefix
-    return "通用课程", text
-
-
-def _knowledge_graph_package(graph) -> dict[str, Any]:
-    payload = graph.model_dump(mode="json")
-    artifact = {
-        "kind": "knowledge_graph",
-        "resource_type": "knowledge_graph",
-        "resource_id": payload["resource_id"],
-        "graph_id": str(payload["id"]),
-        "title": payload["title"],
-        "knowledge_point": payload["knowledge_point"],
-        "generated_at": payload["created_time"],
-        "root": payload["root"],
-        "graph_json": payload["graph_json"],
-        "preview": f"包含 {len(payload['graph_json']['nodes'])} 个知识节点，点击查看知识图谱",
-    }
-    return {
-        "package_id": f"knowledge-graph-{payload['resource_id']}",
-        "resource_type": "knowledge_graph",
-        "resource_id": payload["resource_id"],
-        "graph_id": str(payload["id"]),
-        "title": payload["title"],
-        "root": payload["root"],
-        "artifacts": [artifact],
-    }
 
 
 @router.post("/sessions")
@@ -976,20 +1248,55 @@ def get_ai_messages(*, db: Session = Depends(deps.get_db), session_id: str, curr
 @router.post("/attachments")
 async def upload_ai_attachment(
     *,
+    db: Session = Depends(deps.get_db),
     current_user: CurrentUser,
     file: UploadFile = File(...),
     session_id: str = Form(default=""),
+    course_id: str = Form(default=""),
+    chapter_id: str = Form(default=""),
+    knowledge_point_ids: str = Form(default=""),
 ) -> Any:
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
+    normalized_session_id = session_id.strip()
+    if not normalized_session_id:
+        raise HTTPException(status_code=422, detail="Chat session is required")
+    _ensure_session(db, str(current_user.id), normalized_session_id)
+    normalized_course_id = course_id.strip()
+    if normalized_course_id:
+        try:
+            course_uuid = UUID(normalized_course_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Invalid course context") from exc
+        if not knowledge_graph_service.can_access_course(
+            db, user=current_user, course_id=course_uuid
+        ):
+            raise HTTPException(status_code=404, detail="未找到指定课程上下文")
+    allowed_extensions = {
+        ".c", ".cpp", ".doc", ".docx", ".java", ".jpeg", ".jpg", ".js",
+        ".md", ".markdown", ".pdf", ".png", ".ppt", ".pptx", ".py", ".sql",
+        ".ts", ".txt",
+    }
+    await validate_upload(file, allowed_extensions=allowed_extensions)
+    try:
+        parsed_knowledge_points = json.loads(knowledge_point_ids or "[]")
+    except json.JSONDecodeError:
+        parsed_knowledge_points = knowledge_point_ids.split(",")
+    if isinstance(parsed_knowledge_points, str):
+        parsed_knowledge_points = [parsed_knowledge_points]
+    parsed_knowledge_points = [
+        str(item).strip()
+        for item in (parsed_knowledge_points if isinstance(parsed_knowledge_points, list) else [])
+        if str(item).strip()
+    ]
     kind = _attachment_type(file.filename, file.content_type)
     if kind == "image":
         ATTACHMENT_DIR.mkdir(parents=True, exist_ok=True)
         file_id = uuid4().hex
         suffix = Path(file.filename).suffix.lower() or mimetypes.guess_extension(file.content_type or "") or ".img"
         target = ATTACHMENT_DIR / f"{file_id}{suffix}"
-        content = await file.read()
-        target.write_bytes(content)
+        content = await read_upload_limited(file, max_bytes=10 * 1024 * 1024)
+        await asyncio.to_thread(target.write_bytes, content)
         index = _read_attachment_index()
         index[file_id] = {
             "fileId": file_id,
@@ -997,7 +1304,10 @@ async def upload_ai_attachment(
             "type": "image",
             "path": str(target),
             "contentType": file.content_type or "image/png",
-            "sessionId": session_id,
+            "sessionId": normalized_session_id,
+            "courseId": normalized_course_id,
+            "chapterId": chapter_id,
+            "knowledgePointIds": parsed_knowledge_points,
             "ownerId": str(current_user.id),
             "createdAt": datetime.utcnow().isoformat(),
         }
@@ -1008,26 +1318,37 @@ async def upload_ai_attachment(
             file,
             scope="thread",
             owner_id=str(current_user.id),
-            thread_id=session_id or "draft",
+            thread_id=normalized_session_id,
+            course_id=normalized_course_id,
+            chapter_id=chapter_id,
+            knowledge_point_ids=parsed_knowledge_points,
         )
-        return {
+        attachment = {
             "fileId": result.get("file_id"),
             "name": file.filename,
             "type": kind,
             "chunks": result.get("chunks", 0),
             "preview": result.get("preview_snippet", ""),
+            "sessionId": normalized_session_id,
+            "courseId": normalized_course_id,
+            "chapterId": chapter_id,
+            "knowledgePointIds": parsed_knowledge_points,
+            "ownerId": str(current_user.id),
+            "createdAt": datetime.utcnow().isoformat(),
         }
+        index = _read_attachment_index()
+        index[str(attachment["fileId"])] = attachment
+        _write_attachment_index(index)
+        return attachment
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail={"code": "ATTACHMENT_PARSE_FAILED", "message": str(exc)})
 
 
 @router.get("/attachments/{file_id}")
 def get_ai_attachment(*, file_id: str, current_user: CurrentUser) -> Any:
-    _ = current_user
-    item = _read_attachment_index().get(file_id)
-    if not item:
-        raise HTTPException(status_code=404, detail="Attachment not found")
-    return item
+    return _get_owned_attachment(file_id, current_user)
 
 
 @router.get("/context/courses")
@@ -1052,13 +1373,50 @@ def generate_resources_from_chat(
     request: AIChatStreamRequest,
     current_user: CurrentUser,
 ) -> Any:
-    return _generate_resource_package(request, db, current_user.id)
+    try:
+        return _generate_resource_package(request, db, current_user.id)
+    except ResourcePackagePersistenceError as exc:
+        status_code = 422 if exc.code == "CONTENT_SAFETY_BLOCKED" else 500
+        detail: dict[str, Any] = {
+            "code": exc.code,
+            "message": str(exc),
+            "run_id": exc.run_id,
+        }
+        if exc.safety_review:
+            detail["safety"] = exc.safety_review
+        raise HTTPException(status_code=status_code, detail=detail) from exc
 
 
 @router.post("/profile/update-from-chat")
 def update_profile_from_chat(*, current_user: CurrentUser) -> Any:
     schedule_memory_profile_refresh(str(current_user.id) if current_user else None)
     return {"status": "queued"}
+
+
+@router.get("/course-agents")
+def get_course_agents(
+    *,
+    db: Session = Depends(deps.get_db),
+    current_user: CurrentUser,
+    course_id: str | None = None,
+) -> Any:
+    course_record: Course | None = None
+    if course_id:
+        try:
+            course_uuid = UUID(course_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Invalid course context") from exc
+        if not knowledge_graph_service.can_access_course(
+            db, user=current_user, course_id=course_uuid
+        ):
+            raise HTTPException(status_code=404, detail="未找到指定课程上下文")
+        course_record = db.get(Course, course_uuid)
+    return {
+        "courseId": course_id,
+        "courseTitle": course_record.name if course_record else None,
+        "contextBound": bool(course_record),
+        "agents": [contract.public_dict() for contract in list_course_agent_contracts()],
+    }
 
 
 @router.post("/chat/stream")
@@ -1068,36 +1426,101 @@ def ai_chat_stream(
     request: AIChatStreamRequest,
     current_user: CurrentUser,
 ):
+    contract = _apply_course_agent_contract(request)
+    if contract and contract.requires_course_context and not request.course_context.course_id:
+        raise HTTPException(status_code=422, detail="Course context is required for this agent")
+    if request.course_context.course_id:
+        try:
+            course_uuid = UUID(request.course_context.course_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Invalid course context") from exc
+        if not knowledge_graph_service.can_access_course(
+            db, user=current_user, course_id=course_uuid
+        ):
+            # Avoid disclosing whether another tenant's course exists.
+            raise HTTPException(status_code=404, detail="未找到指定课程上下文")
+
+    safety_input_text = "\n".join(
+        value
+        for value in (request.message, request.resource_request.target)
+        if value and value.strip()
+    )
+    input_safety = content_safety_service.review(
+        safety_input_text,
+        direction="input",
+    )
+    if input_safety.blocked:
+        def blocked_event_stream():
+            yield _sse(
+                "safety_check",
+                {
+                    **input_safety.public_dict(),
+                    "status": "blocked",
+                    "message": stable_block_message("input"),
+                },
+            )
+            yield _sse(
+                "error",
+                {
+                    "code": "CONTENT_SAFETY_BLOCKED",
+                    "message": stable_block_message("input"),
+                    "auditId": input_safety.audit_id,
+                },
+            )
+
+        return StreamingResponse(
+            blocked_event_stream(),
+            media_type="text/event-stream",
+            headers=_SSE_HEADERS,
+        )
+
     user_id = str(current_user.id) if current_user else None
+    if request.attachments and not request.session_id:
+        raise HTTPException(status_code=422, detail="Chat session is required for attachments")
     session_id, created = _ensure_session(db, user_id, request.session_id)
+    attachment_index = _read_attachment_index()
+    owned_attachments: dict[str, dict[str, Any]] = {}
+    for attachment in request.attachments:
+        owned_attachments[attachment.file_id] = _get_owned_attachment(
+            attachment.file_id,
+            current_user,
+            index=attachment_index,
+            expected_session_id=session_id,
+            expected_course_id=request.course_context.course_id or "",
+            expected_type=attachment.type,
+        )
 
     def event_stream():
         final_text = ""
         final_payload: dict[str, Any] = {}
         run_id = uuid4().hex
+        resource_run_id: str | None = None
+        resource_run_terminal = False
+        trace_token = _trace_recorder.set(_ChatTraceRecorder(run_id))
         course_rag_enabled = bool(request.course_context.use_course_rag or request.tools.course_rag)
-        pending_tools: dict[str, str] = {}
 
-        def task_event(rows):
-            return _sse("agent_tasks", {"runId": run_id, "tasks": agent_task_service.public_payload(rows)})
-
-        def update_task(task_key: str, status: str, progress: int, message: str):
-            rows = agent_task_service.update_task(
-                db,
-                run_id=run_id,
-                task_key=task_key,
-                status=status,
-                progress=progress,
-                message=message,
+        def task_event(rows: list[Any]) -> str:
+            return _sse(
+                "agent_tasks",
+                {"runId": run_id, "tasks": agent_task_service.public_payload(rows)},
             )
-            return task_event(rows)
 
-        def finish_pending_tools():
-            for tool, summary in list(pending_tools.items()):
-                pending_tools.pop(tool, None)
-                if tool == "course_retriever":
-                    yield update_task("knowledge", "completed", 100, "课程与知识证据检索完成")
-                yield _tool_result(tool, summary, [])
+        def update_task(
+            task_key: str,
+            status: str,
+            progress: int,
+            message: str,
+        ) -> str:
+            return task_event(
+                agent_task_service.update_task(
+                    db,
+                    run_id=run_id,
+                    task_key=task_key,
+                    status=status,
+                    progress=progress,
+                    message=message,
+                )
+            )
 
         try:
             learning_task = learning_task_service.upsert_from_message(
@@ -1122,19 +1545,20 @@ def ai_chat_stream(
                     or request.tools.resource_generation
                     or _is_resource_generation_intent(request.message or "")
                     or _is_quiz_generation_intent(request.message or "")
+                    or _is_knowledge_graph_intent(request.message or "")
                 ),
                 executor_name=(
                     "Quiz Agent"
                     if _is_quiz_generation_intent(request.message or "")
-                    else (
-                        "KnowledgeGraph Agent"
-                        if _is_knowledge_graph_intent(request.message or "")
-                        else (
-                            "Resource Generation Agent"
-                            if _is_resource_generation_intent(request.message or "")
-                            else None
-                        )
+                    else "KnowledgeGraph Agent"
+                    if _is_knowledge_graph_intent(request.message or "")
+                    else "Resource Generation Agent"
+                    if (
+                        request.mode == "resource_generation"
+                        or request.tools.resource_generation
+                        or _is_resource_generation_intent(request.message or "")
                     )
+                    else None
                 ),
             )
             yield _sse("session_created", {"sessionId": session_id, "created": created})
@@ -1155,14 +1579,26 @@ def ai_chat_stream(
                     "timestamp": _now_iso(),
                 },
             )
+            yield _sse(
+                "safety_check",
+                {**input_safety.public_dict(), "status": "passed"},
+            )
+            if contract:
+                yield _sse(
+                    "agent_contract",
+                    {
+                        "agentKey": contract.key,
+                        "label": contract.label,
+                        "executionKind": contract.execution_kind,
+                        "outputs": list(contract.outputs),
+                        "capabilities": list(contract.allowed_tools),
+                    },
+                )
             yield _sse("message_started", {"sessionId": session_id, "mode": request.mode, "actionId": request.action_id})
             yield _phase_started("understand", "理解问题", "正在判断问题类型和回答边界")
             yield _phase_delta("understand", f"收到问题：{(request.message or '附件/资料任务')[:80]}")
             if request.mode == "homework_review" and not request.message.strip() and not request.attachments:
                 yield _phase_finished("understand", "理解问题", "作业批改需要题目、答案或附件", status="error")
-                yield task_event(
-                    agent_task_service.fail_run(db, run_id=run_id, message="缺少作业题目、答案或附件")
-                )
                 yield _sse(
                     "error",
                     {
@@ -1175,13 +1611,12 @@ def ai_chat_stream(
             image_base64_list: list[str] = []
             current_file_id: str | None = None
             file_name: str | None = None
-            index = _read_attachment_index()
             if request.attachments:
                 yield _tool_started("attachment_reader", "解析上传材料", f"正在检查 {len(request.attachments)} 个上传附件")
                 yield _tool_delta("attachment_reader", "将附件加入本轮可检索上下文")
             for item in request.attachments:
                 if item.type == "image":
-                    meta = index.get(item.file_id)
+                    meta = owned_attachments.get(item.file_id)
                     if not meta:
                         yield _sse(
                             "tool_result",
@@ -1230,32 +1665,25 @@ def ai_chat_stream(
             yield _phase_finished("plan", "选择能力", "能力选择完成，开始准备上下文")
 
             if course_rag_enabled:
-                pending_tools["course_retriever"] = "课程资料检索已完成，回答会按可用证据组织。"
-                yield _tool_started(
-                    "course_retriever",
-                    "检索课程资料",
-                    f"正在检索《{_course_title(request.course_context.course_id)}》相关内容",
-                )
                 chapter = _chapter_title(request.course_context.course_id, request.course_context.chapter_id)
                 if chapter:
-                    yield _tool_delta("course_retriever", f"优先查找 {chapter} 的概念、例题和证据片段")
+                    yield _phase_delta("plan", f"已允许优先使用 {chapter} 的课程资料；是否检索由执行链路决定")
                 else:
-                    yield _tool_delta("course_retriever", "根据问题关键词匹配课程资料和知识点")
+                    yield _phase_delta("plan", "已允许使用课程资料；是否检索由执行链路决定")
             elif not request.attachments and not request.tools.web_search:
                 yield _phase_delta("plan", "未命中课程/附件/联网需求，将作为通用学习问题回答")
 
             if request.tools.web_search or request.mode == "deep_research":
-                pending_tools["web_search"] = (
-                    "已进入低延迟研究回答；如需严格联网证据，可继续要求补充可访问来源校验。"
-                    if request.mode == "deep_research"
-                    else "联网来源检查已完成，回答会区分公开来源与模型分析。"
-                )
-                yield _tool_started("web_search", "浏览联网来源", "正在准备检索近期公开来源")
-                yield _tool_delta("web_search", "会优先提取标题、摘要、链接和时间信息，避免把网页结果混入课程证据")
+                yield _phase_delta("plan", "已允许联网检索；只有工具真实执行后才会显示检索结果")
 
             if _is_quiz_generation_intent(request.message or ""):
-                course, knowledge_point, question_count, difficulty = _quiz_context(request.message or "")
-                yield _phase_started("compose", "生成专项练习", "Quiz Agent 正在生成结构化题目与答案解析")
+                course, knowledge_point, question_count, difficulty = _quiz_context(
+                    request.message or ""
+                )
+                yield update_task("executor", "running", 15, "正在生成结构化专项练习")
+                yield _phase_started(
+                    "compose", "生成专项练习", "Quiz Agent 正在生成结构化题目与答案解析"
+                )
                 yield _sse("artifact_started", {"label": "正在生成专项练习"})
                 try:
                     quiz = quiz_service.generate(
@@ -1265,9 +1693,17 @@ def ai_chat_stream(
                         knowledge_point=knowledge_point,
                         count=question_count,
                         difficulty=difficulty,
+                        course_id=(
+                            UUID(request.course_context.course_id)
+                            if request.course_context.course_id
+                            else None
+                        ),
                     )
                     package = _quiz_package(quiz)
-                    final_text = f"已生成“{quiz.title}”，共 {len(quiz.questions)} 道题。点击下方资源卡片进入答题。"
+                    final_text = (
+                        f"已生成“{quiz.title}”，共 {len(quiz.questions)} 道题。"
+                        "点击下方资源卡片进入答题。"
+                    )
                     suggestions = ["开始答题", "查看资料中心", f"讲解{knowledge_point}"]
                     metrics = {
                         "route_trace": ["orchestrator", "quiz_agent"],
@@ -1276,16 +1712,22 @@ def ai_chat_stream(
                         "resource_id": str(quiz.resource_id),
                         "suggestions": suggestions,
                     }
-                    yield _phase_finished("compose", "生成专项练习", f"已生成 {len(quiz.questions)} 道结构化题目")
+                    yield _phase_finished(
+                        "compose", "生成专项练习", f"已生成 {len(quiz.questions)} 道结构化题目"
+                    )
                     yield _sse("artifact_finished", package)
                     yield _sse("answer_delta", {"text": final_text})
                     yield _sse("suggestions", {"items": suggestions})
-                    yield update_task("knowledge", "completed", 100, "题目考查范围已确定")
                     yield update_task("executor", "completed", 100, "专项练习已生成并保存")
                     yield update_task("evaluator", "running", 60, "正在校验题目结构")
                     yield _phase_started("verify", "校验题目", "正在检查选项、答案与解析完整性")
                     yield _phase_finished("verify", "校验题目", "结构化题目校验通过")
                     yield update_task("evaluator", "completed", 100, "题目结构校验通过")
+                    yield task_event(
+                        agent_task_service.complete_run(
+                            db, run_id=run_id, message="专项练习任务已完成"
+                        )
+                    )
                     if user_id:
                         chat_provider.save_stream_turn(
                             db,
@@ -1313,29 +1755,36 @@ def ai_chat_stream(
                     yield _sse("run_finished", done_payload)
                     yield _sse("done", done_payload)
                 except QuizGenerationError as exc:
-                    yield task_event(agent_task_service.fail_run(db, run_id=run_id, message="专项练习生成失败"))
-                    yield _sse("error", {"code": "QUIZ_GENERATION_FAILED", "message": str(exc)})
+                    yield task_event(
+                        agent_task_service.fail_run(
+                            db, run_id=run_id, message="专项练习生成失败"
+                        )
+                    )
+                    yield _sse(
+                        "error", {"code": "QUIZ_GENERATION_FAILED", "message": str(exc)}
+                    )
                 return
 
             if _is_knowledge_graph_intent(request.message or ""):
                 course, knowledge_point = _knowledge_graph_context(request.message or "")
+                yield update_task("executor", "running", 15, "正在生成结构化知识图谱")
                 yield _phase_started("compose", "生成知识图谱", "正在生成结构化知识节点与关系")
                 yield _sse("artifact_started", {"label": "正在生成知识图谱"})
                 try:
-                    graph = knowledge_graph_service.generate(
+                    graph = generated_knowledge_graph_service.generate(
                         db,
                         owner_id=current_user.id,
                         course=course,
                         knowledge_point=knowledge_point,
                     )
                     package = _knowledge_graph_package(graph)
-                    final_text = f"已生成“{graph.title}”。点击下方资源卡片即可查看可视化知识图谱。"
+                    final_text = f"已生成“{graph.title}”。点击下方资源卡片即可查看知识图谱。"
                     suggestions = ["查看知识图谱", "生成配套练习", "讲解薄弱节点"]
                     metrics = {
                         "route_trace": ["orchestrator", "knowledge_graph_agent"],
                         "resourcePackage": package,
                         "resource_type": "knowledge_graph",
-                        "resource_id": str(graph.id),
+                        "resource_id": str(graph.resource_id),
                         "suggestions": suggestions,
                     }
                     yield _phase_finished(
@@ -1346,12 +1795,16 @@ def ai_chat_stream(
                     yield _sse("artifact_finished", package)
                     yield _sse("answer_delta", {"text": final_text})
                     yield _sse("suggestions", {"items": suggestions})
-                    yield update_task("knowledge", "completed", 100, "结构化知识关系已生成")
-                    yield update_task("executor", "completed", 100, "知识图谱已保存")
+                    yield update_task("executor", "completed", 100, "知识图谱已生成并保存")
                     yield update_task("evaluator", "running", 50, "正在校验节点与关系完整性")
                     yield _phase_started("verify", "校验图谱", "正在校验节点引用与图谱结构")
                     yield _phase_finished("verify", "校验图谱", "节点与关系结构校验通过")
                     yield update_task("evaluator", "completed", 100, "知识图谱结构校验通过")
+                    yield task_event(
+                        agent_task_service.complete_run(
+                            db, run_id=run_id, message="知识图谱任务已完成"
+                        )
+                    )
                     if user_id:
                         chat_provider.save_stream_turn(
                             db,
@@ -1380,7 +1833,9 @@ def ai_chat_stream(
                     yield _sse("done", done_payload)
                 except KnowledgeGraphGenerationError as exc:
                     yield task_event(
-                        agent_task_service.fail_run(db, run_id=run_id, message="知识图谱生成失败")
+                        agent_task_service.fail_run(
+                            db, run_id=run_id, message="知识图谱生成失败"
+                        )
                     )
                     yield _sse(
                         "error",
@@ -1393,53 +1848,100 @@ def ai_chat_stream(
                 or request.tools.resource_generation
                 or _is_resource_generation_intent(request.message or "")
             ):
-                inferred_resource_request = _infer_resource_request(request.message or "")
-                display_types = request.resource_request.types or inferred_resource_request.types
-                display_target = (
-                    request.resource_request.target
-                    or inferred_resource_request.target
-                    or request.message
-                    or "当前主题"
-                )
                 yield _phase_started("compose", "生成资源", "正在规划资源类型、难度和资料包结构")
-                yield _phase_delta("compose", f"资源类型：{'、'.join(display_types)}")
+                yield _phase_delta("compose", f"资源类型：{'、'.join(request.resource_request.types or ['lecture_note', 'mind_map', 'quiz'])}")
                 yield _sse("artifact_started", {"label": "正在生成资源包"})
                 try:
-                    package = _generate_resource_package(
-                        request,
+                    resource_request = _resource_generation_request(request)
+                    requested_run = resource_package_service.create_requested_run(
                         db,
-                        current_user.id,
+                        request=resource_request,
+                        owner_id=current_user.id,
                     )
+                    resource_run_id = requested_run.id
+                    yield _sse(
+                        "resource_run_started",
+                        {
+                            "runId": resource_run_id,
+                            "status": "requested",
+                            "cancelRequested": False,
+                            "cancelUrl": f"/api/v1/resource-generation/runs/{resource_run_id}/cancel",
+                        },
+                    )
+                    resource_package_service.enqueue_requested_run(resource_run_id)
+                    last_step = ""
+                    while True:
+                        public_run = resource_package_service.get_run(
+                            db,
+                            run_id=resource_run_id,
+                            user_id=current_user.id,
+                            is_superuser=bool(current_user.is_superuser),
+                        )
+                        if not public_run:
+                            raise RuntimeError("资源运行状态不可用")
+                        if public_run.current_step != last_step or public_run.cancel_requested:
+                            last_step = public_run.current_step
+                            yield _sse(
+                                "resource_run_status",
+                                {
+                                    "runId": resource_run_id,
+                                    "status": public_run.status,
+                                    "currentStep": public_run.current_step,
+                                    "cancelRequested": public_run.cancel_requested,
+                                },
+                            )
+                        if public_run.status in resource_package_service.TERMINAL_STATUSES:
+                            resource_run_terminal = True
+                            if public_run.status not in {"completed", "partial_success"}:
+                                if public_run.status == "cancelled":
+                                    yield _phase_finished(
+                                        "compose", "生成资源", "资源运行已由服务端取消", status="cancelled"
+                                    )
+                                    yield _sse(
+                                        "resource_run_cancelled",
+                                        {"runId": resource_run_id, "status": "cancelled"},
+                                    )
+                                    return
+                                raise RuntimeError(public_run.error_message or "资源生成运行失败")
+                            if not public_run.package_id:
+                                raise RuntimeError("资源运行完成但未返回资源包")
+                            package = resource_package_service.get_package(
+                                db,
+                                package_id=public_run.package_id,
+                                user_id=current_user.id,
+                                is_superuser=bool(current_user.is_superuser),
+                            )
+                            if not package:
+                                raise RuntimeError("资源运行结果不可用")
+                            break
+                        time.sleep(0.25)
                     yield _phase_finished("compose", "生成资源", f"资源包已生成，包含 {len(package.get('artifacts') or [])} 类内容")
                     yield _sse("artifact_finished", package)
                     final_text = (
-                        f"已围绕“{display_target}”生成资源包 "
+                        f"已围绕“{request.resource_request.target or request.message or '当前主题'}”生成资源包 "
                         f"`{package.get('package_id')}`，包含 {len(package.get('artifacts') or [])} 类学习资源。"
-                        "你可以先查看讲义和练习题，再把薄弱知识点同步到课程图谱。"
+                        "你可以打开资源卡片预览或下载完整内容。"
                     )
                     yield _sse("answer_delta", {"text": final_text})
+                    follow_up_suggestions = [
+                        "这些练习覆盖了哪些核心知识点？",
+                        "请给我一份完成这些练习的顺序建议。",
+                        "做错后应该如何定位对应的薄弱点？",
+                    ]
                     final_payload = {
                         "agent": "resource_generator",
                         "content": final_text,
                         "citations": [],
                         "confidence": "medium",
                         "grounding_mode": "tool",
-                        "suggestions": ["查看资源包", "同步知识图谱", "生成 20 分钟练习"],
+                        "suggestions": follow_up_suggestions,
                         "metrics": {
                             "route_trace": ["resource_planner", "resource_generator"],
                             "resourcePackage": package,
-                            "suggestions": ["查看资源包", "同步知识图谱", "生成 20 分钟练习"],
+                            "suggestions": follow_up_suggestions,
                         },
                     }
                     yield _sse("suggestions", {"items": final_payload["suggestions"]})
-                    yield update_task("knowledge", "completed", 100, "本轮知识与材料准备完成")
-                    yield update_task("executor", "completed", 100, "学习资源已生成")
-                    yield update_task("evaluator", "running", 35, "正在校验资源结构与安全性")
-                    yield _phase_started("verify", "校验输出", "正在检查资源包结构、安全和后续操作")
-                    yield _phase_finished("verify", "校验输出", "资源包可预览、入库或继续同步图谱")
-                    yield _sse("safety_check", {"status": "passed", "message": "已完成资源结构、安全和后续建议检查"})
-                    yield _sse("profile_update", {"status": "queued"})
-                    yield update_task("evaluator", "completed", 100, "资源结构与安全校验通过")
                     if user_id:
                         try:
                             chat_provider.save_stream_turn(
@@ -1449,11 +1951,8 @@ def ai_chat_stream(
                                 response=final_text,
                                 system_prompt=_system_prompt(request),
                                 agent="resource_generator",
-                                intent="generate_resource",
-                                routing_reason=(
-                                    "orchestrator intent=generate_resource; "
-                                    f"mode={request.mode}; actionId={request.action_id or 'none'}"
-                                ),
+                                intent=request.mode,
+                                routing_reason=f"mode={request.mode}; actionId={request.action_id or 'none'}",
                                 citations=[],
                                 confidence="medium",
                                 grounding_mode="tool",
@@ -1461,28 +1960,50 @@ def ai_chat_stream(
                                 metrics=final_payload["metrics"],
                             )
                             schedule_memory_profile_refresh(user_id)
+                            yield _sse("profile_update", {"status": "queued", "message": "学习画像更新任务已提交"})
                         except Exception:
                             pass
                     done_payload = {
                         "runId": run_id,
                         "sessionId": session_id,
                         "messageId": uuid4().hex,
-                        "summary": "本轮资源生成已完成结构、安全和后续建议检查",
+                        "summary": "本轮资源生成与持久化流程已结束",
                         "usage": final_payload["metrics"],
                         "suggestions": final_payload["suggestions"],
                     }
                     yield _sse("run_finished", done_payload)
                     yield _sse("done", done_payload)
-                except Exception as exc:
+                except GeneratorExit:
+                    raise
+                except ResourcePackagePersistenceError as exc:
+                    if exc.code == "CONTENT_SAFETY_BLOCKED" and exc.safety_review:
+                        yield _sse(
+                            "safety_check",
+                            {
+                                **exc.safety_review,
+                                "status": "blocked",
+                                "message": str(exc),
+                            },
+                        )
+                        yield _phase_finished(
+                            "compose", "生成资源", "资源内容未通过安全审核", status="error"
+                        )
+                        yield _sse(
+                            "error",
+                            {
+                                "code": exc.code,
+                                "message": str(exc),
+                                "auditId": exc.safety_review.get("audit_id"),
+                            },
+                        )
+                    else:
+                        yield _phase_finished("compose", "生成资源", "资源生成服务返回错误", status="error")
+                        yield _sse("error", {"code": "RESOURCE_GENERATION_FAILED", "message": "资源生成未完成，请稍后重试。"})
+                except Exception:
                     yield _phase_finished("compose", "生成资源", "资源生成服务返回错误", status="error")
-                    yield task_event(
-                        agent_task_service.fail_run(db, run_id=run_id, message="学习资源生成失败")
-                    )
-                    yield _sse("error", {"code": "RESOURCE_GENERATION_FAILED", "message": str(exc)})
+                    yield _sse("error", {"code": "RESOURCE_GENERATION_FAILED", "message": "资源生成未完成，请稍后重试。"})
                 return
 
-            yield _phase_started("compose", "组织回答", "上下文准备完成，正在调用模型生成回答")
-            yield _phase_delta("compose", "模型请求已发出，等待首个输出")
             chat_request = ChatRequest(
                 user_input=_message_for_model(request),
                 thread_id=session_id,
@@ -1501,6 +2022,7 @@ def ai_chat_stream(
                 route_context={
                     "mode": request.mode,
                     "actionId": request.action_id,
+                    "agentKey": request.agent_key,
                     "courseContext": request.course_context.model_dump(by_alias=True),
                     "tools": request.tools.model_dump(by_alias=True),
                     "reasoning": request.reasoning.model_dump(by_alias=True),
@@ -1518,11 +2040,17 @@ def ai_chat_stream(
             adapter_context = _adapter_context(request)
             process_normalizer = ReasoningProcessNormalizer(adapter_context)
             answer_guard_triggered = False
-            show_raw_reasoning_debug = _show_raw_reasoning_debug()
             answer_stream_started = False
+            answer_input_seen = False
             next_answer_progress_chars = 480
+            course_agent_output_guard = CourseAgentOutputGuard(
+                hide_quiz_solution=is_initial_quiz_request(request.agent_key, request.message)
+            )
+            output_safety_guard = ContentSafetyStreamGuard(content_safety_service)
+            output_safety_blocked = False
+            output_safety_review = None
 
-            def emit_safe_answer(text: str):
+            def emit_approved_answer(text: str):
                 nonlocal final_text, answer_stream_started, next_answer_progress_chars
                 if not text:
                     return
@@ -1530,18 +2058,54 @@ def ai_chat_stream(
                 if not answer_stream_started:
                     answer_stream_started = True
                     yield _phase_delta("compose", "回答已开始流式输出，可以边读边展开查看处理记录")
-                yield from finish_pending_tools()
                 yield _sse("answer_delta", {"text": text})
                 if len(final_text) >= next_answer_progress_chars:
                     yield _phase_delta("compose", f"已输出约 {len(final_text)} 字，继续补全结构和细节")
                     next_answer_progress_chars += 640
+
+            def emit_visible_answer(visible_text: str):
+                nonlocal final_text, output_safety_blocked, output_safety_review
+                if output_safety_blocked:
+                    return
+                if not visible_text:
+                    return
+                try:
+                    approved = output_safety_guard.push(visible_text)
+                except ContentSafetyBlockedError as exc:
+                    output_safety_blocked = True
+                    output_safety_review = exc.review
+                    final_text = stable_block_message("output")
+                    yield _sse(
+                        "safety_check",
+                        {
+                            **exc.review.public_dict(),
+                            "status": "blocked",
+                            "message": final_text,
+                        },
+                    )
+                    yield _sse("answer_delta", {"text": final_text})
+                    return
+                if approved:
+                    yield from emit_approved_answer(approved)
+
+            def emit_safe_answer(text: str):
+                nonlocal answer_input_seen
+                if text:
+                    # The output guards may buffer short chunks before anything is
+                    # approved for display. Track input separately from final_text so
+                    # a provider's terminal payload is not fed through the guards a
+                    # second time while that first chunk is still buffered.
+                    answer_input_seen = True
+                visible_text = course_agent_output_guard.push(text)
+                if visible_text:
+                    yield from emit_visible_answer(visible_text)
 
             for payload in stream_chat_events(chat_request):
                 if isinstance(payload, dict):
                     if payload.get("type") == "final":
                         final_payload = payload
                         raw_final_text = str(payload.get("content") or "")
-                        if not final_text.strip() and raw_final_text:
+                        if not answer_input_seen and raw_final_text:
                             safe_final_text, blocked = _safe_final_text(raw_final_text, adapter_context)
                             answer_guard_triggered = answer_guard_triggered or blocked
                             if safe_final_text:
@@ -1553,8 +2117,6 @@ def ai_chat_stream(
                         )
                         if reasoning_part:
                             reasoning_buffer += reasoning_part
-                            if show_raw_reasoning_debug:
-                                yield _sse("debug_raw_reasoning_delta", {"text": reasoning_part})
                             if (
                                 len(reasoning_buffer) >= 42
                                 or reasoning_buffer.endswith(("。", "；", "：", "\n"))
@@ -1588,14 +2150,64 @@ def ai_chat_stream(
                             if safe_text:
                                 yield from emit_safe_answer(safe_text)
                         else:
-                            if event_name == "tool_result":
-                                pending_tools.pop(str(event_payload.get("tool") or ""), None)
                             yield _sse(event_name, event_payload)
             process_delta = process_normalizer.ingest(reasoning_buffer)
             if process_delta:
                 yield _process_delta_sse(process_delta.to_payload())
-            yield from finish_pending_tools()
-            if final_text and contains_supplier_context(final_text) and not adapter_context.user_allows_supplier_context:
+            guarded_tail = course_agent_output_guard.finish()
+            if guarded_tail:
+                yield from emit_visible_answer(guarded_tail)
+            if not output_safety_blocked:
+                try:
+                    approved_tail = output_safety_guard.finish()
+                except ContentSafetyBlockedError as exc:
+                    output_safety_blocked = True
+                    output_safety_review = exc.review
+                    final_text = stable_block_message("output")
+                    yield _sse(
+                        "safety_check",
+                        {
+                            **exc.review.public_dict(),
+                            "status": "blocked",
+                            "message": final_text,
+                        },
+                    )
+                    yield _sse("answer_delta", {"text": final_text})
+                else:
+                    if approved_tail:
+                        yield from emit_approved_answer(approved_tail)
+                    if output_safety_guard.last_review:
+                        output_safety_review = output_safety_guard.last_review
+                        yield _sse(
+                            "safety_check",
+                            {
+                                **output_safety_guard.last_review.public_dict(),
+                                "status": "passed",
+                            },
+                        )
+            if course_agent_output_guard.sanitized and not output_safety_blocked:
+                answer_guard_triggered = True
+                yield _sse(
+                    "process_sanitized",
+                    {
+                        "phaseId": "verify_output",
+                        "title": "校验输出",
+                        "summary": "已隐藏学生作答前不应出现的提示与答案线索。",
+                        "status": "done",
+                        "sanitized": True,
+                        "timestamp": _now_iso(),
+                    },
+                )
+                if not re.search(r"请.{0,12}(?:作答|回复|选择|判断)", final_text):
+                    invitation = "\n\n请先给出你的答案和理由，我会在你作答后再提供提示与解析。"
+                    final_text += invitation
+                    yield _sse("answer_delta", {"text": invitation})
+            if (
+                not output_safety_blocked
+                and final_text
+                and contains_supplier_context(final_text)
+                and not adapter_context.user_allows_supplier_context
+            ):
                 final_text = guarded_fallback_answer(adapter_context)
                 answer_guard_triggered = True
             if answer_guard_triggered and not final_text.strip():
@@ -1611,14 +2223,34 @@ def ai_chat_stream(
                 })
                 yield _sse("answer_delta", {"text": fallback})
             yield _phase_finished("compose", "组织回答", "正文回答已流式输出完成")
-            yield update_task("knowledge", "completed", 100, "本轮知识与材料准备完成")
-            yield update_task("executor", "completed", 100, "学习内容生成完成")
-            yield update_task("evaluator", "running", 35, "正在校验引用、安全与后续建议")
-            yield _phase_started("verify", "校验输出", "正在检查引用、安全和后续追问建议")
-            yield _sse("safety_check", {"status": "passed", "message": "已完成引用、安全和后续建议检查"})
-            yield _sse("profile_update", {"status": "queued"})
-            yield _phase_finished("verify", "校验输出", "引用、安全和学习画像更新已完成")
-            yield update_task("evaluator", "completed", 100, "引用、安全与后续建议校验通过")
+            yield _phase_started("verify", "校验输出", "正在检查内部过程标记与产品身份边界")
+            visible_output_safe = not bool(
+                re.search(r"<\/?think>|intent_classifier|intermediate_steps", final_text, re.I)
+            )
+            yield _phase_finished(
+                "verify",
+                "校验输出",
+                "已完成可见内容边界检查" if visible_output_safe else "检测到内部过程标记并已过滤",
+                status="done" if visible_output_safe else "error",
+            )
+            metrics = dict(final_payload.get("metrics") or {})
+            metrics["content_safety"] = {
+                "input": input_safety.public_dict(),
+                "output": output_safety_review.public_dict()
+                if output_safety_review
+                else None,
+            }
+            final_payload["metrics"] = metrics
+            if output_safety_blocked:
+                final_payload.update(
+                    {
+                        "content": stable_block_message("output"),
+                        "citations": [],
+                        "suggestions": [],
+                        "confidence": "low",
+                        "grounding_mode": "safety_blocked",
+                    }
+                )
             if final_text and user_id:
                 try:
                     chat_provider.save_stream_turn(
@@ -1637,25 +2269,35 @@ def ai_chat_stream(
                         metrics=final_payload.get("metrics") or {},
                     )
                     schedule_memory_profile_refresh(user_id)
+                    yield _sse("profile_update", {"status": "queued", "message": "学习画像更新任务已提交"})
                 except Exception:
                     pass
             done_payload = {
                 "runId": run_id,
                 "sessionId": session_id,
                 "messageId": uuid4().hex,
-                "summary": "本轮回答已完成引用、安全和后续建议检查",
+                "summary": "本轮回答与可见内容边界检查已完成",
                 "usage": (final_payload.get("metrics") or {}),
                 "suggestions": list(final_payload.get("suggestions") or []),
             }
             yield _sse("run_finished", done_payload)
             yield _sse("done", done_payload)
-        except Exception as exc:
+        except Exception:
+            yield _sse("error", {"code": "MODEL_PROVIDER_ERROR", "message": "模型服务暂时不可用，请稍后重试。"})
+        finally:
+            if resource_run_id and not resource_run_terminal:
+                try:
+                    resource_package_service.request_cancel(
+                        db,
+                        run_id=resource_run_id,
+                        user_id=current_user.id,
+                    )
+                except Exception:
+                    db.rollback()
             try:
-                yield task_event(
-                    agent_task_service.fail_run(db, run_id=run_id, message="Agent 工作流执行失败")
-                )
-            except Exception:
-                db.rollback()
-            yield _sse("error", {"code": "MODEL_PROVIDER_ERROR", "message": str(exc)})
+                _trace_recorder.reset(trace_token)
+            except ValueError:
+                # StreamingResponse may close a generator from a different task context.
+                _trace_recorder.set(None)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream", headers=_SSE_HEADERS)

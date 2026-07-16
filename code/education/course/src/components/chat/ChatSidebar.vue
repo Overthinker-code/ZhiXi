@@ -5,11 +5,6 @@
     id: string;
     title: string;
     createdAt?: number;
-    lastMessageAt?: number;
-    course?: string;
-    knowledgePoint?: string;
-    intent?: string;
-    status?: string;
   };
 
   const props = defineProps<{
@@ -27,6 +22,7 @@
   }>();
 
   const keyword = ref('');
+  const visibleLimit = ref(12);
 
   const dateGroup = (timestamp?: number) => {
     if (!timestamp) return '更早';
@@ -39,26 +35,28 @@
     return '更早';
   };
 
+  const filteredConversations = computed(() =>
+    props.conversations.filter((item) =>
+      item.title.toLowerCase().includes(keyword.value.trim().toLowerCase())
+    )
+  );
+  const visibleConversations = computed(() => {
+    const currentIndex = filteredConversations.value.findIndex(
+      (item) => item.id === props.currentId
+    );
+    const limit = Math.max(visibleLimit.value, currentIndex + 1);
+    return filteredConversations.value.slice(0, limit);
+  });
+  const hasMore = computed(
+    () => visibleConversations.value.length < filteredConversations.value.length
+  );
   const grouped = computed(() => {
     const map: Record<string, Conversation[]> = { 今天: [], 昨天: [], 更早: [] };
-    props.conversations
-      .filter((item) =>
-        item.title.toLowerCase().includes(keyword.value.trim().toLowerCase())
-      )
-      .forEach((item) => {
-        map[dateGroup(item.lastMessageAt || item.createdAt)].push(item);
-      });
+    visibleConversations.value.forEach((item) => {
+      map[dateGroup(item.createdAt)].push(item);
+    });
     return map;
   });
-
-  const formatTime = (timestamp?: number) => {
-    if (!timestamp) return '';
-    return new Date(timestamp).toLocaleTimeString('zh-CN', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    });
-  };
 </script>
 
 <template>
@@ -68,12 +66,17 @@
         {{ collapsed ? '›' : '‹' }}
       </button>
       <button v-if="!collapsed" type="button" class="new-chat" @click="emit('newChat')">
-        新建学习会话
+        新建对话
       </button>
     </div>
     <template v-if="!collapsed">
       <div class="history-search-row">
-        <input v-model="keyword" class="history-search" placeholder="搜索学习主题" />
+        <input
+          v-model="keyword"
+          class="history-search"
+          aria-label="搜索对话记录"
+          placeholder="搜索历史"
+        />
         <button
           type="button"
           class="clear-all-button"
@@ -85,30 +88,33 @@
         </button>
       </div>
       <div class="history-tools">
-        <span>学习会话</span>
+        <span>对话记录</span>
+        <small>{{ visibleConversations.length }}/{{ filteredConversations.length }}</small>
       </div>
       <section v-for="(items, group) in grouped" :key="group" class="history-group">
         <h3 v-if="items.length">{{ group }}</h3>
-        <button
+        <div
           v-for="item in items"
           :key="item.id"
-          type="button"
-          :class="['history-item', { active: item.id === currentId }]"
-          @click="emit('switch', item.id)"
+          :class="['history-row', { active: item.id === currentId }]"
         >
-          <span class="history-item__content">
-            <strong>{{ item.title || '新学习会话' }}</strong>
-            <span v-if="item.course || item.knowledgePoint" class="history-item__meta">
-              <i v-if="item.course">{{ item.course }}</i>
-              <i v-if="item.knowledgePoint">{{ item.knowledgePoint }}</i>
-            </span>
-          </span>
-          <span class="history-item__actions">
-            <time>{{ formatTime(item.lastMessageAt || item.createdAt) }}</time>
-            <small @click.stop="emit('delete', item.id)">删除</small>
-          </span>
-        </button>
+          <button type="button" class="history-item" @click="emit('switch', item.id)">
+            <span>{{ item.title || '新对话' }}</span>
+          </button>
+          <button
+            type="button"
+            class="history-delete"
+            :aria-label="`删除对话：${item.title || '新对话'}`"
+            @click="emit('delete', item.id)"
+          >删除</button>
+        </div>
       </section>
+      <button
+        v-if="hasMore"
+        type="button"
+        class="show-more"
+        @click="visibleLimit += 12"
+      >显示更多</button>
     </template>
     <button v-else type="button" class="collapsed-new" @click="emit('newChat')">+</button>
   </aside>
@@ -173,56 +179,15 @@
     padding: 0 12px;
     border: 1px solid rgba(15, 23, 42, 0.08);
     border-radius: 14px;
-    outline: none;
+    outline: none !important;
     color: #101828;
     background: #fff;
 
     &:focus {
-      border-color: #6366f1;
-      box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.12);
+      border-color: #94a3b8;
+      outline: none !important;
+      box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.08);
     }
-  }
-
-  .history-item__content {
-    min-width: 0;
-    display: grid;
-    gap: 5px;
-    text-align: left;
-
-    strong {
-      overflow: hidden;
-      color: inherit;
-      font-size: 13px;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-  }
-
-  .history-item__meta {
-    display: flex;
-    gap: 5px;
-    overflow: hidden;
-
-    i {
-      max-width: 88px;
-      overflow: hidden;
-      padding: 2px 6px;
-      border-radius: 999px;
-      background: rgba(99, 102, 241, 0.08);
-      color: #667085;
-      font-size: 10px;
-      font-style: normal;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-  }
-
-  .history-item__actions {
-    display: grid;
-    justify-items: end;
-    gap: 5px;
-
-    time { color: #98a2b3; font-size: 10px; }
   }
 
   .clear-all-button {
@@ -253,10 +218,14 @@
     align-items: center;
     justify-content: space-between;
     margin: 14px 4px 0;
-    color: #98a2b3;
+    color: #5b6575;
     font-size: 12px;
     font-weight: 700;
 
+    small {
+      font-size: 11px;
+      font-weight: 600;
+    }
   }
 
   .history-group {
@@ -265,25 +234,18 @@
     h3 {
       margin: 0 0 8px;
       padding-inline: 8px;
-      color: #98a2b3;
+      color: #5b6575;
       font-size: 12px;
       font-weight: 700;
     }
   }
 
-  .history-item {
+  .history-row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     width: 100%;
-    min-height: 58px;
-    padding: 7px 8px 7px 10px;
-    border: 0;
+    min-height: 38px;
     border-radius: 12px;
-    color: #344054;
-    background: transparent;
-    text-align: left;
-    cursor: pointer;
 
     &:hover,
     &.active {
@@ -291,20 +253,57 @@
       color: #4f46e5;
     }
 
+    &:focus-within {
+      box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.1);
+    }
+  }
+
+  .history-item {
+    flex: 1;
+    min-width: 0;
+    height: 38px;
+    padding: 0 8px 0 10px;
+    border: 0;
+    color: inherit;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+
     span {
+      display: block;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+  }
 
-    small {
-      color: #98a2b3;
-      opacity: 0;
-    }
+  .history-delete {
+    width: 42px;
+    height: 30px;
+    border: 0;
+    color: #5b6575;
+    background: transparent;
+    font-size: 11px;
+    opacity: 0;
+    cursor: pointer;
+  }
 
-    &:hover small {
-      opacity: 1;
-    }
+  .history-row:hover .history-delete,
+  .history-row:focus-within .history-delete {
+    opacity: 1;
+  }
+
+  .show-more {
+    width: 100%;
+    height: 34px;
+    margin-top: 12px;
+    border: 1px solid rgba(99, 102, 241, 0.16);
+    border-radius: 12px;
+    color: #4f46e5;
+    background: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
   }
 
   @media (prefers-reduced-motion: reduce) {

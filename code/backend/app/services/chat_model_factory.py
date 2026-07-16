@@ -1,8 +1,8 @@
 from app.core.config import settings
 
 
-def _with_optional_timeout(model):
-    timeout = (
+def _with_optional_timeout(model, timeout_seconds: int | float | None = None):
+    timeout = timeout_seconds or (
         getattr(settings, "MIMO_TIMEOUT_SECONDS", 0)
         if settings.CHAT_PROVIDER.lower() == "mimo"
         else getattr(settings, "LEARNING_REPORT_LLM_TIMEOUT_SECONDS", 0)
@@ -25,6 +25,7 @@ class ChatModelFactory:
         top_k: int | None = None,
         reasoning: bool | str | None = False,
         model_name: str | None = None,
+        timeout_seconds: int | float | None = None,
     ):
         provider = settings.CHAT_PROVIDER.lower()
         effective_temperature = (
@@ -44,7 +45,9 @@ class ChatModelFactory:
                 }
                 if max_tokens is not None:
                     kwargs["max_tokens"] = max_tokens
-                return _with_optional_timeout(ChatOpenAI(**kwargs))
+                if timeout_seconds:
+                    kwargs["request_timeout"] = timeout_seconds
+                return _with_optional_timeout(ChatOpenAI(**kwargs), timeout_seconds)
             provider = "ollama"
 
         if provider == "ollama":
@@ -65,7 +68,7 @@ class ChatModelFactory:
                 kwargs["top_k"] = top_k
             if max_tokens is not None:
                 kwargs["num_predict"] = max_tokens
-            return _with_optional_timeout(ChatOllama(**kwargs))
+            return _with_optional_timeout(ChatOllama(**kwargs), timeout_seconds)
 
         if provider == "mimo":
             from langchain_openai import ChatOpenAI
@@ -79,14 +82,14 @@ class ChatModelFactory:
                     "api-key": settings.MIMO_API_KEY or "sk-placeholder"
                 },
                 "extra_body": {"thinking": {"type": "disabled"}},
-                "request_timeout": settings.MIMO_TIMEOUT_SECONDS,
+                "request_timeout": timeout_seconds or settings.MIMO_TIMEOUT_SECONDS,
             }
             if max_tokens is not None:
                 kwargs["max_tokens"] = max_tokens
             if top_p is not None:
                 kwargs["top_p"] = top_p
 
-            return _with_optional_timeout(ChatOpenAI(**kwargs))
+            return _with_optional_timeout(ChatOpenAI(**kwargs), timeout_seconds)
 
         if provider in {"openai", "openai_compatible"}:
             from langchain_openai import ChatOpenAI
@@ -102,7 +105,9 @@ class ChatModelFactory:
                 kwargs["top_p"] = top_p
             if settings.OPENAI_API_BASE:
                 kwargs["openai_api_base"] = settings.OPENAI_API_BASE
+            if timeout_seconds:
+                kwargs["request_timeout"] = timeout_seconds
 
-            return _with_optional_timeout(ChatOpenAI(**kwargs))
+            return _with_optional_timeout(ChatOpenAI(**kwargs), timeout_seconds)
 
         raise ValueError(f"Unsupported chat provider: {settings.CHAT_PROVIDER}")

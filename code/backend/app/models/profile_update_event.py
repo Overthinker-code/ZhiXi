@@ -5,7 +5,9 @@ from app.db.base_class import Base
 
 
 class ProfileUpdateEvent(Base):
-    __tablename__ = "profile_update_event"
+    # Dialogue-derived profile patches are intentionally isolated from the
+    # assessment-backed profile_update_event ledger used by resource runs.
+    __tablename__ = "agent_profile_update_event"
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(String(50), nullable=False, index=True)

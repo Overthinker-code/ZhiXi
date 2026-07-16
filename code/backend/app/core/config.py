@@ -1,4 +1,5 @@
 import os
+import re
 import secrets
 import warnings
 from pathlib import Path
@@ -34,11 +35,34 @@ class Settings(BaseSettings):
         extra="ignore",
     )
     API_V1_STR: str = "/api/v1"
-    SECRET_KEY: str = secrets.token_urlsafe(32)
-    # 60 minutes * 24 hours * 8 days = 8 days
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8
+    SECRET_KEY: str = ""
+    # Short-lived bearer token. A future refresh-cookie flow may extend sessions
+    # without keeping a replayable access token valid for days.
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     FRONTEND_HOST: str = "http://localhost:5173"
     ENVIRONMENT: Literal["local", "staging", "production"] = "local"
+    TRUSTED_HOSTS: Annotated[list[str] | str, BeforeValidator(parse_cors)] = [
+        "localhost",
+        "127.0.0.1",
+        "testserver",
+    ]
+    # One extra MiB above the file limit accommodates multipart boundaries.
+    MAX_REQUEST_SIZE: int = 26 * 1024 * 1024
+    AUTH_RATE_LIMIT_ATTEMPTS: int = 5
+    AUTH_RATE_LIMIT_WINDOW_SECONDS: int = 300
+    AUTH_RATE_LIMIT_MAX_IDENTITIES: int = 4096
+    AI_RATE_LIMIT_REQUESTS: int = 12
+    AI_RATE_LIMIT_WINDOW_SECONDS: int = 60
+    AI_BUDGET_MAX_IDENTITIES: int = 4096
+    AI_BUDGET_CLEANUP_INTERVAL_SECONDS: int = 30
+    AI_SSE_MAX_CONCURRENT_PER_USER: int = 2
+    AI_SYNC_MAX_CONCURRENT_PER_USER: int = 1
+    AI_SSE_TIMEOUT_SECONDS: int = 180
+    AI_SYNC_TIMEOUT_SECONDS: int = 240
+    WS_MAX_MESSAGE_SIZE: int = 3 * 1024 * 1024
+    WS_MESSAGE_RATE_PER_SECOND: int = 4
+    WS_IDLE_TIMEOUT_SECONDS: int = 30
+    WS_ALLOW_QUERY_TOKEN_IN_LOCAL: bool = True
 
     BACKEND_CORS_ORIGINS: Annotated[list[AnyUrl] | str, BeforeValidator(parse_cors)] = (
         []
@@ -97,11 +121,38 @@ class Settings(BaseSettings):
     FIRST_SUPERUSER: EmailStr
     FIRST_SUPERUSER_PASSWORD: str
 
-    def _check_default_secret(self, var_name: str, value: str | None) -> None:
-        if value == "changethis":
+    def _check_default_secret(
+        self,
+        var_name: str,
+        value: str | None,
+        *,
+        minimum_length: int | None = None,
+    ) -> None:
+        normalized = re.sub(r"[^a-z0-9]", "", (value or "").strip().lower())
+        is_placeholder = not normalized or normalized in {
+            "changethis",
+            "changeme",
+            "secret",
+            "password",
+            "password123",
+            "postgres",
+            "admin",
+            "example",
+            "placeholder",
+            "replacewithsecurevalue",
+            "yourpasswordhere",
+            "yoursecrethere",
+        } or normalized.startswith(("replacewith", "yourpassword", "yoursecret"))
+        is_too_short = minimum_length is not None and len(value or "") < minimum_length
+        if is_placeholder or is_too_short:
+            requirement = (
+                f" and contain at least {minimum_length} characters"
+                if minimum_length
+                else ""
+            )
             message = (
-                f'The value of {var_name} is "changethis", '
-                "for security, please change it, at least for deployments."
+                f"{var_name} must not use a placeholder{requirement} "
+                "outside local development."
             )
             if self.ENVIRONMENT == "local":
                 warnings.warn(message, stacklevel=1)
@@ -110,18 +161,42 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _enforce_non_default_secrets(self) -> Self:
-        self._check_default_secret("SECRET_KEY", self.SECRET_KEY)
-        self._check_default_secret("POSTGRES_PASSWORD", self.POSTGRES_PASSWORD)
+        if self.ENVIRONMENT == "local" and not self.SECRET_KEY:
+            self.SECRET_KEY = secrets.token_urlsafe(32)
+        self._check_default_secret("SECRET_KEY", self.SECRET_KEY, minimum_length=32)
         self._check_default_secret(
-            "FIRST_SUPERUSER_PASSWORD", self.FIRST_SUPERUSER_PASSWORD
+            "POSTGRES_PASSWORD", self.POSTGRES_PASSWORD, minimum_length=12
         )
+        self._check_default_secret(
+            "FIRST_SUPERUSER_PASSWORD",
+            self.FIRST_SUPERUSER_PASSWORD,
+            minimum_length=12,
+        )
+
+        if self.ENVIRONMENT == "production":
+            if not self.TRUSTED_HOSTS or "*" in self.TRUSTED_HOSTS:
+                raise ValueError(
+                    "TRUSTED_HOSTS must be an explicit non-wildcard allowlist in production."
+                )
+            if not self.all_cors_origins:
+                raise ValueError("At least one explicit frontend origin is required in production.")
+            if any(origin == "*" for origin in self.all_cors_origins):
+                raise ValueError("Wildcard CORS origins are forbidden in production.")
+            if self.CODE_SANDBOX_ENABLED:
+                raise ValueError("CODE_SANDBOX_ENABLED is forbidden in production.")
+            if self.ENABLE_MOCK_ROUTES:
+                raise ValueError("ENABLE_MOCK_ROUTES is forbidden in production.")
+            if self.DEMO_FAKE_CHAT_CACHE:
+                raise ValueError("DEMO_FAKE_CHAT_CACHE is forbidden in production.")
+            if self.DEVELOPER_PANEL_ENABLED:
+                raise ValueError("DEVELOPER_PANEL_ENABLED is forbidden in production.")
 
         return self
 
     # 新增教育系统的配置
     BASE_PATH: str = str(Path(__file__).resolve().parent.parent.parent)
     UPLOAD_DIR: str = os.path.join(BASE_PATH, "files")
-    MAX_UPLOAD_SIZE: int = 100 * 1024 * 1024  # 100MB
+    MAX_UPLOAD_SIZE: int = 25 * 1024 * 1024
     RAG_UPLOAD_DIR: str = os.path.join(BASE_PATH, "uploads")
     CHROMA_DB_PATH: str = os.path.join(BASE_PATH, "vector_db")
 
@@ -155,6 +230,15 @@ class Settings(BaseSettings):
     MIMO_TTS_MODEL: str = "mimo-v2.5-tts"
     MIMO_TIMEOUT_SECONDS: int = 120
     RESOURCE_GENERATION_AI_ENABLED: bool = True
+    RESOURCE_GENERATION_TIMEOUT_SECONDS: int = 45
+
+    # Independent input/output moderation. ``http`` means a dedicated
+    # moderation endpoint, never a chat-model prompt. Local rules remain as a
+    # deterministic fail-safe when the provider is unavailable.
+    CONTENT_SAFETY_PROVIDER: Literal["local", "http"] = "local"
+    CONTENT_SAFETY_API_URL: str | None = None
+    CONTENT_SAFETY_API_KEY: str | None = None
+    CONTENT_SAFETY_TIMEOUT_SECONDS: float = 2.5
 
     MULTIMODAL_PROVIDER: str = "mimo"
     MULTIMODAL_MODEL: str = "mimo-v2.5"
@@ -166,6 +250,18 @@ class Settings(BaseSettings):
     RAG_TOP_K: int = 4
     RAG_CHUNK_SIZE: int = 1000
     RAG_CHUNK_OVERLAP: int = 200
+    # Hash embeddings are not semantic. Require lexical coverage before a hash
+    # candidate can be cited so unrelated vector noise becomes RAG_EMPTY.
+    # Keep the deterministic hash fallback conservative. 0.16 rejects common
+    # single-term collisions (for example an unrelated query containing only
+    # “实验”) while retaining the seeded course paraphrase set.
+    RAG_HASH_MIN_LEXICAL_SCORE: float = 0.16
+    # Course knowledge retrieval needs a stricter evidence gate than an
+    # explicitly attached document. Hybrid RRF can otherwise lift unrelated
+    # top-ranked chunks above the generic vector floor.
+    RAG_COURSE_SEMANTIC_MIN_SCORE: float = 0.34
+    RAG_VECTOR_MIN_SCORE: float = 0.20
+    RAG_LEXICAL_MAX_DOCUMENTS: int = 2500
 
     REDIS_BROKER_URL: str = "redis://127.0.0.1:6379/0"
     REDIS_RESULT_BACKEND: str = "redis://127.0.0.1:6379/1"
@@ -225,6 +321,7 @@ class Settings(BaseSettings):
     DEMO_FAKE_CHAT_CACHE: bool = False
     DEVELOPER_PANEL_ENABLED: bool = True
     ENABLE_MOCK_ROUTES: bool = False
+    CODE_SANDBOX_ENABLED: bool = False
 
     # 讯飞/星火 API 预留（赛题合规项，未配置时回退 CHAT_PROVIDER）
     IFLYTEK_APP_ID: str | None = None

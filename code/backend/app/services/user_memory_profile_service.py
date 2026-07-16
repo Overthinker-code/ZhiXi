@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import math
 import re
-from datetime import datetime
+from collections import Counter
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field, ValidationError
 from langchain_core.messages import HumanMessage
-from sqlmodel import Session, select, or_
+from sqlmodel import Session, select
 
 from app.core.config import settings
 from app.core.db import engine
@@ -23,15 +25,54 @@ from app.services.chat_model_factory import ChatModelFactory
 logger = logging.getLogger(__name__)
 
 
+class ProfileDimensionRecord(BaseModel):
+    """Versioned value for one longitudinal learner-profile dimension.
+
+    Raw chat text is deliberately not persisted here. ``source_ref`` is a
+    non-reversible digest or a durable evidence id so an update can be audited
+    without duplicating sensitive conversation content in the profile row.
+    """
+
+    key: str
+    label: str
+    value: Any | None = None
+    source_type: str = "insufficient"
+    source_ref: str | None = None
+    updated_at: str | None = None
+    version: int = Field(default=1, ge=1)
+    method_version: str = "dynamic_profile_v2"
+
+
 class MemoryProfilePayload(BaseModel):
     weak_points: list[str] = Field(default_factory=list)
     learning_style: str = ""
     current_goal: str = ""
     mastery_map: dict[str, float] = Field(default_factory=dict)
     mastery_update: dict[str, Any] = Field(default_factory=dict)
+    knowledge_foundation: str = ""
+    error_patterns: list[str] = Field(default_factory=list)
+    resource_preference: str = ""
+    learning_rhythm: str = ""
+    self_regulation: str = ""
+    interest_topics: list[str] = Field(default_factory=list)
+    activity_summary: dict[str, Any] = Field(default_factory=dict)
+    knowledge_base_context: dict[str, Any] = Field(default_factory=dict)
+    profile_dimensions: dict[str, ProfileDimensionRecord] = Field(default_factory=dict)
+    profile_schema_version: str = "dynamic_profile_v2"
 
 
 class UserMemoryProfileService:
+    PROFILE_SCHEMA_VERSION = "dynamic_profile_v2"
+    PROFILE_DIMENSIONS: dict[str, str] = {
+        "knowledge_foundation": "知识基础",
+        "knowledge_mastery": "知识掌握与薄弱点",
+        "error_patterns": "易错模式",
+        "current_goal": "当前目标",
+        "learning_style": "学习风格",
+        "resource_preference": "资源偏好",
+        "learning_rhythm": "学习节律",
+        "self_regulation": "自我调节与任务执行",
+    }
     MASTERY_DEFAULT = 0.52
     MASTERY_RELIABILITY = 0.28
     MASTERY_WEAK_POINT_OBSERVATION = 0.42
@@ -60,17 +101,27 @@ class UserMemoryProfileService:
         payload: MemoryProfilePayload,
     ) -> UserMemoryProfile:
         record = self.get_record(session, user_id)
-        data = payload.model_dump()
+        data = payload.model_dump(mode="json")
         if record:
-            # Preserve structured incremental profile fields added by chat,
-            # practice and feedback analysis while refreshing report fields.
-            record.memory_profile = {
-                **(record.memory_profile or {}),
-                **data,
-                "knowledge_state": data.get("mastery_map")
-                or (record.memory_profile or {}).get("knowledge_state")
-                or {},
-            }
+            existing = record.memory_profile if isinstance(record.memory_profile, dict) else {}
+            # Callers that only know the legacy payload must not erase the
+            # longitudinal audit trail. New fields are replaced only when the
+            # caller explicitly supplied them.
+            for field in (
+                "knowledge_foundation",
+                "error_patterns",
+                "resource_preference",
+                "learning_rhythm",
+                "self_regulation",
+                "interest_topics",
+                "activity_summary",
+                "knowledge_base_context",
+                "profile_dimensions",
+                "profile_schema_version",
+            ):
+                if field not in payload.model_fields_set and field in existing:
+                    data[field] = existing[field]
+            record.memory_profile = data
             record.updated_at = datetime.utcnow()
         else:
             record = UserMemoryProfile(
@@ -82,6 +133,432 @@ class UserMemoryProfileService:
         session.commit()
         session.refresh(record)
         return record
+
+    def _store_profile_without_commit(
+        self,
+        session: Session,
+        *,
+        user_id: UUID | str,
+        profile: dict[str, Any],
+    ) -> UserMemoryProfile:
+        """Stage a profile update in the caller's evidence transaction."""
+
+        record = self.get_record(session, user_id)
+        now = datetime.utcnow()
+        if record:
+            record.memory_profile = profile
+            record.updated_at = now
+        else:
+            record = UserMemoryProfile(
+                user_id=user_id,
+                memory_profile=profile,
+                updated_at=now,
+            )
+        session.add(record)
+        session.flush([record])
+        return record
+
+    @staticmethod
+    def _meaningful(value: Any) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return bool(value.strip())
+        if isinstance(value, (list, dict, tuple, set)):
+            return bool(value)
+        return True
+
+    def _dimension_record(
+        self,
+        *,
+        key: str,
+        value: Any,
+        source_type: str,
+        source_ref: str | None,
+        previous: dict[str, Any] | ProfileDimensionRecord | None,
+        updated_at: str,
+    ) -> ProfileDimensionRecord:
+        prior: ProfileDimensionRecord | None = None
+        if previous:
+            try:
+                prior = (
+                    previous
+                    if isinstance(previous, ProfileDimensionRecord)
+                    else ProfileDimensionRecord.model_validate(previous)
+                )
+            except ValidationError:
+                prior = None
+        if not self._meaningful(value):
+            if prior and self._meaningful(prior.value):
+                return prior
+            return ProfileDimensionRecord(
+                key=key,
+                label=self.PROFILE_DIMENSIONS[key],
+                value=None,
+                source_type="insufficient",
+                updated_at=prior.updated_at if prior else None,
+                version=prior.version if prior else 1,
+            )
+        if prior and prior.value == value and prior.source_type == source_type:
+            return prior
+        return ProfileDimensionRecord(
+            key=key,
+            label=self.PROFILE_DIMENSIONS[key],
+            value=value,
+            source_type=source_type,
+            source_ref=source_ref,
+            updated_at=updated_at,
+            version=(prior.version + 1) if prior else 1,
+        )
+
+    def build_dialogue_profile_dimensions(
+        self,
+        payload: MemoryProfilePayload,
+        *,
+        previous_dimensions: dict[str, Any] | None = None,
+        source_ref: str | None = None,
+        updated_at: str | None = None,
+    ) -> dict[str, ProfileDimensionRecord]:
+        """Create the fixed eight-dimension contract from dialogue extraction.
+
+        These values are qualitative dialogue inferences. They must never be
+        interpreted as scored mastery observations. Quantitative mastery is
+        overwritten only by ``apply_learning_evidence_update``.
+        """
+
+        previous = previous_dimensions or {}
+        timestamp = updated_at or datetime.now(timezone.utc).isoformat()
+        dialogue_values: dict[str, Any] = {
+            "knowledge_foundation": payload.knowledge_foundation,
+            "knowledge_mastery": (
+                {"weak_points": payload.weak_points}
+                if payload.weak_points
+                else None
+            ),
+            "error_patterns": payload.error_patterns,
+            "current_goal": payload.current_goal,
+            "learning_style": payload.learning_style,
+            "resource_preference": payload.resource_preference,
+            "learning_rhythm": payload.learning_rhythm,
+            "self_regulation": payload.self_regulation,
+        }
+        return {
+            key: self._dimension_record(
+                key=key,
+                value=dialogue_values[key],
+                source_type="dialogue_inference",
+                source_ref=source_ref,
+                previous=previous.get(key),
+                updated_at=timestamp,
+            )
+            for key in self.PROFILE_DIMENSIONS
+        }
+
+    def apply_learning_evidence_update(
+        self,
+        session: Session,
+        *,
+        user_id: UUID | str,
+        evidence_summary: dict[str, dict[str, Any]],
+        evidence_id: UUID | str,
+        evidence_payload: dict[str, Any] | None = None,
+        observed_at: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Stage a trusted assessment update without committing its transaction.
+
+        The caller must invoke this only for a trusted, scored assessment event.
+        Resource generation, browsing and document exposure are intentionally
+        excluded at the call boundary and therefore cannot improve mastery.
+        """
+
+        profile = dict(self.get_profile_dict(session, user_id) or {})
+        existing_dimensions = profile.get("profile_dimensions") or {}
+        timestamp = (observed_at or datetime.now(timezone.utc)).isoformat()
+        try:
+            current_payload = MemoryProfilePayload.model_validate(profile)
+        except ValidationError:
+            current_payload = MemoryProfilePayload(
+                weak_points=[
+                    str(item).strip()
+                    for item in (profile.get("weak_points") or [])
+                    if str(item).strip()
+                ],
+                learning_style=str(profile.get("learning_style") or "").strip(),
+                current_goal=str(profile.get("current_goal") or "").strip(),
+                knowledge_foundation=str(
+                    profile.get("knowledge_foundation") or ""
+                ).strip(),
+                error_patterns=[
+                    str(item).strip()
+                    for item in (profile.get("error_patterns") or [])
+                    if str(item).strip()
+                ],
+                resource_preference=str(
+                    profile.get("resource_preference") or ""
+                ).strip(),
+                learning_rhythm=str(profile.get("learning_rhythm") or "").strip(),
+                self_regulation=str(profile.get("self_regulation") or "").strip(),
+            )
+        baseline_dimensions = self.build_dialogue_profile_dimensions(
+            current_payload,
+            previous_dimensions=existing_dimensions,
+            source_ref=None,
+            updated_at=timestamp,
+        )
+        dimensions: dict[str, ProfileDimensionRecord] = {}
+        for key in self.PROFILE_DIMENSIONS:
+            try:
+                dimensions[key] = ProfileDimensionRecord.model_validate(
+                    existing_dimensions[key]
+                )
+            except (KeyError, TypeError, ValidationError):
+                dimensions[key] = baseline_dimensions[key]
+        mastery_map = {
+            str(details.get("display_name") or point): self._clamp_mastery(estimate)
+            for point, details in evidence_summary.items()
+            if (estimate := details.get("mastery_estimate")) is not None
+        }
+        weak_points = [
+            topic
+            for topic, score in sorted(mastery_map.items(), key=lambda item: item[1])
+            if score < 0.6
+        ][:6]
+        dimensions["knowledge_mastery"] = self._dimension_record(
+            key="knowledge_mastery",
+            value={"mastery_map": mastery_map, "weak_points": weak_points},
+            source_type="learning_evidence",
+            source_ref=str(evidence_id),
+            previous=existing_dimensions.get("knowledge_mastery"),
+            updated_at=timestamp,
+        )
+
+        payload = evidence_payload or {}
+        grading = payload.get("grading_result") if isinstance(payload.get("grading_result"), dict) else {}
+        explicit_errors: list[str] = []
+        for candidate in (
+            payload.get("error_patterns"),
+            payload.get("error_pattern"),
+            payload.get("mistake_type"),
+            grading.get("gaps"),
+        ):
+            if isinstance(candidate, list):
+                explicit_errors.extend(str(item).strip() for item in candidate if str(item).strip())
+            elif isinstance(candidate, str) and candidate.strip():
+                explicit_errors.append(candidate.strip())
+        if explicit_errors:
+            merged_errors = list(dict.fromkeys([*explicit_errors, *(profile.get("error_patterns") or [])]))[:8]
+            profile["error_patterns"] = merged_errors
+            dimensions["error_patterns"] = self._dimension_record(
+                key="error_patterns",
+                value=merged_errors,
+                source_type="learning_evidence",
+                source_ref=str(evidence_id),
+                previous=existing_dimensions.get("error_patterns"),
+                updated_at=timestamp,
+            )
+
+        task_execution = payload.get("task_execution")
+        if isinstance(task_execution, dict) and task_execution:
+            dimensions["self_regulation"] = self._dimension_record(
+                key="self_regulation",
+                value=task_execution,
+                source_type="learning_evidence",
+                source_ref=str(evidence_id),
+                previous=existing_dimensions.get("self_regulation"),
+                updated_at=timestamp,
+            )
+
+        profile.update(
+            {
+                "weak_points": (
+                    weak_points if mastery_map else list(profile.get("weak_points") or [])
+                ),
+                "mastery_map": mastery_map,
+                "mastery_update": {
+                    "formula": "trusted_learning_evidence_weighted_beta_v1",
+                    "source": "learning_evidence",
+                    "evidence_id": str(evidence_id),
+                    "topic_count": len(mastery_map),
+                    "updated_at": timestamp,
+                },
+                "profile_dimensions": {
+                    key: value.model_dump(mode="json") for key, value in dimensions.items()
+                },
+                "profile_schema_version": self.PROFILE_SCHEMA_VERSION,
+            }
+        )
+        self._store_profile_without_commit(session, user_id=user_id, profile=profile)
+        return profile
+
+    def apply_behavioral_evidence_update(
+        self,
+        session: Session,
+        *,
+        user_id: UUID | str,
+        evidence_id: UUID | str,
+        observed_at: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Fold activity into qualitative dimensions without changing mastery."""
+
+        from app.models.learning_evidence import LearningEvidence
+
+        uid = UUID(user_id) if isinstance(user_id, str) else user_id
+        rows = session.exec(
+            select(LearningEvidence)
+            .where(LearningEvidence.user_id == uid)
+            .order_by(LearningEvidence.observed_at.desc())
+            .limit(200)
+        ).all()
+        profile = dict(self.get_profile_dict(session, uid) or {})
+        dimensions = dict(profile.get("profile_dimensions") or {})
+        timestamp = (observed_at or datetime.now(timezone.utc)).isoformat()
+
+        source_counts = Counter(row.source_type for row in rows)
+        topic_counts: Counter[str] = Counter()
+        resource_types: Counter[str] = Counter()
+        rhythm_buckets: Counter[str] = Counter()
+        task_events: list[dict[str, Any]] = []
+        kb_documents: list[dict[str, str]] = []
+        seen_documents: set[tuple[str, str]] = set()
+
+        for row in rows:
+            if row.knowledge_point != "unscopedlearninginteraction":
+                topic = (row.display_name or row.knowledge_point).strip()
+                if topic:
+                    topic_counts[topic] += 1
+            payload = row.payload if isinstance(row.payload, dict) else {}
+            resource_type = str(
+                payload.get("resource_type") or payload.get("modality") or ""
+            ).strip()
+            if resource_type:
+                resource_types[resource_type] += 1
+            task_execution = payload.get("task_execution")
+            if isinstance(task_execution, dict) and task_execution:
+                task_events.append(task_execution)
+            citations = payload.get("citations")
+            if isinstance(citations, list):
+                for citation in citations[:8]:
+                    if not isinstance(citation, dict):
+                        continue
+                    title = str(
+                        citation.get("title")
+                        or citation.get("document")
+                        or citation.get("source")
+                        or ""
+                    ).strip()
+                    source = str(
+                        citation.get("source_type")
+                        or citation.get("source")
+                        or "课程知识库"
+                    ).strip()
+                    if not title or (title, source) in seen_documents:
+                        continue
+                    seen_documents.add((title, source))
+                    kb_documents.append({"title": title[:160], "source": source[:80]})
+            observed = row.observed_at
+            if observed.tzinfo is None:
+                observed = observed.replace(tzinfo=timezone.utc)
+            hour = observed.astimezone().hour
+            bucket = (
+                "清晨"
+                if 5 <= hour < 9
+                else "上午"
+                if 9 <= hour < 12
+                else "下午"
+                if 12 <= hour < 18
+                else "晚间"
+                if 18 <= hour < 24
+                else "深夜"
+            )
+            rhythm_buckets[bucket] += 1
+
+        interest_topics = [topic for topic, _ in topic_counts.most_common(8)]
+        profile["interest_topics"] = interest_topics
+        profile["activity_summary"] = {
+            "event_count": len(rows),
+            "source_counts": dict(source_counts),
+            "last_activity_at": rows[0].observed_at.isoformat() if rows else timestamp,
+        }
+        profile["knowledge_base_context"] = {
+            "recent_documents": kb_documents[:12],
+            "topic_signals": interest_topics[:6],
+        }
+
+        if resource_types:
+            preference = {
+                "dominant_types": [name for name, _ in resource_types.most_common(3)],
+                "sample_count": sum(resource_types.values()),
+            }
+            profile["resource_preference"] = "、".join(preference["dominant_types"])
+            dimensions["resource_preference"] = self._dimension_record(
+                key="resource_preference",
+                value=preference,
+                source_type="behavioral_evidence",
+                source_ref=str(evidence_id),
+                previous=dimensions.get("resource_preference"),
+                updated_at=timestamp,
+            ).model_dump(mode="json")
+
+        if rhythm_buckets:
+            dominant_period, _ = rhythm_buckets.most_common(1)[0]
+            rhythm = {
+                "dominant_period": dominant_period,
+                "distribution": dict(rhythm_buckets),
+                "sample_count": sum(rhythm_buckets.values()),
+            }
+            profile["learning_rhythm"] = f"近期主要在{dominant_period}学习"
+            dimensions["learning_rhythm"] = self._dimension_record(
+                key="learning_rhythm",
+                value=rhythm,
+                source_type="behavioral_evidence",
+                source_ref=str(evidence_id),
+                previous=dimensions.get("learning_rhythm"),
+                updated_at=timestamp,
+            ).model_dump(mode="json")
+
+        if task_events:
+            latest_task = task_events[0]
+            completed = sum(
+                1
+                for item in task_events
+                if bool(item.get("completed"))
+                or item.get("status") == "completed"
+                or float(item.get("progress") or 0) >= 100
+            )
+            progress = max(0, min(100, int(latest_task.get("progress") or 0)))
+            self_regulation = {
+                # Preserve auditable task-level observations such as attempt
+                # count and completion flags while adding stable aggregates.
+                **latest_task,
+                "active_goal": str(latest_task.get("goal") or "")[:300],
+                "latest_progress": progress,
+                "completed_events": completed,
+                "observed_task_events": len(task_events),
+            }
+            profile["self_regulation"] = f"当前任务进度 {progress}%"
+            if self_regulation["active_goal"]:
+                profile["current_goal"] = self_regulation["active_goal"]
+                dimensions["current_goal"] = self._dimension_record(
+                    key="current_goal",
+                    value=self_regulation["active_goal"],
+                    source_type="explicit_task",
+                    source_ref=str(evidence_id),
+                    previous=dimensions.get("current_goal"),
+                    updated_at=timestamp,
+                ).model_dump(mode="json")
+            dimensions["self_regulation"] = self._dimension_record(
+                key="self_regulation",
+                value=self_regulation,
+                source_type="behavioral_evidence",
+                source_ref=str(evidence_id),
+                previous=dimensions.get("self_regulation"),
+                updated_at=timestamp,
+            ).model_dump(mode="json")
+
+        profile["profile_dimensions"] = dimensions
+        profile["profile_schema_version"] = self.PROFILE_SCHEMA_VERSION
+        self._store_profile_without_commit(session, user_id=uid, profile=profile)
+        return profile
 
     def build_prompt_injection(
         self, session: Session, user_id: UUID | str | None
@@ -97,12 +574,47 @@ class UserMemoryProfileService:
         learning_style = (
             str(profile.get("learning_style") or "").strip() or "暂无明显学习偏好"
         )
+        knowledge_foundation = (
+            str(profile.get("knowledge_foundation") or "").strip() or "暂无稳定描述"
+        )
+        error_patterns = "、".join(
+            str(item).strip()
+            for item in (profile.get("error_patterns") or [])
+            if str(item).strip()
+        )
+        resource_preference = (
+            str(profile.get("resource_preference") or "").strip() or "暂无明确偏好"
+        )
+        learning_rhythm = (
+            str(profile.get("learning_rhythm") or "").strip() or "暂无稳定节律"
+        )
+        self_regulation = (
+            str(profile.get("self_regulation") or "").strip() or "暂无任务执行观察"
+        )
+        interest_topics = "、".join(
+            str(item).strip()
+            for item in (profile.get("interest_topics") or [])[:6]
+            if str(item).strip()
+        )
+        kb_context = profile.get("knowledge_base_context") or {}
+        kb_topics = "、".join(
+            str(item).strip()
+            for item in (kb_context.get("topic_signals") or [])[:6]
+            if str(item).strip()
+        )
         return (
             "[CRITICAL CONTEXT: USER PROFILE]\n"
             "你必须参考以下学生长期画像来组织回答深度、举例方式与学习建议：\n"
+            f"- 知识基础：{knowledge_foundation}\n"
             f"- 当前学习目标：{current_goal}\n"
             f"- 薄弱知识点：{weak_text or '暂无明确薄弱点'}\n"
+            f"- 易错模式：{error_patterns or '暂无稳定易错模式'}\n"
             f"- 学习偏好：{learning_style}\n"
+            f"- 资源偏好：{resource_preference}\n"
+            f"- 学习节律：{learning_rhythm}\n"
+            f"- 自我调节与任务执行：{self_regulation}\n"
+            f"- 近期学习主题：{interest_topics or '暂无稳定主题'}\n"
+            f"- 知识库关联主题：{kb_topics or '暂无稳定关联'}\n"
             f"- 知识点掌握度：{self._format_mastery_for_prompt(profile)}\n"
             "如果本轮问题命中薄弱知识点，请提供更基础、更细化的解释，并补一个小例子。"
         )
@@ -332,10 +844,13 @@ class UserMemoryProfileService:
             return MemoryProfilePayload()
         prompt = (
             "你是一个学情分析专家。请阅读以下该用户近期的学习聊天记录。\n"
-            "你的任务是提取用户的学习特征，并输出严格 JSON。\n"
-            "必须包含字段：weak_points（数组）、learning_style（字符串）、current_goal（字符串）、"
-            "mastery_map（对象，key 为知识点，value 为 0-1 的近期掌握度估计）。\n"
-            "mastery_map 最多输出 6 个知识点；不确定时给 0.45-0.6，不要给极端值。\n"
+            "你的任务是提取用户明确表达或可从上下文稳定推断的学习特征，并输出严格 JSON。\n"
+            "必须包含字段：knowledge_foundation（知识基础描述）、weak_points（薄弱点数组）、"
+            "error_patterns（易错模式数组）、current_goal（当前目标）、learning_style（学习风格）、"
+            "resource_preference（资源偏好）、learning_rhythm（学习节律）、"
+            "self_regulation（自我调节与任务执行描述）。\n"
+            "没有依据的字段使用空字符串或空数组；不要编造百分比、置信度或知识掌握分数。\n"
+            "mastery_map 固定输出空对象；量化掌握度只能由已评分练习或测评证据计算。\n"
             "不要输出 JSON 以外的任何内容。\n\n"
             f"聊天记录：\n{chat_history}"
         )
@@ -349,20 +864,34 @@ class UserMemoryProfileService:
             )
         data = self._extract_json_blob(str(raw))
         try:
-            return MemoryProfilePayload.model_validate(data)
+            parsed = MemoryProfilePayload.model_validate(data)
+            # Treat any unsolicited LLM score as untrusted text. Dialogue may
+            # describe confidence, but it cannot write quantitative mastery.
+            parsed.mastery_map = {}
+            return parsed
         except ValidationError:
             weak_points = data.get("weak_points")
             if not isinstance(weak_points, list):
                 weak_points = []
+            error_patterns = data.get("error_patterns")
+            if isinstance(error_patterns, str):
+                error_patterns = [error_patterns]
+            elif not isinstance(error_patterns, list):
+                error_patterns = []
             return MemoryProfilePayload(
                 weak_points=[str(item).strip() for item in weak_points if str(item).strip()],
+                knowledge_foundation=str(data.get("knowledge_foundation") or "").strip(),
+                error_patterns=[
+                    str(item).strip()
+                    for item in error_patterns
+                    if str(item).strip()
+                ],
                 learning_style=str(data.get("learning_style") or "").strip(),
                 current_goal=str(data.get("current_goal") or "").strip(),
-                mastery_map={
-                    self._normalize_topic(topic): self._clamp_mastery(score)
-                    for topic, score in (data.get("mastery_map") or {}).items()
-                    if self._normalize_topic(topic)
-                },
+                resource_preference=str(data.get("resource_preference") or "").strip(),
+                learning_rhythm=str(data.get("learning_rhythm") or "").strip(),
+                self_regulation=str(data.get("self_regulation") or "").strip(),
+                mastery_map={},
             )
 
     def refresh_profile(self, user_id: UUID | str) -> dict[str, Any]:
@@ -372,10 +901,84 @@ class UserMemoryProfileService:
                 return {"status": "skipped", "reason": "no_history"}
             previous_profile = self.get_profile_dict(session, user_id) or {}
             payload = self.infer_profile_from_history(history)
-            # 传入user_id和session以启用课堂行为观察融合（联动4）
-            mastery_map, mastery_update = self._merge_mastery_map(previous_profile, payload, user_id=user_id, session=session)
-            payload.mastery_map = mastery_map
-            payload.mastery_update = mastery_update
+            # A missing extraction means "no new observation", not "erase the
+            # longitudinal value". Explicit replacements remain versioned by
+            # ``build_dialogue_profile_dimensions`` below.
+            for field in (
+                "knowledge_foundation",
+                "current_goal",
+                "learning_style",
+                "resource_preference",
+                "learning_rhythm",
+                "self_regulation",
+            ):
+                if not str(getattr(payload, field) or "").strip():
+                    setattr(payload, field, str(previous_profile.get(field) or "").strip())
+            if not payload.error_patterns:
+                payload.error_patterns = [
+                    str(item).strip()
+                    for item in (previous_profile.get("error_patterns") or [])
+                    if str(item).strip()
+                ]
+            if not payload.weak_points:
+                payload.weak_points = [
+                    str(item).strip()
+                    for item in (previous_profile.get("weak_points") or [])
+                    if str(item).strip()
+                ]
+            # Natural-language history may describe a question, goal, or topic,
+            # but it is not a scored mastery observation. Only the trusted
+            # evidence ledger is allowed to populate mastery_map.
+            from app.services.learning_report_service import learning_report_service
+
+            evidence = learning_report_service.evidence_confidence(session, user_id)
+            payload.mastery_map = {
+                str(details.get("display_name") or point): self._clamp_mastery(estimate)
+                for point, details in evidence.items()
+                if (estimate := details.get("mastery_estimate")) is not None
+            }
+            if payload.mastery_map:
+                payload.weak_points = [
+                    topic
+                    for topic, score in sorted(
+                        payload.mastery_map.items(), key=lambda item: item[1]
+                    )
+                    if score < 0.6
+                ][:6]
+            history_ref = hashlib.sha256(history.encode("utf-8")).hexdigest()[:24]
+            profile_dimensions = self.build_dialogue_profile_dimensions(
+                payload,
+                previous_dimensions=previous_profile.get("profile_dimensions") or {},
+                source_ref=f"chat_digest:{history_ref}",
+            )
+            if payload.mastery_map:
+                evidence_timestamp = max(
+                    (
+                        str(details.get("latest_observed_at") or "")
+                        for details in evidence.values()
+                    ),
+                    default=datetime.now(timezone.utc).isoformat(),
+                )
+                profile_dimensions["knowledge_mastery"] = self._dimension_record(
+                    key="knowledge_mastery",
+                    value={
+                        "mastery_map": payload.mastery_map,
+                        "weak_points": payload.weak_points,
+                    },
+                    source_type="learning_evidence",
+                    source_ref="evidence_ledger",
+                    previous=(previous_profile.get("profile_dimensions") or {}).get(
+                        "knowledge_mastery"
+                    ),
+                    updated_at=evidence_timestamp,
+                )
+            payload.mastery_update = {
+                "formula": "trusted_learning_evidence_weighted_beta_v1",
+                "source": "learning_evidence",
+                "topic_count": len(payload.mastery_map),
+            }
+            payload.profile_dimensions = profile_dimensions
+            payload.profile_schema_version = self.PROFILE_SCHEMA_VERSION
             self.upsert_profile(session, user_id=user_id, payload=payload)
             return {
                 "status": "success",

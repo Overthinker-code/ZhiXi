@@ -1,6 +1,6 @@
 from typing import Any
 import os
-import shutil
+import aiofiles
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
@@ -13,6 +13,7 @@ from sqlmodel import select, and_, func, or_
 from app import models
 from app.api import deps
 from app.core.config import settings
+from app.core.upload_security import random_storage_name, validate_upload
 from app.services.resource_subject_service import resolve_resource_subject
 
 router = APIRouter()
@@ -37,8 +38,10 @@ VALID_RESOURCE_TYPES = {
     "docx",
     "image",
     "lecture_markdown",
+    "lecture_docx",
     "lecture_pdf",
     "practice_markdown",
+    "practice_docx",
     "practice_pdf",
     "mind_map",
     "reading_list",
@@ -47,6 +50,9 @@ VALID_RESOURCE_TYPES = {
     "quality_checklist",
     "knowledge_graph",
     "question",
+}
+ALLOWED_RESOURCE_EXTENSIONS = {
+    ".doc", ".docx", ".jpeg", ".jpg", ".md", ".pdf", ".png", ".ppt", ".pptx", ".txt"
 }
 
 
@@ -94,6 +100,33 @@ def _resource_payload(
     payload = models.ResourcePublic.model_validate(resource).model_dump()
     payload.update({"favorite": favorite, "top": top})
     return payload
+
+
+def _record_resource_event(
+    db: Any,
+    *,
+    current_user: models.User,
+    resource: models.Resource,
+    event_type: str,
+) -> None:
+    from app.services.learning_report_service import learning_report_service
+
+    learning_report_service.record_evidence(
+        db,
+        user_id=current_user.id,
+        course_id=resource.course_id,
+        knowledge_point=resource.knowledge_point or resource.title,
+        source_type="resource_interaction",
+        source_id=f"{resource.id}:{event_type}:{datetime.now(timezone.utc).isoformat()}",
+        event_type=event_type,
+        weight=0.2,
+        score=None,
+        payload={
+            "resource_id": str(resource.id),
+            "resource_type": resource.type,
+            "subject": resource.subject,
+        },
+    )
 
 
 @router.get("/", response_model=models.ResourcesPublic)
@@ -222,25 +255,30 @@ async def create_resource(
             detail=f"Invalid type. Must be one of: {', '.join(sorted(VALID_RESOURCE_TYPES))}"
         )
 
-    # 生成唯一的文件名
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    unique_filename = f"{timestamp}_{file.filename}"
+    safe_name, extension = await validate_upload(
+        file, allowed_extensions=ALLOWED_RESOURCE_EXTENSIONS
+    )
+    unique_filename = random_storage_name(extension)
     file_path = os.path.join("resources", unique_filename)
     abs_file_path = os.path.join(UPLOAD_DIR, unique_filename)
 
     # 保存文件
-    with open(abs_file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    # 获取文件大小
-    file_size = os.path.getsize(abs_file_path)
+    file_size = 0
+    async with aiofiles.open(abs_file_path, "wb") as buffer:
+        while chunk := await file.read(1024 * 1024):
+            file_size += len(chunk)
+            if file_size > settings.MAX_UPLOAD_SIZE:
+                await buffer.close()
+                os.remove(abs_file_path)
+                raise HTTPException(status_code=413, detail="Uploaded file is too large")
+            await buffer.write(chunk)
 
     # 创建资源记录
     resource = models.Resource(
         title=title,
         type=type,
         subject=resolve_resource_subject(course.name, title),
-        file_name=file.filename,
+        file_name=safe_name,
         file_path=file_path,
         file_size=file_size,
         content_type=file.content_type or "application/octet-stream",
@@ -293,7 +331,7 @@ def set_resource_favorite(
     resource_id: UUID,
     update: FavoriteUpdate,
 ) -> Any:
-    _resource_or_404(db, resource_id, current_user)
+    resource = _resource_or_404(db, resource_id, current_user)
     favorite = db.exec(
         select(models.ResourceFavorite).where(
             models.ResourceFavorite.user_id == current_user.id,
@@ -304,6 +342,12 @@ def set_resource_favorite(
         db.add(models.ResourceFavorite(user_id=current_user.id, resource_id=resource_id))
     elif not update.favorite and favorite:
         db.delete(favorite)
+    _record_resource_event(
+        db,
+        current_user=current_user,
+        resource=resource,
+        event_type="resource_favorited" if update.favorite else "resource_unfavorited",
+    )
     db.commit()
     return {"resource_id": str(resource_id), "favorite": update.favorite}
 
@@ -316,7 +360,7 @@ def set_resource_config(
     resource_id: UUID,
     update: ResourceConfigUpdate,
 ) -> Any:
-    _resource_or_404(db, resource_id, current_user)
+    resource = _resource_or_404(db, resource_id, current_user)
     config = db.exec(
         select(models.UserResourceConfig).where(
             models.UserResourceConfig.user_id == current_user.id,
@@ -329,6 +373,12 @@ def set_resource_config(
     config.is_hidden = False
     config.updated_time = datetime.now(timezone.utc)
     db.add(config)
+    _record_resource_event(
+        db,
+        current_user=current_user,
+        resource=resource,
+        event_type="resource_pinned" if update.is_top else "resource_unpinned",
+    )
     db.commit()
     return {"resource_id": str(resource_id), "top": config.is_top}
 
@@ -340,7 +390,7 @@ def remove_resource_from_library(
     current_user: models.User = Depends(deps.get_current_user),
     resource_id: UUID,
 ) -> Any:
-    _resource_or_404(db, resource_id, current_user)
+    resource = _resource_or_404(db, resource_id, current_user)
     config = db.exec(
         select(models.UserResourceConfig).where(
             models.UserResourceConfig.user_id == current_user.id,
@@ -361,6 +411,12 @@ def remove_resource_from_library(
     ).first()
     if favorite:
         db.delete(favorite)
+    _record_resource_event(
+        db,
+        current_user=current_user,
+        resource=resource,
+        event_type="resource_removed_from_library",
+    )
     db.commit()
     return {"resource_id": str(resource_id), "removed": True, "physical_deleted": False}
 
@@ -475,6 +531,14 @@ def download_resource(
             status_code=404,
             detail="资源文件不存在或已被删除"
         )
+
+    _record_resource_event(
+        db,
+        current_user=current_user,
+        resource=resource,
+        event_type="resource_downloaded",
+    )
+    db.commit()
 
     return FileResponse(
         str(abs_file_path),

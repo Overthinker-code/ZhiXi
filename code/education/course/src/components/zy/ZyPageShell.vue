@@ -48,7 +48,7 @@
 
     p {
       margin: 8px 0 0;
-      color: var(--zy-color-text-secondary, #64748b);
+      color: #475569;
       font-size: var(--zy-text-sm, 14px);
       line-height: 1.6;
     }

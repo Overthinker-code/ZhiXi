@@ -41,7 +41,7 @@
 
 <script setup>
   import img1 from '@/assets/images/学生头像.jpg';
-  import img2 from '@/assets/images/老师头像.png';
+  import img2 from '@/assets/images/老师头像.webp';
   import {
     Button as AButton,
     Input as AInput,

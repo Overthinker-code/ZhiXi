@@ -11,13 +11,8 @@ class FakeVectorStore:
         self.calls.append(filter)
         if filter == {"scope": "system"}:
             return []
-        if filter == {
-            "$and": [
-                {"scope": "personal"},
-                {"owner_id": "user-1"},
-            ]
-        }:
-            return []
+        # Deliberately behave like a backend that ignores the personal-scope
+        # metadata filter. The service must still remove thread-bound chunks.
         return [
             (
                 Document(

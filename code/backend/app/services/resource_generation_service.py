@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from io import BytesIO
+import hashlib
 import json
+import os
 import re
 import shutil
 from typing import Any
@@ -19,12 +22,15 @@ from app.schemas.resource_generation import (
     ResourceKind,
 )
 from app.services.chat_model_factory import ChatModelFactory
+from app.services.content_quality_service import content_quality_service
 
 
 DEFAULT_RESOURCE_TYPES: list[ResourceKind] = [
     "lecture_markdown",
+    "lecture_docx",
     "lecture_pdf",
     "practice_markdown",
+    "practice_docx",
     "practice_pdf",
     "mind_map",
     "reading_list",
@@ -67,6 +73,7 @@ class ResourceGenerationService:
         request: ResourceGenerationRequest,
         *,
         owner_id: UUID | None = None,
+        runtime_context: dict[str, Any] | None = None,
     ) -> ResourceGenerationResponse:
         package_id = (
             f"rg_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}_{uuid4().hex[:8]}"
@@ -76,15 +83,37 @@ class ResourceGenerationService:
 
         kinds = request.resource_types or DEFAULT_RESOURCE_TYPES
         requested_ai_kinds = [kind for kind in kinds if kind in AI_RESOURCE_KINDS]
-        context = self._build_context(request)
-        ai_contents, ai_generation_error = self._generate_ai_contents(context, kinds)
+        # Word/PDF are renderings of the same reviewed semantic resource. When a
+        # caller requests only a binary format, still generate and review its
+        # Markdown source before rendering it.
+        if any(kind in kinds for kind in ("lecture_docx", "lecture_pdf")) and "lecture_markdown" not in requested_ai_kinds:
+            requested_ai_kinds.append("lecture_markdown")
+        if any(kind in kinds for kind in ("practice_docx", "practice_pdf")) and "practice_markdown" not in requested_ai_kinds:
+            requested_ai_kinds.append("practice_markdown")
+        context = self._build_context(request, runtime_context=runtime_context)
+        ai_contents, ai_generation_error = self._generate_ai_contents(context, requested_ai_kinds)
+        ai_contents, artifact_retries, quality_results = self._review_and_rework_ai_contents(
+            context,
+            requested_ai_kinds,
+            ai_contents,
+        )
         fallback_artifacts = sorted(set(requested_ai_kinds) - set(ai_contents))
+        finalized_contents: dict[str, str] = {}
+        for content_kind in requested_ai_kinds:
+            raw_content = ai_contents.get(content_kind) or self._fallback_content(content_kind, context)
+            finalized_contents[content_kind] = self._finalize_content(
+                content_kind,
+                raw_content,
+                context,
+                quality_results,
+                source="ai" if content_kind in ai_contents else "deterministic_fallback",
+            )
         artifacts: list[GeneratedResourceArtifact] = []
         markdown_cache: dict[str, str] = {}
 
         for kind in kinds:
             if kind == "lecture_markdown":
-                markdown_cache["lecture"] = ai_contents.get(kind) or self._lecture_markdown(context)
+                markdown_cache["lecture"] = finalized_contents["lecture_markdown"]
                 artifacts.append(
                     self._write_artifact(
                         target_dir,
@@ -95,20 +124,32 @@ class ResourceGenerationService:
                         "text/markdown",
                     )
                 )
+            elif kind == "lecture_docx":
+                lecture = markdown_cache.get("lecture") or finalized_contents["lecture_markdown"]
+                artifacts.append(
+                    self._write_artifact(
+                        target_dir,
+                        kind,
+                        f"{request.topic} 讲义 Word",
+                        "lecture.docx",
+                        self._render_docx_bytes(lecture, title=f"{request.topic} 个性化讲义"),
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    )
+                )
             elif kind == "lecture_pdf":
-                lecture = markdown_cache.get("lecture") or ai_contents.get("lecture_markdown") or self._lecture_markdown(context)
+                lecture = markdown_cache.get("lecture") or finalized_contents["lecture_markdown"]
                 artifacts.append(
                     self._write_artifact(
                         target_dir,
                         kind,
                         f"{request.topic} 讲义 PDF",
                         "lecture.pdf",
-                        self._minimal_pdf_bytes(lecture, title=f"{request.topic} 个性化讲义"),
+                        self._render_pdf_bytes(lecture, title=f"{request.topic} 个性化讲义"),
                         "application/pdf",
                     )
                 )
             elif kind == "practice_markdown":
-                markdown_cache["practice"] = ai_contents.get(kind) or self._practice_markdown(context)
+                markdown_cache["practice"] = finalized_contents["practice_markdown"]
                 artifacts.append(
                     self._write_artifact(
                         target_dir,
@@ -119,20 +160,32 @@ class ResourceGenerationService:
                         "text/markdown",
                     )
                 )
+            elif kind == "practice_docx":
+                practice = markdown_cache.get("practice") or finalized_contents["practice_markdown"]
+                artifacts.append(
+                    self._write_artifact(
+                        target_dir,
+                        kind,
+                        f"{request.topic} 练习 Word",
+                        "practice.docx",
+                        self._render_docx_bytes(practice, title=f"{request.topic} 分层练习"),
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    )
+                )
             elif kind == "practice_pdf":
-                practice = markdown_cache.get("practice") or ai_contents.get("practice_markdown") or self._practice_markdown(context)
+                practice = markdown_cache.get("practice") or finalized_contents["practice_markdown"]
                 artifacts.append(
                     self._write_artifact(
                         target_dir,
                         kind,
                         f"{request.topic} 练习 PDF",
                         "practice.pdf",
-                        self._minimal_pdf_bytes(practice, title=f"{request.topic} 分层练习"),
+                        self._render_pdf_bytes(practice, title=f"{request.topic} 分层练习"),
                         "application/pdf",
                     )
                 )
             elif kind == "mind_map":
-                mind_map = ai_contents.get(kind) or self._mind_map(context)
+                mind_map = finalized_contents[kind]
                 mind_map = self._ensure_mind_map_resource_links(mind_map, kinds)
                 artifacts.append(
                     self._write_artifact(
@@ -151,7 +204,7 @@ class ResourceGenerationService:
                         kind,
                         f"{request.topic} 拓展阅读",
                         "reading-list.md",
-                        ai_contents.get(kind) or self._reading_list(context),
+                        finalized_contents[kind],
                         "text/markdown",
                     )
                 )
@@ -162,7 +215,7 @@ class ResourceGenerationService:
                         kind,
                         f"{request.topic} 实操案例",
                         "case-project.md",
-                        ai_contents.get(kind) or self._case_project(context),
+                        finalized_contents[kind],
                         "text/markdown",
                     )
                 )
@@ -173,7 +226,7 @@ class ResourceGenerationService:
                         kind,
                         f"{request.topic} 数字人脚本",
                         "video-script.md",
-                        ai_contents.get(kind) or self._video_script(context),
+                        finalized_contents[kind],
                         "text/markdown",
                     )
                 )
@@ -184,7 +237,7 @@ class ResourceGenerationService:
                         kind,
                         f"{request.topic} 使用审查清单",
                         "quality-checklist.md",
-                        ai_contents.get(kind) or self._quality_checklist(context),
+                        finalized_contents[kind],
                         "text/markdown",
                     )
                 )
@@ -226,6 +279,18 @@ class ResourceGenerationService:
                 "fallback_artifacts": fallback_artifacts,
                 "domain": context["domain"],
                 "fallback_reason": ai_generation_error or "",
+                "runtime_context_digest": self._context_digest(runtime_context or {}),
+                "grounding_mode": context["grounding_mode"],
+                "evidence_gate": {
+                    "passed": True,
+                    "course_claims_allowed": context["has_course_evidence"],
+                    "verifiable_citation_count": context["citation_count"],
+                    "decision": "allow_grounded_claims" if context["has_course_evidence"] else "deny_and_generalize",
+                    "policy": "course_claims_require_verifiable_source_id",
+                },
+                "artifact_retries": artifact_retries,
+                "quality_results": quality_results,
+                "agent_contracts": self._agent_contracts(requested_ai_kinds),
             },
             agent_trace=self._build_agent_trace(
                 context,
@@ -234,10 +299,19 @@ class ResourceGenerationService:
             ),
             quality_notes=[
                 f"已按“{context['scenario']}”组织案例，不输出空泛学习建议。",
-                "讲义、练习、导图、阅读和案例均绑定课堂笔记、课程图谱与 AI 批改入口。",
+                (
+                    "讲义、练习、导图、阅读和案例均绑定可核验课程来源与后续学习动作。"
+                    if context["has_course_evidence"]
+                    else "讲义、练习、导图、阅读和案例按通用知识模式生成，未声称绑定课程资料。"
+                ),
                 "资源包包含 quality-checklist.md，可用于下载后逐项验收与学习闭环追踪。",
-                "所有可下载 Markdown 为中文主产物；PDF 为轻量预览版，排版完整性以 Markdown 为准。",
+                "中文 PDF 与 Markdown 均为完整产物；PDF 支持标题、段落、列表、表格、代码、分页和页码。",
                 "联网搜索默认受控关闭；若启用，外部资料必须在内容中单独标注来源。",
+                (
+                    f"已使用 {context['citation_count']} 条可核验来源约束课程依据。"
+                    if context["has_course_evidence"]
+                    else "未找到可核验课程来源；已降级为通用知识模式并移除课程资料归因。"
+                ),
             ],
             artifacts=artifacts,
         )
@@ -293,6 +367,8 @@ class ResourceGenerationService:
 
     def read_package_manifest(self, package_id: str) -> dict[str, Any]:
         manifest = self.package_directory(package_id) / "manifest.json"
+        if manifest.is_symlink():
+            raise ValueError(f"Package manifest symlinks are not allowed: {package_id}")
         if not manifest.is_file():
             raise FileNotFoundError(f"Missing manifest for package {package_id}")
         payload = json.loads(manifest.read_text(encoding="utf-8"))
@@ -330,11 +406,55 @@ class ResourceGenerationService:
         )
         temporary.replace(manifest)
 
+    def backfill_package_artifact_digests(self, package_id: str) -> dict[str, int]:
+        """Establish SHA-256 baselines for an audited legacy package.
+
+        Existing size metadata must match every file before any digest is
+        written. The manifest replacement is atomic, so a partial backfill can
+        never leave a package looking verified.
+        """
+
+        package_dir = self.package_directory(package_id)
+        manifest_path = package_dir / "manifest.json"
+        payload = self.read_package_manifest(package_id)
+        raw_artifacts = payload.get("artifacts") or []
+        if not isinstance(raw_artifacts, list) or not raw_artifacts:
+            raise ValueError("Package manifest has no artifacts to verify")
+        updated = 0
+        verified = 0
+        for metadata in raw_artifacts:
+            if not isinstance(metadata, dict):
+                raise ValueError("Package manifest contains invalid artifact metadata")
+            file_name = str(metadata.get("file_name") or "")
+            target = self.resolve_artifact_path(package_id, file_name)
+            expected_size = int(metadata.get("file_size") or 0)
+            if expected_size <= 0 or target.stat().st_size != expected_size:
+                raise ValueError("Artifact size does not match package manifest")
+            actual_digest = self._file_sha256(target)
+            expected_digest = str(metadata.get("sha256") or "").strip().lower()
+            if expected_digest and expected_digest != actual_digest:
+                raise ValueError("Artifact digest does not match package manifest")
+            if not expected_digest:
+                metadata["sha256"] = actual_digest
+                updated += 1
+            verified += 1
+        payload["artifact_digest_scheme"] = "sha256-v1"
+        temporary = package_dir / "manifest.json.tmp"
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        temporary.replace(manifest_path)
+        return {"verified": verified, "updated": updated}
+
     def package_directory(self, package_id: str) -> Path:
         if not package_id or self._safe_file_name(package_id) != package_id:
             raise ValueError("Invalid generated package id")
         root = self.output_root.resolve()
-        target = (root / package_id).resolve()
+        candidate = root / package_id
+        if candidate.is_symlink():
+            raise ValueError("Generated package symlinks are not allowed")
+        target = candidate.resolve()
         if target.parent != root:
             raise ValueError("Invalid generated package path")
         return target
@@ -343,9 +463,45 @@ class ResourceGenerationService:
         if not file_name or self._safe_file_name(file_name) != file_name:
             raise ValueError("Invalid generated artifact name")
         package_dir = self.package_directory(package_id)
-        target = (package_dir / file_name).resolve()
+        candidate = package_dir / file_name
+        if candidate.is_symlink():
+            raise ValueError("Generated artifact symlinks are not allowed")
+        target = candidate.resolve()
         if target.parent != package_dir or not target.is_file():
             raise FileNotFoundError(file_name)
+        return target
+
+    @staticmethod
+    def _file_sha256(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    def resolve_verified_artifact_path(
+        self, package_id: str, file_name: str
+    ) -> Path:
+        target = self.resolve_artifact_path(package_id, file_name)
+        manifest = self.read_package_manifest(package_id)
+        metadata = next(
+            (
+                item
+                for item in (manifest.get("artifacts") or [])
+                if isinstance(item, dict) and item.get("file_name") == file_name
+            ),
+            None,
+        )
+        if not metadata:
+            raise ValueError("Artifact is not declared in package manifest")
+        expected_size = int(metadata.get("file_size") or 0)
+        if expected_size <= 0 or target.stat().st_size != expected_size:
+            raise ValueError("Artifact size does not match package manifest")
+        expected_sha256 = str(metadata.get("sha256") or "").strip().lower()
+        if not expected_sha256:
+            raise ValueError("Artifact digest is missing from package manifest")
+        if self._file_sha256(target) != expected_sha256:
+            raise ValueError("Artifact digest does not match package manifest")
         return target
 
     def delete_package(self, package_id: str) -> None:
@@ -366,7 +522,11 @@ class ResourceGenerationService:
     def _artifact_kind_from_name(file_name: str) -> str:
         name = file_name.lower()
         if "practice" in name:
-            return "practice_pdf" if name.endswith(".pdf") else "practice_markdown"
+            if name.endswith(".pdf"):
+                return "practice_pdf"
+            if name.endswith(".docx"):
+                return "practice_docx"
+            return "practice_markdown"
         if "mind" in name:
             return "mind_map"
         if "reading" in name:
@@ -377,7 +537,11 @@ class ResourceGenerationService:
             return "video_script"
         if "quality" in name or "check" in name:
             return "quality_checklist"
-        return "lecture_pdf" if name.endswith(".pdf") else "lecture_markdown"
+        if name.endswith(".pdf"):
+            return "lecture_pdf"
+        if name.endswith(".docx"):
+            return "lecture_docx"
+        return "lecture_markdown"
 
     @staticmethod
     def _infer_manifest_from_artifacts(folder: Path) -> dict[str, object]:
@@ -452,6 +616,8 @@ class ResourceGenerationService:
     def _artifact_content_type(path: Path) -> str:
         if path.suffix.lower() == ".pdf":
             return "application/pdf"
+        if path.suffix.lower() == ".docx":
+            return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         if path.suffix.lower() in {".md", ".mmd", ".txt"}:
             return "text/markdown" if path.suffix.lower() == ".md" else "text/plain"
         return "application/octet-stream"
@@ -465,7 +631,18 @@ class ResourceGenerationService:
         except OSError:
             return ""
 
-    def _build_context(self, request: ResourceGenerationRequest) -> dict[str, str]:
+    @staticmethod
+    def _context_digest(payload: dict[str, Any]) -> str:
+        import hashlib
+        return hashlib.sha256(
+            json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+        ).hexdigest()
+
+    def _build_context(
+        self,
+        request: ResourceGenerationRequest,
+        runtime_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         goal = request.learning_goal or f"掌握 {request.topic} 的核心概念、典型题型和应用方法"
         difficulty_label = {
             "foundation": "基础巩固",
@@ -499,7 +676,7 @@ class ResourceGenerationService:
             "每个案例必须包含输入材料、操作步骤、验收标准和可迁移边界",
             "每个资源必须说明何时进入 AI 伴学、何时进入资源再生成",
         ]
-        return {
+        context = {
             "subject": request.subject.strip(),
             "topic": request.topic.strip(),
             "goal": goal.strip(),
@@ -509,6 +686,7 @@ class ResourceGenerationService:
             "primary": terms[0],
             "secondary": terms[1],
             "third": terms[2],
+            "concept_cards": self._topic_concept_cards(request.subject, request.topic, terms),
             "profile": self._course_profile(request.subject, request.topic),
             "domain": domain["domain"],
             "scenario": domain["scenario"],
@@ -526,10 +704,52 @@ class ResourceGenerationService:
                 f"案例负责迁移应用，质量清单负责把学习动作闭环到 AI 批改和课程图谱。"
             ),
         }
+        runtime = runtime_context or {}
+        citations = [item for item in (runtime.get("citations") or []) if isinstance(item, dict)]
+        verifiable_citations = content_quality_service.verifiable_evidence(citations)
+        has_course_evidence = bool(verifiable_citations)
+        profile_summary = str(runtime.get("profile_summary") or "").strip()
+        evidence_summary = str(runtime.get("evidence_summary") or "").strip()
+        if profile_summary:
+            context["profile"] = profile_summary
+        else:
+            context["profile"] = "no_profile：当前用户暂无可用学习画像"
+        if evidence_summary and has_course_evidence:
+            context["evidence"] = evidence_summary
+        else:
+            context["evidence"] = "no_evidence：未检索到课程文档、原子证据或图谱节点引用"
+        context["citations"] = citations
+        context["citation_count"] = len(verifiable_citations)
+        context["has_course_evidence"] = has_course_evidence
+        context["grounding_mode"] = "course_evidence" if has_course_evidence else "general_knowledge"
+        context["evidence_instruction"] = (
+            "只能使用证据清单中具有真实 source id 的课程来源；不得扩展或编造章节、讲义、图谱节点。"
+            if has_course_evidence
+            else "未提供可核验课程来源。不得声称内容来自课程讲义、课堂笔记、课程图谱或知识图谱节点；必须明确标为通用学科知识。"
+        )
+        if not has_course_evidence:
+            context["graph_nodes"] = context["graph_nodes"].replace("节点", "概念").replace("课程", "主题")
+            context["learning_sequence"] = (
+                "1. 先读生成的主题说明，补齐定义、条件和案例链路\n"
+                "2. 再查看概念关系图，核对每条关系是否能由通用定义或示例支持\n"
+                "3. 完成分层练习，并把错误按概念、条件、步骤和结论分类\n"
+                "4. 将生成内容与正式教材或教师资料交叉核验后再纳入学习记录"
+            )
+            context["quality_gate"] = (
+                "- 每个事实性结论必须能由通用定义、例子或反例解释\n"
+                "- 不得声称引用了未提供的讲义、笔记、教材章节或图谱节点\n"
+                "- 每个练习必须有评分点、错因判断和下一步追练动作\n"
+                "- 使用前必须提示与正式课程资料交叉核验"
+            )
+            context["resource_contract"] = (
+                f"讲解负责说明 {request.topic}，练习负责暴露错因，概念关系图负责定位关系，"
+                "案例负责迁移应用；当前未绑定可核验课程资料。"
+            )
+        return context
 
     def _generate_ai_contents(
         self,
-        ctx: dict[str, str],
+        ctx: dict[str, Any],
         kinds: list[ResourceKind],
     ) -> tuple[dict[str, str], str]:
         provider = settings.CHAT_PROVIDER.lower()
@@ -546,7 +766,7 @@ class ResourceGenerationService:
 
     def _generate_ai_contents_parallel(
         self,
-        ctx: dict[str, str],
+        ctx: dict[str, Any],
         requested: list[ResourceKind],
     ) -> tuple[dict[str, str], str]:
         contents: dict[str, str] = {}
@@ -577,14 +797,18 @@ class ResourceGenerationService:
 
     @staticmethod
     def _build_agent_trace(
-        ctx: dict[str, str],
+        ctx: dict[str, Any],
         requested: list[ResourceKind],
         ai_contents: dict[str, str],
     ) -> list[str]:
         trace = [
             "ProfileAgent: 读取学习画像和目标难度",
             f"DomainAgent: 识别课程域为 {ctx['domain']}",
-            "EvidenceAgent: 生成课程证据清单和引用模板",
+            (
+                f"EvidenceAgent: 验证 {ctx['citation_count']} 条带 source id 的课程依据"
+                if ctx["has_course_evidence"]
+                else "EvidenceAgent: 未发现可核验课程依据，切换为通用知识模式"
+            ),
             f"ResourcePlannerAgent: 规划 {len(requested)} 类资源并并行执行",
         ]
         for kind in requested:
@@ -593,7 +817,7 @@ class ResourceGenerationService:
             trace.append(f"{agent}: {label}，{provider}")
         trace.extend(
             [
-                "SafetyReviewAgent: 检查事实边界、适用条件、课堂证据和输出格式",
+                "SafetyReviewAgent: 检查事实边界、缩写完整性、证据归因和输出格式",
                 "FinalizerAgent: 汇总并写入可下载资源包",
             ]
         )
@@ -601,7 +825,7 @@ class ResourceGenerationService:
 
     def _generate_single_ai_content(
         self,
-        ctx: dict[str, str],
+        ctx: dict[str, Any],
         kind: str,
     ) -> str:
         max_tokens = {
@@ -618,6 +842,7 @@ class ResourceGenerationService:
             max_tokens=max_tokens,
             top_p=0.9,
             model_name=settings.MIMO_FAST_MODEL or settings.MIMO_CHAT_MODEL,
+            timeout_seconds=settings.RESOURCE_GENERATION_TIMEOUT_SECONDS,
         )
         response = model.invoke(
             [
@@ -639,9 +864,164 @@ class ResourceGenerationService:
         return contents.get(kind, "")
 
     @staticmethod
-    def _resource_generation_prompt(ctx: dict[str, str], kinds: list[str]) -> str:
+    def _agent_contracts(kinds: list[ResourceKind]) -> dict[str, dict[str, Any]]:
+        gates: dict[str, str] = {
+            "lecture_markdown": "完整讲义；至少两个小节；包含概念、例子与边界",
+            "practice_markdown": "至少三个层次的练习；包含答案或评分框架",
+            "mind_map": "合法 Mermaid mindmap/graph；包含核心主题与关系",
+            "reading_list": "每条阅读给出来源、用途与引用核验提示",
+            "case_project": "包含场景、任务、交付物与验收量规",
+            "video_script": "包含分段讲解、互动停顿与镜头提示",
+            "quality_checklist": "包含事实、引用、难度与安全审查项",
+        }
+        return {
+            kind: {
+                "agent_role": RESOURCE_AGENT_LABELS[kind][0],
+                "input_schema": ["subject", "topic", "goal", "difficulty", "course_evidence"],
+                "output_schema": {"kind": kind, "content": "markdown_or_mermaid", "citations": "list"},
+                "quality_gate": gates[kind],
+                "max_retries": 2,
+            }
+            for kind in kinds
+        }
+
+    def _review_and_rework_ai_contents(
+        self,
+        ctx: dict[str, Any],
+        requested: list[ResourceKind],
+        contents: dict[str, str],
+    ) -> tuple[dict[str, str], dict[str, int], dict[str, dict[str, Any]]]:
+        accepted = dict(contents)
+        retry_counts: dict[str, int] = {kind: 0 for kind in requested}
+        results: dict[str, dict[str, Any]] = {}
+        for kind in requested:
+            content = accepted.get(kind, "")
+            passed, reasons = self._artifact_quality_gate(
+                kind,
+                content,
+                ctx["topic"],
+                has_course_evidence=bool(ctx["has_course_evidence"]),
+            )
+            while content and not passed and retry_counts[kind] < 2:
+                retry_counts[kind] += 1
+                try:
+                    content = self._generate_single_ai_content(ctx, kind)
+                except Exception as exc:
+                    reasons = [f"rework_error:{exc.__class__.__name__}"]
+                    content = ""
+                    break
+                passed, reasons = self._artifact_quality_gate(
+                    kind,
+                    content,
+                    ctx["topic"],
+                    has_course_evidence=bool(ctx["has_course_evidence"]),
+                )
+            if passed:
+                accepted[kind] = content
+            else:
+                accepted.pop(kind, None)
+            results[kind] = {
+                "passed": passed,
+                "reasons": reasons,
+                "retry_count": retry_counts[kind],
+                "reviewer": "CriticSafetyAgent",
+            }
+        return accepted, retry_counts, results
+
+    @staticmethod
+    def _artifact_quality_gate(
+        kind: ResourceKind,
+        content: str,
+        topic: str,
+        *,
+        has_course_evidence: bool = False,
+    ) -> tuple[bool, list[str]]:
+        result = content_quality_service.review(
+            kind=kind,
+            content=content,
+            topic=topic,
+            has_course_evidence=has_course_evidence,
+        )
+        return result.passed, list(result.reasons)
+
+    @staticmethod
+    def _fallback_content(kind: ResourceKind, ctx: dict[str, Any]) -> str:
+        factories = {
+            "lecture_markdown": ResourceGenerationService._lecture_markdown,
+            "practice_markdown": ResourceGenerationService._practice_markdown,
+            "mind_map": ResourceGenerationService._mind_map,
+            "reading_list": ResourceGenerationService._reading_list,
+            "case_project": ResourceGenerationService._case_project,
+            "video_script": ResourceGenerationService._video_script,
+            "quality_checklist": ResourceGenerationService._quality_checklist,
+        }
+        factory = factories.get(kind)
+        if factory is None:
+            raise ValueError(f"No semantic fallback for resource kind: {kind}")
+        return factory(ctx)
+
+    @staticmethod
+    def _finalize_content(
+        kind: ResourceKind,
+        content: str,
+        ctx: dict[str, Any],
+        quality_results: dict[str, dict[str, Any]],
+        *,
+        source: str,
+    ) -> str:
+        initial = content_quality_service.review(
+            kind=kind,
+            content=content,
+            topic=str(ctx["topic"]),
+            has_course_evidence=bool(ctx["has_course_evidence"]),
+        )
+        remediated = content
+        actions: list[str] = []
+        remediated, acronym_actions = content_quality_service.repair_acronym_completeness(
+            remediated,
+            str(ctx["topic"]),
+            kind=kind,
+        )
+        actions.extend(acronym_actions)
+        if not ctx["has_course_evidence"]:
+            remediated, replacements = content_quality_service.neutralize_ungrounded_course_claims(
+                remediated,
+                kind=kind,
+            )
+            if replacements:
+                actions.append("removed_unsupported_course_attribution")
+        final = content_quality_service.review(
+            kind=kind,
+            content=remediated,
+            topic=str(ctx["topic"]),
+            has_course_evidence=bool(ctx["has_course_evidence"]),
+        )
+        previous = dict(quality_results.get(kind) or {})
+        quality_results[kind] = {
+            **previous,
+            "passed": final.passed,
+            "source": source,
+            "degraded": source != "ai" or bool(actions),
+            "initial_reasons": list(initial.reasons),
+            "reasons": list(final.reasons),
+            "remediation_actions": actions,
+            "checks": final.checks,
+            "grounding_mode": ctx["grounding_mode"],
+            "reviewer": "CriticSafetyAgent",
+        }
+        if not final.passed:
+            raise ValueError(f"Content quality gate failed for {kind}: {','.join(final.reasons)}")
+        return remediated
+
+    @staticmethod
+    def _resource_generation_prompt(ctx: dict[str, Any], kinds: list[str]) -> str:
         tags = "\n".join(
             f"<{kind}>\n请在这里输出 {kind} 正文\n</{kind}>" for kind in kinds
+        )
+        grounding_requirements = (
+            "课程依据只允许引用证据清单中已有的真实来源；每项课程归因都必须可回指 source id。"
+            if ctx["has_course_evidence"]
+            else "当前没有可核验课程来源。内容必须标明基于通用学科知识生成，不得出现课程讲义、课堂笔记、课程图谱或知识图谱节点等来源归因。"
         )
         return f"""你是教育 SaaS 平台的课程资源生成器。请只输出下面这些 XML 风格标签，不要输出 Markdown 代码围栏，不要添加标签之外的解释。
 
@@ -651,13 +1031,14 @@ class ResourceGenerationService:
 生成要求：
 1. 每个请求的标签必须完整出现，开始标签和结束标签必须完全匹配。
 2. 内容必须围绕课程《{ctx['subject']}》和知识点“{ctx['topic']}”，不得泛泛而谈。
-3. 必须绑定课程图谱、课堂证据、学习目标、错因诊断和后续学习动作。
-4. 不得编造外部文献来源；阅读清单只能写课程内资料、教材章节、课堂笔记、练习和可核验资料类型。
-5. 每个 Markdown 类资源至少包含标题、学习目标、课程证据、节点关系、学习任务、质量自查。
+3. 必须绑定学习目标、错因诊断和后续学习动作；课程归因必须经过证据门禁。
+4. 不得编造外部文献、教材章节或课程来源；阅读清单只能列可核验的资料类型和核验动作。
+5. 每个 Markdown 类资源至少包含标题、学习目标、内容依据、概念关系、学习任务、质量自查。
 6. mind_map 字段必须输出 Mermaid mindmap 文本，根节点是“{ctx['topic']}”。
 7. practice_markdown 必须包含基础题、标准题、挑战题、答案框架和错因追练。
 8. quality_checklist 必须能用于验收资源是否真实服务学习闭环。
-9. 不允许出现“第X章”“第Y次课”“某教材”“待补充”“占位”等占位文案；若资料无法确定，写“课程讲义中与本节点关联的章节”这类可执行描述。
+9. 不允许出现“第X章”“第Y次课”“某教材”“待补充”“占位”等占位文案；资料无法确定时必须明确写“未提供可核验来源”，不得用看似具体的课程表述代替证据。
+10. {grounding_requirements}
 
 课程上下文：
 - 课程：{ctx['subject']}
@@ -670,6 +1051,8 @@ class ResourceGenerationService:
 - 应用场景：{ctx['scenario']}
 - 案例线索：{ctx['case']}
 - 证据清单：{ctx['evidence']}
+- 证据模式：{ctx['grounding_mode']}
+- 证据门禁：{ctx['evidence_instruction']}
 - 评分量规：{ctx['rubric']}
 - 常见错因：{ctx['mistakes']}
 - 迁移目标：{ctx['transfer']}
@@ -711,15 +1094,15 @@ class ResourceGenerationService:
     def _validate_ai_contents(
         payload: dict[str, Any],
         requested: list[str],
-        ctx: dict[str, str],
+        ctx: dict[str, Any],
     ) -> dict[str, str]:
         contents: dict[str, str] = {}
-        required_terms = [ctx["subject"], ctx["topic"]]
         for kind in requested:
             value = payload.get(kind)
             if not isinstance(value, str):
                 continue
             text = ResourceGenerationService._strip_artifact_tags(value.strip(), kind)
+            text = ResourceGenerationService._sanitize_model_markdown(text)
             if len(text) < 240 and kind != "mind_map":
                 continue
             if ResourceGenerationService._contains_placeholder(text):
@@ -729,10 +1112,29 @@ class ResourceGenerationService:
             if kind == "mind_map":
                 if "mindmap" not in text.lower() or ctx["topic"] not in text:
                     continue
-            elif not all(term in text for term in required_terms):
+            elif ctx["topic"] not in text:
                 continue
+            elif ctx["subject"] not in text:
+                text = f"课程：{ctx['subject']}\n\n{text}"
             contents[kind] = text
         return contents
+
+    @staticmethod
+    def _sanitize_model_markdown(text: str) -> str:
+        """Normalize a tiny HTML subset that models sometimes mix into Markdown.
+
+        Downloadable artifacts deliberately render model-authored HTML as inert
+        text. Removing only harmless inline-formatting tags here prevents
+        strings such as ``<u>StudentID</u>`` from leaking into Word/PDF while
+        leaving SQL comparison operators and code blocks untouched.
+        """
+        normalized = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+        return re.sub(
+            r"</?(?:u|em|strong|b|i)(?:\s+[^>]*)?>",
+            "",
+            normalized,
+            flags=re.IGNORECASE,
+        ).strip()
 
     @staticmethod
     def _contains_placeholder(text: str) -> bool:
@@ -779,8 +1181,10 @@ class ResourceGenerationService:
         """Keep the generated map aligned with files that exist in the package."""
         file_names: dict[ResourceKind, str] = {
             "lecture_markdown": "lecture.md",
+            "lecture_docx": "lecture.docx",
             "lecture_pdf": "lecture.pdf",
             "practice_markdown": "practice.md",
+            "practice_docx": "practice.docx",
             "practice_pdf": "practice.pdf",
             "reading_list": "reading-list.md",
             "case_project": "case-project.md",
@@ -858,6 +1262,9 @@ class ResourceGenerationService:
                     "download_url": artifact.download_url,
                     "content_type": artifact.content_type,
                     "file_size": artifact.file_size,
+                    "sha256": self._file_sha256(
+                        target_dir / artifact.file_name
+                    ),
                     "preview": artifact.preview,
                 }
                 for artifact in artifacts
@@ -871,6 +1278,10 @@ class ResourceGenerationService:
     @staticmethod
     def _topic_terms(subject: str, topic: str) -> list[str]:
         text = f"{subject} {topic}".lower()
+        if any(term in text for term in ("数学", "函数", "方程", "几何", "概率", "导数", "抛物线")):
+            return ["数学定义", "参数与图像关系", "解题条件", "数形结合", "结果检验"]
+        if any(term in text for term in ("acid", "事务", "转账一致性")):
+            return ["原子性", "一致性", "隔离性", "持久性", "日志与恢复"]
         if "数据库" in text or "sql" in text:
             return ["关系模型", "SQL 查询", "完整性约束", "事务并发", "规范化"]
         if "数据结构" in text or "算法" in text:
@@ -886,6 +1297,25 @@ class ResourceGenerationService:
         return [topic, "定义边界", "适用条件", "典型案例", "自测反馈"]
 
     @staticmethod
+    def _topic_concept_cards(subject: str, topic: str, terms: list[str]) -> str:
+        """Return accurate fallback concept rows when a specialist times out."""
+        text = f"{subject} {topic}".lower()
+        if any(term in text for term in ("acid", "事务", "转账一致性")):
+            rows = [
+                ("原子性", "事务中的操作要么全部完成，要么全部撤销", "能解释扣款成功而入账失败时为何必须回滚"),
+                ("一致性", "事务前后都必须满足完整性约束和业务规则", "能检查转账前后总金额与余额约束是否成立"),
+                ("隔离性", "并发事务不应读取彼此未提交的中间状态", "能识别脏读等并发异常及其隔离级别"),
+                ("持久性", "事务一旦提交，结果在故障后仍可恢复", "能说明日志、REDO 与持久化的关系"),
+            ]
+        else:
+            rows = [
+                (terms[0], "界定核心对象、定义与适用边界", "能否说清定义、输入和输出"),
+                (terms[1], "组织主要推理或操作步骤", "能否列出至少三个判断条件"),
+                (terms[2], "检验结果、反例和边界条件", "能否解释一个成立与不成立的例子"),
+            ]
+        return "\n".join(f"| {name} | {role} | {check} |" for name, role, check in rows)
+
+    @staticmethod
     def _course_profile(subject: str, topic: str) -> str:
         return (
             f"课程《{subject}》当前围绕“{topic}”组织资料。资源包默认面向学生自学，"
@@ -896,6 +1326,20 @@ class ResourceGenerationService:
     def _domain_profile(subject: str, topic: str, terms: list[str]) -> dict[str, object]:
         text = f"{subject} {topic}".lower()
         primary, secondary, third = terms[:3]
+        if any(term in text for term in ("数学", "函数", "方程", "几何", "概率", "导数", "抛物线")):
+            return {
+                "domain": "数学课程",
+                "scenario": f"围绕 {topic} 识别条件、建立表达式、分析图像或数量关系，并用代入与反例检验结论",
+                "case": f"给出与 {topic} 相关的表达式、图像或实际情境，要求说明参数作用、完成推导并验证答案。",
+                "evidence": [
+                    "定义、符号和取值条件是否完整",
+                    "推导步骤是否能回到公式或图像依据",
+                    "结果是否通过代入、特殊值或反例检验",
+                ],
+                "rubric": ["概念与条件 30%", "推导过程 35%", "结果检验 20%", "表达规范 15%"],
+                "mistakes": ["忽略参数取值条件", "平移方向或符号判断错误", "只写结果不保留推导与检验"],
+                "transfer": "能在表达式、图像和实际情境之间转换，并判断同一方法的适用边界。",
+            }
         if "数据库" in text or "sql" in text:
             return {
                 "domain": "数据库课程",
@@ -1054,14 +1498,14 @@ class ResourceGenerationService:
         return name or f"artifact-{uuid4().hex[:8]}.md"
 
     @staticmethod
-    def _lecture_markdown(ctx: dict[str, str]) -> str:
+    def _lecture_markdown(ctx: dict[str, Any]) -> str:
         return f"""# {ctx['topic']} 个性化讲义
 
 课程：{ctx['subject']}
 目标：{ctx['goal']}
 难度：{ctx['difficulty']}
 建议学习时长：{ctx['minutes']} 分钟
-生成依据：{ctx['profile']}
+学习侧重点：{ctx['profile']}
 课程域：{ctx['domain']}
 资源契约：{ctx['resource_contract']}
 
@@ -1071,9 +1515,7 @@ class ResourceGenerationService:
 ## 2. 核心概念卡
 | 概念 | 课堂定位 | 学习检查 |
 | --- | --- | --- |
-| {ctx['primary']} | 用来确定问题对象和基本结构 | 能否说清定义、输入和输出 |
-| {ctx['secondary']} | 用来完成主要推理或操作步骤 | 能否列出 3 个判断条件 |
-| {ctx['third']} | 用来做结果校验和边界判断 | 能否解释一个反例 |
+{ctx['concept_cards']}
 
 ## 3. 课堂笔记对齐
 把课堂笔记整理成下面四个块，后续练习、导图和案例都从这里取证：
@@ -1117,7 +1559,7 @@ class ResourceGenerationService:
 """
 
     @staticmethod
-    def _practice_markdown(ctx: dict[str, str]) -> str:
+    def _practice_markdown(ctx: dict[str, Any]) -> str:
         return f"""# {ctx['topic']} 分层练习
 
 课程：{ctx['subject']}
@@ -1163,7 +1605,7 @@ class ResourceGenerationService:
 """
 
     @staticmethod
-    def _mind_map(ctx: dict[str, str]) -> str:
+    def _mind_map(ctx: dict[str, Any]) -> str:
         return f"""mindmap
   root(({ctx['topic']}))
     课程定位
@@ -1208,7 +1650,7 @@ class ResourceGenerationService:
 """
 
     @staticmethod
-    def _reading_list(ctx: dict[str, str]) -> str:
+    def _reading_list(ctx: dict[str, Any]) -> str:
         return f"""# {ctx['topic']} 拓展阅读清单
 
 ## 课程内必读
@@ -1238,7 +1680,7 @@ class ResourceGenerationService:
 """
 
     @staticmethod
-    def _case_project(ctx: dict[str, str]) -> str:
+    def _case_project(ctx: dict[str, Any]) -> str:
         return f"""# {ctx['topic']} 实操案例
 
 ## 任务背景
@@ -1280,7 +1722,7 @@ class ResourceGenerationService:
 """
 
     @staticmethod
-    def _video_script(ctx: dict[str, str]) -> str:
+    def _video_script(ctx: dict[str, Any]) -> str:
         return f"""# {ctx['topic']} 数字人讲解脚本
 
 大家好，这节课我们用 3 分钟讲清楚 {ctx['topic']}。
@@ -1304,7 +1746,7 @@ class ResourceGenerationService:
 """
 
     @staticmethod
-    def _quality_checklist(ctx: dict[str, str]) -> str:
+    def _quality_checklist(ctx: dict[str, Any]) -> str:
         return f"""# {ctx['topic']} 资源包使用审查清单
 
 课程：{ctx['subject']}
@@ -1341,50 +1783,316 @@ class ResourceGenerationService:
 """
 
     @staticmethod
-    def _minimal_pdf_bytes(markdown: str, *, title: str) -> bytes:
-        """Create a valid lightweight PDF without adding heavy runtime dependencies.
+    def _render_docx_bytes(markdown: str, *, title: str) -> bytes:
+        from docx import Document
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from docx.oxml.ns import qn
+        from docx.shared import Cm, Pt, RGBColor
 
-        This fallback keeps the artifact real and downloadable. Chinese text is
-        transliterated to replacement glyphs by PDF core fonts; the Markdown file
-        remains the canonical full-fidelity source for Chinese content.
+        def plain(value: str) -> str:
+            value = re.sub(r"`([^`\n]+)`", r"\1", value)
+            value = re.sub(r"\*\*([^*\n]+)\*\*", r"\1", value)
+            value = re.sub(r"__([^_\n]+)__", r"\1", value)
+            return value.strip()
+
+        document = Document()
+        document.core_properties.title = title
+        document.core_properties.author = "智屿"
+        docx_font_name = os.getenv("ZHIXI_DOCX_FONT_NAME", "Noto Sans CJK SC")
+        section = document.sections[0]
+        section.top_margin = Cm(1.9)
+        section.bottom_margin = Cm(1.9)
+        section.left_margin = Cm(2.1)
+        section.right_margin = Cm(2.1)
+
+        def set_style_font(style: Any, font_name: str) -> None:
+            style.font.name = font_name
+            fonts = style._element.get_or_add_rPr().get_or_add_rFonts()
+            for theme_attr in ("asciiTheme", "hAnsiTheme", "eastAsiaTheme", "cstheme"):
+                fonts.attrib.pop(qn(f"w:{theme_attr}"), None)
+            for font_attr in ("ascii", "hAnsi", "eastAsia", "cs"):
+                fonts.set(qn(f"w:{font_attr}"), font_name)
+
+        normal = document.styles["Normal"]
+        set_style_font(normal, docx_font_name)
+        normal.font.size = Pt(10.5)
+        for style_name, size, color in (
+            ("Title", 20, "132238"),
+            ("Heading 1", 16, "183B66"),
+            ("Heading 2", 13, "245A8D"),
+            ("Heading 3", 11.5, "344054"),
+        ):
+            style = document.styles[style_name]
+            set_style_font(style, docx_font_name)
+            style.font.size = Pt(size)
+            style.font.color.rgb = RGBColor.from_string(color)
+
+        title_paragraph = document.add_paragraph(style="Title")
+        title_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        title_paragraph.add_run(title)
+
+        lines = markdown.splitlines()
+        index = 0
+        first_h1_seen = False
+        in_code = False
+        code_lines: list[str] = []
+        while index < len(lines):
+            raw = lines[index].rstrip()
+            stripped = raw.strip()
+            if stripped.startswith("```"):
+                if in_code:
+                    paragraph = document.add_paragraph()
+                    run = paragraph.add_run("\n".join(code_lines))
+                    run.font.name = "Menlo"
+                    run.font.size = Pt(9)
+                    code_lines = []
+                    in_code = False
+                else:
+                    in_code = True
+                index += 1
+                continue
+            if in_code:
+                code_lines.append(raw)
+                index += 1
+                continue
+            if stripped.startswith("|") and index + 1 < len(lines) and re.match(r"^\s*\|?\s*:?-{3,}", lines[index + 1]):
+                rows: list[list[str]] = []
+                while index < len(lines) and lines[index].strip().startswith("|"):
+                    cells = [plain(cell) for cell in lines[index].strip().strip("|").split("|")]
+                    if not all(re.fullmatch(r":?-{3,}:?", cell.replace(" ", "")) for cell in cells):
+                        rows.append(cells)
+                    index += 1
+                if rows:
+                    width = max(len(row) for row in rows)
+                    table = document.add_table(rows=len(rows), cols=width)
+                    table.style = "Table Grid"
+                    for row_index, row in enumerate(rows):
+                        for col_index, cell in enumerate(row):
+                            table.cell(row_index, col_index).text = cell
+                continue
+            if not stripped:
+                document.add_paragraph()
+            elif stripped.startswith("### "):
+                document.add_heading(plain(stripped[4:]), level=3)
+            elif stripped.startswith("## "):
+                document.add_heading(plain(stripped[3:]), level=2)
+            elif stripped.startswith("# "):
+                heading = plain(stripped[2:])
+                if first_h1_seen or re.sub(r"\s+", "", heading) != re.sub(r"\s+", "", title):
+                    document.add_heading(heading, level=1)
+                first_h1_seen = True
+            elif re.match(r"^[-*+]\s+", stripped):
+                document.add_paragraph(plain(re.sub(r"^[-*+]\s+", "", stripped)), style="List Bullet")
+            elif re.match(r"^\d+[.)]\s+", stripped):
+                # Preserve the marker emitted by Markdown.  Word's built-in
+                # List Number style otherwise keeps one counter across
+                # unrelated sections (for example learning goals 1-2 followed
+                # by sources 3-5), which changes the meaning of the document.
+                document.add_paragraph(plain(stripped))
+            else:
+                document.add_paragraph(plain(stripped))
+            index += 1
+        if code_lines:
+            paragraph = document.add_paragraph()
+            run = paragraph.add_run("\n".join(code_lines))
+            run.font.name = "Menlo"
+            run.font.size = Pt(9)
+
+        buffer = BytesIO()
+        document.save(buffer)
+        return buffer.getvalue()
+
+    @staticmethod
+    def _render_pdf_bytes(markdown: str, *, title: str) -> bytes:
+        """Render complete Chinese Markdown into a paginated PDF.
+
+        A configured or commonly installed CJK TrueType/OpenType font is used
+        when available. ReportLab's bundled ``STSong-Light`` CID font is the
+        deterministic fallback, so missing host fonts never degrade Chinese to
+        Latin-1 replacement glyphs.
         """
-        lines = [title, "", *markdown.splitlines()]
-        visible_lines = []
-        for line in lines[:42]:
-            safe = line.encode("latin-1", "replace").decode("latin-1")
-            safe = safe.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
-            visible_lines.append(safe[:96])
-        text_ops = ["BT", "/F1 12 Tf", "50 790 Td", "16 TL"]
-        for idx, line in enumerate(visible_lines):
-            if idx:
-                text_ops.append("T*")
-            text_ops.append(f"({line}) Tj")
-        text_ops.append("ET")
-        stream = "\n".join(text_ops).encode("latin-1")
-        objects = [
-            b"<< /Type /Catalog /Pages 2 0 R >>",
-            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] "
-            b"/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
-            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-            b"<< /Length " + str(len(stream)).encode("ascii") + b" >>\nstream\n" + stream + b"\nendstream",
-        ]
-        chunks = [b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n"]
-        offsets: list[int] = []
-        for idx, obj in enumerate(objects, start=1):
-            offsets.append(sum(len(chunk) for chunk in chunks))
-            chunks.append(f"{idx} 0 obj\n".encode("ascii") + obj + b"\nendobj\n")
-        xref_offset = sum(len(chunk) for chunk in chunks)
-        chunks.append(f"xref\n0 {len(objects) + 1}\n".encode("ascii"))
-        chunks.append(b"0000000000 65535 f \n")
-        for offset in offsets:
-            chunks.append(f"{offset:010d} 00000 n \n".encode("ascii"))
-        chunks.append(
-            f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode(
-                "ascii"
+        try:
+            from reportlab.lib import colors
+            from reportlab.lib.enums import TA_CENTER
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+            from reportlab.lib.units import mm
+            from reportlab.pdfbase import pdfmetrics
+            from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+            from reportlab.pdfbase.ttfonts import TTFont
+            from reportlab.platypus import (
+                BaseDocTemplate,
+                Frame,
+                PageTemplate,
+                Paragraph,
+                Preformatted,
+                Spacer,
+                Table,
+                TableStyle,
             )
+        except ImportError as exc:  # pragma: no cover - deployment guard
+            raise RuntimeError(
+                "PDF generation requires reportlab; install code/requirements.txt"
+            ) from exc
+
+        font_name = "ZhiXiCJK"
+        font_candidates = [
+            os.getenv("ZHIXI_CJK_FONT_PATH", ""),
+            str(Path.home() / "Library/Fonts/AlibabaPuHuiTi-2-55-Regular.ttf"),
+            str(Path.home() / "Library/Fonts/思源黑体-Normal_0.otf"),
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+        ]
+        for candidate in font_candidates:
+            if not candidate or not Path(candidate).is_file():
+                continue
+            try:
+                pdfmetrics.registerFont(TTFont(font_name, candidate))
+                break
+            except Exception:
+                continue
+        else:
+            font_name = "STSong-Light"
+            try:
+                pdfmetrics.getFont(font_name)
+            except KeyError:
+                pdfmetrics.registerFont(UnicodeCIDFont(font_name))
+
+        buffer = BytesIO()
+        page_width, page_height = A4
+        frame = Frame(19 * mm, 18 * mm, page_width - 38 * mm, page_height - 36 * mm, id="body")
+
+        def draw_page(canvas: Any, doc: Any) -> None:
+            canvas.saveState()
+            canvas.setFont(font_name, 8.5)
+            canvas.setFillColor(colors.HexColor("#667085"))
+            canvas.drawRightString(page_width - 19 * mm, 10 * mm, f"第 {doc.page} 页")
+            canvas.restoreState()
+
+        doc = BaseDocTemplate(
+            buffer,
+            pagesize=A4,
+            leftMargin=19 * mm,
+            rightMargin=19 * mm,
+            topMargin=18 * mm,
+            bottomMargin=18 * mm,
+            title=title,
+            author="智屿",
         )
-        return b"".join(chunks)
+        doc.addPageTemplates([PageTemplate(id="main", frames=[frame], onPage=draw_page)])
+        base = getSampleStyleSheet()
+        styles = {
+            "title": ParagraphStyle("CJKTitle", parent=base["Title"], fontName=font_name, fontSize=20, leading=28, alignment=TA_CENTER, textColor=colors.HexColor("#132238"), spaceAfter=12),
+            "h1": ParagraphStyle("CJKH1", parent=base["Heading1"], fontName=font_name, fontSize=16, leading=23, textColor=colors.HexColor("#183B66"), spaceBefore=10, spaceAfter=6),
+            "h2": ParagraphStyle("CJKH2", parent=base["Heading2"], fontName=font_name, fontSize=13, leading=20, textColor=colors.HexColor("#245A8D"), spaceBefore=8, spaceAfter=5),
+            "h3": ParagraphStyle("CJKH3", parent=base["Heading3"], fontName=font_name, fontSize=11.5, leading=18, textColor=colors.HexColor("#344054"), spaceBefore=6, spaceAfter=4),
+            "body": ParagraphStyle("CJKBody", parent=base["BodyText"], fontName=font_name, fontSize=10.5, leading=18, textColor=colors.HexColor("#1D2939"), spaceAfter=5, wordWrap="CJK"),
+            "list": ParagraphStyle("CJKList", parent=base["BodyText"], fontName=font_name, fontSize=10.2, leading=17, leftIndent=12, firstLineIndent=-8, textColor=colors.HexColor("#1D2939"), spaceAfter=3, wordWrap="CJK"),
+            "code": ParagraphStyle("CJKCode", parent=base["Code"], fontName=font_name, fontSize=8.5, leading=13, leftIndent=8, rightIndent=8, backColor=colors.HexColor("#F2F4F7"), borderColor=colors.HexColor("#D0D5DD"), borderWidth=0.5, borderPadding=7, spaceBefore=4, spaceAfter=7, wordWrap="CJK"),
+        }
+
+        def escape(value: str) -> str:
+            return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+        def inline_markup(value: str) -> str:
+            """Translate the small inline Markdown subset emitted by resource agents.
+
+            ReportLab ``Paragraph`` accepts a constrained XML-like markup. Escape
+            user/model text first, then add only formatting tags that we control.
+            This keeps literal HTML inert while avoiding visible ``**`` and
+            backticks in the generated teaching PDF.
+            """
+            rendered = escape(value)
+            # Inline code may contain Chinese course titles or source labels.
+            # Courier has no CJK glyphs and previously rendered those labels as
+            # black squares in otherwise valid PDFs.  Keep inline code on the
+            # registered CJK-capable font; fenced code blocks still use their
+            # dedicated code style and remain visually separated.
+            rendered = re.sub(
+                r"`([^`\n]+)`",
+                lambda match: f'<font name="{font_name}">{match.group(1)}</font>',
+                rendered,
+            )
+            rendered = re.sub(r"\*\*([^*\n]+)\*\*", r"<b>\1</b>", rendered)
+            rendered = re.sub(r"__([^_\n]+)__", r"<b>\1</b>", rendered)
+            rendered = re.sub(
+                r"(?<!\*)\*([^*\n]+)\*(?!\*)",
+                r"<i>\1</i>",
+                rendered,
+            )
+            return rendered
+
+        story: list[Any] = [Paragraph(escape(title), styles["title"]), Spacer(1, 3 * mm)]
+        lines = markdown.splitlines()
+        index = 0
+        first_h1_seen = False
+        in_code = False
+        code_lines: list[str] = []
+        while index < len(lines):
+            raw = lines[index].rstrip()
+            if raw.strip().startswith("```"):
+                if in_code:
+                    story.append(Preformatted("\n".join(code_lines), styles["code"]))
+                    code_lines = []
+                    in_code = False
+                else:
+                    in_code = True
+                index += 1
+                continue
+            if in_code:
+                code_lines.append(raw)
+                index += 1
+                continue
+            if raw.strip().startswith("|") and index + 1 < len(lines) and re.match(r"^\s*\|?\s*:?-{3,}", lines[index + 1]):
+                table_rows: list[list[str]] = []
+                while index < len(lines) and lines[index].strip().startswith("|"):
+                    cells = [cell.strip() for cell in lines[index].strip().strip("|").split("|")]
+                    if not all(re.fullmatch(r":?-{3,}:?", cell.replace(" ", "")) for cell in cells):
+                        table_rows.append([Paragraph(inline_markup(cell), styles["body"]) for cell in cells])
+                    index += 1
+                if table_rows:
+                    column_count = max(len(row) for row in table_rows)
+                    for row in table_rows:
+                        row.extend([""] * (column_count - len(row)))
+                    table = Table(table_rows, colWidths=[frame._width / column_count] * column_count, repeatRows=1)
+                    table.setStyle(TableStyle([
+                        ("FONTNAME", (0, 0), (-1, -1), font_name), ("FONTSIZE", (0, 0), (-1, -1), 8.8),
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EAF2F8")),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#183B66")),
+                        ("GRID", (0, 0), (-1, -1), 0.45, colors.HexColor("#B8C4CE")),
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 5), ("TOPPADDING", (0, 0), (-1, -1), 5),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                    ]))
+                    story.append(table)
+                    story.append(Spacer(1, 3 * mm))
+                continue
+            stripped = raw.strip()
+            if not stripped:
+                story.append(Spacer(1, 2.5 * mm))
+            elif stripped.startswith("### "):
+                story.append(Paragraph(inline_markup(stripped[4:]), styles["h3"]))
+            elif stripped.startswith("## "):
+                story.append(Paragraph(inline_markup(stripped[3:]), styles["h2"]))
+            elif stripped.startswith("# "):
+                heading = stripped[2:].strip()
+                normalized_heading = re.sub(r"[\s\-_—–:：]+", "", heading).lower()
+                normalized_title = re.sub(r"[\s\-_—–:：]+", "", title).lower()
+                if first_h1_seen or normalized_heading != normalized_title:
+                    story.append(Paragraph(inline_markup(heading), styles["h1"]))
+                first_h1_seen = True
+            elif re.match(r"^[-*+]\s+", stripped):
+                story.append(Paragraph("• " + inline_markup(re.sub(r"^[-*+]\s+", "", stripped)), styles["list"]))
+            elif re.match(r"^\d+[.)]\s+", stripped):
+                marker, content = stripped.split(maxsplit=1)
+                story.append(Paragraph(escape(marker) + " " + inline_markup(content), styles["list"]))
+            else:
+                story.append(Paragraph(inline_markup(stripped), styles["body"]))
+            index += 1
+        if code_lines:
+            story.append(Preformatted("\n".join(code_lines), styles["code"]))
+        doc.build(story)
+        return buffer.getvalue()
 
 
 resource_generation_service = ResourceGenerationService()

@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import List
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -57,11 +57,25 @@ POPULAR_DEMO_MAP = {
 }
 
 
+def require_teacher_dashboard_access(
+    current_user: User = Depends(deps.get_current_user),
+) -> User:
+    """Protect teacher-wide analytics until teacher accounts have explicit linkage.
+
+    The current identity schema only distinguishes administrators from regular
+    users and does not link ``User`` to ``Teacher``. Administrators are the only
+    identities that can therefore be proven to hold teacher-dashboard access.
+    """
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="Teacher dashboard access required")
+    return current_user
+
+
 @router.get("/teacher/stats")
 def dashboard_teacher_stats(
     *,
     db: Session = Depends(deps.get_db),
-    current_user: User = Depends(deps.get_current_user),
+    current_user: User = Depends(require_teacher_dashboard_access),
 ) -> dict:
     """
     获取教师 Dashboard 统计数据
@@ -125,7 +139,7 @@ def dashboard_teacher_stats(
 def dashboard_teacher_alerts_trend(
     *,
     db: Session = Depends(deps.get_db),
-    current_user: User = Depends(deps.get_current_user),
+    current_user: User = Depends(require_teacher_dashboard_access),
     days: int = Query(7, ge=1, le=30),
 ) -> List[dict]:
     """
@@ -163,7 +177,7 @@ def dashboard_teacher_alerts_trend(
 def dashboard_teacher_popular(
     *,
     db: Session = Depends(deps.get_db),
-    current_user: User = Depends(deps.get_current_user),
+    current_user: User = Depends(require_teacher_dashboard_access),
     type: str = Query("course"),
     limit: int = Query(3, ge=1, le=10),
 ) -> List[dict]:
@@ -231,7 +245,7 @@ def dashboard_teacher_popular(
 def dashboard_teacher_content_distribution(
     *,
     db: Session = Depends(deps.get_db),
-    current_user: User = Depends(deps.get_current_user),
+    current_user: User = Depends(require_teacher_dashboard_access),
 ) -> dict:
     """
     获取内容分布
@@ -263,7 +277,7 @@ def dashboard_teacher_content_distribution(
 def dashboard_course_engagement(
     *,
     db: Session = Depends(deps.get_db),
-    current_user: User = Depends(deps.get_current_user),
+    current_user: User = Depends(require_teacher_dashboard_access),
     course_id: str,
     days: int = Query(30, ge=1, le=90),
 ) -> dict:
@@ -413,7 +427,7 @@ def dashboard_course_engagement(
 def dashboard_student_engagement(
     *,
     db: Session = Depends(deps.get_db),
-    current_user: User = Depends(deps.get_current_user),
+    current_user: User = Depends(require_teacher_dashboard_access),
     student_id: str,
     limit: int = Query(10, ge=1, le=50),
 ) -> dict:

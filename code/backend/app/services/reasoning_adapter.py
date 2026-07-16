@@ -237,7 +237,8 @@ class ReasoningProcessNormalizer:
         raw = str(raw_reasoning or "")
         if not raw:
             return None
-        self.internal_raw_reasoning += raw
+        # Keep only a small diagnostic tail; never retain an unbounded provider CoT.
+        self.internal_raw_reasoning = (self.internal_raw_reasoning + raw)[-4096:]
         delta = normalize_reasoning_to_product_process(raw, self.context)
         if not delta:
             return None

@@ -5,7 +5,8 @@ from __future__ import annotations
 
 import argparse
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from uuid import UUID
 
 from sqlmodel import Session, select
 
@@ -14,6 +15,44 @@ from app.models.chat import Chat
 from app.models.chat_thread import ChatThread
 from app.models.user import User
 from app.models.user_memory_profile import UserMemoryProfile
+from app.services.knowledge_graph_service import ensure_course_graph
+from app.services.learning_report_service import learning_report_service
+
+
+DEMO_COURSE_ID = UUID("c1111111-1111-4111-9111-111111111101")
+
+# A compact, repeatable assessment ledger for the competition demo.  These are
+# scored assessment events, not chat/exposure events, so they are eligible for
+# mastery inference. Stable source ids make the seed idempotent.
+DEMO_ASSESSMENTS = [
+    ("SQL 基础", "quiz", "demo-db-quiz-01", 0.72, 1.0, 18),
+    ("SQL 基础", "assignment", "demo-db-lab-01", 0.82, 1.2, 12),
+    ("事务与原子性", "quiz", "demo-db-quiz-02", 0.48, 1.0, 15),
+    ("事务与原子性", "exercise_grading", "demo-db-practice-02", 0.63, 0.9, 8),
+    ("可串行化", "quiz", "demo-db-quiz-03", 0.42, 1.0, 14),
+    ("可串行化", "teacher_assessment", "demo-db-oral-03", 0.58, 0.8, 6),
+    ("死锁处理", "assignment", "demo-db-lab-03", 0.76, 1.2, 10),
+    ("函数依赖", "quiz", "demo-db-quiz-04", 0.67, 1.0, 9),
+    ("范式与 BCNF", "exam", "demo-db-unit-test-04", 0.54, 1.4, 5),
+    ("日志与检查点", "exercise_grading", "demo-db-practice-04", 0.79, 0.9, 4),
+]
+
+# Twelve-week history gives the demo account a genuine longitudinal series.
+# Scores increase gradually but remain imperfect, so the chart demonstrates
+# change without hard-coding presentation values in the frontend.
+DEMO_HISTORY_ASSESSMENTS = [
+    ("SQL 基础", "quiz", "demo-db-history-01", 0.42, 0.8, 82),
+    ("事务与原子性", "quiz", "demo-db-history-02", 0.45, 0.8, 75),
+    ("可串行化", "assignment", "demo-db-history-03", 0.47, 1.0, 68),
+    ("函数依赖", "exercise_grading", "demo-db-history-04", 0.51, 0.8, 61),
+    ("范式与 BCNF", "exam", "demo-db-history-05", 0.54, 1.1, 54),
+    ("死锁处理", "assignment", "demo-db-history-06", 0.58, 1.0, 47),
+    ("日志与检查点", "teacher_assessment", "demo-db-history-07", 0.61, 0.9, 40),
+    ("SQL 基础", "quiz", "demo-db-history-08", 0.66, 0.9, 33),
+    ("事务与原子性", "exercise_grading", "demo-db-history-09", 0.68, 0.9, 27),
+]
+
+ALL_DEMO_ASSESSMENTS = DEMO_HISTORY_ASSESSMENTS + DEMO_ASSESSMENTS
 
 DEMO_CHATS = [
     (
@@ -55,7 +94,7 @@ def seed_for_user(session: Session, email: str) -> None:
 
     thread_id = f"seed_{uuid.uuid4().hex[:12]}"
     existing_thread = session.exec(
-        select(ChatThread).where(ChatThread.user_id == user.id).limit(1)
+        select(ChatThread).where(ChatThread.user_id == str(user.id)).limit(1)
     ).first()
     if existing_thread:
         thread_id = existing_thread.thread_id
@@ -65,16 +104,18 @@ def seed_for_user(session: Session, email: str) -> None:
                 thread_id=thread_id,
                 user_id=str(user.id),
                 title="数据库学习对话",
-                created_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
             )
         )
         session.flush()
 
-    existing_count = session.query(Chat).filter(Chat.thread_id == thread_id).count()
+    existing_count = len(
+        session.exec(select(Chat.id).where(Chat.thread_id == thread_id)).all()
+    )
     if existing_count >= len(DEMO_CHATS):
         print(f"Chat history already seeded for {email}")
     else:
-        base_time = datetime.utcnow() - timedelta(hours=2)
+        base_time = datetime.now(timezone.utc) - timedelta(hours=2)
         for i, (question, answer) in enumerate(DEMO_CHATS):
             session.add(
                 Chat(
@@ -86,21 +127,93 @@ def seed_for_user(session: Session, email: str) -> None:
             )
         print(f"Seeded {len(DEMO_CHATS)} chat messages for {email}")
 
+    # Materialize stable graph nodes before binding assessment evidence.  The
+    # graph service remains the single source of node identifiers.
+    ensure_course_graph(session, course_id=DEMO_COURSE_ID)
+    from app.models import CourseKnowledgeNode
+
+    graph_nodes = session.exec(
+        select(CourseKnowledgeNode).where(
+            CourseKnowledgeNode.course_id == DEMO_COURSE_ID,
+            CourseKnowledgeNode.map_type == "knowledge",
+        )
+    ).all()
+    node_by_label = {node.label: node for node in graph_nodes}
+    now = datetime.now(timezone.utc)
+    evidence_added = 0
+    for label, source_type, source_id, score, weight, age_days in ALL_DEMO_ASSESSMENTS:
+        node = node_by_label.get(label)
+        if node is None:
+            raise SystemExit(f"Knowledge node not found for demo assessment: {label}")
+        learning_report_service.record_evidence(
+            session,
+            user_id=user.id,
+            course_id=DEMO_COURSE_ID,
+            knowledge_point=label,
+            knowledge_point_id=str(node.id),
+            source_type=source_type,
+            source_id=source_id,
+            event_type="assessment_completed",
+            observed_at=now - timedelta(days=age_days),
+            score=score,
+            weight=weight,
+            payload={
+                "dataset": "competition_demo_v1",
+                "scored": True,
+                "rubric": "0-1 normalized score",
+                "task_type": (
+                    "project"
+                    if source_type in {"assignment", "teacher_assessment"}
+                    else "quiz"
+                ),
+                "task_execution": {
+                    "completion_rate": min(1.0, score + 0.12),
+                },
+            },
+        )
+        evidence_added += 1
+    session.flush()
+    evidence_summary = learning_report_service.evidence_confidence(
+        session,
+        user.id,
+        course_id=DEMO_COURSE_ID,
+    )
+
     profile = session.exec(
         select(UserMemoryProfile).where(UserMemoryProfile.user_id == user.id)
     ).first()
+    mastery_from_evidence: dict[str, float] = {}
+    for label, *_ in ALL_DEMO_ASSESSMENTS:
+        node = node_by_label[label]
+        canonical = learning_report_service.normalize_knowledge_point(str(node.id))
+        estimate = evidence_summary.get(canonical, {}).get("mastery_estimate")
+        if estimate is not None:
+            mastery_from_evidence[label] = round(float(estimate), 2)
+    evidence_backed_profile = {
+        **DEMO_PROFILE,
+        "mastery_map": mastery_from_evidence,
+        "evidence_model": {
+            "version": "weighted_beta_v1",
+            "course_id": str(DEMO_COURSE_ID),
+            "updated_at": now.isoformat(),
+            "eligible_assessments": len(ALL_DEMO_ASSESSMENTS),
+        },
+    }
     if profile:
-        profile.memory_profile = {**(profile.memory_profile or {}), **DEMO_PROFILE}
-        profile.updated_at = datetime.utcnow()
+        profile.memory_profile = {**(profile.memory_profile or {}), **evidence_backed_profile}
+        profile.updated_at = datetime.now(timezone.utc)
         session.add(profile)
     else:
         session.add(
             UserMemoryProfile(
                 user_id=user.id,
-                memory_profile=DEMO_PROFILE,
+                memory_profile=evidence_backed_profile,
             )
         )
-    print(f"Seeded memory profile for {email}")
+    print(
+        f"Seeded evidence-backed memory profile for {email}: "
+        f"{evidence_added} idempotent evidence events across {len(mastery_from_evidence)} knowledge points"
+    )
     session.commit()
 
 

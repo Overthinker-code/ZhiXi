@@ -160,12 +160,6 @@
           </div>
           <template #content>
             <a-doption class="dropdown-option">
-              <a-space @click="switchRoles">
-                <icon-tag />
-                <span>{{ $t('messageBox.switchRoles') }}</span>
-              </a-space>
-            </a-doption>
-            <a-doption class="dropdown-option">
               <a-space @click="$router.push({ name: 'Info' })">
                 <icon-user />
                 <span>{{ $t('messageBox.userCenter') }}</span>
@@ -197,7 +191,6 @@
   import useUser from '@/hooks/user';
   import { LOCALE_OPTIONS } from '@/locale';
   import { useAppStore, useUserStore } from '@/store';
-  import { Message } from '@arco-design/web-vue';
   import { useDark, useFullscreen, useToggle } from '@vueuse/core';
   import { computed, inject, onMounted, onUnmounted, ref } from 'vue';
   import MessageBox from '../message-box/index.vue';
@@ -262,10 +255,6 @@
       cancelable: true,
     });
     triggerBtn.value.dispatchEvent(event);
-  };
-  const switchRoles = async () => {
-    const res = await userStore.switchRoles();
-    Message.success(res as string);
   };
   const toggleDrawerMenu = inject('toggleDrawerMenu') as () => void;
 </script>

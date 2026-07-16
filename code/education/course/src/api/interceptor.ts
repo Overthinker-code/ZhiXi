@@ -17,6 +17,13 @@ function formatFastApiDetail(detailRaw: unknown): string {
   if (typeof detailRaw === 'string') {
     return detailRaw;
   }
+  if (
+    typeof detailRaw === 'object' &&
+    detailRaw !== null &&
+    'message' in detailRaw
+  ) {
+    return String((detailRaw as { message: unknown }).message || '');
+  }
   if (!Array.isArray(detailRaw)) {
     return '';
   }
@@ -125,7 +132,7 @@ axios.interceptors.response.use(
       url.includes('/behavior/records') ||
       url.includes('/behavior/statistics/');
     const isStudentHubReadonly = url.includes('/student-hub/messages');
-    /** 课程中心接口失败由页面兜底，勿整站登出（避免隧道/权限抖动误踢） */
+    /** 课程接口的一般失败由页面兜底；明确的 JWT 失效仍必须回到登录页。 */
     const isEducationApi = url.includes('/education/');
     /** 登录/注册等：错误由页面内文案展示，避免与全局 Message 叠在一起 */
     const isAuthFormRequest =
@@ -134,7 +141,7 @@ axios.interceptors.response.use(
       url.includes('/password-recovery') ||
       url.includes('/reset-password');
 
-    if (!isLogin && !isEducationApi && isSessionInvalidError(error)) {
+    if (!isLogin && isSessionInvalidError(error)) {
       const userStore = useUserStore();
       userStore.logoutCallBack();
       window.location.href = '/login';
@@ -152,9 +159,9 @@ axios.interceptors.response.use(
     }
     const rawMessage = detailStr || error?.message || 'Request Error';
     const friendlyChatMessage =
-      '无法连接后端 API。请确认：① 服务器上的后端已启动；② 本机可直接 curl 通服务器 8001 端口；③ .env.development 里的 VITE_DEV_API_PROXY_TARGET 指向正确服务器地址；④ 修改后已重启 npm run dev。';
+      '学习助手暂时无法连接，请稍后重试。';
     const friendlyNetworkHint =
-      '无法连接后端 API。你现在是本地前端 + 服务器后端直连模式，请优先检查：① 服务器后端是否已启动；② .env.development 里的 VITE_DEV_API_PROXY_TARGET 是否指向服务器 8001；③ 修改后是否已重启 npm run dev。';
+      '服务暂时不可用，请稍后重试。若问题持续，请联系平台支持。';
     let message = rawMessage;
     if (isChat && isNetworkError) {
       message = friendlyChatMessage;
@@ -164,7 +171,7 @@ axios.interceptors.response.use(
       error?.response?.status >= 500 &&
       /^Request failed with status code/i.test(rawMessage)
     ) {
-      message = '后端服务暂时不可用，页面已切换为本地预览数据';
+      message = '服务暂时不可用，请稍后重试。';
     }
 
     /** 后端未实现或路径不一致的读接口：404 不在全局弹 Toast，由各页兜底/占位 */
@@ -216,6 +223,14 @@ axios.interceptors.response.use(
         duration: 5 * 1000,
       });
     }
-    return Promise.reject(new Error(message));
+    // Keep Axios' structured response metadata. Business flows such as
+    // ResourceRun conflict recovery rely on response.status and the backend's
+    // typed detail payload; replacing the error with a plain Error silently
+    // discards both and makes safe recovery impossible.
+    if (error && typeof error === 'object') {
+      error.message = message;
+      error.friendlyMessage = message;
+    }
+    return Promise.reject(error);
   }
 );

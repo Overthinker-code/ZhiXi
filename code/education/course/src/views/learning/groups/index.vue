@@ -38,7 +38,7 @@
             </div>
           </a-card>
         </div>
-        <a-empty v-if="!loading && !groups.length" description="暂无学习小组" />
+        <a-empty v-if="!loading && !groups.length" description="还没有加入学习小组" />
       </a-card>
     </ZyPageEnter>
   </ZyPageShell>

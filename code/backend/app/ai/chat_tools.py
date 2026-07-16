@@ -19,6 +19,14 @@ _base_llm = ChatModelFactory.create()
 rag_service = RAGService()
 
 
+def _course_id_from_context_refs(context_refs: Optional[dict[str, Any]]) -> str:
+    refs = context_refs or {}
+    nested = refs.get("courseContext")
+    if isinstance(nested, dict):
+        refs = nested
+    return str(refs.get("courseId") or refs.get("course_id") or "").strip()
+
+
 @tool
 def search_web(query: str) -> str:
     """Search the web and return a brief summary."""
@@ -36,6 +44,8 @@ def search_web(query: str) -> str:
 @tool
 def execute_code_sandbox(code: str, language: str = "python") -> str:
     """Execute code in a sandbox-like subprocess with strict limits."""
+    if not settings.CODE_SANDBOX_ENABLED:
+        return "代码执行能力未启用；当前仅提供代码分析与解释。"
     if language.lower() not in {"python", "py"}:
         return "当前演示版沙盒仅支持 Python 代码执行。"
     safe_code = textwrap.dedent(code or "").strip()
@@ -129,6 +139,7 @@ def make_query_knowledge_base_tool(
     user_id: Optional[str],
     is_admin: bool,
     rag_top_k: int,
+    context_refs: Optional[dict[str, Any]] = None,
 ):
     """按请求闭包 RAG 上下文，避免 ContextVar 在 LangGraph/异步边界 reset 崩溃。"""
 
@@ -141,6 +152,7 @@ def make_query_knowledge_base_tool(
                 k=max(1, int(rag_top_k)),
                 user_id=user_id,
                 is_admin=is_admin,
+                course_id=_course_id_from_context_refs(context_refs) or None,
             )
             ctrl = get_reasoning_controller()
             if ctrl is not None:
@@ -162,6 +174,7 @@ def make_search_uploaded_document_tool(
     is_admin: bool,
     thread_id: str,
     current_file_id: Optional[str],
+    context_refs: Optional[dict[str, Any]] = None,
 ):
     @tool
     def search_uploaded_document(
@@ -183,6 +196,7 @@ def make_search_uploaded_document_tool(
             user_id=user_id,
             is_admin=is_admin,
             top_k=max(1, min(int(top_k or 3), 8)),
+            course_id=_course_id_from_context_refs(context_refs) or None,
         )
         ctrl = get_reasoning_controller()
         if ctrl is not None:
@@ -234,15 +248,19 @@ def _resolve_tool_impl(
     rag_k: int,
     thread_id: str,
     current_file_id: Optional[str],
+    context_refs: Optional[dict[str, Any]],
 ) -> Any:
     if key == "knowledge_base":
-        return make_query_knowledge_base_tool(rag_user_id, rag_is_admin, rag_k)
+        return make_query_knowledge_base_tool(
+            rag_user_id, rag_is_admin, rag_k, context_refs
+        )
     if key == "search_uploaded_document":
         return make_search_uploaded_document_tool(
             user_id=rag_user_id,
             is_admin=rag_is_admin,
             thread_id=thread_id,
             current_file_id=current_file_id,
+            context_refs=context_refs,
         )
     return TOOL_REGISTRY[key]
 
@@ -256,19 +274,32 @@ def get_tools_for_agent(
     rag_k: int = 4,
     thread_id: str = "default",
     current_file_id: Optional[str] = None,
+    context_refs: Optional[dict[str, Any]] = None,
 ) -> list:
     tool_keys = TOOL_KEYS_BY_AGENT.get(agent) or ["knowledge_base"]
-    # 文档研究员的核心能力不可被前端通用 active_tools 误关掉
+    # 文档研究员既要能读课程库，也要在真实挂载文件时检索该文件。
+    # 只返回 search_uploaded_document 会让“课程资料阅读”在未上传附件时
+    # 退化成无证据回答，和课程 Agent 契约相冲突。
     if agent == "doc_researcher":
+        active = set(active_tools or DEFAULT_ACTIVE_TOOL_KEYS)
+        keys: list[str] = []
+        if "knowledge_base" in active:
+            keys.append("knowledge_base")
+        if current_file_id and "search_uploaded_document" in active:
+            keys.append("search_uploaded_document")
+        if not keys:
+            keys.append("knowledge_base")
         return [
             _resolve_tool_impl(
-                "search_uploaded_document",
+                key,
                 rag_user_id=rag_user_id,
                 rag_is_admin=rag_is_admin,
                 rag_k=rag_k,
                 thread_id=thread_id,
                 current_file_id=current_file_id,
+                context_refs=context_refs,
             )
+            for key in keys
         ]
     active = set(active_tools or DEFAULT_ACTIVE_TOOL_KEYS)
     filtered_keys = [key for key in tool_keys if key in active]
@@ -281,6 +312,7 @@ def get_tools_for_agent(
             rag_k=rag_k,
             thread_id=thread_id,
             current_file_id=current_file_id,
+            context_refs=context_refs,
         )
         for key in keys
     ]
@@ -296,6 +328,7 @@ def get_llm(
     rag_k: int = 4,
     thread_id: str = "default",
     current_file_id: Optional[str] = None,
+    context_refs: Optional[dict[str, Any]] = None,
     temperature: float | None = None,
     max_tokens: int | None = None,
     top_p: float | None = None,
@@ -324,6 +357,7 @@ def get_llm(
             rag_k=rag_k,
             thread_id=thread_id,
             current_file_id=current_file_id,
+            context_refs=context_refs,
         )
     )
 

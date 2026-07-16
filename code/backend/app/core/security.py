@@ -32,8 +32,11 @@ def create_access_token(subject: str | Any, expires_delta: timedelta) -> str:
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     try:
         return pwd_context.verify(plain_password, hashed_password)
-    except UnknownHashError:
-        return plain_password == hashed_password
+    except (UnknownHashError, TypeError, ValueError):
+        # A malformed or legacy plaintext value is not a valid credential.
+        # Falling back to string equality would turn a database corruption or
+        # injected plaintext row into an authentication bypass.
+        return False
 
 
 def get_password_hash(password: str) -> str:
@@ -62,8 +65,8 @@ def verify_token_from_query(token: str) -> Any:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has expired",
         )
-    except jwt.InvalidTokenError as e:
+    except jwt.InvalidTokenError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid token: {str(e)}",
+            detail="Invalid token",
         )

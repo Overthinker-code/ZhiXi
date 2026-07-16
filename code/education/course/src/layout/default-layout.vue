@@ -1,5 +1,6 @@
 <template>
   <a-layout class="layout">
+    <a href="#main-content" class="zy-skip-link">跳到主要内容</a>
     <ZyTopNav />
     <div
       v-if="!hideFloatUI && !visible"
@@ -40,7 +41,7 @@
       <span class="resize-handle corner" @mousedown="startResize($event, 'bottom-right')" />
     </div>
     <a-layout class="layout-content" :style="{ paddingTop: '64px' }">
-      <a-layout-content>
+      <a-layout-content id="main-content" tabindex="-1">
         <PageLayout />
       </a-layout-content>
     </a-layout>
@@ -275,6 +276,25 @@
     width: 100%;
     min-height: 100vh;
     background: var(--zy-bg-page, #f5f3ff);
+  }
+
+  .zy-skip-link {
+    position: fixed;
+    top: 8px;
+    left: 16px;
+    z-index: 100000;
+    padding: 10px 14px;
+    border-radius: 8px;
+    color: #fff;
+    background: #3730a3;
+    font-weight: 700;
+    text-decoration: none;
+    transform: translateY(-160%);
+    transition: transform 120ms ease;
+  }
+
+  .zy-skip-link:focus-visible {
+    transform: translateY(0);
   }
 
   .layout-content {

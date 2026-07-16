@@ -501,6 +501,9 @@ function normalizeLearningReport(raw: any): LearningReport {
         }))
       : [],
     process_steps: Array.isArray(raw?.process_steps) ? raw.process_steps : [],
+    portrait_dimensions: Array.isArray(raw?.portrait_dimensions)
+      ? raw.portrait_dimensions
+      : [],
   } as LearningReport;
 }
 
@@ -857,6 +860,17 @@ export interface ProcessStep {
   status?: 'idle' | 'running' | 'done' | 'error';
 }
 
+export interface PortraitDimensionAssessment {
+  key: string;
+  label: string;
+  value?: number | null;
+  state: 'insufficient' | 'strong' | 'steady' | 'needs_attention' | string;
+  sample_size: number;
+  sources: string[];
+  method_version: string;
+  updated_at?: string | null;
+}
+
 export interface LearningReport {
   learner_id: string;
   generated_at: string;
@@ -876,6 +890,7 @@ export interface LearningReport {
   sections: LearningReportSection[];
   classroom_behavior_summary?: ClassroomBehaviorSummary;
   process_steps?: ProcessStep[];
+  portrait_dimensions?: PortraitDimensionAssessment[];
 }
 
 export interface ReviewPlanDay {

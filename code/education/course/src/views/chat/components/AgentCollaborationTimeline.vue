@@ -21,7 +21,7 @@
 
   const PHASE_LABELS: Record<string, string> = {
     understand: '理解意图',
-    retrieve: '检索证据',
+    retrieve: '查找课程资料',
     research: '联网补充',
     analyze: '学情分析',
     quiz: '测验出题',
@@ -66,10 +66,6 @@
     return out.slice(-6);
   });
 
-  const agentCount = computed(() => {
-    return new Set(normalizedPhases.value.map((p) => p.agent)).size;
-  });
-
   const roundCount = computed(() => {
     const hops = props.metrics?.agent_hops;
     if (typeof hops === 'number' && hops > 0) return hops;
@@ -77,8 +73,8 @@
   });
 
   const capsuleText = computed(() => {
-    if (props.streaming) return '多智能体协作中…';
-    return `协作 ${roundCount.value} 轮 · 涉及 ${agentCount.value} 个智能体`;
+    if (props.streaming) return '正在处理任务…';
+    return `已完成 ${roundCount.value} 个处理步骤`;
   });
 
   function agentLabel(key: string) {

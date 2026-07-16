@@ -366,7 +366,7 @@
             <small v-if="item.locator">{{ item.locator }}</small>
             <small v-if="showDiagnostics && item.chunk_id">chunk {{ item.chunk_id }}</small>
             <small v-if="showDiagnostics && item.file_id">file {{ shortId(item.file_id) }}</small>
-            <small v-if="item.score">相关度 {{ item.score.toFixed(2) }}</small>
+            <small v-if="item.score">课程参考资料</small>
           </div>
           <!-- eslint-disable-next-line vue/no-v-html -->
           <div class="citation-snippet" v-html="renderCitation(item.snippet)" />

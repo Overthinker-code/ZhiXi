@@ -22,9 +22,9 @@ function normalizeRole(data: Record<string, any>): UserState['role'] {
 }
 
 function formatDate(input?: string) {
-  if (!input) return '-';
+  if (!input) return undefined;
   const date = new Date(input);
-  if (Number.isNaN(date.getTime())) return '-';
+  if (Number.isNaN(date.getTime())) return undefined;
   return date.toISOString().slice(0, 10);
 }
 
@@ -111,10 +111,10 @@ const useUserStore = defineStore('user', {
         ...data,
         name,
         avatar,
-        accountId: data.accountId || data.id || '-',
+        accountId: data.accountId || data.id,
         registrationDate: data.registrationDate || formatDate(data.created_at),
-        certification: data.certification ?? 1,
-        phone: data.phone || '-',
+        certification: data.certification ?? 0,
+        phone: data.phone,
         role: normalizeRole(data),
         profileHydrated: true,
       });

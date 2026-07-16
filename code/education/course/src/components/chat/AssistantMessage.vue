@@ -4,16 +4,20 @@
   import ArtifactCards from './ArtifactCards.vue';
   import CitationList from './CitationList.vue';
   import LiveProcessPanel from './LiveProcessPanel.vue';
+  import type { GeneratePracticeFollowUp } from './postAnswerActions';
   import sanitizeAssistantText from './sanitizeAssistantText';
 
   const props = defineProps<{
     message: Record<string, any>;
     isLast?: boolean;
+    sourcePrompt?: string;
   }>();
 
   const emit = defineEmits<{
     (e: 'sendSuggestion', text: string): void;
+    (e: 'postAction', action: GeneratePracticeFollowUp): void;
     (e: 'retry'): void;
+    (e: 'stop'): void;
   }>();
 
   const safeContent = computed(() => sanitizeAssistantText(props.message.content || ''));
@@ -32,7 +36,11 @@
 
 <template>
   <article class="assistant-message" :class="{ 'is-streaming': message.loading }">
-    <LiveProcessPanel :state="message.liveProcess" :loading="message.loading" />
+    <LiveProcessPanel
+      :state="message.liveProcess"
+      :loading="message.loading"
+      @stop="emit('stop')"
+    />
 
     <div
       v-if="safeContent"
@@ -40,7 +48,10 @@
       :class="{ 'is-streaming': message.loading }"
       v-html="rendered"
     />
-    <div v-else-if="message.loading" class="assistant-message__answer-waiting">
+    <div
+      v-else-if="message.loading && !message.liveProcess?.runId"
+      class="assistant-message__answer-waiting"
+    >
       <span />
       <p>正在组织回答…</p>
     </div>
@@ -66,10 +77,19 @@
       </button>
     </section>
 
-    <footer v-if="!message.loading && message.content && !message.errorCode" class="assistant-message__actions">
-      <button type="button">生成练习</button>
-      <button type="button">加入笔记</button>
-      <button type="button">同步图谱</button>
+    <footer
+      v-if="isLast && !message.loading && message.content && !message.errorCode"
+      class="assistant-message__actions"
+      aria-label="回答后续操作"
+    >
+      <span>继续学习</span>
+      <button
+        type="button"
+        data-testid="generate-follow-up-practice"
+        @click="emit('postAction', { type: 'generate_practice', sourcePrompt: sourcePrompt || '' })"
+      >
+        生成针对性练习
+      </button>
     </footer>
   </article>
 </template>
@@ -86,6 +106,18 @@
     font-size: 15px;
     line-height: 1.75;
     animation: answer-reveal 0.2s ease both;
+
+    &.is-streaming::after {
+      display: inline-block;
+      width: 7px;
+      height: 1.15em;
+      margin-left: 3px;
+      border-radius: 2px;
+      background: #98a2b3;
+      vertical-align: -0.18em;
+      content: '';
+      animation: answer-cursor 0.9s steps(1) infinite;
+    }
 
     :deep(h1),
     :deep(h2),
@@ -296,6 +328,11 @@
     }
   }
 
+  @keyframes answer-cursor {
+    0%, 45% { opacity: 1; }
+    46%, 100% { opacity: 0; }
+  }
+
   .assistant-message__answer-waiting {
     display: inline-flex;
     align-items: center;
@@ -389,8 +426,15 @@
   .assistant-message__actions {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: 8px;
     margin-top: 14px;
+
+    > span {
+      color: #98a2b3;
+      font-size: 12px;
+      font-weight: 650;
+    }
 
     button {
       height: 32px;
@@ -434,6 +478,7 @@
 
   @media (prefers-reduced-motion: reduce) {
     .assistant-message__body,
+    .assistant-message__body.is-streaming::after,
     .assistant-message__answer-waiting,
     .assistant-message__answer-waiting span::after {
       animation: none !important;

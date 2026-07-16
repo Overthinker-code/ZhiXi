@@ -1,19 +1,35 @@
 <script setup lang="ts">
   import { computed, nextTick, ref, watch } from 'vue';
   import AssistantMessage from './AssistantMessage.vue';
+  import type { GeneratePracticeFollowUp } from './postAnswerActions';
 
   const props = defineProps<{
     messages: Array<Record<string, any>>;
     loading?: boolean;
+    bottomInset?: number;
+    emptyTitle?: string;
+    emptyDescription?: string;
+    starterActions?: string[];
   }>();
 
   const emit = defineEmits<{
     (e: 'retry'): void;
     (e: 'sendSuggestion', text: string): void;
+    (e: 'postAction', action: GeneratePracticeFollowUp): void;
+    (e: 'stop'): void;
+    (e: 'sendStarter', text: string): void;
   }>();
 
   const isLastAssistant = (index: number) =>
     index === props.messages.length - 1 && props.messages[index]?.role === 'assistant';
+
+  function sourcePromptFor(index: number) {
+    for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+      const message = props.messages[cursor];
+      if (message?.role === 'user') return String(message.content || '');
+    }
+    return '';
+  }
 
   const mainRef = ref<HTMLElement | null>(null);
   const shouldStickToBottom = ref(true);
@@ -46,9 +62,27 @@
 </script>
 
 <template>
-  <main ref="mainRef" class="chat-main" data-testid="tutor-chat-main" @scroll="onScroll">
+  <main
+    ref="mainRef"
+    class="chat-main"
+    data-testid="tutor-chat-main"
+    :style="{ '--chat-bottom-inset': `${bottomInset || 210}px` }"
+    @scroll="onScroll"
+  >
     <section v-if="!messages.length" class="chat-empty">
-      <h1>今天想学习什么？</h1>
+      <span v-if="emptyDescription" class="chat-empty__eyebrow">专用智能体已就绪</span>
+      <h1>{{ emptyTitle || '今天想学习什么？' }}</h1>
+      <p v-if="emptyDescription">{{ emptyDescription }}</p>
+      <div v-if="starterActions?.length" class="chat-empty__starters">
+        <button
+          v-for="starter in starterActions"
+          :key="starter"
+          type="button"
+          @click="emit('sendStarter', starter)"
+        >
+          {{ starter }}
+        </button>
+      </div>
     </section>
 
     <section v-else class="chat-thread" aria-live="polite">
@@ -63,8 +97,11 @@
           v-else-if="message.role === 'assistant'"
           :message="message"
           :is-last="isLastAssistant(index)"
+          :source-prompt="sourcePromptFor(index)"
           @send-suggestion="emit('sendSuggestion', $event)"
+          @post-action="emit('postAction', $event)"
           @retry="emit('retry')"
+          @stop="emit('stop')"
         />
         <div v-else-if="message.role === 'error'" class="error-message">
           <strong>{{ message.content }}</strong>
@@ -81,7 +118,7 @@
     min-width: 0;
     height: 100%;
     overflow-y: auto;
-    padding: 28px 28px 210px;
+    padding: 28px 28px var(--chat-bottom-inset, 210px);
     background: #fff;
   }
 
@@ -91,10 +128,11 @@
     left: 50%;
     z-index: 1;
     display: flex;
+    width: min(760px, calc(100% - 48px));
     align-items: center;
     justify-content: center;
+    flex-direction: column;
     text-align: center;
-    pointer-events: none;
     transform: translate(-50%, -50%);
     animation: empty-enter 0.18s ease both;
 
@@ -104,6 +142,48 @@
       font-size: 34px;
       font-weight: 720;
       letter-spacing: 0;
+    }
+
+    > p {
+      max-width: 620px;
+      margin: 12px auto 0;
+      color: #697386;
+      font-size: 14px;
+      line-height: 1.7;
+    }
+  }
+
+  .chat-empty__eyebrow {
+    display: inline-block;
+    margin-bottom: 10px;
+    color: #6558d9;
+    font-size: 12px;
+    font-weight: 750;
+    letter-spacing: 0.04em;
+  }
+
+  .chat-empty__starters {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 9px;
+    margin-top: 22px;
+
+    button {
+      padding: 10px 14px;
+      border: 1px solid #e0e3ee;
+      border-radius: 14px;
+      color: #3f4960;
+      background: #fff;
+      box-shadow: 0 8px 20px rgba(45, 52, 88, 0.055);
+      font-size: 13px;
+      cursor: pointer;
+
+      &:hover {
+        border-color: #c9c6ff;
+        color: #5146cc;
+        background: #f8f7ff;
+      }
     }
   }
 

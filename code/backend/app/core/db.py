@@ -15,6 +15,8 @@ from app.models import (
     UD,
     User,
     UserCreate,
+    Student,
+    StudentTC,
 )
 
 engine = create_engine(str(settings.SQLALCHEMY_DATABASE_URI))
@@ -248,10 +250,8 @@ def seed_education_demo(session: Session) -> None:
 
 
 def ensure_demo_student_links(session: Session) -> None:
-    """Link demo login users to education Student rows when present."""
+    """Create deterministic demo learner identities and course enrollments."""
     from sqlalchemy import inspect
-
-    from app.models import Student
 
     try:
         cols = {c["name"] for c in inspect(session.bind).get_columns("student")}
@@ -265,12 +265,33 @@ def ensure_demo_student_links(session: Session) -> None:
         if not user:
             continue
         student = session.exec(select(Student).where(Student.user_id == user.id)).first()
-        if student:
-            continue
-        student = session.exec(select(Student).limit(1)).first()
-        if student and not student.user_id:
+        if not student:
+            stable_id = uuid5(NAMESPACE_URL, f"zhixi:demo-student:{email}")
+            student = session.get(Student, stable_id)
+        if not student:
+            student = Student(
+                id=uuid5(NAMESPACE_URL, f"zhixi:demo-student:{email}"),
+                name="演示学生",
+                identifier=f"DEMO-{uuid5(NAMESPACE_URL, email).hex[:8].upper()}",
+                ud_id=DEMO_UD_ID,
+                user_id=user.id,
+            )
+        else:
             student.user_id = user.id
-            session.add(student)
+        session.add(student)
+        session.flush([student])
+        for course_id, *_ in DEMO_COURSE_SPECS:
+            tc = session.exec(select(TC).where(TC.course_id == course_id)).first()
+            if not tc:
+                continue
+            enrolled = session.exec(
+                select(StudentTC).where(
+                    StudentTC.student_id == student.id,
+                    StudentTC.tc_id == tc.id,
+                )
+            ).first()
+            if not enrolled:
+                session.add(StudentTC(student_id=student.id, tc_id=tc.id))
     session.commit()
 
 

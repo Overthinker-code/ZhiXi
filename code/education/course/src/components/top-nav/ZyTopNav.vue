@@ -29,6 +29,11 @@
   const displayName = computed(
     () => userStore.name || userStore.email || '同学'
   );
+  const notificationLabel = computed(() =>
+    unreadCount.value > 0
+      ? `查看消息，${unreadCount.value} 条未读`
+      : '查看消息'
+  );
 
   const openGlobalSearch = () => {
     closeMenu();
@@ -149,7 +154,14 @@
         </div>
       </router-link>
 
-      <button type="button" class="zy-topnav__mobile" @click="mobileOpen = true">
+      <button
+        type="button"
+        class="zy-topnav__mobile"
+        aria-label="打开主导航"
+        aria-controls="zy-mobile-navigation"
+        :aria-expanded="mobileOpen"
+        @click="mobileOpen = true"
+      >
         <icon-menu />
       </button>
 
@@ -160,6 +172,10 @@
           type="button"
           class="zy-topnav__link"
           :class="{ 'is-active': isActive(group) || activeGroup === group.key }"
+          :aria-current="isActive(group) ? 'page' : undefined"
+          :aria-haspopup="group.items?.length ? 'menu' : undefined"
+          :aria-expanded="group.items?.length ? activeGroup === group.key : undefined"
+          :aria-controls="group.items?.length ? 'zy-primary-mega-menu' : undefined"
           @click.stop="handleNavClick(group)"
         >
           {{ group.label }}
@@ -168,6 +184,7 @@
       </nav>
 
       <a-drawer
+        id="zy-mobile-navigation"
         v-model:visible="mobileOpen"
         placement="left"
         :width="300"
@@ -208,12 +225,22 @@
           <kbd>⌘K</kbd>
         </button>
         <a-badge :count="unreadCount" :dot="unreadCount > 0">
-          <a-button shape="circle" type="outline" @click="navigateByName('ProfileMessages')">
+          <a-button
+            shape="circle"
+            type="outline"
+            :aria-label="notificationLabel"
+            @click="navigateByName('ProfileMessages')"
+          >
             <icon-notification />
           </a-button>
         </a-badge>
         <a-dropdown trigger="click">
-          <button type="button" class="zy-topnav__user">
+          <button
+            type="button"
+            class="zy-topnav__user"
+            aria-label="打开用户菜单"
+            aria-haspopup="menu"
+          >
             <a-avatar :size="32">{{ displayName.slice(0, 1) }}</a-avatar>
             <span class="zy-topnav__user-name">{{ displayName }}</span>
             <icon-down />
@@ -227,7 +254,12 @@
     </div>
 
     <Teleport to="body">
-      <div v-if="activePanel?.items?.length" class="zy-mega-overlay" @click="closeMenu">
+      <div
+        v-if="activePanel?.items?.length"
+        id="zy-primary-mega-menu"
+        class="zy-mega-overlay"
+        @click="closeMenu"
+      >
         <div class="zy-mega-overlay__panel" @click.stop>
           <ZyMegaMenuPanel
             :label="activePanel.label"
@@ -315,11 +347,11 @@
     white-space: nowrap;
 
     &:hover {
-      color: #6366f1;
+      color: #4f46e5;
     }
 
     &.is-active {
-      color: #6366f1;
+      color: #4f46e5;
       font-weight: 600;
 
       &::after {
@@ -357,7 +389,7 @@
     cursor: pointer;
     font-size: 13px;
     span { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    kbd { font-size: 11px; padding: 2px 6px; border-radius: 6px; background: #f1f5f9; color: #94a3b8; }
+    kbd { font-size: 11px; padding: 2px 6px; border-radius: 6px; background: #f1f5f9; color: #475569; }
   }
 
   .zy-topnav__user {

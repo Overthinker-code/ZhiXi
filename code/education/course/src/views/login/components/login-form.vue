@@ -85,14 +85,16 @@
             field="password"
             :rules="[
               { required: true, message: '请输入密码' },
-              { minLength: 6, message: '密码至少6位' },
+              { minLength: 10, message: '密码需为10–128位' },
+              { maxLength: 128, message: '密码需为10–128位' },
             ]"
             :validate-trigger="['change', 'blur']"
             hide-label
           >
             <a-input-password
               v-model="registerForm.password"
-              placeholder="密码（至少6位）"
+              placeholder="密码（10–128位）"
+              :max-length="128"
               autocomplete="new-password"
               allow-clear
             >
@@ -113,6 +115,7 @@
             <a-input-password
               v-model="registerForm.confirmPassword"
               placeholder="确认密码"
+              :max-length="128"
               autocomplete="new-password"
               allow-clear
             >

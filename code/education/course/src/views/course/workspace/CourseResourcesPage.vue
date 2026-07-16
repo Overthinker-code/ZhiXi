@@ -12,24 +12,11 @@
     IconSearch,
     IconStorage,
   } from '@arco-design/web-vue/es/icon';
-  import { classroomCourses, getClassroomCourse } from '@/data/classroomCourses';
+  import { getClassroomCourse } from '@/data/classroomCourses';
   import {
-    downloadResource,
-    queryResources,
-    removeResourceFromLibrary,
-    setResourceFavorite,
-    setResourceTop,
-    type ResourceRecord,
-  } from '@/api/resources';
-  import KnowledgeGraphViewer from '@/components/chat/KnowledgeGraphViewer.vue';
-  import {
-    addRecommendationToLibrary,
-    dismissResourceRecommendation,
-    favoriteResourceRecommendation,
-    fetchResourceRecommendations,
-    regenerateResourceRecommendation,
-    type ResourceRecommendationItem,
-  } from '@/api/resource-hub';
+    buildCourseResources,
+    type CourseResourceItem,
+  } from '@/data/courseWorkspace';
   import { courseWorkspaceLocation } from '@/composables/useCourseRouteContext';
   import {
     fetchRecentGeneratedPackages,
@@ -41,32 +28,7 @@
   const route = useRoute();
   const router = useRouter();
   const query = ref('');
-  type HubResourceType =
-    | '文档'
-    | '知识图谱'
-    | '图片'
-    | '视频'
-    | '题库'
-    | '代码案例'
-    | '其他';
-  interface HubResourceItem {
-    id: string;
-    title: string;
-    type: HubResourceType;
-    chapter: string;
-    size: string;
-    updatedAt: string;
-    raw: ResourceRecord;
-  }
-  const activeType = ref<'全部' | HubResourceType>('全部');
-  const activeSubject = ref('全部学科');
-  const resources = ref<HubResourceItem[]>([]);
-  const loadingResources = ref(false);
-  const recommendations = ref<ResourceRecommendationItem[]>([]);
-  const recommendationActionId = ref('');
-  const favoritesOnly = ref(false);
-  const recommendationSignals = ref<string[]>([]);
-  const loadingRecommendations = ref(false);
+  const activeType = ref<'全部' | CourseResourceItem['type']>('全部');
   const recentPackages = ref<RecentGeneratedPackage[]>([]);
   const loadingRecentPackages = ref(false);
   const selectedResourceId = ref('');
@@ -91,42 +53,12 @@
 
   const aiTrialUsage = ref<AiTrialUsage>(readAiTrialUsage());
   const course = computed(() =>
-    getClassroomCourse(String(route.params.courseId || '')) || classroomCourses[0]
+    getClassroomCourse(String(route.params.courseId || ''))
   );
-  const isGlobalHub = computed(() => route.name === 'ResourceHub');
-  function resourceTypeLabel(type: string): HubResourceType {
-    if (type === 'knowledge_graph' || type === 'mind_map') return '知识图谱';
-    if (type === 'image') return '图片';
-    if (type === 'video') return '视频';
-    if (type === 'question') return '题库';
-    if (type === 'case_project' || type === 'code') return '代码案例';
-    if (
-      ['lecture_markdown', 'lecture_pdf', 'practice_markdown', 'practice_pdf', 'reading_list', 'pdf', 'ppt', 'pptx', 'doc', 'docx'].includes(type)
-    ) return '文档';
-    return '其他';
-  }
-
-  function formatFileSize(size: number) {
-    if (!size) return '结构化资源';
-    if (size < 1024) return `${size} B`;
-    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
-    return `${(size / 1024 / 1024).toFixed(1)} MB`;
-  }
-
-  function toHubResource(record: ResourceRecord): HubResourceItem {
-    const date = new Date(record.upload_time);
-    return {
-      id: record.id,
-      title: record.title,
-      type: resourceTypeLabel(record.type),
-      chapter: record.knowledge_point || '未标注知识点',
-      size: formatFileSize(record.file_size),
-      updatedAt: Number.isNaN(date.getTime()) ? '刚刚生成' : date.toLocaleString('zh-CN'),
-      raw: record,
-    };
-  }
+  const resources = computed(() =>
+    course.value ? buildCourseResources(course.value) : []
+  );
   const generatedPackagesForCourse = computed(() => {
-    if (isGlobalHub.value) return recentPackages.value;
     const activeCourse = course.value;
     if (!activeCourse) return [] as RecentGeneratedPackage[];
     return recentPackages.value.filter((pkg) => {
@@ -134,6 +66,12 @@
       return [activeCourse.title, activeCourse.shortTitle].includes(pkg.subject);
     });
   });
+  const generatedArtifactCount = computed(() =>
+    generatedPackagesForCourse.value.reduce(
+      (sum, item) => sum + item.artifacts.length,
+      0
+    )
+  );
   const aiTrialUsed = computed(() =>
     course.value
       ? Math.max(
@@ -151,24 +89,9 @@
         chapter.lessons.some((lesson) => lesson.status === 'done')
       ).length || 0
   );
-  const resourceTypes: Array<'全部' | HubResourceType> = [
-    '全部',
-    '文档',
-    '知识图谱',
-    '图片',
-    '视频',
-    '题库',
-    '代码案例',
-    '其他',
-  ];
-  const subjectOptions = computed(() => [
-    '全部学科',
-    ...Array.from(
-      new Set([
-        ...resources.value.map((item) => item.raw.subject || '未分类'),
-        ...recommendations.value.map((item) => item.subject || '未分类'),
-      ])
-    ).sort((a, b) => a.localeCompare(b, 'zh-CN')),
+  const resourceTypes = computed(() => [
+    '全部' as const,
+    ...Array.from(new Set(resources.value.map((item) => item.type))),
   ]);
   const visibleResources = computed(() => {
     const keyword = query.value.trim().toLowerCase();
@@ -179,26 +102,9 @@
         !keyword ||
         item.title.toLowerCase().includes(keyword) ||
         item.chapter.toLowerCase().includes(keyword);
-      const favoriteMatches = !favoritesOnly.value || item.raw.favorite;
-      const subjectMatches =
-        activeSubject.value === '全部学科' ||
-        (item.raw.subject || '未分类') === activeSubject.value;
-      return typeMatches && searchMatches && favoriteMatches && subjectMatches;
+      return typeMatches && searchMatches;
     });
   });
-  const visibleRecommendations = computed(() =>
-    recommendations.value.filter((item) => {
-      const favoriteMatches = !favoritesOnly.value || item.favorite;
-      const subjectMatches =
-        activeSubject.value === '全部学科' ||
-        (item.subject || '未分类') === activeSubject.value;
-      return favoriteMatches && subjectMatches;
-    })
-  );
-  const favoriteCount = computed(
-    () => resources.value.filter((item) => item.raw.favorite).length
-      + recommendations.value.filter((item) => item.favorite).length
-  );
   const displayedResources = computed(() =>
     showAllResources.value
       ? visibleResources.value
@@ -209,19 +115,19 @@
   );
   const resourceQuality = computed(() => [
     {
-      label: '资料定位',
+      label: '资料关联',
       value: '章节 / 知识点 / 任务',
-      desc: '保留章节与知识点线索，便于后续核验',
+      desc: '关联章节和知识点，方便继续学习',
     },
     {
-      label: '学习闭环',
+      label: '使用建议',
       value: '预习 / 练习 / 追问',
-      desc: '下载后可直接进入 AI 伴学和课程图谱',
+      desc: '下载后可继续提问、练习或查看知识点',
     },
     {
-      label: '质量核查',
-      value: '目标 / 证据 / 产物',
-      desc: '导出文件包含可检查的学习交付标准',
+      label: '内容检查',
+      value: '目标 / 内容 / 练习',
+      desc: '导出文件包含明确的学习目标和练习要求',
     },
   ]);
   const resourceCoverageStats = computed(() => {
@@ -240,50 +146,44 @@
         desc: '含章节、类型、版本和学习任务',
       },
       {
-        label: '图谱节点线索',
+        label: '关联知识点',
         value: `${graphNodeTotal} 个`,
-        desc: '每份资料可回跳到课程图谱核验',
+        desc: '每份资料可在课程图谱中继续查看',
       },
       {
         label: '待完成动作',
         value: `${taskTotal} 项`,
-        desc: '阅读、练习、追问和复盘连成闭环',
+        desc: '包含阅读、练习、提问和复盘建议',
       },
       {
-        label: '生成回流',
+        label: '最近生成',
         value: `${generatedPackagesForCourse.value.length} 包`,
-        desc: '保留下载、复核和图谱校验入口',
+        desc: '可继续下载、检查内容或查看知识点',
       },
     ];
   });
 
-  function resourceIndex(item: HubResourceItem) {
+  function resourceIndex(item: CourseResourceItem) {
     return Math.max(
       resources.value.findIndex((resource) => resource.id === item.id),
       0
     );
   }
 
-  function relatedConcept(item: HubResourceItem) {
+  function relatedConcept(item: CourseResourceItem) {
     if (!course.value) return undefined;
-    const keyword = item.chapter.toLowerCase();
-    return course.value.concepts.find(
-      (concept) =>
-        concept.title.toLowerCase().includes(keyword) ||
-        concept.points.some((point) =>
-          point.toLowerCase().includes(keyword)
-        )
-    );
+    return course.value.concepts[
+      resourceIndex(item) % Math.max(course.value.concepts.length, 1)
+    ];
   }
 
-  function relatedLesson(item: HubResourceItem) {
+  function relatedLesson(item: CourseResourceItem) {
     if (!course.value) return undefined;
     const lessons = course.value.chapters.flatMap((chapter) => chapter.lessons);
-    const keyword = item.chapter.toLowerCase();
-    return lessons.find((lesson) => lesson.title.toLowerCase().includes(keyword));
+    return lessons[resourceIndex(item) % Math.max(lessons.length, 1)];
   }
 
-  function resourcePlan(item: HubResourceItem) {
+  function resourcePlan(item: CourseResourceItem) {
     const concept = relatedConcept(item);
     const lesson = relatedLesson(item);
     const primaryPoint = concept?.points[0] || item.chapter;
@@ -311,11 +211,12 @@
     };
   }
 
-  function resourceLearningStatus(item: HubResourceItem) {
+  function resourceLearningStatus(item: CourseResourceItem) {
     const lesson = relatedLesson(item);
     if (lesson?.status === 'done') return '已完成课节复盘';
     if (item.type.includes('练习') || item.type.includes('作业')) return '建议优先追练';
-    return item.raw.source === 'agent' ? 'Agent 已生成并入库' : '已保存到我的资料';
+    if (item.downloads < 40) return '低频资料待补齐';
+    return '本周复习推荐';
   }
 
   const selectedResource = computed(() => {
@@ -325,23 +226,8 @@
   const selectedResourcePlan = computed(() =>
     selectedResource.value ? resourcePlan(selectedResource.value) : undefined
   );
-  const selectedKnowledgeGraph = computed(() => {
-    const content = selectedResource.value?.raw.content;
-    if (
-      selectedResource.value?.raw.type !== 'knowledge_graph' ||
-      !content ||
-      !Array.isArray(content.nodes) ||
-      !Array.isArray(content.edges)
-    ) {
-      return null;
-    }
-    return {
-      nodes: content.nodes,
-      edges: content.edges,
-    };
-  });
 
-  function selectResource(item: HubResourceItem, openDrawer = false) {
+  function selectResource(item: CourseResourceItem, openDrawer = false) {
     selectedResourceId.value = item.id;
     if (
       openDrawer &&
@@ -352,11 +238,7 @@
     }
   }
 
-  function openResourceDetails(item: HubResourceItem) {
-    if (item.raw.type === 'question') {
-      router.push({ name: 'QuizPage', params: { resourceId: item.id } });
-      return;
-    }
+  function openResourceDetails(item: CourseResourceItem) {
     selectResource(item);
     resourceDrawerVisible.value = true;
   }
@@ -369,12 +251,12 @@
     ) as Record<string, string | number>;
   }
 
-  function resourceGraphNodeId(item: HubResourceItem) {
+  function resourceGraphNodeId(item: CourseResourceItem) {
     const index = resourceIndex(item);
     return index >= 0 && index < 6 ? `resource-${index}` : undefined;
   }
 
-  function resourceRouteQuery(item: HubResourceItem, extra: RouteQueryPayload = {}) {
+  function resourceRouteQuery(item: CourseResourceItem, extra: RouteQueryPayload = {}) {
     const plan = resourcePlan(item);
     const graphLabel = item.title.replace(course.value?.shortTitle || '', '') || item.title;
     const focusTopic = plan.concept?.title || plan.lesson?.title || item.title;
@@ -392,7 +274,7 @@
     });
   }
 
-  function buildResourceMarkdown(item: HubResourceItem) {
+  function buildResourceMarkdown(item: CourseResourceItem) {
     const plan = resourcePlan(item);
     const { concept } = plan;
     const courseTitle = course.value?.title || '';
@@ -442,7 +324,7 @@
     return `${lines.join('\n')}\n`;
   }
 
-  function askAboutResource(item: HubResourceItem) {
+  function askAboutResource(item: CourseResourceItem) {
     if (!course.value) return;
     router.push(
       courseWorkspaceLocation(course.value.id, 'agent', {
@@ -491,7 +373,7 @@
     router.push(courseWorkspaceLocation(course.value.id, 'knowledge'));
   }
 
-  function locateResourceInGraph(item: HubResourceItem) {
+  function locateResourceInGraph(item: CourseResourceItem) {
     if (!course.value) return;
     router.push(
       courseWorkspaceLocation(
@@ -502,7 +384,7 @@
     );
   }
 
-  function generateResourceMaterials(item: HubResourceItem) {
+  function generateResourceMaterials(item: CourseResourceItem) {
     if (!course.value) return;
     if (!hasAiTrialCredit()) return;
     const plan = resourcePlan(item);
@@ -524,162 +406,18 @@
     });
   }
 
-  async function downloadResourceBrief(item: HubResourceItem) {
-    if (!item.raw.file_path) {
-      Message.info('该资源是结构化内容，请直接在详情中查看');
-      return;
-    }
-    try {
-      const response = await downloadResource(item.id);
-      const blobUrl = URL.createObjectURL(response.data);
-      const link = document.createElement('a');
-      link.href = blobUrl;
-      link.download = item.raw.file_name || item.title;
-      link.click();
-      URL.revokeObjectURL(blobUrl);
-      Message.success('资源下载已开始');
-    } catch {
-      Message.error('资源下载失败，请稍后重试');
-    }
-  }
-
-  function sortResources() {
-    resources.value = [...resources.value].sort((left, right) => {
-      if (left.raw.top !== right.raw.top) return left.raw.top ? -1 : 1;
-      return new Date(right.raw.upload_time).getTime() - new Date(left.raw.upload_time).getTime();
-    });
-  }
-
-  async function toggleFavorite(item: HubResourceItem) {
-    const next = !item.raw.favorite;
-    try {
-      await setResourceFavorite(item.id, next);
-      item.raw.favorite = next;
-      Message.success(next ? '已收藏' : '已取消收藏');
-    } catch {
-      Message.error('收藏状态更新失败');
-    }
-  }
-
-  async function toggleTop(item: HubResourceItem) {
-    const next = !item.raw.top;
-    try {
-      await setResourceTop(item.id, next);
-      item.raw.top = next;
-      sortResources();
-      Message.success(next ? '已置顶' : '已取消置顶');
-    } catch {
-      Message.error('置顶状态更新失败');
-    }
-  }
-
-  function removeFromLibrary(item: HubResourceItem) {
-    Modal.confirm({
-      title: '从我的资料中移除',
-      content: `将“${item.title}”从个人资料库隐藏。系统资源和原始文件不会被删除。`,
-      okText: '移除',
-      cancelText: '取消',
-      async onOk() {
-        try {
-          await removeResourceFromLibrary(item.id);
-          resources.value = resources.value.filter((resource) => resource.id !== item.id);
-          if (selectedResourceId.value === item.id) selectedResourceId.value = '';
-          resourceDrawerVisible.value = false;
-          Message.success('已从我的资料中移除');
-        } catch (error) {
-          Message.error('移除失败，请稍后重试');
-          throw error;
-        }
-      },
-    });
-  }
-
-  function openRecommendation(item: ResourceRecommendationItem) {
-    if (item.origin === 'external') {
-      if (!item.url || !/^https?:\/\//i.test(item.url)) {
-        Message.warning('外部资源链接无效');
-        return;
-      }
-      window.open(item.url, '_blank', 'noopener,noreferrer');
-      return;
-    }
-    const generatedId = String(item.resource?.id || '');
-    if (!generatedId) {
-      Message.info(item.preview || '这是根据个人画像生成的资源方案，可选择重新生成或加入资料库');
-      return;
-    }
-    if (item.type === 'question') {
-      router.push({ name: 'QuizPage', params: { resourceId: generatedId } });
-      return;
-    }
-    Message.info('该资源已生成预览，加入资料库后可在“我的资料”中查看');
-  }
-
-  const recommendationTypeLabels: Record<string, string> = {
-    document: '文档讲解',
-    question: '专项题目',
-    knowledge_graph: '知识图谱',
-    video: '视频讲解',
-    code: '代码案例',
-    image: '图解卡片',
-    external: '网络资料',
-  };
-
-  function recommendationTypeLabel(type: string) {
-    return recommendationTypeLabels[type] || resourceTypeLabel(type);
-  }
-
-  async function dismissRecommendation(item: ResourceRecommendationItem) {
-    recommendationActionId.value = item.id;
-    try {
-      await dismissResourceRecommendation(item.id);
-      recommendations.value = recommendations.value.filter((entry) => entry.id !== item.id);
-      Message.success('已删除该推荐，后续不会再次显示这条候选');
-    } catch {
-      Message.error('删除推荐失败');
-    } finally {
-      recommendationActionId.value = '';
-    }
-  }
-
-  async function favoriteRecommendation(item: ResourceRecommendationItem) {
-    recommendationActionId.value = item.id;
-    try {
-      const response = await favoriteResourceRecommendation(item.id, !item.favorite);
-      Object.assign(item, response.data);
-      Message.success(item.favorite ? '已收藏推荐' : '已取消收藏');
-    } catch {
-      Message.error('收藏推荐失败');
-    } finally {
-      recommendationActionId.value = '';
-    }
-  }
-
-  async function regenerateRecommendation(item: ResourceRecommendationItem) {
-    recommendationActionId.value = item.id;
-    try {
-      const response = await regenerateResourceRecommendation(item.id);
-      Object.assign(item, response.data.recommendation);
-      Message.success(response.data.message);
-    } catch {
-      Message.error('重新生成失败，请稍后重试');
-    } finally {
-      recommendationActionId.value = '';
-    }
-  }
-
-  async function addRecommendation(item: ResourceRecommendationItem) {
-    recommendationActionId.value = item.id;
-    try {
-      const response = await addRecommendationToLibrary(item.id);
-      recommendations.value = recommendations.value.filter((entry) => entry.id !== item.id);
-      await loadResources();
-      Message.success(response.data.message);
-    } catch {
-      Message.error('加入资料库失败，请稍后重试');
-    } finally {
-      recommendationActionId.value = '';
-    }
+  function downloadResourceBrief(item: CourseResourceItem) {
+    const content = buildResourceMarkdown(item);
+    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${course.value?.shortTitle || 'course'}-${
+      item.title
+    }-学习包.md`;
+    link.click();
+    URL.revokeObjectURL(url);
+    Message.success('学习资源包已生成');
   }
 
   function generatedPackageLabel(pkg: RecentGeneratedPackage) {
@@ -804,9 +542,7 @@
     if (!course.value) return;
     loadingRecentPackages.value = true;
     try {
-      recentPackages.value = await fetchRecentGeneratedPackages(
-        isGlobalHub.value ? undefined : course.value.id
-      );
+      recentPackages.value = await fetchRecentGeneratedPackages(course.value.id);
     } catch {
       Message.warning('生成记录暂不可用，已显示课程内置资料。');
     } finally {
@@ -814,67 +550,17 @@
     }
   }
 
-  async function loadResources() {
-    loadingResources.value = true;
-    try {
-      const response = await queryResources({ owned_only: true, limit: 100 });
-      resources.value = response.data.data.map(toHubResource);
-      sortResources();
-      const requestedId = String(route.query.resourceId || '');
-      if (requestedId && resources.value.some((item) => item.id === requestedId)) {
-        selectedResourceId.value = requestedId;
-      }
-    } catch {
-      resources.value = [];
-      Message.error('个人资料加载失败，请确认后端服务已启动');
-    } finally {
-      loadingResources.value = false;
-    }
-  }
-
-  async function loadRecommendations(refresh = false) {
-    loadingRecommendations.value = true;
-    try {
-      const response = await fetchResourceRecommendations(8, refresh);
-      recommendations.value = response.data.items;
-      recommendationSignals.value = response.data.profile_signals;
-    } catch {
-      recommendations.value = [];
-      recommendationSignals.value = [];
-      Message.warning('个性化推荐暂时无法加载');
-    } finally {
-      loadingRecommendations.value = false;
-    }
-  }
-
-  onMounted(() => {
-    loadResources();
-    loadRecentPackages();
-    loadRecommendations();
-  });
+  onMounted(loadRecentPackages);
 </script>
 
 <template>
   <section v-if="course" class="course-resources">
     <header class="resource-heading">
       <div>
-        <h1>{{ favoritesOnly ? '我的收藏夹' : 'AI 资料中心' }}</h1>
-        <p>{{ favoritesOnly ? '统一查看收藏的个人资料与 AI 推荐。' : '统一查看 Agent 为你生成并保存的学习资料，支持按类型、标题和知识点检索。' }}</p>
+        <h1>课程资料</h1>
+        <p>按章节整理课件、讲义、案例和练习；查看详情后可下载学习包、生成配套或定位图谱。</p>
       </div>
       <div class="resource-heading__actions">
-        <button
-          type="button"
-          class="ghost"
-          :class="{ active: favoritesOnly }"
-          @click="favoritesOnly = !favoritesOnly"
-        >
-          <icon-star />
-          <span>{{ favoritesOnly ? '返回全部资料' : `收藏夹 ${favoriteCount}` }}</span>
-        </button>
-        <button type="button" class="ghost" @click="router.push({ name: 'WrongQuestionBook' })">
-          <icon-bookmark />
-          <span>我的错题本</span>
-        </button>
         <button type="button" class="ghost" @click="resourceToolDrawerVisible = true">
           <icon-storage />
           <span>资料工具</span>
@@ -890,8 +576,8 @@
       <article>
         <span class="overview-icon"><icon-storage /></span>
         <div
-          ><small>我的资料</small
-          ><strong>{{ resources.length }}</strong></div
+          ><small>资料总数</small
+          ><strong>{{ resources.length + generatedArtifactCount }}</strong></div
         >
       </article>
       <article>
@@ -904,7 +590,7 @@
       <article>
         <span class="overview-icon"><icon-download /></span>
         <div
-          ><small>生成回流</small
+          ><small>最近生成</small
           ><strong>{{ generatedPackagesForCourse.length }}</strong></div
         >
       </article>
@@ -917,24 +603,25 @@
       </article>
     </div>
 
-    <section class="resource-library-shell" aria-label="我的资料库">
+    <section class="resource-library-shell" aria-label="课程资料库">
       <div class="resource-library-main">
         <div class="resource-toolbar">
           <label>
             <icon-search />
-            <input v-model="query" type="search" placeholder="搜索标题或知识点" />
+            <input
+              v-model="query"
+              type="search"
+              aria-label="搜索课程资料或章节"
+              placeholder="搜索资料或章节"
+            />
           </label>
-          <select v-model="activeSubject" class="subject-filter" aria-label="按学科筛选">
-            <option v-for="subject in subjectOptions" :key="subject" :value="subject">
-              {{ subject }}
-            </option>
-          </select>
           <div>
             <button
               v-for="type in resourceTypes"
               :key="type"
               type="button"
               :class="{ active: activeType === type }"
+              :aria-pressed="activeType === type"
               @click="activeType = type"
             >
               {{ type }}
@@ -942,18 +629,22 @@
           </div>
         </div>
 
-        <a-spin :loading="loadingResources" style="width: 100%">
         <div class="resource-grid">
           <article
             v-for="item in displayedResources"
             :key="item.id"
             class="resource-card"
             :class="{ active: selectedResource?.id === item.id }"
+            role="button"
+            tabindex="0"
+            :aria-label="`${item.title}，${item.type}，查看资料详情`"
             @click="openResourceDetails(item)"
+            @keydown.enter="openResourceDetails(item)"
+            @keydown.space.prevent="openResourceDetails(item)"
           >
             <div class="resource-card__top">
-              <span class="resource-type">{{ item.raw.subject || '未分类' }} · {{ item.type }}</span>
-              <small>{{ item.raw.top ? '已置顶 · ' : '' }}{{ item.updatedAt }}</small>
+              <span class="resource-type">{{ item.type }}</span>
+              <small>{{ item.updatedAt }}</small>
             </div>
             <span class="resource-file-icon"><icon-file /></span>
             <h2>{{ item.title }}</h2>
@@ -973,27 +664,16 @@
             </ul>
             <div class="resource-meta">
               <span>{{ item.size }}</span>
-              <span>{{ item.raw.source || '用户保存' }}</span>
-            </div>
-            <div class="resource-actions" @click.stop>
-              <button type="button" @click="toggleFavorite(item)">
-                {{ item.raw.favorite ? '取消收藏' : '收藏' }}
-              </button>
-              <button type="button" @click="toggleTop(item)">
-                {{ item.raw.top ? '取消置顶' : '置顶' }}
-              </button>
-              <button type="button" @click="downloadResourceBrief(item)">下载</button>
-              <button type="button" @click="removeFromLibrary(item)">移除</button>
+              <span>{{ item.downloads }} 次使用</span>
             </div>
             <span class="resource-card__cta">详情</span>
             <div class="resource-trust-row">
-              <span>{{ item.raw.difficulty || '标准难度' }}</span>
-              <span>{{ item.raw.type }}</span>
+              <span>课程组审核</span>
+              <span>v{{ resourceIndex(item) + 1 }}.{{ item.downloads % 10 }}</span>
               <span>{{ resourceLearningStatus(item) }}</span>
             </div>
           </article>
         </div>
-        </a-spin>
 
         <div
           v-if="visibleResources.length > defaultResourcePreviewCount"
@@ -1009,73 +689,8 @@
           </button>
         </div>
 
-        <a-empty
-          v-if="!loadingResources && !visibleResources.length"
-          description="还没有匹配的个人资料，可前往 AI 伴学生成"
-        />
+        <a-empty v-if="!visibleResources.length" description="没有匹配的课程资料" />
       </div>
-    </section>
-
-    <section class="ai-recommendations" aria-label="AI 为你推荐">
-      <header>
-        <div>
-          <span>Student Profile Agent × Resource Agent</span>
-          <h2>AI 为你推荐</h2>
-          <p>根据薄弱知识点、答题表现、学习目标和资源偏好动态生成。</p>
-        </div>
-        <button type="button" :disabled="loadingRecommendations" @click="loadRecommendations(true)">
-          重新生成推荐
-        </button>
-      </header>
-      <div v-if="recommendationSignals.length" class="recommendation-signals">
-        <span v-for="signal in recommendationSignals" :key="signal">{{ signal }}</span>
-      </div>
-      <a-spin :loading="loadingRecommendations" style="width: 100%">
-        <div v-if="visibleRecommendations.length" class="recommendation-grid">
-          <article v-for="item in visibleRecommendations" :key="`${item.origin}-${item.id}`">
-            <div>
-              <span>{{ item.subject || '未分类' }} · {{ item.origin === 'external' ? `网络 · ${item.source}` : `AI生成 · ${recommendationTypeLabel(item.type)}` }}</span>
-              <small>匹配度 {{ Math.round(item.score * 100) }}%</small>
-            </div>
-            <h3>{{ item.title }}</h3>
-            <p>{{ item.reason }}</p>
-            <p v-if="item.preview" class="recommendation-preview">{{ item.preview }}</p>
-            <div class="recommendation-evidence">
-              <span v-for="evidence in item.evidence" :key="evidence">{{ evidence }}</span>
-            </div>
-            <div class="recommendation-actions">
-              <button type="button" @click="openRecommendation(item)">
-                {{ item.origin === 'external' ? '打开来源' : '查看方案' }}
-              </button>
-              <button
-                type="button"
-                :disabled="recommendationActionId === item.id"
-                @click="favoriteRecommendation(item)"
-              >{{ item.favorite ? '取消收藏' : '收藏' }}</button>
-              <button
-                type="button"
-                :disabled="recommendationActionId === item.id"
-                @click="regenerateRecommendation(item)"
-              >{{ item.origin === 'external' ? '换一条' : '重新生成' }}</button>
-              <button
-                type="button"
-                :disabled="recommendationActionId === item.id"
-                @click="addRecommendation(item)"
-              >加入资料库</button>
-              <button
-                type="button"
-                class="danger"
-                :disabled="recommendationActionId === item.id"
-                @click="dismissRecommendation(item)"
-              >删除</button>
-            </div>
-          </article>
-        </div>
-        <a-empty
-          v-else-if="!loadingRecommendations"
-          :description="favoritesOnly ? '收藏夹中还没有已收藏推荐' : '暂无可推荐资源；生成资料或完成练习后会自动更新'"
-        />
-      </a-spin>
     </section>
 
     <a-drawer
@@ -1090,7 +705,7 @@
         <div class="resource-inspector__head">
           <span>{{ selectedResource.type }}</span>
           <h2>{{ selectedResource.title }}</h2>
-          <p>{{ selectedResource.chapter }} · {{ selectedResource.size }} · {{ selectedResource.raw.source || '用户保存' }}</p>
+          <p>{{ selectedResource.chapter }} · {{ selectedResource.size }} · {{ selectedResource.downloads }} 次使用</p>
         </div>
         <div class="resource-inspector__nodes">
           <strong>关联知识点</strong>
@@ -1100,10 +715,6 @@
             </span>
           </div>
         </div>
-        <KnowledgeGraphViewer
-          v-if="selectedKnowledgeGraph"
-          :graph-json="selectedKnowledgeGraph"
-        />
         <section>
           <strong>建议使用顺序</strong>
           <ol>
@@ -1122,14 +733,8 @@
           </button>
         </section>
         <div class="resource-inspector__actions">
-          <button type="button" @click="toggleFavorite(selectedResource)">
-            {{ selectedResource.raw.favorite ? '取消收藏' : '收藏' }}
-          </button>
-          <button type="button" @click="toggleTop(selectedResource)">
-            {{ selectedResource.raw.top ? '取消置顶' : '置顶' }}
-          </button>
           <button type="button" class="primary" @click="downloadResourceBrief(selectedResource)">
-            <icon-download /> {{ selectedResource.raw.file_path ? '下载' : '结构化查看' }}
+            <icon-download /> 学习包
           </button>
           <button type="button" @click="generateResourceMaterials(selectedResource)">
             <icon-bulb /> 生成配套
@@ -1140,7 +745,6 @@
           <button type="button" @click="askAboutResource(selectedResource)">
             <icon-robot /> 资料问答
           </button>
-          <button type="button" @click="removeFromLibrary(selectedResource)">移除</button>
         </div>
       </div>
     </a-drawer>
@@ -1156,8 +760,8 @@
       <div class="resource-tool-drawer">
         <section class="tool-section">
           <div class="tool-section__head">
-            <span>闭环操作</span>
-            <p>把当前资料接到生成、问答和图谱核验。</p>
+          <span>学习工具</span>
+          <p>围绕当前资料继续生成、提问或查看关联知识点。</p>
           </div>
           <div class="tool-action-grid">
             <button type="button" @click="openGenerator('课程资料生成')">
@@ -1167,8 +771,8 @@
             </button>
             <button type="button" @click="openKnowledgeMap">
               <icon-mind-mapping />
-              <strong>查看课程图谱</strong>
-              <small>定位知识节点</small>
+              <strong>查看关联知识点</strong>
+              <small>在课程图谱中定位</small>
             </button>
             <button
               type="button"
@@ -1185,8 +789,8 @@
               @click="selectedResource && locateResourceInGraph(selectedResource)"
             >
               <icon-check-circle />
-              <strong>同步图谱</strong>
-              <small>带上资料上下文</small>
+              <strong>在图谱中查看</strong>
+              <small>结合当前资料定位</small>
             </button>
           </div>
         </section>
@@ -1194,7 +798,7 @@
         <section class="tool-section">
           <div class="tool-section__head">
             <span>资料状态</span>
-            <p>只展示影响学习决策的关键指标。</p>
+            <p>帮助你快速了解资料覆盖范围和可用方式。</p>
           </div>
           <div class="tool-stat-grid">
             <article v-for="item in resourceCoverageStats" :key="item.label">
@@ -1224,7 +828,7 @@
           <div class="tool-section__head tool-section__head--row">
             <div>
               <span>生成记录</span>
-              <p>资源包会沉淀到资料库，并可回到图谱核验。</p>
+              <p>生成的学习资料会保存在这里，并可查看关联知识点。</p>
             </div>
             <button type="button" :disabled="loadingRecentPackages" @click="loadRecentPackages">
               {{ loadingRecentPackages ? '同步中' : '刷新' }}
@@ -1250,17 +854,17 @@
                   <icon-file /> 预览
                 </button>
                 <button type="button" @click="askAboutGeneratedPackage(pkg)">
-                  <icon-robot /> 复核
+                  <icon-robot /> 检查内容
                 </button>
                 <button type="button" @click="auditGeneratedPackageInGraph(pkg)">
-                  <icon-mind-mapping /> 图谱
+                  <icon-mind-mapping /> 关联知识点
                 </button>
               </div>
             </article>
           </div>
           <div v-else class="tool-empty">
-            <strong>暂无生成资源包</strong>
-            <p>可先围绕当前课程生成第一份讲义、练习和图谱核验包。</p>
+            <strong>还没有生成学习资料</strong>
+            <p>可先围绕当前课程生成一份讲义、练习或思维导图。</p>
             <button type="button" @click="openGenerator('课程资料回流生成')">现在生成</button>
           </div>
         </section>
@@ -1280,7 +884,7 @@
           <h2>{{ previewedGeneratedPackage.topic }}</h2>
           <p>
             {{ generatedPackageLabel(previewedGeneratedPackage) }} ·
-            {{ previewedGeneratedPackage.artifacts.length }} 个真实文件
+            {{ previewedGeneratedPackage.artifacts.length }} 个可下载文件
           </p>
         </header>
 
@@ -1308,14 +912,14 @@
             type="button"
             @click="askAboutGeneratedPackage(previewedGeneratedPackage)"
           >
-            <icon-robot /> AI 复核
+            <icon-robot /> 检查内容
           </button>
           <button
             type="button"
             class="primary"
             @click="auditGeneratedPackageInGraph(previewedGeneratedPackage)"
           >
-            <icon-mind-mapping /> 图谱核验
+            <icon-mind-mapping /> 查看关联知识点
           </button>
         </footer>
       </div>
@@ -1326,132 +930,6 @@
 <style scoped lang="less">
   .course-resources {
     color: #17213a;
-  }
-
-  .ai-recommendations {
-    margin-top: 16px;
-    padding: 18px;
-    border: 1px solid #dfe5ff;
-    border-radius: 14px;
-    background: linear-gradient(135deg, #ffffff, #f7f8ff);
-
-    > header {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 16px;
-
-      span {
-        color: #6366f1;
-        font-size: 11px;
-        font-weight: 700;
-      }
-
-      h2 {
-        margin: 4px 0;
-        font-size: 20px;
-      }
-
-      p {
-        margin: 0;
-        color: #667085;
-        font-size: 12px;
-      }
-
-      button {
-        padding: 7px 12px;
-        border: 1px solid #d9ddff;
-        border-radius: 9px;
-        color: #4f46e5;
-        background: #fff;
-        cursor: pointer;
-      }
-    }
-  }
-
-  .recommendation-signals,
-  .recommendation-evidence {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 12px;
-
-    span {
-      padding: 4px 8px;
-      border-radius: 999px;
-      color: #596579;
-      background: #eef1ff;
-      font-size: 10px;
-    }
-  }
-
-  .recommendation-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
-    margin-top: 14px;
-
-    article {
-      padding: 14px;
-      border: 1px solid #e3e7f6;
-      border-radius: 12px;
-      background: #fff;
-
-      > div:first-child {
-        display: flex;
-        justify-content: space-between;
-        color: #6366f1;
-        font-size: 11px;
-      }
-
-      h3 {
-        margin: 8px 0 5px;
-        font-size: 14px;
-      }
-
-      p {
-        min-height: 36px;
-        margin: 0;
-        color: #667085;
-        font-size: 12px;
-        line-height: 1.5;
-      }
-
-      .recommendation-preview {
-        min-height: 0;
-        margin-top: 8px;
-        padding: 8px;
-        border-radius: 8px;
-        background: #f7f8fc;
-      }
-
-      .recommendation-actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        margin-top: 12px;
-
-        button {
-        padding: 6px 10px;
-        border: 1px solid #d9ddff;
-        border-radius: 8px;
-        color: #5258c8;
-        background: #f7f8ff;
-        cursor: pointer;
-
-          &:disabled {
-            cursor: wait;
-            opacity: 0.55;
-          }
-
-          &.danger {
-            color: #cf4e4e;
-            border-color: #ffd5d5;
-            background: #fff7f7;
-          }
-        }
-      }
-    }
   }
 
   .resource-heading {
@@ -2496,12 +1974,19 @@
       border-radius: 9px;
       color: #929cad;
       background: #fff;
+      transition: border-color 160ms ease, box-shadow 160ms ease;
+
+      &:focus-within {
+        border-color: #94a3b8;
+        box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.08);
+      }
     }
 
     input {
       width: 100%;
       border: 0;
-      outline: 0;
+      outline: 0 !important;
+      box-shadow: none !important;
       color: #354158;
       background: transparent;
       font-size: 11px;

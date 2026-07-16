@@ -1,0 +1,275 @@
+{
+  "generated_at": "2026-07-16T10:29:00.285276+00:00",
+  "base_url": "http://127.0.0.1:8001",
+  "elapsed_seconds": 139.5,
+  "summary": {
+    "pass": 22,
+    "fail": 0,
+    "degraded": 1,
+    "skip": 0
+  },
+  "environment": {
+    "healthz": {
+      "status": 200,
+      "body": {
+        "service": "backend",
+        "status": "ok",
+        "capability_status": "degraded",
+        "models": {
+          "chat_model": {
+            "provider": "mimo",
+            "model": "mimo-v2.5-pro",
+            "configured": true,
+            "reachable": null,
+            "base_url": "https://api.xiaomimimo.com/v1",
+            "detail": "provider reachability is not exposed by the public health endpoint"
+          },
+          "multimodal_model": {
+            "provider": "mimo",
+            "model": "mimo-v2.5",
+            "runtime_model": "mimo-v2.5",
+            "fallback_model": "mimo-v2.5-pro",
+            "configured": true,
+            "reachable": null,
+            "base_url": "https://api.xiaomimimo.com/v1",
+            "detail": "provider reachability is not exposed by the public health endpoint"
+          },
+          "embedding_model": {
+            "provider": "hash",
+            "configured": true,
+            "reachable": true,
+            "degraded": true,
+            "detail": "deterministic fallback; configure a semantic embedding provider for semantic RAG"
+          }
+        }
+      }
+    },
+    "readyz": {
+      "status": 200,
+      "body": {
+        "service": "backend",
+        "status": "ready",
+        "capability_status": "degraded",
+        "db": "ok",
+        "schema": {
+          "status": "current",
+          "current": [
+            "025"
+          ],
+          "expected": [
+            "025"
+          ]
+        },
+        "models": {
+          "chat_model": {
+            "provider": "mimo",
+            "model": "mimo-v2.5-pro",
+            "configured": true,
+            "reachable": null,
+            "base_url": "https://api.xiaomimimo.com/v1",
+            "detail": "provider reachability is not exposed by the public health endpoint"
+          },
+          "multimodal_model": {
+            "provider": "mimo",
+            "model": "mimo-v2.5",
+            "runtime_model": "mimo-v2.5",
+            "fallback_model": "mimo-v2.5-pro",
+            "configured": true,
+            "reachable": null,
+            "base_url": "https://api.xiaomimimo.com/v1",
+            "detail": "provider reachability is not exposed by the public health endpoint"
+          },
+          "embedding_model": {
+            "provider": "hash",
+            "configured": true,
+            "reachable": true,
+            "degraded": true,
+            "detail": "deterministic fallback; configure a semantic embedding provider for semantic RAG"
+          }
+        }
+      }
+    }
+  },
+  "results": [
+    {
+      "name": "healthz",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {}
+    },
+    {
+      "name": "readyz",
+      "status": "pass",
+      "detail": "http 200 db=ok",
+      "meta": {}
+    },
+    {
+      "name": "login",
+      "status": "pass",
+      "detail": "token acquired",
+      "meta": {}
+    },
+    {
+      "name": "users/me",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "email": "student@example.com"
+      }
+    },
+    {
+      "name": "chat_stream_text",
+      "status": "pass",
+      "detail": "# 一句话解释索引\n\n**索引是一种基于表中某些列建立的、有序的辅助数据结构（类似书的目录），它能让数据库在不逐行扫描整张表的情况下，快速定位到满足条件的行。",
+      "meta": {
+        "thoughts": 0
+      }
+    },
+    {
+      "name": "chat_stream_multimodal",
+      "status": "pass",
+      "detail": "# 📌 图片标题\n\n**DATABASE TRANSACTION: ACID**\n\n\n\n## 🧩 ACID 四大事务特性概括\n\n| 字母 | 特性 | 核心含义 |\n|:---:|:---:|:---|\n| **A** | **Ato。",
+      "meta": {
+        "vision_thoughts": [],
+        "unrecognized_template": false
+      }
+    },
+    {
+      "name": "learning_report_me",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "has_summary": true
+      }
+    },
+    {
+      "name": "learning_report_diagnose",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "possibly_template": true
+      }
+    },
+    {
+      "name": "learning_report_review-plan",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "possibly_template": false
+      }
+    },
+    {
+      "name": "learning_report_mistake-digest",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "possibly_template": false
+      }
+    },
+    {
+      "name": "learning_path_me",
+      "status": "pass",
+      "detail": "has_path",
+      "meta": {
+        "degraded": false
+      }
+    },
+    {
+      "name": "course_graph_evidence",
+      "status": "pass",
+      "detail": "http 200 nodes=56 evidence_backed=8",
+      "meta": {
+        "course_id": "c1111111-1111-4111-9111-111111111101"
+      }
+    },
+    {
+      "name": "multimodal_course_video",
+      "status": "pass",
+      "detail": "http 200 size=3853376",
+      "meta": {
+        "video_url": "/api/v1/digital-human/media/d0000002-0000-4000-8000-000000000001.mp4?ticket=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2Mzc0YmZlNC1kYjk1LTQ5ZGItOGMwMC0wYjY3ZGQ1YmMyYjEiLCJhcnRpZmFjdCI6ImQwMDAwMDAyLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMS5tcDQiLCJzY29wZSI6ImRpZ2l0YWxfaHVtYW5fYXJ0aWZhY3QiLCJleHAiOjE3ODQxOTg0Njd9.L0F9RUS7E5abWmVADWeHKBu7RNUoigbiueFIPWG9G-U"
+      }
+    },
+    {
+      "name": "resource_workshop_packages",
+      "status": "pass",
+      "detail": "http 200 mode=llm",
+      "meta": {
+        "generation_mode": "llm"
+      }
+    },
+    {
+      "name": "resource_workshop_grade",
+      "status": "pass",
+      "detail": "http 200 score=8.0",
+      "meta": {}
+    },
+    {
+      "name": "resource_workshop_image",
+      "status": "degraded",
+      "detail": "http 200 source=fallback status=fallback",
+      "meta": {}
+    },
+    {
+      "name": "rag_upload",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "file_id": "d73d2bd9-4c40-4ec0-b190-36d5d20e21eb"
+      }
+    },
+    {
+      "name": "behavior_analyze_image",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "source": null
+      }
+    },
+    {
+      "name": "dashboard_teacher_stats",
+      "status": "pass",
+      "detail": "http 403; student access must be forbidden",
+      "meta": {}
+    },
+    {
+      "name": "dashboard_teacher_alerts-trend",
+      "status": "pass",
+      "detail": "http 403; student access must be forbidden",
+      "meta": {}
+    },
+    {
+      "name": "dashboard_teacher_popular",
+      "status": "pass",
+      "detail": "http 403; student access must be forbidden",
+      "meta": {}
+    },
+    {
+      "name": "dashboard_teacher_content-distribution",
+      "status": "pass",
+      "detail": "http 403; student access must be forbidden",
+      "meta": {}
+    },
+    {
+      "name": "digital_human_health",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "body": {
+          "engine": "musetalk",
+          "checks": {
+            "celery_enabled": false,
+            "ffmpeg": true,
+            "fallback_renderer": true,
+            "musetalk_dir": true,
+            "musetalk_unet": false,
+            "musetalk_config": false,
+            "wav2lip_dir": false,
+            "default_asset": true
+          },
+          "ready": false
+        }
+      }
+    }
+  ]
+}

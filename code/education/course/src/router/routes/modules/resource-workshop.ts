@@ -7,7 +7,7 @@ const RESOURCE_WORKSHOP: AppRouteRecordRaw = {
   component: DEFAULT_LAYOUT,
   redirect: '/course/resources',
   meta: {
-    locale: '学习资源工坊兼容入口',
+    locale: '学习资源工坊',
     requiresAuth: true,
     icon: 'icon-storage',
     order: 2.1,
@@ -19,7 +19,7 @@ const RESOURCE_WORKSHOP: AppRouteRecordRaw = {
       name: 'ResourcePackageBuilder',
       redirect: '/course/resource-generation',
       meta: {
-        locale: '资源包生成兼容入口',
+        locale: '资源生成',
         requiresAuth: true,
         roles: ['*'],
         hideInMenu: true,
@@ -30,7 +30,7 @@ const RESOURCE_WORKSHOP: AppRouteRecordRaw = {
       name: 'ResourceExerciseReview',
       redirect: '/assistant/chat',
       meta: {
-        locale: '练习批改兼容入口',
+        locale: '练习批改',
         requiresAuth: true,
         roles: ['*'],
         hideInMenu: true,
@@ -41,7 +41,7 @@ const RESOURCE_WORKSHOP: AppRouteRecordRaw = {
       name: 'ResourceImageSolver',
       redirect: '/assistant/chat',
       meta: {
-        locale: '图像题解兼容入口',
+        locale: '图像题解',
         requiresAuth: true,
         roles: ['*'],
         hideInMenu: true,

@@ -1,7 +1,10 @@
 from typing import List, Optional, AsyncIterator
+import asyncio
 import os
 import uuid
 import json
+import re
+from pathlib import Path
 from datetime import datetime, timezone
 
 from fastapi import UploadFile
@@ -9,11 +12,17 @@ import aiofiles
 from langchain_core.documents import Document
 
 from app.core.config import settings
+from app.core.upload_security import read_upload_limited
 from .document_processor import DocumentProcessor
 from .vector_store import VectorStore
 
 
 class RAGService:
+    _LEXICAL_QUERY_STOP_TEXT = (
+        "请帮我请你能否可以一下用一句话简短解释说明概括回答告诉我"
+        "并说明依据来自哪一份课程资料课件讲义文档来源引用"
+        "什么是什么为什么怎么如何相关关于当前这个知识点内容"
+    )
     def __init__(self, upload_dir: Optional[str] = None, vector_db_dir: Optional[str] = None):
         self.upload_dir = upload_dir or settings.RAG_UPLOAD_DIR
         self.vector_db_dir = vector_db_dir or settings.CHROMA_DB_PATH
@@ -84,6 +93,7 @@ class RAGService:
         *,
         user_id: Optional[str],
         filter_type: Optional[str],
+        course_id: Optional[str] = None,
     ) -> List[Optional[dict]]:
         owner_id = self._normalize_owner_id(user_id)
         filters: List[dict] = []
@@ -96,11 +106,23 @@ class RAGService:
                 return clauses[0]
             return {"$and": clauses}
 
-        filters.append(build_where(scope="system", type=filter_type))
+        # System chunks are course content, not a global public corpus. Without
+        # an explicit course boundary only the caller's own personal documents
+        # may participate. This also quarantines legacy chunks whose missing
+        # scope normalizes to ``system``.
+        if course_id:
+            filters.append(
+                build_where(scope="system", type=filter_type, course_id=course_id)
+            )
 
         if owner_id:
             filters.append(
-                build_where(scope="personal", owner_id=owner_id, type=filter_type)
+                build_where(
+                    scope="personal",
+                    owner_id=owner_id,
+                    type=filter_type,
+                    course_id=course_id,
+                )
             )
 
         return filters
@@ -115,6 +137,57 @@ class RAGService:
             doc.page_content[:128],
         )
 
+    @staticmethod
+    def _lexical_tokens(text: str) -> set[str]:
+        """Tokenize Chinese and English text without pretending it is semantic."""
+
+        normalized = re.sub(r"\s+", " ", (text or "").lower()).strip()
+        terms = set(re.findall(r"[a-z0-9_+.-]{2,}", normalized))
+        for run in re.findall(r"[\u4e00-\u9fff]+", normalized):
+            if len(run) <= 2:
+                terms.add(run)
+            else:
+                terms.update(run[i : i + 2] for i in range(len(run) - 1))
+        return terms
+
+    @classmethod
+    def _lexical_query_tokens(cls, text: str) -> set[str]:
+        terms = cls._lexical_tokens(text)
+        stop_terms = cls._lexical_tokens(cls._LEXICAL_QUERY_STOP_TEXT)
+        filtered = terms - stop_terms
+        return filtered or terms
+
+    @classmethod
+    def _lexical_score(cls, query: str, doc: Document) -> float:
+        query_terms = cls._lexical_query_tokens(query)
+        if not query_terms:
+            return 0.0
+        metadata = dict(doc.metadata or {})
+        metadata_text = " ".join(
+            str(metadata.get(key) or "")
+            for key in ("title", "chapter_title", "knowledge_point_ids", "source")
+        )
+        body_overlap = len(query_terms & cls._lexical_tokens(doc.page_content)) / len(query_terms)
+        metadata_overlap = len(query_terms & cls._lexical_tokens(metadata_text)) / len(query_terms)
+        phrase_bonus = 0.15 if query.strip().lower() in doc.page_content.lower() else 0.0
+        return min(1.0, body_overlap * 0.75 + metadata_overlap * 0.35 + phrase_bonus)
+
+    def _lexical_matches(
+        self, *, query: str, where: Optional[dict], limit: int
+    ) -> List[tuple[Document, float]]:
+        get_documents = getattr(self.vector_store, "get_documents", None)
+        if not callable(get_documents):
+            return []
+        scored = [
+            (doc, self._lexical_score(query, doc))
+            for doc in get_documents(filter=where)
+        ]
+        return sorted(
+            (item for item in scored if item[1] > 0),
+            key=lambda item: item[1],
+            reverse=True,
+        )[:limit]
+
     async def process_uploaded_file(
         self,
         file: UploadFile,
@@ -122,26 +195,41 @@ class RAGService:
         scope: str = "personal",
         owner_id: Optional[str] = None,
         thread_id: Optional[str] = None,
+        course_id: Optional[str] = None,
+        chapter_id: Optional[str] = None,
+        knowledge_point_ids: Optional[List[str]] = None,
     ) -> dict:
         if not file.filename:
             raise ValueError("Missing file name")
 
         normalized_scope = self._normalize_scope(scope)
         normalized_owner_id = self._normalize_owner_id(owner_id)
+        normalized_course_id = str(course_id or "").strip()
+        normalized_chapter_id = str(chapter_id or "").strip()
+        normalized_knowledge_point_ids = [
+            str(item).strip() for item in (knowledge_point_ids or []) if str(item).strip()
+        ]
 
         file_id = str(uuid.uuid4())
         ext = os.path.splitext(file.filename)[1]
         temp_filename = f"{file_id}{ext}"
         file_path = os.path.join(self.upload_dir, temp_filename)
 
-        async with aiofiles.open(file_path, "wb") as out_file:
-            content = await file.read()
-            await out_file.write(content)
+        try:
+            async with aiofiles.open(file_path, "wb") as out_file:
+                content = await read_upload_limited(file)
+                await out_file.write(content)
+        except Exception:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            raise
         file_size = len(content)
         created_at = datetime.now(timezone.utc).isoformat()
 
         try:
-            documents = self.doc_processor.process_document(file_path)
+            documents = await asyncio.to_thread(
+                self.doc_processor.process_document, file_path
+            )
             non_empty = [
                 d for d in documents if (d.page_content or "").strip()
             ]
@@ -162,11 +250,21 @@ class RAGService:
                 metadata["created_at"] = created_at
                 metadata["scope"] = normalized_scope
                 metadata["owner_id"] = normalized_owner_id
+                if normalized_course_id:
+                    metadata["course_id"] = normalized_course_id
+                if normalized_chapter_id:
+                    metadata["chapter_id"] = normalized_chapter_id
+                if normalized_knowledge_point_ids:
+                    # Chroma metadata values must be scalar. JSON preserves the
+                    # complete list without relying on delimiter conventions.
+                    metadata["knowledge_point_ids"] = json.dumps(
+                        normalized_knowledge_point_ids, ensure_ascii=False
+                    )
                 if thread_id:
                     metadata["thread_id"] = str(thread_id)
                 doc.metadata = metadata
 
-            self.vector_store.add_documents(documents)
+            await asyncio.to_thread(self.vector_store.add_documents, documents)
 
             return {
                 "status": "success",
@@ -177,6 +275,9 @@ class RAGService:
                 "chunks": len(documents),
                 "scope": normalized_scope,
                 "thread_id": str(thread_id or ""),
+                "course_id": normalized_course_id,
+                "chapter_id": normalized_chapter_id,
+                "knowledge_point_ids": normalized_knowledge_point_ids,
                 "extraction_method": ingest_meta.get("extraction_method", "legacy"),
                 "ocr_pages": int(ingest_meta.get("ocr_pages") or 0),
                 "preview_snippet": str(ingest_meta.get("preview_snippet") or "")[:280],
@@ -192,16 +293,38 @@ class RAGService:
         filter_type: Optional[str] = None,
         user_id: Optional[str] = None,
         is_admin: bool = False,
+        course_id: Optional[str] = None,
     ) -> List[dict]:
         top_k = k or settings.RAG_TOP_K
+        normalized_course_id = str(course_id or "").strip()
+        has_lexical_backend = callable(getattr(self.vector_store, "get_documents", None))
 
-        personal_matches: List[tuple[Document, float]] = []
-        system_matches: List[tuple[Document, float]] = []
+        personal_matches: List[tuple[Document, float, float, str]] = []
+        system_matches: List[tuple[Document, float, float, str]] = []
         seen_keys: set[tuple] = set()
 
-        def add_match(doc: Document, score: float) -> None:
+        def add_match(
+            doc: Document,
+            score: float,
+            lexical_score: float = 0.0,
+            retrieval_method: str = "vector",
+        ) -> None:
             metadata = dict(doc.metadata or {})
+            if (
+                not normalized_course_id
+                and self._normalize_scope(metadata.get("scope")) == "system"
+            ):
+                # Filter enforcement belongs here as well as in the vector
+                # query: backends and legacy adapters may ignore metadata
+                # filters, but an unscoped request must never see course-system
+                # content.
+                return
             if not self._is_visible_to_knowledge_query(metadata, user_id, is_admin):
+                return
+            # A course-bound request is a hard tenant boundary. Legacy/unscoped
+            # chunks and chunks from another course must never become fallback
+            # evidence for a course Agent.
+            if normalized_course_id and str(metadata.get("course_id") or "").strip() != normalized_course_id:
                 return
 
             key = self._doc_match_key(doc)
@@ -211,30 +334,110 @@ class RAGService:
 
             scope = self._normalize_scope(metadata.get("scope"))
             if scope == "personal":
-                personal_matches.append((doc, score))
+                personal_matches.append((doc, score, lexical_score, retrieval_method))
             else:
-                system_matches.append((doc, score))
+                system_matches.append((doc, score, lexical_score, retrieval_method))
 
         for filter_dict in self._build_search_filters(
-            user_id=user_id, filter_type=filter_type
+            user_id=user_id,
+            filter_type=filter_type,
+            course_id=normalized_course_id or None,
         ):
-            matches = self.vector_store.similarity_search_with_scores(
+            vector_matches = self.vector_store.similarity_search_with_scores(
                 query,
-                k=top_k,
+                k=max(top_k * 4, 12),
                 filter=filter_dict,
             )
-            for doc, score in matches:
-                add_match(doc, score)
+            lexical_matches = self._lexical_matches(
+                query=query,
+                where=filter_dict,
+                limit=max(top_k * 4, 12),
+            )
+            vector_rank = {
+                self._doc_match_key(doc): rank
+                for rank, (doc, _) in enumerate(vector_matches, 1)
+            }
+            lexical_rank = {
+                self._doc_match_key(doc): rank
+                for rank, (doc, _) in enumerate(lexical_matches, 1)
+            }
+            candidates: dict[tuple, tuple[Document, float, float]] = {}
+            for doc, score in vector_matches:
+                candidates[self._doc_match_key(doc)] = (
+                    doc,
+                    float(score),
+                    self._lexical_score(query, doc),
+                )
+            for doc, lexical_score in lexical_matches:
+                key = self._doc_match_key(doc)
+                previous = candidates.get(key)
+                candidates[key] = (
+                    doc,
+                    previous[1] if previous else 0.0,
+                    lexical_score,
+                )
 
-        if len(personal_matches) + len(system_matches) < top_k:
-            fallback_filter = {"type": filter_type} if filter_type else None
+            fused = []
+            provider = settings.EMBEDDINGS_PROVIDER.lower()
+            for key, (doc, vector_score, lexical_score) in candidates.items():
+                vector_rrf = 1 / (60 + vector_rank[key]) if key in vector_rank else 0.0
+                lexical_rrf = 1 / (60 + lexical_rank[key]) if key in lexical_rank else 0.0
+                rrf_score = (vector_rrf + lexical_rrf) * 30.5
+                if provider == "hash":
+                    if (
+                        has_lexical_backend
+                        and lexical_score < settings.RAG_HASH_MIN_LEXICAL_SCORE
+                    ):
+                        # Hash embeddings are only a deterministic fallback. A
+                        # zero-overlap candidate is not evidence and must not be
+                        # surfaced as a citation.
+                        continue
+                    final_score = lexical_score * 0.82 + rrf_score * 0.18
+                    method = "lexical+hash_fallback"
+                else:
+                    final_score = vector_score * 0.55 + lexical_score * 0.30 + rrf_score * 0.15
+                    method = "hybrid_semantic+lexical"
+                    if final_score < settings.RAG_COURSE_SEMANTIC_MIN_SCORE:
+                        continue
+                fused.append((doc, min(1.0, max(0.0, final_score)), lexical_score, method))
+            for doc, score, lexical_score, method in sorted(
+                fused, key=lambda item: item[1], reverse=True
+            ):
+                add_match(doc, score, lexical_score, method)
+
+        if (
+            normalized_course_id
+            and len(personal_matches) + len(system_matches) < top_k
+            and not (
+                settings.EMBEDDINGS_PROVIDER.lower() == "hash"
+                and has_lexical_backend
+            )
+        ):
+            fallback_clauses = []
+            if filter_type:
+                fallback_clauses.append({"type": filter_type})
+            if normalized_course_id:
+                fallback_clauses.append({"course_id": normalized_course_id})
+            if not fallback_clauses:
+                fallback_filter = None
+            elif len(fallback_clauses) == 1:
+                fallback_filter = fallback_clauses[0]
+            else:
+                fallback_filter = {"$and": fallback_clauses}
             fallback_matches = self.vector_store.similarity_search_with_scores(
                 query,
                 k=max(top_k * 4, 12),
                 filter=fallback_filter,
             )
             for doc, score in fallback_matches:
-                add_match(doc, score)
+                if float(score) < settings.RAG_COURSE_SEMANTIC_MIN_SCORE:
+                    continue
+                add_match(
+                    doc,
+                    score,
+                    self._lexical_score(query, doc),
+                    "vector_fallback",
+                )
                 if len(personal_matches) + len(system_matches) >= top_k:
                     break
 
@@ -243,7 +446,7 @@ class RAGService:
         matches = (personal_sorted + system_sorted)[:top_k]
 
         results = []
-        for index, (doc, score) in enumerate(matches, start=1):
+        for index, (doc, score, lexical_score, retrieval_method) in enumerate(matches, start=1):
             metadata = dict(doc.metadata or {})
             results.append(
                 {
@@ -253,6 +456,16 @@ class RAGService:
                     "source": metadata.get("source", "unknown"),
                     "chunk_id": metadata.get("chunk_id"),
                     "score": score,
+                    "lexical_score": lexical_score,
+                    "retrieval_method": retrieval_method,
+                    "embedding_provider": settings.EMBEDDINGS_PROVIDER.lower(),
+                    "semantic_retrieval": settings.EMBEDDINGS_PROVIDER.lower() != "hash",
+                    "locator": metadata.get("locator")
+                    or (
+                        f"{metadata.get('chapter_title')} · 片段 {metadata.get('chunk_id')}"
+                        if metadata.get("chapter_title")
+                        else f"片段 {metadata.get('chunk_id')}"
+                    ),
                 }
             )
         return results
@@ -266,36 +479,82 @@ class RAGService:
         user_id: Optional[str],
         is_admin: bool,
         top_k: int = 3,
+        course_id: Optional[str] = None,
     ) -> List[dict]:
         if not query.strip() or not file_id.strip():
             return []
+        normalized_course_id = str(course_id or "").strip()
         clauses = [{"file_id": file_id}]
+        if normalized_course_id:
+            clauses.append({"course_id": normalized_course_id})
         if thread_id:
             clauses.append({"thread_id": str(thread_id)})
         where: dict = clauses[0] if len(clauses) == 1 else {"$and": clauses}
         matches = self.vector_store.similarity_search_with_scores(
             query=query,
-            k=top_k,
+            k=max(top_k * 4, 12),
             filter=where,
         )
-        # Some files are uploaded once and reused across local threads. Keep the
-        # current file binding authoritative, but fall back to file_id-only search
-        # when the thread-scoped filter misses so citations still point to the
-        # selected file instead of unrelated knowledge-base chunks.
-        if thread_id and not matches:
-            matches = self.vector_store.similarity_search_with_scores(
-                query=query,
-                k=top_k,
-                filter={"file_id": file_id},
+        lexical_matches = self._lexical_matches(
+            query=query,
+            where=where,
+            limit=max(top_k * 4, 12),
+        )
+        lexical_by_key = {
+            self._doc_match_key(doc): score for doc, score in lexical_matches
+        }
+        candidates: dict[tuple, tuple[Document, float, float]] = {}
+        for doc, score in matches:
+            candidates[self._doc_match_key(doc)] = (
+                doc,
+                float(score),
+                lexical_by_key.get(
+                    self._doc_match_key(doc), self._lexical_score(query, doc)
+                ),
             )
+        for doc, lexical_score in lexical_matches:
+            key = self._doc_match_key(doc)
+            previous = candidates.get(key)
+            candidates[key] = (
+                doc,
+                previous[1] if previous else 0.0,
+                lexical_score,
+            )
+
+        provider = settings.EMBEDDINGS_PROVIDER.lower()
+        ranked: list[tuple[Document, float, float, str]] = []
+        for doc, vector_score, lexical_score in candidates.values():
+            if provider == "hash":
+                if lexical_score < settings.RAG_HASH_MIN_LEXICAL_SCORE:
+                    continue
+                score = lexical_score
+                retrieval_method = "lexical+hash_fallback"
+            else:
+                score = vector_score * 0.7 + lexical_score * 0.3
+                if score < settings.RAG_VECTOR_MIN_SCORE:
+                    continue
+                retrieval_method = "hybrid_semantic+lexical"
+            ranked.append((doc, min(1.0, max(0.0, score)), lexical_score, retrieval_method))
+
         out: List[dict] = []
-        for i, (doc, score) in enumerate(matches, start=1):
+        for doc, score, lexical_score, retrieval_method in sorted(
+            ranked, key=lambda item: item[1], reverse=True
+        ):
             md = dict(doc.metadata or {})
             if not self._is_visible_to_user(md, user_id, is_admin):
                 continue
+            # Treat vector-store filters as an optimization, never as an
+            # authorization boundary. Re-check every requested attachment key
+            # because adapters and legacy stores may ignore compound filters.
+            if str(md.get("file_id") or "") != str(file_id):
+                continue
+            if thread_id and str(md.get("thread_id") or "") != str(thread_id):
+                continue
+            if normalized_course_id and str(md.get("course_id") or "").strip() != normalized_course_id:
+                continue
             out.append(
                 {
-                    "citation_id": i,
+                    "citation_id": len(out) + 1,
                     "content": doc.page_content,
                     "metadata": md,
                     "source": md.get("source", "unknown"),
@@ -303,8 +562,14 @@ class RAGService:
                     "chunk_id": md.get("chunk_id"),
                     "locator": f"片段 {md.get('chunk_id')}" if md.get("chunk_id") else "",
                     "score": score,
+                    "lexical_score": lexical_score,
+                    "retrieval_method": retrieval_method,
+                    "embedding_provider": provider,
+                    "semantic_retrieval": provider != "hash",
                 }
             )
+            if len(out) >= top_k:
+                break
         return out
 
     def reset_knowledge_base(self) -> dict:
@@ -386,12 +651,20 @@ class RAGService:
         chunk_preview_chars: int = 300,
         scope: str = "personal",
         owner_id: Optional[str] = None,
+        course_id: Optional[str] = None,
+        chapter_id: Optional[str] = None,
+        knowledge_point_ids: Optional[List[str]] = None,
     ) -> AsyncIterator[dict]:
         if not file.filename:
             raise ValueError("Missing file name")
 
         normalized_scope = self._normalize_scope(scope)
         normalized_owner_id = self._normalize_owner_id(owner_id)
+        normalized_course_id = str(course_id or "").strip()
+        normalized_chapter_id = str(chapter_id or "").strip()
+        normalized_knowledge_point_ids = [
+            str(item).strip() for item in (knowledge_point_ids or []) if str(item).strip()
+        ]
 
         file_id = str(uuid.uuid4())
         ext = os.path.splitext(file.filename)[1]
@@ -399,9 +672,14 @@ class RAGService:
         file_path = os.path.join(self.upload_dir, temp_filename)
 
         yield {"stage": "saving", "message": "保存临时文件"}
-        async with aiofiles.open(file_path, "wb") as out_file:
-            content = await file.read()
-            await out_file.write(content)
+        try:
+            async with aiofiles.open(file_path, "wb") as out_file:
+                content = await read_upload_limited(file)
+                await out_file.write(content)
+        except Exception:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            raise
         file_size = len(content)
         created_at = datetime.now(timezone.utc).isoformat()
         yield {
@@ -414,7 +692,7 @@ class RAGService:
 
         try:
             yield {"stage": "parsing", "message": "文档解析中"}
-            text = self.doc_processor.extract_text(file_path)
+            text = await asyncio.to_thread(self.doc_processor.extract_text, file_path)
             text_preview = text[:preview_chars]
             yield {
                 "stage": "parsed",
@@ -430,7 +708,17 @@ class RAGService:
                 "scope": normalized_scope,
                 "owner_id": normalized_owner_id,
             }
-            documents = self.doc_processor.split_text(text, metadata=metadata)
+            if normalized_course_id:
+                metadata["course_id"] = normalized_course_id
+            if normalized_chapter_id:
+                metadata["chapter_id"] = normalized_chapter_id
+            if normalized_knowledge_point_ids:
+                metadata["knowledge_point_ids"] = json.dumps(
+                    normalized_knowledge_point_ids, ensure_ascii=False
+                )
+            documents = await asyncio.to_thread(
+                self.doc_processor.split_text, text, metadata=metadata
+            )
 
             for idx, doc in enumerate(documents):
                 meta = dict(doc.metadata or {})
@@ -465,6 +753,9 @@ class RAGService:
                 "chunks_preview": chunks_preview,
                 "text_preview": text_preview,
                 "scope": normalized_scope,
+                "course_id": normalized_course_id,
+                "chapter_id": normalized_chapter_id,
+                "knowledge_point_ids": normalized_knowledge_point_ids,
             }
         finally:
             if os.path.exists(file_path):
@@ -500,6 +791,9 @@ class RAGService:
             "file_size": preview.get("file_size", 0),
             "created_at": preview.get("created_at", ""),
             "chunks": len(documents),
+            "course_id": str(preview.get("course_id") or ""),
+            "chapter_id": str(preview.get("chapter_id") or ""),
+            "knowledge_point_ids": list(preview.get("knowledge_point_ids") or []),
         }
 
     def cancel_preview(
@@ -521,7 +815,18 @@ class RAGService:
         return {"status": "success", "message": "Preview cancelled", "file_id": file_id}
 
     def _preview_cache_path(self, file_id: str) -> str:
-        return os.path.join(self.preview_dir, f"{file_id}.json")
+        try:
+            normalized_file_id = str(uuid.UUID(str(file_id)))
+        except (ValueError, AttributeError, TypeError) as exc:
+            raise ValueError("Invalid preview file_id") from exc
+        preview_root = Path(self.preview_dir).resolve()
+        candidate = preview_root / f"{normalized_file_id}.json"
+        if candidate.is_symlink():
+            raise ValueError("Invalid preview cache path")
+        path = candidate.resolve(strict=False)
+        if path.parent != preview_root:
+            raise ValueError("Invalid preview cache path")
+        return str(path)
 
     def _save_preview_cache(
         self,
@@ -542,6 +847,15 @@ class RAGService:
             "owner_id": self._normalize_owner_id(
                 (documents[0].metadata or {}).get("owner_id") if documents else ""
             ),
+            "course_id": str(
+                (documents[0].metadata or {}).get("course_id") if documents else ""
+            ),
+            "chapter_id": str(
+                (documents[0].metadata or {}).get("chapter_id") if documents else ""
+            ),
+            "knowledge_point_ids": json.loads(
+                str((documents[0].metadata or {}).get("knowledge_point_ids") or "[]")
+            ) if documents else [],
             "documents": [
                 {"page_content": doc.page_content, "metadata": dict(doc.metadata or {})}
                 for doc in documents

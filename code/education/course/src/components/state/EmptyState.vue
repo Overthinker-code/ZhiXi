@@ -21,7 +21,7 @@
 defineProps({
   text: {
     type: String,
-    default: '暂无数据',
+    default: '这里还没有内容',
   },
   description: {
     type: String,

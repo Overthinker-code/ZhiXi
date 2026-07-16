@@ -1,13 +1,16 @@
 import httpx
+import logging
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import text
 
+from app.backend_pre_start import schema_revision_status
 from app.core.config import settings
 from app.core.db import engine
 from app.services.model_aliases import resolve_model_name_for_base_url
 from app.services.vision_client import probe_multimodal_health
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _probe_ollama(base_url: str) -> dict:
@@ -17,6 +20,57 @@ def _probe_ollama(base_url: str) -> dict:
         return {"reachable": True, "base_url": base_url}
     except Exception as exc:
         return {"reachable": False, "base_url": base_url, "detail": str(exc)}
+
+
+def _probe_ollama_embedding(base_url: str, model: str) -> dict:
+    try:
+        response = httpx.post(
+            f"{base_url.rstrip('/')}/api/embed",
+            json={"model": model, "input": "health check"},
+            timeout=10.0,
+        )
+        response.raise_for_status()
+        embeddings = response.json().get("embeddings") or []
+        if not embeddings or not embeddings[0]:
+            raise ValueError("embedding provider returned no vector")
+        return {"configured": True, "reachable": True, "base_url": base_url}
+    except Exception as exc:
+        return {
+            "configured": True,
+            "reachable": False,
+            "base_url": base_url,
+            "detail": str(exc)[:240],
+        }
+
+
+def _probe_openai_embedding(base_url: str | None) -> dict:
+    configured = bool(
+        base_url and settings.OPENAI_API_KEY and settings.OPENAI_EMBEDDING_MODEL
+    )
+    if not configured:
+        return {"configured": False, "reachable": False, "base_url": base_url}
+    try:
+        response = httpx.post(
+            f"{base_url.rstrip('/')}/embeddings",
+            headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY}"},
+            json={
+                "model": settings.OPENAI_EMBEDDING_MODEL,
+                "input": ["health check"],
+            },
+            timeout=10.0,
+        )
+        response.raise_for_status()
+        data = response.json().get("data") or []
+        if not data or not data[0].get("embedding"):
+            raise ValueError("embedding provider returned no vector")
+        return {"configured": True, "reachable": True, "base_url": base_url}
+    except Exception as exc:
+        return {
+            "configured": True,
+            "reachable": False,
+            "base_url": base_url,
+            "detail": str(exc)[:240],
+        }
 
 
 def _probe_openai_compatible(base_url: str | None) -> dict:
@@ -68,27 +122,41 @@ def _probe_mimo() -> dict:
         }
 
 
-def _embedding_check() -> dict:
+def _embedding_check(deep: bool = False) -> dict:
     provider = settings.EMBEDDINGS_PROVIDER.lower()
     out = {"provider": settings.EMBEDDINGS_PROVIDER}
     if provider == "ollama":
+        probe = (
+            _probe_ollama_embedding(
+                settings.OLLAMA_BASE_URL, settings.OLLAMA_EMBEDDINGS_MODEL
+            )
+            if deep
+            else {
+                "configured": True,
+                "reachable": None,
+                "base_url": settings.OLLAMA_BASE_URL,
+            }
+        )
         out.update(
             {
                 "model": settings.OLLAMA_EMBEDDINGS_MODEL,
                 "default_local_model": True,
-                **_probe_ollama(settings.OLLAMA_BASE_URL),
+                **probe,
             }
         )
     elif provider in {"openai", "openai_compatible", "cloud"}:
-        out.update(
-            {
-                "model": settings.OPENAI_EMBEDDING_MODEL,
+        probe = (
+            _probe_openai_embedding(settings.OPENAI_API_BASE)
+            if deep
+            else {
                 "configured": bool(
                     settings.OPENAI_API_KEY and settings.OPENAI_API_BASE
                 ),
+                "reachable": None,
                 "base_url": settings.OPENAI_API_BASE,
             }
         )
+        out.update({"model": settings.OPENAI_EMBEDDING_MODEL, **probe})
     elif provider == "hash":
         out.update(
             {
@@ -96,7 +164,7 @@ def _embedding_check() -> dict:
                 "reachable": True,
                 "degraded": True,
                 "detail": (
-                    "deterministic fallback; configure a cloud embedding "
+                    "deterministic fallback; configure a semantic embedding "
                     "provider for semantic RAG"
                 ),
             }
@@ -135,7 +203,7 @@ def _build_model_checks(deep: bool = False) -> dict:
                     "configured": bool(settings.MIMO_API_KEY),
                     "reachable": None,
                     "base_url": settings.MIMO_API_BASE,
-                    "detail": "deep probe skipped; call /healthz?deep=true to verify provider reachability",
+                    "detail": "provider reachability is not exposed by the public health endpoint",
                 }
             )
         elif chat_provider == "ollama":
@@ -144,7 +212,7 @@ def _build_model_checks(deep: bool = False) -> dict:
                     "configured": True,
                     "reachable": None,
                     "base_url": settings.OLLAMA_BASE_URL,
-                    "detail": "deep probe skipped; call /healthz?deep=true to verify provider reachability",
+                    "detail": "provider reachability is not exposed by the public health endpoint",
                 }
             )
         elif chat_provider in {"openai", "openai_compatible"}:
@@ -153,7 +221,7 @@ def _build_model_checks(deep: bool = False) -> dict:
                     "configured": bool(settings.OPENAI_API_KEY and settings.OPENAI_API_BASE),
                     "reachable": None,
                     "base_url": settings.OPENAI_API_BASE,
-                    "detail": "deep probe skipped; call /healthz?deep=true to verify provider reachability",
+                    "detail": "provider reachability is not exposed by the public health endpoint",
                 }
             )
         else:
@@ -186,7 +254,7 @@ def _build_model_checks(deep: bool = False) -> dict:
                 ),
                 "reachable": None,
                 "base_url": multimodal_base,
-                "detail": "deep vision probe skipped; call /healthz?deep=true to verify provider reachability",
+                "detail": "provider reachability is not exposed by the public health endpoint",
             }
         )
     elif settings.MULTIMODAL_PROVIDER.lower() == "mimo":
@@ -196,36 +264,84 @@ def _build_model_checks(deep: bool = False) -> dict:
     if deep:
         try:
             multimodal_check["vision_probe"] = probe_multimodal_health(timeout=30.0)
-            if multimodal_check["vision_probe"].get("probe_ok"):
-                multimodal_check["reachable"] = True
+            # The deep image probe is authoritative for the multimodal
+            # capability. A successful text/models probe must not mask a
+            # failed vision request.
+            multimodal_check["reachable"] = bool(
+                multimodal_check["vision_probe"].get("probe_ok")
+            )
         except Exception as exc:
             multimodal_check["vision_probe"] = {
                 "configured": bool(multimodal_base),
                 "probe_ok": False,
                 "detail": str(exc)[:240],
             }
+            multimodal_check["reachable"] = False
     return {
         "chat_model": chat_check,
         "multimodal_model": multimodal_check,
-        "embedding_model": _embedding_check(),
+        "embedding_model": _embedding_check(deep=deep),
     }
 
 
+def _capability_status(models: dict) -> str:
+    """Separate infrastructure readiness from optional AI capability quality."""
+
+    checks = {
+        name: check for name, check in models.items() if isinstance(check, dict)
+    }
+    chat = checks.get("chat_model", {})
+    if chat.get("configured") is False or chat.get("reachable") is False:
+        return "unavailable"
+    if any(
+        bool(check.get("degraded"))
+        or check.get("configured") is False
+        or check.get("reachable") is False
+        for check in checks.values()
+    ):
+        return "degraded"
+    return "available"
+
+
 @router.get('/healthz')
-def healthz(deep: bool = Query(False)):
-    return {'service': 'backend', 'status': 'ok', 'models': _build_model_checks(deep=deep)}
+def healthz(deep: bool = Query(False, deprecated=True)):
+    # Keep the old query parameter parseable for rollout compatibility, but a
+    # public request must never be able to trigger paid/slow upstream probes.
+    _ = deep
+    models = _build_model_checks(deep=False)
+    return {
+        'service': 'backend',
+        'status': 'ok',
+        'capability_status': _capability_status(models),
+        'models': models,
+    }
 
 
 @router.get('/readyz')
-def readyz(deep: bool = Query(False)):
+def readyz(deep: bool = Query(False, deprecated=True)):
     try:
         with engine.connect() as conn:
             conn.execute(text('SELECT 1'))
+            schema = schema_revision_status(conn)
+        if schema["status"] != "current":
+            logger.error(
+                "Readiness rejected an outdated database schema: current=%s expected=%s",
+                schema["current"],
+                schema["expected"],
+            )
+            raise HTTPException(status_code=503, detail='database schema is not current')
+        _ = deep
+        models = _build_model_checks(deep=False)
         return {
             'service': 'backend',
             'status': 'ready',
+            'capability_status': _capability_status(models),
             'db': 'ok',
-            'models': _build_model_checks(deep=deep),
+            'schema': schema,
+            'models': models,
         }
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=f'ready check failed: {exc}')
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Backend readiness check failed")
+        raise HTTPException(status_code=503, detail='ready check failed')

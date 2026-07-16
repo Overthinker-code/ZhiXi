@@ -7,7 +7,7 @@ from sqlmodel import Session, select
 from app import crud
 from app.core.config import settings
 from app.core.security import verify_password
-from app.models import User, UserCreate
+from app.models import Log, User, UserCreate
 from app.tests.utils.utils import random_email, random_lower_string
 
 
@@ -397,6 +397,9 @@ def test_delete_user_me(client: TestClient, db: Session) -> None:
     tokens = r.json()
     a_token = tokens["access_token"]
     headers = {"Authorization": f"Bearer {a_token}"}
+    login_log = db.exec(
+        select(Log).where(Log.user_id == user_id, Log.action == "login")
+    ).one()
 
     r = client.delete(
         f"{settings.API_V1_STR}/users/me",
@@ -411,6 +414,16 @@ def test_delete_user_me(client: TestClient, db: Session) -> None:
     user_query = select(User).where(User.id == user_id)
     user_db = db.execute(user_query).first()
     assert user_db is None
+
+    # Account deletion must not erase the audit trail, but the retained event
+    # must no longer identify or reference the deleted user.
+    db.expire_all()
+    audit_log = db.get(Log, login_log.id)
+    assert audit_log is not None
+    assert audit_log.user_id is None
+    assert audit_log.details == (
+        "Associated account deleted; identifying details removed"
+    )
 
 
 def test_delete_user_me_as_superuser(
@@ -433,6 +446,14 @@ def test_delete_user_super_user(
     user_in = UserCreate(email=username, password=password)
     user = crud.create_user(session=db, user_create=user_in)
     user_id = user.id
+    audit_log = Log(
+        user_id=user_id,
+        action="profile_update",
+        details=f"User {username} updated profile",
+    )
+    db.add(audit_log)
+    db.commit()
+    audit_log_id = audit_log.id
     r = client.delete(
         f"{settings.API_V1_STR}/users/{user_id}",
         headers=superuser_token_headers,
@@ -442,6 +463,13 @@ def test_delete_user_super_user(
     assert deleted_user["message"] == "User deleted successfully"
     result = db.exec(select(User).where(User.id == user_id)).first()
     assert result is None
+    db.expire_all()
+    retained_log = db.get(Log, audit_log_id)
+    assert retained_log is not None
+    assert retained_log.user_id is None
+    assert retained_log.details == (
+        "Associated account deleted; identifying details removed"
+    )
 
 
 def test_delete_user_not_found(

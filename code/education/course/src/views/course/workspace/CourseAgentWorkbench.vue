@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { computed, ref, watch } from 'vue';
+  import { computed, nextTick, ref, watch, type Component } from 'vue';
   import { useRoute, useRouter } from 'vue-router';
   import {
     IconBook,
@@ -19,22 +19,28 @@
     IconVideoCamera,
   } from '@arco-design/web-vue/es/icon';
   import { Message } from '@arco-design/web-vue';
+  import {
+    fetchCourseAgents,
+    type CourseAgentContractSummary,
+  } from '@/api/ai-chat';
+  import AgentRealtimeChat from '@/components/float-ai/AgentRealtimeChat.vue';
+  import {
+    createCourseAgentWindowSession,
+    type CourseAgentWindowSession,
+  } from '@/components/float-ai/courseAgentWindowSession';
   import { getClassroomCourse } from '@/data/classroomCourses';
-  import { courseAgentTasks } from '@/data/courseWorkspace';
   import { courseWorkspaceLocation } from '@/composables/useCourseRouteContext';
   import { resolveCourseResourceReference } from '@/utils/courseResourceReference';
 
   type AgentCategory = '全部智能体' | '自学中心' | '效率工具' | '学习助手' | '资料科研';
-  type AgentLaunchMode = 'chat' | 'resource' | 'graph';
-
-  const route = useRoute();
-  const router = useRouter();
-  const course = computed(() => getClassroomCourse(String(route.params.courseId || '')));
-  const activeCategory = ref<AgentCategory>('全部智能体');
-  const keyword = ref('');
-  const selectedAgentKey = ref(normalizeAgentKey(route.query.task || 'resource'));
-  const favoriteKeys = ref(new Set<string>(['resource', 'practice', 'reader']));
-  const detailDrawerOpen = ref(false);
+  type CourseAgentView = CourseAgentContractSummary & {
+    title: string;
+    desc: string;
+    category: Exclude<AgentCategory, '全部智能体'>;
+    icon: Component;
+    workflow: string[];
+    status: string;
+  };
 
   const categoryTabs: AgentCategory[] = ['全部智能体', '自学中心', '效率工具', '学习助手', '资料科研'];
   const categoryCopy: Record<AgentCategory, string> = {
@@ -44,231 +50,69 @@
     学习助手: '面向答疑、陪练和作业反馈',
     资料科研: '面向资料检索、阅读和研究问题',
   };
-  const supportedForceAgents = new Set([
-    'code_tutor',
-    'knowledge_mentor',
-    'planner',
-    'analyst',
-    'doc_researcher',
-    'quiz_master',
-    'profile_agent',
-    'retrieval_agent',
-    'web_research_agent',
-    'tutor_agent',
-    'grading_agent',
-    'safety_review_agent',
-    'supervisor',
-  ]);
-  const legacyForceAgentMap: Record<string, string> = {
-    graph_agent: 'retrieval_agent',
-    research_agent: 'web_research_agent',
-    vision_agent: 'tutor_agent',
-    formula_agent: 'knowledge_mentor',
+  const agentPresentation: Record<string, { icon: Component; workflow: string[] }> = {
+    resource: { icon: IconStorage, workflow: ['确认课程范围与学习目标', '规划资料结构', '生成并检查内容', '保存可下载产物'] },
+    research: { icon: IconExperiment, workflow: ['界定研究问题', '组织课程与外部检索', '核验证据边界', '整理阅读清单'] },
+    practice: { icon: IconBulb, workflow: ['定位练习范围', '逐题发起练习', '等待学生作答', '反馈并安排追练'] },
+    reader: { icon: IconBook, workflow: ['确认阅读材料', '提取论证结构', '定位引用依据', '形成阅读路径'] },
+    writer: { icon: IconEdit, workflow: ['确认写作目标', '组织课程证据', '生成结构化正文', '输出可编辑文档'] },
+    graph: { icon: IconMindMapping, workflow: ['读取课程节点', '呈现知识关系', '定位前置路径', '从节点启动学习任务'] },
+    video: { icon: IconVideoCamera, workflow: ['读取媒体线索', '整理讲解结构', '标记关键节点', '形成复习清单'] },
+    formula: { icon: IconCode, workflow: ['识别公式结构', '转换标准 LaTeX', '解释符号与条件', '关联课程例题'] },
+    grade: { icon: IconFile, workflow: ['读取题目与答案', '匹配评分点', '解释错因', '给出订正与追练'] },
+    planner: { icon: IconStar, workflow: ['读取真实学习进度', '确认时间与目标', '安排任务优先级', '设置复盘检查点'] },
+    checker: { icon: IconSearch, workflow: ['读取作业材料', '核对课程证据', '标记结构与引用问题', '给出可验证修改建议'] },
+    translator: { icon: IconBook, workflow: ['识别课程术语', '匹配专业语境', '生成双语解释', '补充例句与易混提醒'] },
   };
 
-  function normalizeForceAgent(value?: string) {
-    if (!value) return '';
-    const mapped = legacyForceAgentMap[value] || value;
-    return supportedForceAgents.has(mapped) ? mapped : 'tutor_agent';
+  const route = useRoute();
+  const router = useRouter();
+  const course = computed(() => getClassroomCourse(String(route.params.courseId || '')));
+  const activeCategory = ref<AgentCategory>('全部智能体');
+  const keyword = ref('');
+  const selectedAgentKey = ref('');
+  const favoriteKeys = ref(new Set<string>(['resource', 'practice', 'reader']));
+  const detailDrawerOpen = ref(false);
+  const agentContracts = ref<CourseAgentContractSummary[]>([]);
+  const agentCatalogLoading = ref(false);
+  const agentCatalogError = ref('');
+  const chatSession = ref<CourseAgentWindowSession | null>(null);
+  const chatDialogRef = ref<HTMLElement | null>(null);
+  const chatCloseButtonRef = ref<HTMLButtonElement | null>(null);
+  let lastChatTrigger: HTMLElement | null = null;
+  let catalogRequestId = 0;
+
+  function executionLabel(kind: CourseAgentContractSummary['executionKind']) {
+    if (kind === 'resource_workflow') return '资料工作流';
+    if (kind === 'knowledge_graph') return '课程图谱';
+    return '页内执行';
   }
 
-  const agentCatalog = computed(() => {
-    const taskByKey = new Map(courseAgentTasks.map((task) => [task.key, task]));
-    return [
-      {
-        key: 'resource',
-        title: '资料助手',
-        category: '资料科研' as AgentCategory,
-        desc: '基于课程画像、章节和薄弱点生成讲义、练习、导图和阅读路径。',
-        icon: IconStorage,
-        source: '课程内置',
-        launch: 'resource' as AgentLaunchMode,
-        estimate: '6 分钟',
-        status: '高频',
-        usage: '2,184',
-        accuracy: 94,
-        outputs: ['讲义', '练习', '思维导图', '阅读清单'],
-        workflow: ['读取课程画像', '绑定章节与薄弱点', '生成资料包', '回到图谱验证'],
-        task: taskByKey.get('resource'),
-      },
-      {
-        key: 'research',
-        title: 'AI科研助手',
-        category: '资料科研' as AgentCategory,
-        desc: '把课程主题转成检索式、研究问题、文献阅读框架和可验证资料清单。',
-        icon: IconExperiment,
-        source: '课程内置',
-        launch: 'chat' as AgentLaunchMode,
-        estimate: '8 分钟',
-        status: '推荐',
-        usage: '1,372',
-        accuracy: 91,
-        outputs: ['检索式', '研究问题', '阅读框架', '引用清单'],
-        workflow: ['提炼课程主题', '生成检索策略', '拆分阅读任务', '形成资料证据'],
-        task: taskByKey.get('research'),
-      },
-      {
-        key: 'practice',
-        title: 'AI陪练',
-        category: '学习助手' as AgentCategory,
-        desc: '按当前进度个性化出题，先提示思路，再根据作答追练薄弱点。',
-        icon: IconBulb,
-        source: '课程内置',
-        launch: 'chat' as AgentLaunchMode,
-        estimate: '8 分钟',
-        status: '高频',
-        usage: '3,016',
-        accuracy: 93,
-        outputs: ['梯度题', '提示', '错因', '追练'],
-        workflow: ['定位薄弱点', '生成分层题', '等待作答', '给出追练路径'],
-        task: taskByKey.get('quiz'),
-      },
-      {
-        key: 'reader',
-        title: 'AI阅读助手',
-        category: '自学中心' as AgentCategory,
-        desc: '解析课件、论文或讲义，输出摘要、问题清单、思维导图和引用依据。',
-        icon: IconBook,
-        source: '资料增强',
-        launch: 'chat' as AgentLaunchMode,
-        estimate: '5 分钟',
-        status: '精选',
-        usage: '1,948',
-        accuracy: 92,
-        outputs: ['摘要', '问题清单', '引用依据', '导图'],
-        workflow: ['识别资料结构', '抽取关键段落', '生成阅读问题', '沉淀可追溯摘要'],
-        task: taskByKey.get('resource'),
-      },
-      {
-        key: 'writer',
-        title: '智能编写',
-        category: '效率工具' as AgentCategory,
-        desc: '生成课程报告、实验说明、讨论发言和结构化学习复盘。',
-        icon: IconEdit,
-        source: '写作工具',
-        launch: 'resource' as AgentLaunchMode,
-        estimate: '7 分钟',
-        status: '新',
-        usage: '846',
-        accuracy: 89,
-        outputs: ['报告', '复盘', '讨论稿', '实验说明'],
-        workflow: ['确定写作目标', '读取课程证据', '生成结构草稿', '输出可下载文档'],
-        task: taskByKey.get('review'),
-      },
-      {
-        key: 'graph',
-        title: '课程知识图谱',
-        category: '自学中心' as AgentCategory,
-        desc: '进入可筛选课程图谱，查看章节、问题、能力和资源之间的关系。',
-        icon: IconMindMapping,
-        source: '图谱类',
-        launch: 'graph' as AgentLaunchMode,
-        estimate: '即时',
-        status: '高频',
-        usage: '2,637',
-        accuracy: 95,
-        outputs: ['知识图谱', '问题图谱', '能力路径', '资料关系'],
-        workflow: ['汇总章节节点', '映射资源与任务', '高亮薄弱路径', '启动图谱伴学'],
-        task: taskByKey.get('map'),
-      },
-      {
-        key: 'video',
-        title: '视频理解',
-        category: '学习助手' as AgentCategory,
-        desc: '从课堂视频或截图提炼讲解结构、关键节点和复习动作。',
-        icon: IconVideoCamera,
-        source: '多模态',
-        launch: 'chat' as AgentLaunchMode,
-        estimate: '7 分钟',
-        status: '多模态',
-        usage: '713',
-        accuracy: 87,
-        outputs: ['讲解结构', '关键帧', '复习点', '疑问清单'],
-        workflow: ['接收视频线索', '提炼讲解层级', '标记关键节点', '生成复习动作'],
-        task: taskByKey.get('video'),
-      },
-      {
-        key: 'formula',
-        title: '公式识别',
-        category: '效率工具' as AgentCategory,
-        desc: '把公式转成标准 LaTeX，并解释符号含义、推导步骤和适用条件。',
-        icon: IconCode,
-        source: '学习工具',
-        launch: 'chat' as AgentLaunchMode,
-        estimate: '5 分钟',
-        status: '工具',
-        usage: '1,106',
-        accuracy: 90,
-        outputs: ['LaTeX', '符号解释', '推导步骤', '适用条件'],
-        workflow: ['识别公式结构', '标准化排版', '解释符号含义', '关联题目场景'],
-        task: taskByKey.get('formula'),
-      },
-      {
-        key: 'grade',
-        title: '作业批改',
-        category: '学习助手' as AgentCategory,
-        desc: '按得分点、错因、订正步骤和掌握度给出结构化反馈。',
-        icon: IconFile,
-        source: '评价类',
-        launch: 'chat' as AgentLaunchMode,
-        estimate: '4 分钟',
-        status: '评价',
-        usage: '1,562',
-        accuracy: 92,
-        outputs: ['评分点', '错因', '订正步骤', '掌握度'],
-        workflow: ['读取题目与答案', '匹配评分点', '定位错因', '生成订正计划'],
-        task: taskByKey.get('grade'),
-      },
-      {
-        key: 'planner',
-        title: '学习规划师',
-        category: '自学中心' as AgentCategory,
-        desc: '把课程进度、图谱薄弱点和近期任务合成可执行的每日学习计划。',
-        icon: IconStar,
-        source: '规划类',
-        launch: 'chat' as AgentLaunchMode,
-        estimate: '3 分钟',
-        status: '推荐',
-        usage: '2,041',
-        accuracy: 93,
-        outputs: ['学习日程', '优先级', '检查点', '复盘提示'],
-        workflow: ['读取当前进度', '排序薄弱节点', '安排每日任务', '设置复盘检查'],
-        task: taskByKey.get('project'),
-      },
-      {
-        key: 'checker',
-        title: '作业查重',
-        category: '效率工具' as AgentCategory,
-        desc: '对照课程资料、作业要求和参考结构，生成相似片段与改写建议。',
-        icon: IconSearch,
-        source: '审查类',
-        launch: 'chat' as AgentLaunchMode,
-        estimate: '6 分钟',
-        status: '审查',
-        usage: '624',
-        accuracy: 88,
-        outputs: ['相似片段', '风险等级', '改写建议', '引用提醒'],
-        workflow: ['读取作业文本', '比对课程资料', '标记相似风险', '给出改写路径'],
-        task: taskByKey.get('grade'),
-      },
-      {
-        key: 'translator',
-        title: '术语翻译',
-        category: '效率工具' as AgentCategory,
-        desc: '围绕课程术语提供中英互译、定义解释和上下文用法，避免直译误差。',
-        icon: IconBook,
-        source: '语言工具',
-        launch: 'chat' as AgentLaunchMode,
-        estimate: '2 分钟',
-        status: '工具',
-        usage: '932',
-        accuracy: 91,
-        outputs: ['术语表', '双语解释', '例句', '易混提醒'],
-        workflow: ['提取术语', '匹配课程语境', '给出双语解释', '补充例句与误区'],
-        task: taskByKey.get('explain'),
-      },
-    ];
-  });
+  function normalizedCategory(value: string): CourseAgentView['category'] {
+    return categoryTabs.includes(value as AgentCategory) && value !== '全部智能体'
+      ? (value as CourseAgentView['category'])
+      : '学习助手';
+  }
+
+  const agentCatalog = computed<CourseAgentView[]>(() =>
+    agentContracts.value.map((contract) => {
+      const presentation = agentPresentation[contract.key];
+      return {
+        ...contract,
+        title: contract.label,
+        desc: contract.description,
+        category: normalizedCategory(contract.category),
+        icon: presentation?.icon || IconRobot,
+        workflow: presentation?.workflow || [
+          '确认课程范围与任务目标',
+          '执行专用能力',
+          '核验输出边界',
+          '交付并给出下一步',
+        ],
+        status: executionLabel(contract.executionKind),
+      };
+    })
+  );
 
   const filteredAgents = computed(() => {
     const key = keyword.value.trim().toLowerCase();
@@ -299,7 +143,6 @@
   const incomingNodeLabel = computed(() => routeQueryText(route.query.nodeLabel) || incomingTopic.value);
   const incomingMapType = computed(() => routeQueryText(route.query.mapType));
   const incomingAudit = computed(() => routeQueryText(route.query.audit));
-  const incomingForceAgent = computed(() => normalizeForceAgent(routeQueryText(route.query.forceAgent)));
   const incomingResourceId = computed(() => routeQueryText(route.query.resourceId));
   const incomingResourceTitle = computed(() => routeQueryText(route.query.resourceTitle));
   const incomingResourceChapter = computed(() => routeQueryText(route.query.resourceChapter));
@@ -393,7 +236,12 @@
     agentCatalog.value.filter((agent) => favoriteKeys.value.has(agent.key))
   );
 
-  const highlightedAgents = computed(() => agentCatalog.value.filter((agent) => agent.status === '高频').slice(0, 3));
+  const highlightedAgents = computed(() => {
+    const preferred = ['resource', 'practice', 'reader'];
+    return preferred
+      .map((key) => agentCatalog.value.find((agent) => agent.key === key))
+      .filter((agent): agent is CourseAgentView => Boolean(agent));
+  });
 
   const categoryStats = computed(() =>
     categoryTabs.map((category) => ({
@@ -407,53 +255,41 @@
   );
 
   const launchLabel = computed(() => {
-    if (incomingPackageContext.value && incomingPrompt.value) return '执行图谱核验';
-    if (incomingPackageContext.value && selectedAgent.value?.launch === 'chat') return '带核验上下文执行';
-    if (incomingResourceContext.value && selectedAgent.value?.launch === 'chat') return '带着这份资料提问';
-    if (selectedAgent.value?.launch === 'resource') return '生成学习资料';
-    if (shouldLaunchGraphChat()) return '打开 AI 伴学';
-    if (selectedAgent.value?.launch === 'graph') return '进入课程图谱';
+    if (incomingPackageContext.value && selectedAgent.value?.executionKind === 'chat') return '带核验上下文执行';
+    if (incomingResourceContext.value && selectedAgent.value?.executionKind === 'chat') return '带着这份资料提问';
+    if (selectedAgent.value?.executionKind === 'resource_workflow') return '生成学习资料';
+    if (selectedAgent.value?.executionKind === 'knowledge_graph') return '进入课程图谱';
     return '开始对话执行';
   });
 
   const launchTarget = computed(() => {
-    if (incomingPackageContext.value && incomingPrompt.value) return incomingForceAgent.value || 'retrieval_agent';
-    if (selectedAgent.value?.launch === 'resource') return '资料生成器';
-    if (shouldLaunchGraphChat()) return 'AI 伴学对话';
-    if (selectedAgent.value?.launch === 'graph') return '课程知识图谱';
-    return normalizeForceAgent(selectedAgent.value?.task?.forceAgent) || 'tutor_agent';
+    if (selectedAgent.value?.executionKind === 'resource_workflow') return '资料生成器';
+    if (selectedAgent.value?.executionKind === 'knowledge_graph') return '课程知识图谱';
+    return '页内实时窗口';
   });
 
   function readableLaunchTarget(target = launchTarget.value) {
     const map: Record<string, string> = {
-      retrieval_agent: '课程检索',
-      web_research_agent: '联网研究',
-      tutor_agent: '学习问答',
-      grading_agent: '作业批改',
-      safety_review_agent: '引用校验',
-      profile_agent: '画像更新',
-      knowledge_mentor: '知识讲解',
-      code_tutor: '代码辅导',
-      quiz_master: '练习陪跑',
-      planner: '学习规划',
-      analyst: '学习分析',
-      doc_researcher: '资料研读',
-      supervisor: '智能调度',
       资料生成器: '资料生成',
-      'AI 伴学对话': '学习问答',
       课程知识图谱: '课程图谱',
+      页内实时窗口: '页内实时执行',
     };
     return map[target] || target || '课程助手';
   }
 
   const displayLaunchTarget = computed(() => readableLaunchTarget());
+  const processingLabel = computed(() => {
+    if (selectedAgent.value?.executionKind === 'resource_workflow') return '可追踪生成';
+    if (selectedAgent.value?.executionKind === 'knowledge_graph') return '交互探索';
+    return '实时流式';
+  });
 
   const inputContextCards = computed(() => {
     if (!course.value || !selectedAgent.value) return [];
     const concepts = activeConcepts.value.map((concept) => concept.title).join('、') || '课程核心概念';
     return [
       {
-        label: '课程画像',
+        label: '课程学习情况',
         value: course.value.shortTitle,
         detail: `${course.value.progress}% 进度 · ${course.value.learned}/${course.value.total} 节已学`,
       },
@@ -488,7 +324,7 @@
       ...(incomingPackageContext.value
         ? [
             {
-              label: '图谱核验包',
+              label: '关联学习资料',
               value: incomingPackageContext.value.topic,
               detail: `${incomingPackageContext.value.sourceLabel} · ${incomingPackageContext.value.packageId}`,
             },
@@ -516,7 +352,7 @@
   const deliverablePreview = computed(() =>
     (selectedAgent.value?.outputs || []).map((output, index) => ({
       title: output,
-      detail: `${index + 1}. 结合课程证据生成，可继续复制、下载或进入下一步任务。`,
+      detail: `${index + 1}. 结合课程资料生成，可继续复制、下载或进入下一步任务。`,
     }))
   );
 
@@ -533,14 +369,14 @@
     },
     {
       label: '上下文约束',
-      detail: incomingPrompt.value || selectedAgent.value?.task?.prompt || '使用智能体默认任务说明',
-      ready: Boolean(selectedAgent.value?.task),
+      detail: incomingPrompt.value || selectedAgent.value?.starterActions?.[0] || '使用智能体默认任务说明',
+      ready: Boolean(selectedAgent.value),
     },
     {
-      label: '图谱核验',
+      label: '知识点检查',
       detail: incomingPackageContext.value
         ? `已接入 ${incomingPackageContext.value.packageId}，主题 ${incomingPackageContext.value.topic}`
-        : '未带入图谱核验包，将按课程整体上下文执行',
+        : '未指定知识点，将根据课程整体内容执行',
       ready: Boolean(incomingPackageContext.value || course.value),
     },
     {
@@ -657,20 +493,6 @@
     });
   }
 
-  function shouldLaunchPackageChat(agent = selectedAgent.value) {
-    return Boolean(incomingPackageContext.value && incomingPrompt.value && agent?.launch === 'graph');
-  }
-
-  function shouldLaunchGraphChat(agent = selectedAgent.value) {
-    return Boolean(
-      agent?.launch === 'graph' &&
-        (incomingPrompt.value ||
-          incomingNodeContext.value ||
-          incomingSource.value === 'knowledge-map' ||
-          incomingSource.value === 'knowledge-path')
-    );
-  }
-
   function packagePromptLines() {
     const context = incomingPackageContext.value;
     if (!context) return [];
@@ -698,9 +520,53 @@
     ].filter(Boolean);
   }
 
+  function syncSelectedAgent() {
+    const requested = normalizeAgentKey(route.query.task || 'resource');
+    const matched = agentCatalog.value.find((agent) => agent.key === requested);
+    const fallback =
+      agentCatalog.value.find((agent) => agent.key === 'resource') || agentCatalog.value[0];
+    const nextKey = matched?.key || fallback?.key || '';
+    if (chatSession.value && chatSession.value.agent.key !== nextKey) {
+      closeAgentWindow(false);
+    }
+    selectedAgentKey.value = nextKey;
+  }
+
+  async function loadAgentCatalog(courseId: string) {
+    const requestId = ++catalogRequestId;
+    agentCatalogLoading.value = true;
+    agentCatalogError.value = '';
+    try {
+      const response = await fetchCourseAgents(courseId);
+      if (requestId !== catalogRequestId) return;
+      agentContracts.value = Array.isArray(response.agents) ? response.agents : [];
+      syncSelectedAgent();
+    } catch (error) {
+      if (requestId !== catalogRequestId) return;
+      agentContracts.value = [];
+      selectedAgentKey.value = '';
+      agentCatalogError.value = '课程助手暂时无法加载，请稍后重试。';
+      console.error('[course-agent] failed to load server catalog', error);
+    } finally {
+      if (requestId === catalogRequestId) agentCatalogLoading.value = false;
+    }
+  }
+
+  function closeAgentWindow(restoreFocus = true) {
+    if (!chatSession.value) return;
+    chatSession.value = null;
+    void nextTick(() => {
+      if (restoreFocus) lastChatTrigger?.focus();
+    });
+  }
+
   function selectAgent(key: string) {
+    if (!agentCatalog.value.some((agent) => agent.key === key)) return;
+    if (chatSession.value && chatSession.value.agent.key !== key) {
+      closeAgentWindow(false);
+    }
     selectedAgentKey.value = key;
-    router.replace({ query: { ...route.query, task: key } });
+    router.replace({ query: { ...route.query, task: key, forceAgent: undefined } });
   }
 
   function toggleFavorite(key: string) {
@@ -710,9 +576,9 @@
     favoriteKeys.value = next;
   }
 
-  function buildTutorPrompt(agent = selectedAgent.value) {
+  function buildAgentPrompt(agent = selectedAgent.value) {
     if (!course.value || !agent) return '';
-    const taskPrompt = agent.task?.prompt || agent.desc;
+    const taskPrompt = agent.starterActions[0] || agent.desc;
     const reference = incomingResourceContext.value;
     const packageLines = packagePromptLines();
     const nodeLines = nodePromptLines();
@@ -794,42 +660,63 @@
     });
   }
 
+  function openAgentWindow(agent: CourseAgentView) {
+    if (!course.value || agent.executionKind !== 'chat') return;
+    lastChatTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    chatSession.value = createCourseAgentWindowSession({
+      agent,
+      courseId: course.value.id,
+      courseTitle: course.value.title,
+      chapterId: activeChapter.value?.id,
+      chapterLabel: activeChapter.value?.title,
+      knowledgePointIds: [],
+      initialPrompt: buildAgentPrompt(agent),
+    });
+    void nextTick(() => chatCloseButtonRef.value?.focus());
+  }
+
+  function focusableDialogElements() {
+    const dialog = chatDialogRef.value;
+    if (!dialog) return [];
+    return Array.from(
+      dialog.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), textarea:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+      )
+    ).filter((element) => element.offsetParent !== null);
+  }
+
+  function handleChatDialogKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeAgentWindow();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = focusableDialogElements();
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
   function launchAgent(agent = selectedAgent.value) {
     if (!course.value || !agent) return;
     selectAgent(agent.key);
-    if (shouldLaunchPackageChat(agent) || shouldLaunchGraphChat(agent)) {
-      router.push({
-        name: 'TutorChat',
-        query: {
-          prompt: buildTutorPrompt(agent),
-          forceAgent: incomingForceAgent.value || normalizeForceAgent(agent.task?.forceAgent) || 'retrieval_agent',
-          courseId: course.value.id,
-          source: shouldLaunchPackageChat(agent) ? 'course-agent-package-audit' : 'course-agent-graph',
-          task: agent.key,
-          ...contextQueryPayload(),
-        },
-      });
-      return;
-    }
-    if (agent.launch === 'resource') {
+    if (agent.executionKind === 'resource_workflow') {
       openResourceGenerator(agent);
       return;
     }
-    if (agent.launch === 'graph') {
+    if (agent.executionKind === 'knowledge_graph') {
       openKnowledgeCenter();
       return;
     }
-    router.push({
-      name: 'TutorChat',
-      query: {
-        prompt: buildTutorPrompt(agent),
-        forceAgent: incomingForceAgent.value || normalizeForceAgent(agent.task?.forceAgent) || 'tutor_agent',
-        courseId: course.value.id,
-        source: incomingPackageContext.value ? 'course-agent-package-audit' : 'course-agent',
-        task: agent.key,
-        ...contextQueryPayload(),
-      },
-    });
+    openAgentWindow(agent);
   }
 
   function copyAgent(agent = selectedAgent.value) {
@@ -856,15 +743,23 @@
 
   watch(
     () => route.query.task,
-    (task) => {
-      selectedAgentKey.value = normalizeAgentKey(task || 'resource');
-    }
+    syncSelectedAgent
+  );
+
+  watch(
+    () => course.value?.id || '',
+    (courseId) => {
+      closeAgentWindow(false);
+      agentContracts.value = [];
+      if (courseId) void loadAgentCatalog(courseId);
+    },
+    { immediate: true }
   );
 
   watch([activeCategory, keyword], () => {
     const agents = filteredAgents.value;
     if (agents.length && !agents.some((agent) => agent.key === selectedAgentKey.value)) {
-      selectedAgentKey.value = agents[0].key;
+      selectAgent(agents[0].key);
     }
   });
 </script>
@@ -876,11 +771,16 @@
         <div class="hub-title">
           <span><icon-robot /> AI 课程助手</span>
           <h1>{{ course.shortTitle }} · 任务助手</h1>
-          <p>把资料生成、课程问答、陪练批改和图谱核验收进同一个清晰入口。</p>
+          <p>在一个入口完成资料生成、课程问答、陪练批改和知识点检查。</p>
         </div>
         <label class="hub-search">
           <icon-search />
-          <input v-model="keyword" type="search" placeholder="搜索任务、资料或知识点" />
+          <input
+            v-model="keyword"
+            type="search"
+            aria-label="搜索课程助手任务、资料或知识点"
+            placeholder="搜索任务、资料或知识点"
+          />
         </label>
       </header>
 
@@ -947,7 +847,18 @@
               <span>{{ filteredAgents.length }} 个任务</span>
             </div>
 
-            <div v-if="filteredAgents.length" class="agent-list">
+            <div v-if="agentCatalogLoading" class="empty-agents" role="status">
+              <icon-robot />
+              <strong>正在加载课程助手</strong>
+              <p>正在读取当前课程可用的专用智能体。</p>
+            </div>
+            <div v-else-if="agentCatalogError" class="empty-agents" role="alert">
+              <icon-robot />
+              <strong>课程助手暂时不可用</strong>
+              <p>{{ agentCatalogError }}</p>
+              <button type="button" @click="course && loadAgentCatalog(course.id)">重新加载</button>
+            </div>
+            <div v-else-if="filteredAgents.length" class="agent-list">
               <button
                 v-for="agent in filteredAgents"
                 :key="agent.key"
@@ -986,9 +897,9 @@
               </div>
             </div>
             <div class="confidence-row">
-              <span>课程匹配度</span>
-              <strong>{{ selectedAgent?.accuracy }}%</strong>
-              <i :style="{ width: `${selectedAgent?.accuracy || 0}%` }"></i>
+              <span>当前课程</span>
+              <strong>已结合课程内容</strong>
+              <i style="width: 100%"></i>
             </div>
             <div class="task-summary">
               <article>
@@ -996,8 +907,8 @@
                 <strong>{{ displayLaunchTarget }}</strong>
               </article>
               <article>
-                <span>预计耗时</span>
-                <strong>{{ selectedAgent?.estimate }}</strong>
+                <span>处理方式</span>
+                <strong>{{ processingLabel }}</strong>
               </article>
               <article>
                 <span>输出数量</span>
@@ -1010,7 +921,7 @@
               </em>
             </div>
             <div class="selected-actions">
-              <button type="button" class="primary" @click="launchAgent()">
+              <button type="button" class="primary" :disabled="!selectedAgent" @click="launchAgent()">
                 <icon-robot /> {{ launchLabel }}
               </button>
               <button type="button" @click="openResourceGenerator()">
@@ -1042,8 +953,8 @@
         <aside class="agent-panel task-inspector">
           <section class="context-package">
             <div class="panel-heading">
-              <strong>上下文</strong>
-              <span>自动带入</span>
+              <strong>本次任务会参考</strong>
+              <span>已选择</span>
             </div>
             <div class="context-stack">
               <article v-for="item in inputContextCards" :key="item.label">
@@ -1056,17 +967,16 @@
 
           <section v-if="incomingPackageContext" class="package-audit-package">
             <div class="panel-heading">
-              <strong>图谱核验包</strong>
+              <strong>资源关联检查</strong>
               <span>{{ incomingPackageContext.sourceLabel }}</span>
             </div>
             <div class="package-audit-card">
-              <span>资源包编号</span>
-              <strong>{{ incomingPackageContext.packageId }}</strong>
-              <p>{{ incomingPackageContext.topic }}</p>
+              <span>当前主题</span>
+              <strong>{{ incomingPackageContext.topic }}</strong>
               <div class="package-audit-meta">
-                <em v-if="incomingPackageContext.nodeId">节点 {{ incomingPackageContext.nodeId }}</em>
+                <em v-if="incomingPackageContext.nodeId">已关联课程知识点</em>
                 <em v-if="incomingPackageContext.upstreamSource">
-                  上游 {{ sourceLabel(incomingPackageContext.upstreamSource) }}
+                  来源 {{ sourceLabel(incomingPackageContext.upstreamSource) }}
                 </em>
               </div>
             </div>
@@ -1074,16 +984,16 @@
               {{ incomingPackageContext.audit }}
             </div>
             <div class="package-audit-actions">
-              <button type="button" @click="launchAgent()">执行核验对话</button>
-              <button type="button" @click="openResourceGenerator()">带问题生成资料</button>
-              <button type="button" @click="openKnowledgeCenter">回到图谱核验</button>
+              <button type="button" @click="launchAgent()">检查内容</button>
+              <button type="button" @click="openResourceGenerator()">按问题生成资料</button>
+              <button type="button" @click="openKnowledgeCenter">查看关联知识点</button>
             </div>
           </section>
 
           <section v-if="incomingResourceContext" class="reference-package">
             <div class="panel-heading">
               <strong>当前引用资料</strong>
-              <span>{{ incomingResourceContext.resolved ? '课程内置线索' : '入口传入线索' }}</span>
+              <span>{{ incomingResourceContext.resolved ? '课程资料' : '当前选择' }}</span>
             </div>
             <div class="reference-card">
               <span class="reference-type">{{ incomingResourceContext.type }}</span>
@@ -1091,7 +1001,7 @@
               <p>{{ incomingResourceContext.chapter }} · {{ incomingResourceContext.sizeLabel }} · {{ incomingResourceContext.downloads }} 次使用</p>
               <div class="reference-id">
                 <span>资料来源</span>
-                <strong>{{ incomingResourceContext.resolved ? '课程资料库' : '入口线索' }}</strong>
+                <strong>{{ incomingResourceContext.resolved ? '课程资料' : '当前选择' }}</strong>
               </div>
               <div v-if="incomingResourceContext.evidence.length" class="reference-evidence">
                 <span v-for="item in incomingResourceContext.evidence" :key="item">
@@ -1119,7 +1029,7 @@
                 {{ concept.title }}
               </span>
             </div>
-            <button type="button" @click="detailDrawerOpen = true">查看执行细节</button>
+            <button type="button" @click="detailDrawerOpen = true">查看任务详情</button>
           </section>
         </aside>
       </div>
@@ -1130,22 +1040,22 @@
         role="presentation"
         @click.self="detailDrawerOpen = false"
       >
-        <aside class="detail-drawer" aria-label="课程助手执行细节">
+        <aside class="detail-drawer" aria-label="课程助手任务详情">
           <header>
             <div>
-              <span>执行细节</span>
+              <span>任务详情</span>
               <strong>{{ selectedAgent?.title }}</strong>
             </div>
             <button type="button" @click="detailDrawerOpen = false">关闭</button>
           </header>
           <section class="preflight-checks">
             <div class="panel-heading">
-              <strong>启动前检查</strong>
+              <strong>任务准备情况</strong>
               <span>已就绪</span>
             </div>
             <ul>
               <li v-for="item in preflightChecks" :key="item.label" :class="{ ready: item.ready }">
-                <span>{{ item.ready ? '通过' : '待补' }}</span>
+                <span>{{ item.ready ? '已准备' : '需要补充' }}</span>
                 <div>
                   <strong>{{ item.label }}</strong>
                   <p>{{ item.detail }}</p>
@@ -1154,7 +1064,7 @@
             </ul>
           </section>
           <section class="agent-flow">
-            <strong>执行流程</strong>
+            <strong>任务步骤</strong>
             <ol>
               <li v-for="(step, index) in selectedAgent?.workflow || []" :key="step">
                 <span>{{ index + 1 }}</span>
@@ -1166,13 +1076,56 @@
       </div>
 
       <teleport to="body">
+        <div
+          v-if="chatSession"
+          class="agent-chat-dialog-mask"
+          @click.self="closeAgentWindow()"
+        >
+          <section
+            ref="chatDialogRef"
+            class="agent-chat-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="agent-chat-dialog-title"
+            @keydown="handleChatDialogKeydown"
+          >
+            <header>
+              <div>
+                <span>当前课程任务</span>
+                <strong id="agent-chat-dialog-title">{{ chatSession.agent.label }}</strong>
+              </div>
+              <button
+                ref="chatCloseButtonRef"
+                type="button"
+                aria-label="关闭课程智能体实时窗口"
+                @click="closeAgentWindow()"
+              >
+                关闭
+              </button>
+            </header>
+            <AgentRealtimeChat
+              :key="chatSession.token"
+              :session-token="chatSession.token"
+              :agent="chatSession.agent"
+              :course-id="chatSession.courseId"
+              :course-title="chatSession.courseTitle"
+              :chapter-id="chatSession.chapterId"
+              :chapter-label="chatSession.chapterLabel"
+              :knowledge-point-ids="chatSession.knowledgePointIds"
+              :initial-prompt="chatSession.initialPrompt"
+            />
+          </section>
+        </div>
+      </teleport>
+
+      <teleport to="body">
         <section class="mobile-agent-dock" aria-label="当前课程任务快捷启动">
           <span class="agent-icon">
             <component :is="selectedAgent?.icon" />
           </span>
           <div class="mobile-agent-dock__copy">
             <strong>{{ selectedAgent?.title }}</strong>
-            <small>{{ displayLaunchTarget }} · {{ selectedAgent?.estimate }}</small>
+            <small>{{ displayLaunchTarget }} · 实时生成</small>
           </div>
           <button type="button" class="primary" @click="launchAgent()">
             <icon-play-arrow-fill /> 启动
@@ -1253,12 +1206,19 @@
     background: rgba(255, 255, 255, 0.92);
     color: #8b96aa;
     box-shadow: 0 10px 28px rgba(37, 51, 91, 0.07);
+    transition: border-color 160ms ease, box-shadow 160ms ease;
+
+    &:focus-within {
+      border-color: #94a3b8;
+      box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.07), 0 10px 28px rgba(37, 51, 91, 0.07);
+    }
 
     input {
       min-width: 0;
       width: 100%;
       border: 0;
-      outline: 0;
+      outline: 0 !important;
+      box-shadow: none !important;
       color: #253047;
       background: transparent;
       font-size: 14px;
@@ -2434,6 +2394,73 @@
     display: none;
   }
 
+  .agent-chat-dialog-mask {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: rgba(15, 23, 42, 0.36);
+    backdrop-filter: blur(4px);
+    animation: drawer-fade 0.18s ease both;
+  }
+
+  .agent-chat-dialog {
+    width: min(620px, calc(100vw - 48px));
+    height: min(780px, calc(100vh - 48px));
+    min-height: min(520px, calc(100vh - 48px));
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow: hidden;
+    border: 1px solid #dbe5f3;
+    border-radius: 22px;
+    background: #fff;
+    box-shadow: 0 30px 90px rgba(15, 23, 42, 0.24);
+    animation: dialog-enter 0.2s ease both;
+
+    > header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 16px;
+      border-bottom: 1px solid #e6edf6;
+      background: #fff;
+
+      span,
+      strong {
+        display: block;
+      }
+
+      span {
+        color: #7b8799;
+        font-size: 11px;
+      }
+
+      strong {
+        margin-top: 3px;
+        color: #172033;
+        font-size: 17px;
+      }
+
+      button {
+        min-width: 58px;
+        height: 34px;
+        border: 1px solid #dce5f1;
+        border-radius: 999px;
+        color: #475569;
+        background: #fff;
+        cursor: pointer;
+
+        &:focus-visible {
+          outline: 3px solid rgba(47, 104, 223, 0.28);
+          outline-offset: 2px;
+        }
+      }
+    }
+  }
+
   .detail-drawer-mask {
     position: fixed;
     inset: 0;
@@ -2512,6 +2539,17 @@
     }
     to {
       transform: translateX(0);
+    }
+  }
+
+  @keyframes dialog-enter {
+    from {
+      opacity: 0;
+      transform: translateY(10px) scale(0.985);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
     }
   }
 

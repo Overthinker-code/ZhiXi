@@ -1,1 +1,18 @@
-Generic single-database configuration.
+Single-database Alembic configuration.
+
+Legacy baseline bootstrap
+-------------------------
+
+Revisions 001-006 were written after part of the application schema already
+existed, so they are not a complete from-zero baseline. Startup therefore uses
+`app.backend_pre_start.bootstrap_legacy_empty_database` as a narrow transition:
+
+* only a database with no `alembic_version` and no business tables is eligible;
+* the current SQLAlchemy and SQLModel metadata is created on that same database
+  connection and then stamped to the current head;
+* every non-empty database runs normal `alembic upgrade head` and is never
+  stamped past unapplied revisions.
+
+This bridge is for reproducible competition/local deployment. It is not a
+replacement for a future full baseline migration generated and reviewed from
+the complete current schema.

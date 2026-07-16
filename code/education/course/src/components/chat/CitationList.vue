@@ -19,13 +19,13 @@
   };
 
   const titleOf = (item: Record<string, any>, index: number) =>
-    String(item.title || item.file_name || item.source || `证据 ${index + 1}`);
+    String(item.title || item.file_name || item.source || `参考来源 ${index + 1}`);
 </script>
 
 <template>
   <section v-if="citations.length" class="citation-list">
     <button type="button" class="citation-list__summary" @click="expanded = !expanded">
-      <span>引用证据</span>
+      <span>参考来源</span>
       <strong>{{ citations.length }}</strong>
       <span>{{ expanded ? '收起' : '展开' }}</span>
     </button>

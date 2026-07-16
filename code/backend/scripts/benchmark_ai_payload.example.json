@@ -1,0 +1,17 @@
+{
+  "message": "请用一句话解释数据库主键。",
+  "mode": "tutor",
+  "tools": {
+    "webSearch": false,
+    "courseRag": false,
+    "deepResearch": false,
+    "homeworkReview": false,
+    "resourceGeneration": false,
+    "citationRequired": false
+  },
+  "reasoning": {
+    "level": "fast",
+    "showSummary": true,
+    "showProcess": true
+  }
+}

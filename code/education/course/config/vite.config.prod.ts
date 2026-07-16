@@ -16,13 +16,23 @@ export default mergeConfig(
       rollupOptions: {
         output: {
           manualChunks: {
+            // Keep the UI library isolated so dependencies shared with lazy
+            // chart/Markdown routes cannot pull those heavy chunks into HTML preload.
             arco: ['@arco-design/web-vue'],
             chart: ['echarts', 'vue-echarts'],
+            markdown: [
+              'markdown-it',
+              'markdown-it-emoji',
+              'markdown-it-link-attributes',
+              'highlight.js',
+              'katex',
+              '@mdit/plugin-katex',
+            ],
             vue: ['vue', 'vue-router', 'pinia', '@vueuse/core', 'vue-i18n'],
           },
         },
       },
-      chunkSizeWarningLimit: 2000,
+      chunkSizeWarningLimit: 1000,
     },
   },
   baseConfig

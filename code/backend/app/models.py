@@ -43,7 +43,11 @@ class NewPassword(SQLModel):
 
 class Log(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    user_id: Optional[UUID] = Field(foreign_key="user.id")
+    # Audit rows outlive an account.  The actor link is nullable so deleting an
+    # account can preserve the action/timestamp while removing its identity.
+    user_id: Optional[UUID] = Field(
+        default=None, foreign_key="user.id", ondelete="SET NULL"
+    )
     action: str = Field(max_length=100, nullable=False)
     details: Optional[str] = None
     object_type: Optional[str] = Field(max_length=50)
