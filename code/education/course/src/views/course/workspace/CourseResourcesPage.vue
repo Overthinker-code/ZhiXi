@@ -1,0 +1,3733 @@
+<script setup lang="ts">
+  import { computed, onMounted, ref } from 'vue';
+  import { Message, Modal } from '@arco-design/web-vue';
+  import { useRoute, useRouter } from 'vue-router';
+  import {
+    IconBulb,
+    IconCheckCircle,
+    IconDownload,
+    IconFile,
+    IconMindMapping,
+    IconRobot,
+    IconSearch,
+    IconStorage,
+  } from '@arco-design/web-vue/es/icon';
+  import { classroomCourses, getClassroomCourse } from '@/data/classroomCourses';
+  import {
+    downloadResource,
+    queryResources,
+    removeResourceFromLibrary,
+    setResourceFavorite,
+    setResourceTop,
+    type ResourceRecord,
+  } from '@/api/resources';
+  import KnowledgeGraphViewer from '@/components/chat/KnowledgeGraphViewer.vue';
+  import {
+    addRecommendationToLibrary,
+    dismissResourceRecommendation,
+    favoriteResourceRecommendation,
+    fetchResourceRecommendations,
+    regenerateResourceRecommendation,
+    type ResourceRecommendationItem,
+  } from '@/api/resource-hub';
+  import { courseWorkspaceLocation } from '@/composables/useCourseRouteContext';
+  import {
+    fetchRecentGeneratedPackages,
+    type RecentGeneratedPackage,
+  } from '@/api/resource-generation';
+  import { getToken } from '@/utils/auth';
+  import axios from 'axios';
+
+  const route = useRoute();
+  const router = useRouter();
+  const query = ref('');
+  type HubResourceType =
+    | '文档'
+    | '知识图谱'
+    | '图片'
+    | '视频'
+    | '题库'
+    | '代码案例'
+    | '其他';
+  interface HubResourceItem {
+    id: string;
+    title: string;
+    type: HubResourceType;
+    chapter: string;
+    size: string;
+    updatedAt: string;
+    raw: ResourceRecord;
+  }
+  const activeType = ref<'全部' | HubResourceType>('全部');
+  const activeSubject = ref('全部学科');
+  const resources = ref<HubResourceItem[]>([]);
+  const loadingResources = ref(false);
+  const recommendations = ref<ResourceRecommendationItem[]>([]);
+  const recommendationActionId = ref('');
+  const favoritesOnly = ref(false);
+  const recommendationSignals = ref<string[]>([]);
+  const loadingRecommendations = ref(false);
+  const recentPackages = ref<RecentGeneratedPackage[]>([]);
+  const loadingRecentPackages = ref(false);
+  const selectedResourceId = ref('');
+  const resourceDrawerVisible = ref(false);
+  const resourceToolDrawerVisible = ref(false);
+  const generatedPackagePreviewVisible = ref(false);
+  const previewedGeneratedPackage = ref<RecentGeneratedPackage | null>(null);
+  const showAllResources = ref(false);
+  const defaultResourcePreviewCount = 6;
+  const aiTrialLimit = 3;
+  const aiTrialStorageKey = 'zhixi-course-resource-ai-trial-v1';
+  type AiTrialUsage = Record<string, number>;
+
+  function readAiTrialUsage(): AiTrialUsage {
+    if (typeof window === 'undefined') return {};
+    try {
+      return JSON.parse(window.localStorage.getItem(aiTrialStorageKey) || '{}');
+    } catch {
+      return {};
+    }
+  }
+
+  const aiTrialUsage = ref<AiTrialUsage>(readAiTrialUsage());
+  const course = computed(() =>
+    getClassroomCourse(String(route.params.courseId || '')) || classroomCourses[0]
+  );
+  const isGlobalHub = computed(() => route.name === 'ResourceHub');
+  function resourceTypeLabel(type: string): HubResourceType {
+    if (type === 'knowledge_graph' || type === 'mind_map') return '知识图谱';
+    if (type === 'image') return '图片';
+    if (type === 'video') return '视频';
+    if (type === 'question') return '题库';
+    if (type === 'case_project' || type === 'code') return '代码案例';
+    if (
+      ['lecture_markdown', 'lecture_pdf', 'practice_markdown', 'practice_pdf', 'reading_list', 'pdf', 'ppt', 'pptx', 'doc', 'docx'].includes(type)
+    ) return '文档';
+    return '其他';
+  }
+
+  function formatFileSize(size: number) {
+    if (!size) return '结构化资源';
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+    return `${(size / 1024 / 1024).toFixed(1)} MB`;
+  }
+
+  function toHubResource(record: ResourceRecord): HubResourceItem {
+    const date = new Date(record.upload_time);
+    return {
+      id: record.id,
+      title: record.title,
+      type: resourceTypeLabel(record.type),
+      chapter: record.knowledge_point || '未标注知识点',
+      size: formatFileSize(record.file_size),
+      updatedAt: Number.isNaN(date.getTime()) ? '刚刚生成' : date.toLocaleString('zh-CN'),
+      raw: record,
+    };
+  }
+  const generatedPackagesForCourse = computed(() => {
+    if (isGlobalHub.value) return recentPackages.value;
+    const activeCourse = course.value;
+    if (!activeCourse) return [] as RecentGeneratedPackage[];
+    return recentPackages.value.filter((pkg) => {
+      if (pkg.course_id) return pkg.course_id === activeCourse.id;
+      return [activeCourse.title, activeCourse.shortTitle].includes(pkg.subject);
+    });
+  });
+  const aiTrialUsed = computed(() =>
+    course.value
+      ? Math.max(
+          aiTrialUsage.value[course.value.id] || 0,
+          generatedPackagesForCourse.value.length
+        )
+      : 0
+  );
+  const aiTrialRemaining = computed(() =>
+    Math.max(aiTrialLimit - aiTrialUsed.value, 0)
+  );
+  const completedChapterCount = computed(
+    () =>
+      course.value?.chapters.filter((chapter) =>
+        chapter.lessons.some((lesson) => lesson.status === 'done')
+      ).length || 0
+  );
+  const resourceTypes: Array<'全部' | HubResourceType> = [
+    '全部',
+    '文档',
+    '知识图谱',
+    '图片',
+    '视频',
+    '题库',
+    '代码案例',
+    '其他',
+  ];
+  const subjectOptions = computed(() => [
+    '全部学科',
+    ...Array.from(
+      new Set([
+        ...resources.value.map((item) => item.raw.subject || '未分类'),
+        ...recommendations.value.map((item) => item.subject || '未分类'),
+      ])
+    ).sort((a, b) => a.localeCompare(b, 'zh-CN')),
+  ]);
+  const visibleResources = computed(() => {
+    const keyword = query.value.trim().toLowerCase();
+    return resources.value.filter((item) => {
+      const typeMatches =
+        activeType.value === '全部' || item.type === activeType.value;
+      const searchMatches =
+        !keyword ||
+        item.title.toLowerCase().includes(keyword) ||
+        item.chapter.toLowerCase().includes(keyword);
+      const favoriteMatches = !favoritesOnly.value || item.raw.favorite;
+      const subjectMatches =
+        activeSubject.value === '全部学科' ||
+        (item.raw.subject || '未分类') === activeSubject.value;
+      return typeMatches && searchMatches && favoriteMatches && subjectMatches;
+    });
+  });
+  const visibleRecommendations = computed(() =>
+    recommendations.value.filter((item) => {
+      const favoriteMatches = !favoritesOnly.value || item.favorite;
+      const subjectMatches =
+        activeSubject.value === '全部学科' ||
+        (item.subject || '未分类') === activeSubject.value;
+      return favoriteMatches && subjectMatches;
+    })
+  );
+  const favoriteCount = computed(
+    () => resources.value.filter((item) => item.raw.favorite).length
+      + recommendations.value.filter((item) => item.favorite).length
+  );
+  const displayedResources = computed(() =>
+    showAllResources.value
+      ? visibleResources.value
+      : visibleResources.value.slice(0, defaultResourcePreviewCount)
+  );
+  const hiddenResourceCount = computed(() =>
+    Math.max(visibleResources.value.length - displayedResources.value.length, 0)
+  );
+  const resourceQuality = computed(() => [
+    {
+      label: '资料定位',
+      value: '章节 / 知识点 / 任务',
+      desc: '保留章节与知识点线索，便于后续核验',
+    },
+    {
+      label: '学习闭环',
+      value: '预习 / 练习 / 追问',
+      desc: '下载后可直接进入 AI 伴学和课程图谱',
+    },
+    {
+      label: '质量核查',
+      value: '目标 / 证据 / 产物',
+      desc: '导出文件包含可检查的学习交付标准',
+    },
+  ]);
+  const resourceCoverageStats = computed(() => {
+    const graphNodeTotal = resources.value.reduce(
+      (sum, item) => sum + resourcePlan(item).graphNodes.length,
+      0
+    );
+    const taskTotal = resources.value.reduce(
+      (sum, item) => sum + resourcePlan(item).tasks.length,
+      0
+    );
+    return [
+      {
+        label: '可执行资料',
+        value: `${resources.value.length} 份`,
+        desc: '含章节、类型、版本和学习任务',
+      },
+      {
+        label: '图谱节点线索',
+        value: `${graphNodeTotal} 个`,
+        desc: '每份资料可回跳到课程图谱核验',
+      },
+      {
+        label: '待完成动作',
+        value: `${taskTotal} 项`,
+        desc: '阅读、练习、追问和复盘连成闭环',
+      },
+      {
+        label: '生成回流',
+        value: `${generatedPackagesForCourse.value.length} 包`,
+        desc: '保留下载、复核和图谱校验入口',
+      },
+    ];
+  });
+
+  function resourceIndex(item: HubResourceItem) {
+    return Math.max(
+      resources.value.findIndex((resource) => resource.id === item.id),
+      0
+    );
+  }
+
+  function relatedConcept(item: HubResourceItem) {
+    if (!course.value) return undefined;
+    const keyword = item.chapter.toLowerCase();
+    return course.value.concepts.find(
+      (concept) =>
+        concept.title.toLowerCase().includes(keyword) ||
+        concept.points.some((point) =>
+          point.toLowerCase().includes(keyword)
+        )
+    );
+  }
+
+  function relatedLesson(item: HubResourceItem) {
+    if (!course.value) return undefined;
+    const lessons = course.value.chapters.flatMap((chapter) => chapter.lessons);
+    const keyword = item.chapter.toLowerCase();
+    return lessons.find((lesson) => lesson.title.toLowerCase().includes(keyword));
+  }
+
+  function resourcePlan(item: HubResourceItem) {
+    const concept = relatedConcept(item);
+    const lesson = relatedLesson(item);
+    const primaryPoint = concept?.points[0] || item.chapter;
+    return {
+      concept,
+      lesson,
+      goals: concept?.outcomes?.slice(0, 3) || [
+        `能解释 ${primaryPoint} 的核心定义和适用边界。`,
+        `能把 ${item.chapter} 的资料内容整理成可复述路径。`,
+        '能完成 1 组检查题并记录错因。',
+      ],
+      graphNodes: [
+        item.chapter.replace(/^第\d+章\s*/, ''),
+        ...(concept?.points.slice(0, 3) || [primaryPoint]),
+      ],
+      tasks: [
+        `用 8 分钟扫读《${item.title}》，标出定义、条件和例题证据。`,
+        `把 ${primaryPoint} 与相邻概念做成一张三列表格。`,
+        '完成资料末尾自测，并把错因交给 AI 伴学继续追问。',
+      ],
+      prompts: [
+        `请基于《${item.title}》解释 ${primaryPoint} 的常见误区。`,
+        `把 ${item.chapter} 整理成 20 分钟复习路径，并给出检查题。`,
+      ],
+    };
+  }
+
+  function resourceLearningStatus(item: HubResourceItem) {
+    const lesson = relatedLesson(item);
+    if (lesson?.status === 'done') return '已完成课节复盘';
+    if (item.type.includes('练习') || item.type.includes('作业')) return '建议优先追练';
+    return item.raw.source === 'agent' ? 'Agent 已生成并入库' : '已保存到我的资料';
+  }
+
+  const selectedResource = computed(() => {
+    const active = resources.value.find((item) => item.id === selectedResourceId.value);
+    return active || visibleResources.value[0] || resources.value[0] || undefined;
+  });
+  const selectedResourcePlan = computed(() =>
+    selectedResource.value ? resourcePlan(selectedResource.value) : undefined
+  );
+  const selectedKnowledgeGraph = computed(() => {
+    const content = selectedResource.value?.raw.content;
+    if (
+      selectedResource.value?.raw.type !== 'knowledge_graph' ||
+      !content ||
+      !Array.isArray(content.nodes) ||
+      !Array.isArray(content.edges)
+    ) {
+      return null;
+    }
+    return {
+      nodes: content.nodes,
+      edges: content.edges,
+    };
+  });
+
+  function selectResource(item: HubResourceItem, openDrawer = false) {
+    selectedResourceId.value = item.id;
+    if (
+      openDrawer &&
+      typeof window !== 'undefined' &&
+      window.matchMedia('(max-width: 1180px)').matches
+    ) {
+      resourceDrawerVisible.value = true;
+    }
+  }
+
+  function openResourceDetails(item: HubResourceItem) {
+    if (item.raw.type === 'question') {
+      router.push({ name: 'QuizPage', params: { resourceId: item.id } });
+      return;
+    }
+    selectResource(item);
+    resourceDrawerVisible.value = true;
+  }
+
+  type RouteQueryPayload = Record<string, string | number | undefined>;
+
+  function compactRouteQuery(payload: RouteQueryPayload) {
+    return Object.fromEntries(
+      Object.entries(payload).filter(([, value]) => value !== undefined && String(value).trim())
+    ) as Record<string, string | number>;
+  }
+
+  function resourceGraphNodeId(item: HubResourceItem) {
+    const index = resourceIndex(item);
+    return index >= 0 && index < 6 ? `resource-${index}` : undefined;
+  }
+
+  function resourceRouteQuery(item: HubResourceItem, extra: RouteQueryPayload = {}) {
+    const plan = resourcePlan(item);
+    const graphLabel = item.title.replace(course.value?.shortTitle || '', '') || item.title;
+    const focusTopic = plan.concept?.title || plan.lesson?.title || item.title;
+    return compactRouteQuery({
+      resourceId: item.id,
+      resourceTitle: item.title,
+      resourceChapter: item.chapter,
+      resourceType: item.type,
+      topic: focusTopic,
+      nodeId: resourceGraphNodeId(item),
+      nodeLabel: graphLabel,
+      mapType: 'problem',
+      source: 'resource',
+      ...extra,
+    });
+  }
+
+  function buildResourceMarkdown(item: HubResourceItem) {
+    const plan = resourcePlan(item);
+    const { concept } = plan;
+    const courseTitle = course.value?.title || '';
+    const lessonTitle = plan.lesson?.title || item.chapter;
+    const lines = [
+      `# ${item.title}`,
+      '',
+      `课程：${courseTitle}`,
+      `章节：${item.chapter}`,
+      `课节：${lessonTitle}`,
+      `资料类型：${item.type}`,
+      `更新时间：${item.updatedAt}`,
+      '',
+      '## 学习目标',
+      ...plan.goals.map((goal, index) => `${index + 1}. ${goal}`),
+      '',
+      '## 图谱定位',
+      `核心节点：${plan.graphNodes.join(' / ')}`,
+      `前置关系：先复盘 ${item.chapter} 的基本定义，再进入 ${
+        concept?.title || lessonTitle
+      } 的应用边界。`,
+      `后续动作：把本资料生成的错题、摘要和追问同步到课程图谱。`,
+      '',
+      '## 课堂笔记骨架',
+      `- 关键概念：${concept?.title || lessonTitle}`,
+      `- 证据材料：${
+        concept?.resources?.slice(0, 3).join('；') ||
+        `${item.title}、课堂讲义、例题卡片`
+      }`,
+      `- 易错点：${
+        concept?.misconceptions?.slice(0, 2).join('；') ||
+        '定义边界不清；只背结论不写条件'
+      }`,
+      '',
+      '## 练习与交付',
+      ...plan.tasks.map((task, index) => `${index + 1}. ${task}`),
+      '',
+      '## AI 伴学追问提示',
+      ...plan.prompts.map((prompt, index) => `${index + 1}. ${prompt}`),
+      '',
+      '## 质量核查清单',
+      '- [ ] 能说清资料对应的章节、知识点和学习目标。',
+      '- [ ] 能指出至少 2 个题目或案例中的证据。',
+      '- [ ] 已完成自测并记录错因。',
+      '- [ ] 已把薄弱点同步到课程图谱或 AI 伴学。',
+    ];
+    return `${lines.join('\n')}\n`;
+  }
+
+  function askAboutResource(item: HubResourceItem) {
+    if (!course.value) return;
+    router.push(
+      courseWorkspaceLocation(course.value.id, 'agent', {
+        task: 'reader',
+        prompt: `当前课程是《${course.value.title}》。我想围绕资料《${item.title}》提问，请先告诉我可以从哪些角度阅读这份资料。`,
+        ...resourceRouteQuery(item),
+      })
+    );
+  }
+
+  function showUpgradePrompt() {
+    Modal.info({
+      title: aiTrialRemaining.value ? '专业版批量生成能力' : '升级后继续生成课程资源',
+      content: aiTrialRemaining.value
+        ? '当前仍可继续使用本地试用生成。专业版适合批量生成整章讲义、分层练习、图谱节点资源和班级级生成历史。'
+        : '当前课程的本地试用额度已用完。升级后适合批量生成讲义、练习、知识卡和图谱节点资源，并保留更多生成历史。',
+      okText: '知道了',
+    });
+  }
+
+  function hasAiTrialCredit() {
+    if (aiTrialRemaining.value <= 0) {
+      showUpgradePrompt();
+      return false;
+    }
+    return true;
+  }
+
+  function openGenerator(actionLabel = 'AI 生成课程资源') {
+    if (!course.value) return;
+    if (!hasAiTrialCredit()) return;
+    router.push({
+      name: 'StudentCourseResourceGenerator',
+      params: { courseId: course.value.id },
+      query: {
+        subject: course.value.title,
+        topic: course.value.chapters[0]?.title || course.value.title,
+        source: 'course-workspace',
+        entry: actionLabel,
+      },
+    });
+  }
+
+  function openKnowledgeMap() {
+    if (!course.value) return;
+    router.push(courseWorkspaceLocation(course.value.id, 'knowledge'));
+  }
+
+  function locateResourceInGraph(item: HubResourceItem) {
+    if (!course.value) return;
+    router.push(
+      courseWorkspaceLocation(
+        course.value.id,
+        'knowledge',
+        resourceRouteQuery(item, { source: 'resource' })
+      )
+    );
+  }
+
+  function generateResourceMaterials(item: HubResourceItem) {
+    if (!course.value) return;
+    if (!hasAiTrialCredit()) return;
+    const plan = resourcePlan(item);
+    const graphNodes = plan.graphNodes.join(' / ');
+    router.push({
+      name: 'StudentCourseResourceGenerator',
+      params: { courseId: course.value.id },
+      query: resourceRouteQuery(item, {
+        subject: course.value.title,
+        topic: plan.concept?.title || item.title,
+        goal: [
+          `围绕资料《${item.title}》生成配套讲义、练习、思维导图、阅读清单和质量核查清单。`,
+          `章节：${item.chapter}。`,
+          graphNodes ? `图谱节点：${graphNodes}。` : '',
+          '生成内容必须能直接服务课前预习、课堂复盘和错因追练。',
+        ].filter(Boolean).join(''),
+        entry: 'resource-card',
+      }),
+    });
+  }
+
+  async function downloadResourceBrief(item: HubResourceItem) {
+    if (!item.raw.file_path) {
+      Message.info('该资源是结构化内容，请直接在详情中查看');
+      return;
+    }
+    try {
+      const response = await downloadResource(item.id);
+      const blobUrl = URL.createObjectURL(response.data);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = item.raw.file_name || item.title;
+      link.click();
+      URL.revokeObjectURL(blobUrl);
+      Message.success('资源下载已开始');
+    } catch {
+      Message.error('资源下载失败，请稍后重试');
+    }
+  }
+
+  function sortResources() {
+    resources.value = [...resources.value].sort((left, right) => {
+      if (left.raw.top !== right.raw.top) return left.raw.top ? -1 : 1;
+      return new Date(right.raw.upload_time).getTime() - new Date(left.raw.upload_time).getTime();
+    });
+  }
+
+  async function toggleFavorite(item: HubResourceItem) {
+    const next = !item.raw.favorite;
+    try {
+      await setResourceFavorite(item.id, next);
+      item.raw.favorite = next;
+      Message.success(next ? '已收藏' : '已取消收藏');
+    } catch {
+      Message.error('收藏状态更新失败');
+    }
+  }
+
+  async function toggleTop(item: HubResourceItem) {
+    const next = !item.raw.top;
+    try {
+      await setResourceTop(item.id, next);
+      item.raw.top = next;
+      sortResources();
+      Message.success(next ? '已置顶' : '已取消置顶');
+    } catch {
+      Message.error('置顶状态更新失败');
+    }
+  }
+
+  function removeFromLibrary(item: HubResourceItem) {
+    Modal.confirm({
+      title: '从我的资料中移除',
+      content: `将“${item.title}”从个人资料库隐藏。系统资源和原始文件不会被删除。`,
+      okText: '移除',
+      cancelText: '取消',
+      async onOk() {
+        try {
+          await removeResourceFromLibrary(item.id);
+          resources.value = resources.value.filter((resource) => resource.id !== item.id);
+          if (selectedResourceId.value === item.id) selectedResourceId.value = '';
+          resourceDrawerVisible.value = false;
+          Message.success('已从我的资料中移除');
+        } catch (error) {
+          Message.error('移除失败，请稍后重试');
+          throw error;
+        }
+      },
+    });
+  }
+
+  function openRecommendation(item: ResourceRecommendationItem) {
+    if (item.origin === 'external') {
+      if (!item.url || !/^https?:\/\//i.test(item.url)) {
+        Message.warning('外部资源链接无效');
+        return;
+      }
+      window.open(item.url, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    const generatedId = String(item.resource?.id || '');
+    if (!generatedId) {
+      Message.info(item.preview || '这是根据个人画像生成的资源方案，可选择重新生成或加入资料库');
+      return;
+    }
+    if (item.type === 'question') {
+      router.push({ name: 'QuizPage', params: { resourceId: generatedId } });
+      return;
+    }
+    Message.info('该资源已生成预览，加入资料库后可在“我的资料”中查看');
+  }
+
+  const recommendationTypeLabels: Record<string, string> = {
+    document: '文档讲解',
+    question: '专项题目',
+    knowledge_graph: '知识图谱',
+    video: '视频讲解',
+    code: '代码案例',
+    image: '图解卡片',
+    external: '网络资料',
+  };
+
+  function recommendationTypeLabel(type: string) {
+    return recommendationTypeLabels[type] || resourceTypeLabel(type);
+  }
+
+  async function dismissRecommendation(item: ResourceRecommendationItem) {
+    recommendationActionId.value = item.id;
+    try {
+      await dismissResourceRecommendation(item.id);
+      recommendations.value = recommendations.value.filter((entry) => entry.id !== item.id);
+      Message.success('已删除该推荐，后续不会再次显示这条候选');
+    } catch {
+      Message.error('删除推荐失败');
+    } finally {
+      recommendationActionId.value = '';
+    }
+  }
+
+  async function favoriteRecommendation(item: ResourceRecommendationItem) {
+    recommendationActionId.value = item.id;
+    try {
+      const response = await favoriteResourceRecommendation(item.id, !item.favorite);
+      Object.assign(item, response.data);
+      Message.success(item.favorite ? '已收藏推荐' : '已取消收藏');
+    } catch {
+      Message.error('收藏推荐失败');
+    } finally {
+      recommendationActionId.value = '';
+    }
+  }
+
+  async function regenerateRecommendation(item: ResourceRecommendationItem) {
+    recommendationActionId.value = item.id;
+    try {
+      const response = await regenerateResourceRecommendation(item.id);
+      Object.assign(item, response.data.recommendation);
+      Message.success(response.data.message);
+    } catch {
+      Message.error('重新生成失败，请稍后重试');
+    } finally {
+      recommendationActionId.value = '';
+    }
+  }
+
+  async function addRecommendation(item: ResourceRecommendationItem) {
+    recommendationActionId.value = item.id;
+    try {
+      const response = await addRecommendationToLibrary(item.id);
+      recommendations.value = recommendations.value.filter((entry) => entry.id !== item.id);
+      await loadResources();
+      Message.success(response.data.message);
+    } catch {
+      Message.error('加入资料库失败，请稍后重试');
+    } finally {
+      recommendationActionId.value = '';
+    }
+  }
+
+  function generatedPackageLabel(pkg: RecentGeneratedPackage) {
+    const date = new Date(pkg.generated_at);
+    if (Number.isNaN(date.getTime())) return '刚刚生成';
+    return date.toLocaleString('zh-CN', {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+
+  type GeneratedPackageArtifact = RecentGeneratedPackage['artifacts'][number];
+
+  function openGeneratedPackagePreview(pkg: RecentGeneratedPackage) {
+    previewedGeneratedPackage.value = pkg;
+    generatedPackagePreviewVisible.value = true;
+  }
+
+  function generatedArtifactFileId(
+    pkg: RecentGeneratedPackage,
+    artifact?: GeneratedPackageArtifact
+  ) {
+    if (!artifact?.file_name) return '';
+    return `${pkg.package_id}/${artifact.file_name}`;
+  }
+
+  async function downloadGeneratedArtifact(
+    pkg: RecentGeneratedPackage,
+    artifact = pkg.artifacts[0]
+  ) {
+    if (!artifact) {
+      Message.warning('这个资源包还没有可下载文件');
+      return;
+    }
+    const token = getToken();
+    const url =
+      artifact.download_url ||
+      `/api/v1/resource-generation/artifacts/${pkg.package_id}/${artifact.file_name}`;
+    try {
+      const response = await axios.get(url, {
+        responseType: 'blob',
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      const blobUrl = URL.createObjectURL(response.data);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = artifact.file_name;
+      link.click();
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      Message.warning('资源文件暂时无法下载，请稍后重试或先进入资料复核。');
+    }
+  }
+
+  function askAboutGeneratedPackage(pkg: RecentGeneratedPackage) {
+    if (!course.value) return;
+    generatedPackagePreviewVisible.value = false;
+    const firstArtifact = pkg.artifacts[0];
+    const artifactFileId = generatedArtifactFileId(pkg, firstArtifact);
+    const artifactTitle = firstArtifact?.title || firstArtifact?.file_name || '';
+    const artifactList = pkg.artifacts
+      .slice(0, 6)
+      .map((artifact, index) => `${index + 1}. ${artifact.title || artifact.file_name}（${artifact.file_name}）`)
+      .join('\n');
+    const artifactPreview = pkg.artifacts
+      .slice(0, 4)
+      .map((artifact) => `${artifact.title || artifact.file_name}：${artifact.preview || '暂无预览'}`)
+      .join('\n');
+    router.push(
+      courseWorkspaceLocation(course.value.id, 'agent', {
+        task: 'reader',
+        prompt: [
+          `当前课程是《${course.value.title}》。请围绕最近生成的资源包「${pkg.topic}」做资料复核。`,
+          artifactList ? `已生成文件清单：\n${artifactList}` : '',
+          firstArtifact
+            ? `当前优先复核文件：${artifactTitle}，文件标识：${artifactFileId}。`
+            : '',
+          '请先说明你能看到的是资源包与文件线索还是完整原文；如果没有原文片段，不要假装已经读完文件。然后指出预习、练习、图谱核验和 AI 追问的使用顺序。',
+        ]
+          .filter(Boolean)
+          .join('\n'),
+        packageId: pkg.package_id,
+        packageTopic: pkg.topic,
+        packageSource: pkg.source || 'resource-generation',
+        nodeId: pkg.node_id,
+        nodeLabel: pkg.node_label,
+        mapType: pkg.map_type,
+        resourceId: pkg.resource_id,
+        resourceTitle: artifactTitle || pkg.topic,
+        resourceType: firstArtifact?.kind,
+        currentFileId: artifactFileId,
+        fileId: artifactFileId,
+        fileName: firstArtifact?.file_name,
+        artifactKind: firstArtifact?.kind,
+        artifactList,
+        artifactPreview,
+        topic: pkg.topic,
+        source: 'resource-generation',
+      })
+    );
+  }
+
+  function auditGeneratedPackageInGraph(pkg: RecentGeneratedPackage) {
+    if (!course.value) return;
+    generatedPackagePreviewVisible.value = false;
+    router.push(
+      courseWorkspaceLocation(course.value.id, 'knowledge', {
+        topic: pkg.topic,
+        packageId: pkg.package_id,
+        nodeId: pkg.node_id,
+        nodeLabel: pkg.node_label,
+        mapType: pkg.map_type,
+        resourceId: pkg.resource_id,
+        source: 'resource-generation',
+      })
+    );
+  }
+
+  async function loadRecentPackages() {
+    if (!course.value) return;
+    loadingRecentPackages.value = true;
+    try {
+      recentPackages.value = await fetchRecentGeneratedPackages(
+        isGlobalHub.value ? undefined : course.value.id
+      );
+    } catch {
+      Message.warning('生成记录暂不可用，已显示课程内置资料。');
+    } finally {
+      loadingRecentPackages.value = false;
+    }
+  }
+
+  async function loadResources() {
+    loadingResources.value = true;
+    try {
+      const response = await queryResources({ owned_only: true, limit: 100 });
+      resources.value = response.data.data.map(toHubResource);
+      sortResources();
+      const requestedId = String(route.query.resourceId || '');
+      if (requestedId && resources.value.some((item) => item.id === requestedId)) {
+        selectedResourceId.value = requestedId;
+      }
+    } catch {
+      resources.value = [];
+      Message.error('个人资料加载失败，请确认后端服务已启动');
+    } finally {
+      loadingResources.value = false;
+    }
+  }
+
+  async function loadRecommendations(refresh = false) {
+    loadingRecommendations.value = true;
+    try {
+      const response = await fetchResourceRecommendations(8, refresh);
+      recommendations.value = response.data.items;
+      recommendationSignals.value = response.data.profile_signals;
+    } catch {
+      recommendations.value = [];
+      recommendationSignals.value = [];
+      Message.warning('个性化推荐暂时无法加载');
+    } finally {
+      loadingRecommendations.value = false;
+    }
+  }
+
+  onMounted(() => {
+    loadResources();
+    loadRecentPackages();
+    loadRecommendations();
+  });
+</script>
+
+<template>
+  <section v-if="course" class="course-resources">
+    <header class="resource-heading">
+      <div>
+        <h1>{{ favoritesOnly ? '我的收藏夹' : 'AI 资料中心' }}</h1>
+        <p>{{ favoritesOnly ? '统一查看收藏的个人资料与 AI 推荐。' : '统一查看 Agent 为你生成并保存的学习资料，支持按类型、标题和知识点检索。' }}</p>
+      </div>
+      <div class="resource-heading__actions">
+        <button
+          type="button"
+          class="ghost"
+          :class="{ active: favoritesOnly }"
+          @click="favoritesOnly = !favoritesOnly"
+        >
+          <icon-star />
+          <span>{{ favoritesOnly ? '返回全部资料' : `收藏夹 ${favoriteCount}` }}</span>
+        </button>
+        <button type="button" class="ghost" @click="router.push({ name: 'WrongQuestionBook' })">
+          <icon-bookmark />
+          <span>我的错题本</span>
+        </button>
+        <button type="button" class="ghost" @click="resourceToolDrawerVisible = true">
+          <icon-storage />
+          <span>资料工具</span>
+        </button>
+        <button type="button" @click="openGenerator()">
+          <icon-robot />
+          <span>生成资料</span>
+        </button>
+      </div>
+    </header>
+
+    <div class="resource-overview">
+      <article>
+        <span class="overview-icon"><icon-storage /></span>
+        <div
+          ><small>我的资料</small
+          ><strong>{{ resources.length }}</strong></div
+        >
+      </article>
+      <article>
+        <span class="overview-icon"><icon-file /></span>
+        <div
+          ><small>覆盖章节</small
+          ><strong>{{ course.chapters.length }}</strong></div
+        >
+      </article>
+      <article>
+        <span class="overview-icon"><icon-download /></span>
+        <div
+          ><small>生成回流</small
+          ><strong>{{ generatedPackagesForCourse.length }}</strong></div
+        >
+      </article>
+      <article>
+        <span class="overview-icon"><icon-check-circle /></span>
+        <div
+          ><small>已学章节</small
+          ><strong>{{ completedChapterCount }}</strong></div
+        >
+      </article>
+    </div>
+
+    <section class="resource-library-shell" aria-label="我的资料库">
+      <div class="resource-library-main">
+        <div class="resource-toolbar">
+          <label>
+            <icon-search />
+            <input v-model="query" type="search" placeholder="搜索标题或知识点" />
+          </label>
+          <select v-model="activeSubject" class="subject-filter" aria-label="按学科筛选">
+            <option v-for="subject in subjectOptions" :key="subject" :value="subject">
+              {{ subject }}
+            </option>
+          </select>
+          <div>
+            <button
+              v-for="type in resourceTypes"
+              :key="type"
+              type="button"
+              :class="{ active: activeType === type }"
+              @click="activeType = type"
+            >
+              {{ type }}
+            </button>
+          </div>
+        </div>
+
+        <a-spin :loading="loadingResources" style="width: 100%">
+        <div class="resource-grid">
+          <article
+            v-for="item in displayedResources"
+            :key="item.id"
+            class="resource-card"
+            :class="{ active: selectedResource?.id === item.id }"
+            @click="openResourceDetails(item)"
+          >
+            <div class="resource-card__top">
+              <span class="resource-type">{{ item.raw.subject || '未分类' }} · {{ item.type }}</span>
+              <small>{{ item.raw.top ? '已置顶 · ' : '' }}{{ item.updatedAt }}</small>
+            </div>
+            <span class="resource-file-icon"><icon-file /></span>
+            <h2>{{ item.title }}</h2>
+            <p>{{ item.chapter }}</p>
+            <div class="resource-path">
+              <span
+                v-for="node in resourcePlan(item).graphNodes.slice(0, 3)"
+                :key="node"
+              >
+                {{ node }}
+              </span>
+            </div>
+            <ul class="resource-checks">
+              <li v-for="task in resourcePlan(item).tasks.slice(0, 2)" :key="task">
+                {{ task }}
+              </li>
+            </ul>
+            <div class="resource-meta">
+              <span>{{ item.size }}</span>
+              <span>{{ item.raw.source || '用户保存' }}</span>
+            </div>
+            <div class="resource-actions" @click.stop>
+              <button type="button" @click="toggleFavorite(item)">
+                {{ item.raw.favorite ? '取消收藏' : '收藏' }}
+              </button>
+              <button type="button" @click="toggleTop(item)">
+                {{ item.raw.top ? '取消置顶' : '置顶' }}
+              </button>
+              <button type="button" @click="downloadResourceBrief(item)">下载</button>
+              <button type="button" @click="removeFromLibrary(item)">移除</button>
+            </div>
+            <span class="resource-card__cta">详情</span>
+            <div class="resource-trust-row">
+              <span>{{ item.raw.difficulty || '标准难度' }}</span>
+              <span>{{ item.raw.type }}</span>
+              <span>{{ resourceLearningStatus(item) }}</span>
+            </div>
+          </article>
+        </div>
+        </a-spin>
+
+        <div
+          v-if="visibleResources.length > defaultResourcePreviewCount"
+          class="resource-list-more"
+        >
+          <span>
+            当前显示 {{ displayedResources.length }} / {{ visibleResources.length }} 份资料<span
+              v-if="hiddenResourceCount"
+            >，还有 {{ hiddenResourceCount }} 份未展开</span>
+          </span>
+          <button type="button" @click="showAllResources = !showAllResources">
+            {{ showAllResources ? '收起资料列表' : `展开全部 ${visibleResources.length} 份` }}
+          </button>
+        </div>
+
+        <a-empty
+          v-if="!loadingResources && !visibleResources.length"
+          description="还没有匹配的个人资料，可前往 AI 伴学生成"
+        />
+      </div>
+    </section>
+
+    <section class="ai-recommendations" aria-label="AI 为你推荐">
+      <header>
+        <div>
+          <span>Student Profile Agent × Resource Agent</span>
+          <h2>AI 为你推荐</h2>
+          <p>根据薄弱知识点、答题表现、学习目标和资源偏好动态生成。</p>
+        </div>
+        <button type="button" :disabled="loadingRecommendations" @click="loadRecommendations(true)">
+          重新生成推荐
+        </button>
+      </header>
+      <div v-if="recommendationSignals.length" class="recommendation-signals">
+        <span v-for="signal in recommendationSignals" :key="signal">{{ signal }}</span>
+      </div>
+      <a-spin :loading="loadingRecommendations" style="width: 100%">
+        <div v-if="visibleRecommendations.length" class="recommendation-grid">
+          <article v-for="item in visibleRecommendations" :key="`${item.origin}-${item.id}`">
+            <div>
+              <span>{{ item.subject || '未分类' }} · {{ item.origin === 'external' ? `网络 · ${item.source}` : `AI生成 · ${recommendationTypeLabel(item.type)}` }}</span>
+              <small>匹配度 {{ Math.round(item.score * 100) }}%</small>
+            </div>
+            <h3>{{ item.title }}</h3>
+            <p>{{ item.reason }}</p>
+            <p v-if="item.preview" class="recommendation-preview">{{ item.preview }}</p>
+            <div class="recommendation-evidence">
+              <span v-for="evidence in item.evidence" :key="evidence">{{ evidence }}</span>
+            </div>
+            <div class="recommendation-actions">
+              <button type="button" @click="openRecommendation(item)">
+                {{ item.origin === 'external' ? '打开来源' : '查看方案' }}
+              </button>
+              <button
+                type="button"
+                :disabled="recommendationActionId === item.id"
+                @click="favoriteRecommendation(item)"
+              >{{ item.favorite ? '取消收藏' : '收藏' }}</button>
+              <button
+                type="button"
+                :disabled="recommendationActionId === item.id"
+                @click="regenerateRecommendation(item)"
+              >{{ item.origin === 'external' ? '换一条' : '重新生成' }}</button>
+              <button
+                type="button"
+                :disabled="recommendationActionId === item.id"
+                @click="addRecommendation(item)"
+              >加入资料库</button>
+              <button
+                type="button"
+                class="danger"
+                :disabled="recommendationActionId === item.id"
+                @click="dismissRecommendation(item)"
+              >删除</button>
+            </div>
+          </article>
+        </div>
+        <a-empty
+          v-else-if="!loadingRecommendations"
+          :description="favoritesOnly ? '收藏夹中还没有已收藏推荐' : '暂无可推荐资源；生成资料或完成练习后会自动更新'"
+        />
+      </a-spin>
+    </section>
+
+    <a-drawer
+      v-model:visible="resourceDrawerVisible"
+      :width="440"
+      :footer="false"
+      placement="right"
+      unmount-on-close
+    >
+      <template #title>资料详情</template>
+      <div v-if="selectedResource && selectedResourcePlan" class="resource-inspector resource-inspector--drawer">
+        <div class="resource-inspector__head">
+          <span>{{ selectedResource.type }}</span>
+          <h2>{{ selectedResource.title }}</h2>
+          <p>{{ selectedResource.chapter }} · {{ selectedResource.size }} · {{ selectedResource.raw.source || '用户保存' }}</p>
+        </div>
+        <div class="resource-inspector__nodes">
+          <strong>关联知识点</strong>
+          <div>
+            <span v-for="node in selectedResourcePlan.graphNodes.slice(0, 4)" :key="node">
+              {{ node }}
+            </span>
+          </div>
+        </div>
+        <KnowledgeGraphViewer
+          v-if="selectedKnowledgeGraph"
+          :graph-json="selectedKnowledgeGraph"
+        />
+        <section>
+          <strong>建议使用顺序</strong>
+          <ol>
+            <li v-for="task in selectedResourcePlan.tasks" :key="task">{{ task }}</li>
+          </ol>
+        </section>
+        <section>
+          <strong>可直接追问</strong>
+          <button
+            v-for="prompt in selectedResourcePlan.prompts"
+            :key="prompt"
+            type="button"
+            @click="askAboutResource(selectedResource)"
+          >
+            {{ prompt }}
+          </button>
+        </section>
+        <div class="resource-inspector__actions">
+          <button type="button" @click="toggleFavorite(selectedResource)">
+            {{ selectedResource.raw.favorite ? '取消收藏' : '收藏' }}
+          </button>
+          <button type="button" @click="toggleTop(selectedResource)">
+            {{ selectedResource.raw.top ? '取消置顶' : '置顶' }}
+          </button>
+          <button type="button" class="primary" @click="downloadResourceBrief(selectedResource)">
+            <icon-download /> {{ selectedResource.raw.file_path ? '下载' : '结构化查看' }}
+          </button>
+          <button type="button" @click="generateResourceMaterials(selectedResource)">
+            <icon-bulb /> 生成配套
+          </button>
+          <button type="button" @click="locateResourceInGraph(selectedResource)">
+            <icon-mind-mapping /> 图谱定位
+          </button>
+          <button type="button" @click="askAboutResource(selectedResource)">
+            <icon-robot /> 资料问答
+          </button>
+          <button type="button" @click="removeFromLibrary(selectedResource)">移除</button>
+        </div>
+      </div>
+    </a-drawer>
+
+    <a-drawer
+      v-model:visible="resourceToolDrawerVisible"
+      :width="420"
+      :footer="false"
+      placement="right"
+      unmount-on-close
+    >
+      <template #title>资料工具</template>
+      <div class="resource-tool-drawer">
+        <section class="tool-section">
+          <div class="tool-section__head">
+            <span>闭环操作</span>
+            <p>把当前资料接到生成、问答和图谱核验。</p>
+          </div>
+          <div class="tool-action-grid">
+            <button type="button" @click="openGenerator('课程资料生成')">
+              <icon-robot />
+              <strong>生成配套资料</strong>
+              <small>讲义、练习、导图</small>
+            </button>
+            <button type="button" @click="openKnowledgeMap">
+              <icon-mind-mapping />
+              <strong>查看课程图谱</strong>
+              <small>定位知识节点</small>
+            </button>
+            <button
+              type="button"
+              :disabled="!selectedResource"
+              @click="selectedResource && askAboutResource(selectedResource)"
+            >
+              <icon-file />
+              <strong>资料问答</strong>
+              <small>基于当前资料追问</small>
+            </button>
+            <button
+              type="button"
+              :disabled="!selectedResource"
+              @click="selectedResource && locateResourceInGraph(selectedResource)"
+            >
+              <icon-check-circle />
+              <strong>同步图谱</strong>
+              <small>带上资料上下文</small>
+            </button>
+          </div>
+        </section>
+
+        <section class="tool-section">
+          <div class="tool-section__head">
+            <span>资料状态</span>
+            <p>只展示影响学习决策的关键指标。</p>
+          </div>
+          <div class="tool-stat-grid">
+            <article v-for="item in resourceCoverageStats" :key="item.label">
+              <strong>{{ item.value }}</strong>
+              <span>{{ item.label }}</span>
+            </article>
+          </div>
+        </section>
+
+        <section class="tool-section">
+          <div class="tool-section__head">
+            <span>质量标准</span>
+            <p>资料进入学习路径前应满足这些条件。</p>
+          </div>
+          <div class="tool-quality-list">
+            <article v-for="item in resourceQuality" :key="item.label">
+              <icon-bulb />
+              <div>
+                <strong>{{ item.label }}</strong>
+                <span>{{ item.value }}</span>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="tool-section">
+          <div class="tool-section__head tool-section__head--row">
+            <div>
+              <span>生成记录</span>
+              <p>资源包会沉淀到资料库，并可回到图谱核验。</p>
+            </div>
+            <button type="button" :disabled="loadingRecentPackages" @click="loadRecentPackages">
+              {{ loadingRecentPackages ? '同步中' : '刷新' }}
+            </button>
+          </div>
+          <div v-if="generatedPackagesForCourse.length" class="tool-package-list">
+            <article
+              v-for="pkg in generatedPackagesForCourse.slice(0, 3)"
+              :key="pkg.package_id"
+            >
+              <div>
+                <button
+                  type="button"
+                  class="tool-package-topic"
+                  @click="openGeneratedPackagePreview(pkg)"
+                >
+                  <strong>{{ pkg.topic }}</strong>
+                </button>
+                <span>{{ generatedPackageLabel(pkg) }} · {{ pkg.artifacts.length }} 个文件</span>
+              </div>
+              <div>
+                <button type="button" @click="openGeneratedPackagePreview(pkg)">
+                  <icon-file /> 预览
+                </button>
+                <button type="button" @click="askAboutGeneratedPackage(pkg)">
+                  <icon-robot /> 复核
+                </button>
+                <button type="button" @click="auditGeneratedPackageInGraph(pkg)">
+                  <icon-mind-mapping /> 图谱
+                </button>
+              </div>
+            </article>
+          </div>
+          <div v-else class="tool-empty">
+            <strong>暂无生成资源包</strong>
+            <p>可先围绕当前课程生成第一份讲义、练习和图谱核验包。</p>
+            <button type="button" @click="openGenerator('课程资料回流生成')">现在生成</button>
+          </div>
+        </section>
+      </div>
+    </a-drawer>
+
+    <a-drawer
+      v-model:visible="generatedPackagePreviewVisible"
+      :width="520"
+      :footer="false"
+      unmount-on-close
+      title="资源包预览"
+    >
+      <div v-if="previewedGeneratedPackage" class="generated-package-preview">
+        <header>
+          <span>课程生成记录</span>
+          <h2>{{ previewedGeneratedPackage.topic }}</h2>
+          <p>
+            {{ generatedPackageLabel(previewedGeneratedPackage) }} ·
+            {{ previewedGeneratedPackage.artifacts.length }} 个真实文件
+          </p>
+        </header>
+
+        <div class="generated-package-preview__files">
+          <article
+            v-for="artifact in previewedGeneratedPackage.artifacts"
+            :key="artifact.file_name"
+          >
+            <div>
+              <strong>{{ artifact.title || artifact.file_name }}</strong>
+              <span>{{ artifact.file_name }}</span>
+            </div>
+            <p>{{ artifact.preview || '该文件可下载查看完整内容。' }}</p>
+            <button
+              type="button"
+              @click="downloadGeneratedArtifact(previewedGeneratedPackage, artifact)"
+            >
+              <icon-download /> 下载文件
+            </button>
+          </article>
+        </div>
+
+        <footer>
+          <button
+            type="button"
+            @click="askAboutGeneratedPackage(previewedGeneratedPackage)"
+          >
+            <icon-robot /> AI 复核
+          </button>
+          <button
+            type="button"
+            class="primary"
+            @click="auditGeneratedPackageInGraph(previewedGeneratedPackage)"
+          >
+            <icon-mind-mapping /> 图谱核验
+          </button>
+        </footer>
+      </div>
+    </a-drawer>
+  </section>
+</template>
+
+<style scoped lang="less">
+  .course-resources {
+    color: #17213a;
+  }
+
+  .ai-recommendations {
+    margin-top: 16px;
+    padding: 18px;
+    border: 1px solid #dfe5ff;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #ffffff, #f7f8ff);
+
+    > header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+
+      span {
+        color: #6366f1;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      h2 {
+        margin: 4px 0;
+        font-size: 20px;
+      }
+
+      p {
+        margin: 0;
+        color: #667085;
+        font-size: 12px;
+      }
+
+      button {
+        padding: 7px 12px;
+        border: 1px solid #d9ddff;
+        border-radius: 9px;
+        color: #4f46e5;
+        background: #fff;
+        cursor: pointer;
+      }
+    }
+  }
+
+  .recommendation-signals,
+  .recommendation-evidence {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 12px;
+
+    span {
+      padding: 4px 8px;
+      border-radius: 999px;
+      color: #596579;
+      background: #eef1ff;
+      font-size: 10px;
+    }
+  }
+
+  .recommendation-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 14px;
+
+    article {
+      padding: 14px;
+      border: 1px solid #e3e7f6;
+      border-radius: 12px;
+      background: #fff;
+
+      > div:first-child {
+        display: flex;
+        justify-content: space-between;
+        color: #6366f1;
+        font-size: 11px;
+      }
+
+      h3 {
+        margin: 8px 0 5px;
+        font-size: 14px;
+      }
+
+      p {
+        min-height: 36px;
+        margin: 0;
+        color: #667085;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .recommendation-preview {
+        min-height: 0;
+        margin-top: 8px;
+        padding: 8px;
+        border-radius: 8px;
+        background: #f7f8fc;
+      }
+
+      .recommendation-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 12px;
+
+        button {
+        padding: 6px 10px;
+        border: 1px solid #d9ddff;
+        border-radius: 8px;
+        color: #5258c8;
+        background: #f7f8ff;
+        cursor: pointer;
+
+          &:disabled {
+            cursor: wait;
+            opacity: 0.55;
+          }
+
+          &.danger {
+            color: #cf4e4e;
+            border-color: #ffd5d5;
+            background: #fff7f7;
+          }
+        }
+      }
+    }
+  }
+
+  .resource-heading {
+    display: flex;
+    gap: 20px;
+    align-items: flex-end;
+    justify-content: space-between;
+    padding: 2px 2px 18px;
+
+    > div > span {
+      color: #5367f8;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+    }
+
+    h1 {
+      margin: 6px 0 5px;
+      font-size: 26px;
+    }
+
+    p {
+      margin: 0;
+      color: #7d879a;
+      font-size: 12px;
+    }
+
+    .resource-heading__actions {
+      display: flex;
+      flex: 0 0 auto;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .resource-heading__actions button {
+      display: inline-flex;
+      gap: 6px;
+      align-items: center;
+      justify-content: center;
+      height: 36px;
+      padding: 0 14px;
+      border: 0;
+      border-radius: 9px;
+      color: #fff;
+      background: #5367f8;
+      cursor: pointer;
+
+      span {
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      small {
+        padding-left: 8px;
+        border-left: 1px solid rgba(255, 255, 255, 0.36);
+        font-size: 10px;
+        opacity: 0.88;
+      }
+    }
+
+    .resource-heading__actions .ghost {
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      color: #475467;
+      background: #fff;
+    }
+  }
+
+  .ai-credit-panel {
+    display: grid;
+    grid-template-columns: minmax(240px, 0.9fr) minmax(0, 1.25fr) 150px;
+    gap: 12px;
+    margin-bottom: 12px;
+    padding: 16px;
+    border: 1px solid #dbe5ec;
+    border-radius: 12px;
+    background: linear-gradient(
+        135deg,
+        rgba(46, 125, 106, 0.09),
+        transparent 42%
+      ),
+      linear-gradient(90deg, #fff, #f8fbff);
+    box-shadow: 0 10px 28px rgba(36, 55, 84, 0.05);
+  }
+
+  .ai-credit-panel__main {
+    min-width: 0;
+
+    h2 {
+      margin: 6px 0 6px;
+      color: #21304a;
+      font-size: 18px;
+    }
+
+    p,
+    small {
+      margin: 0;
+      color: #7e8a9f;
+      font-size: 11px;
+      line-height: 1.65;
+    }
+
+    > small {
+      display: block;
+      margin-top: 7px;
+      color: #64748b;
+    }
+  }
+
+  .ai-credit-panel__eyebrow {
+    color: #2e7d6a;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+  }
+
+  .ai-credit-meter {
+    height: 7px;
+    margin-top: 11px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #e9eef6;
+
+    i {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #2e7d6a, #5367f8);
+      transition: width 180ms ease;
+    }
+  }
+
+  .ai-credit-panel__value {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+
+    article {
+      min-width: 0;
+      padding: 11px 10px;
+      border: 1px solid rgba(218, 226, 239, 0.9);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.74);
+    }
+
+    strong,
+    span,
+    small {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    strong {
+      color: #22314a;
+      font-size: 13px;
+    }
+
+    span {
+      margin-top: 5px;
+      color: #5367f8;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    small {
+      margin-top: 5px;
+      color: #8490a5;
+      font-size: 9px;
+    }
+  }
+
+  .ai-credit-panel__actions {
+    display: grid;
+    align-content: center;
+    gap: 8px;
+
+    button {
+      height: 34px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      border: 1px solid #dbe2f0;
+      border-radius: 9px;
+      color: #60708b;
+      background: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button:first-child {
+      border-color: transparent;
+      color: #fff;
+      background: #2e7d6a;
+    }
+  }
+
+  .mobile-resource-action-strip {
+    display: none;
+  }
+
+  .resource-mission-board {
+    display: grid;
+    grid-template-columns: minmax(260px, 0.88fr) minmax(320px, 1.18fr) minmax(240px, 0.72fr);
+    gap: 12px;
+    margin-bottom: 12px;
+    padding: 16px;
+    border: 1px solid #dbe6f2;
+    border-radius: 14px;
+    background:
+      linear-gradient(135deg, rgba(83, 103, 248, 0.08), transparent 32%),
+      linear-gradient(180deg, #fff, #f8fbff);
+    box-shadow: 0 16px 34px rgba(30, 49, 84, 0.07);
+  }
+
+  .mission-brief,
+  .mission-workflow,
+  .material-review-preview {
+    min-width: 0;
+  }
+
+  .mission-brief__eyebrow,
+  .mission-workflow__head span,
+  .material-review-preview__head span {
+    color: #5367f8;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+  }
+
+  .mission-brief__title {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-top: 5px;
+
+    h2 {
+      margin: 0 0 6px;
+      color: #1f2b45;
+      font-size: 20px;
+    }
+
+    p {
+      margin: 0;
+      color: #7f8a9d;
+      font-size: 11px;
+      line-height: 1.65;
+    }
+
+    strong {
+      flex: 0 0 auto;
+      padding: 5px 8px;
+      border-radius: 999px;
+      color: #2e7d6a;
+      background: #eaf8f2;
+      font-size: 10px;
+    }
+  }
+
+  .mission-resource-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+    margin-top: 14px;
+    padding: 12px;
+    border: 1px solid #e1e7f1;
+    border-radius: 12px;
+    background: #fff;
+
+    small,
+    h3,
+    p {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    small {
+      color: #8a95a8;
+      font-size: 10px;
+    }
+
+    h3 {
+      margin: 4px 0;
+      color: #24314a;
+      font-size: 15px;
+    }
+
+    p {
+      margin: 0;
+      color: #718096;
+      font-size: 10px;
+    }
+
+    button {
+      height: 32px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 0 11px;
+      border: 0;
+      border-radius: 9px;
+      color: #fff;
+      background: #5367f8;
+      font-size: 10px;
+      font-weight: 800;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+  }
+
+  .mission-reasons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+
+    span {
+      max-width: 100%;
+      padding: 5px 8px;
+      overflow: hidden;
+      border-radius: 999px;
+      color: #50617f;
+      background: #f2f5fb;
+      font-size: 10px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .mission-stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+
+    article {
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid #edf1f6;
+      border-radius: 10px;
+      background: #fbfcff;
+    }
+
+    strong,
+    span,
+    small {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    strong {
+      color: #24314a;
+      font-size: 15px;
+    }
+
+    span {
+      margin-top: 4px;
+      color: #5367f8;
+      font-size: 10px;
+      font-weight: 800;
+    }
+
+    small {
+      margin-top: 4px;
+      color: #8a95a8;
+      font-size: 9px;
+    }
+  }
+
+  .mission-workflow {
+    padding: 13px;
+    border: 1px solid #e1e8f1;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.78);
+  }
+
+  .mission-workflow__head {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    justify-content: space-between;
+
+    h3 {
+      margin: 5px 0 0;
+      color: #24314a;
+      font-size: 16px;
+    }
+
+    button {
+      height: 30px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 0 10px;
+      border: 1px solid #dce2ff;
+      border-radius: 9px;
+      color: #5367f8;
+      background: #f5f7ff;
+      font-size: 10px;
+      font-weight: 800;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+  }
+
+  .mission-steps {
+    display: grid;
+    gap: 8px;
+    margin-top: 12px;
+
+    article {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr) auto;
+      gap: 9px;
+      align-items: center;
+      padding: 10px;
+      border: 1px solid #edf1f6;
+      border-radius: 10px;
+      background: #fff;
+    }
+
+    b {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      border-radius: 9px;
+      color: #fff;
+      background: #2e7d6a;
+      font-size: 10px;
+      place-items: center;
+    }
+
+    strong,
+    p {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    strong {
+      color: #25324b;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    p {
+      display: -webkit-box;
+      margin: 3px 0 0;
+      color: #7f899b;
+      font-size: 10px;
+      line-height: 1.45;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+    }
+
+    button {
+      height: 28px;
+      padding: 0 9px;
+      border: 1px solid #dbe2f0;
+      border-radius: 8px;
+      color: #60708b;
+      background: #fafbfc;
+      font-size: 9px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+  }
+
+  .material-review-preview {
+    padding: 13px;
+    border: 1px solid #e1e8f1;
+    border-radius: 12px;
+    background: #fff;
+  }
+
+  .material-review-preview__head {
+    h3 {
+      margin: 5px 0 5px;
+      color: #24314a;
+      font-size: 16px;
+    }
+
+    p {
+      margin: 0;
+      color: #7f899b;
+      font-size: 10px;
+      line-height: 1.6;
+    }
+  }
+
+  .review-preview-grid {
+    display: grid;
+    gap: 8px;
+    margin-top: 12px;
+
+    article {
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid #edf1f6;
+      border-radius: 10px;
+      background: #f8fafc;
+    }
+
+    span,
+    strong,
+    small {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    span {
+      color: #5367f8;
+      font-size: 9px;
+      font-weight: 800;
+    }
+
+    strong {
+      margin-top: 4px;
+      color: #25324b;
+      font-size: 11px;
+    }
+
+    small {
+      margin-top: 4px;
+      color: #8a95a8;
+      font-size: 9px;
+    }
+  }
+
+  .resource-overview {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 14px;
+
+    article {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 56px;
+      padding: 10px 12px;
+      border: 1px solid #e4e8f1;
+      border-radius: 14px;
+      background: #fff;
+    }
+
+    small,
+    strong {
+      display: block;
+    }
+
+    small {
+      color: #8e98a9;
+      font-size: 10px;
+    }
+
+    strong {
+      margin-top: 2px;
+      color: #29364d;
+      font-size: 18px;
+    }
+  }
+
+  .quality-strip {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+
+    article {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr);
+      gap: 10px;
+      padding: 13px 14px;
+      border: 1px solid #e3e9f5;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #fff, #f8fbff);
+      box-shadow: 0 8px 22px rgba(33, 48, 78, 0.04);
+    }
+
+    svg {
+      width: 34px;
+      height: 34px;
+      padding: 8px;
+      border-radius: 10px;
+      color: #2e7d6a;
+      background: #eaf8f2;
+    }
+
+    strong,
+    span,
+    small {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    strong {
+      color: #27344c;
+      font-size: 12px;
+    }
+
+    span {
+      margin-top: 2px;
+      color: #5367f8;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    small {
+      margin-top: 5px;
+      color: #8a95a8;
+      font-size: 9px;
+    }
+  }
+
+  .generated-package-panel {
+    margin-top: 12px;
+    padding: 16px;
+    border: 1px solid #dde8ef;
+    border-radius: 12px;
+    background:
+      linear-gradient(135deg, rgba(46, 125, 106, 0.08), transparent 36%),
+      linear-gradient(180deg, #fff, #f8fbff);
+    box-shadow: 0 10px 28px rgba(36, 55, 84, 0.05);
+  }
+
+  .generated-package-head {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 12px;
+
+    span {
+      color: #2e7d6a;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+    }
+
+    h2 {
+      margin: 5px 0 4px;
+      color: #25324b;
+      font-size: 18px;
+    }
+
+    p {
+      margin: 0;
+      color: #7f899b;
+      font-size: 11px;
+      line-height: 1.65;
+    }
+
+    > button {
+      height: 32px;
+      padding: 0 11px;
+      border: 1px solid #dbe2f0;
+      border-radius: 9px;
+      color: #60708b;
+      background: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+
+      &:disabled {
+        cursor: wait;
+        opacity: 0.68;
+      }
+    }
+  }
+
+  .generated-package-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .generated-package-card {
+    min-width: 0;
+    padding: 14px;
+    border: 1px solid #e1e8f1;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.92);
+  }
+
+  .generated-package-top,
+  .generated-package-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .generated-package-top {
+    span {
+      padding: 3px 7px;
+      border-radius: 999px;
+      color: #2e7d6a;
+      background: #eaf8f2;
+      font-size: 9px;
+      font-weight: 800;
+    }
+
+    small {
+      color: #98a1b1;
+      font-size: 9px;
+    }
+  }
+
+  .generated-package-card h3 {
+    margin: 11px 0 5px;
+    overflow: hidden;
+    color: #27344c;
+    font-size: 15px;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .generated-package-card > p {
+    margin: 0;
+    overflow: hidden;
+    color: #7f8a9d;
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .generated-trust-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 9px;
+
+    span {
+      padding: 4px 7px;
+      border-radius: 999px;
+      color: #50617f;
+      background: #f2f5fb;
+      font-size: 9px;
+      font-weight: 700;
+    }
+
+    span:first-child {
+      color: #2e7d6a;
+      background: #eaf8f2;
+    }
+  }
+
+  .generated-package-stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+
+    article {
+      min-width: 0;
+      padding: 9px;
+      border: 1px solid #edf1f6;
+      border-radius: 9px;
+      background: #f8fafc;
+    }
+
+    strong,
+    span {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    strong {
+      color: #25324b;
+      font-size: 13px;
+    }
+
+    span {
+      margin-top: 3px;
+      color: #8a95a8;
+      font-size: 9px;
+    }
+  }
+
+  .generated-artifact-list {
+    display: grid;
+    gap: 7px;
+    margin-top: 12px;
+
+    button {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: 64px minmax(0, 1fr) 48px;
+      gap: 8px;
+      align-items: center;
+      min-height: 34px;
+      padding: 7px 9px;
+      border: 1px solid #edf1f6;
+      border-radius: 9px;
+      color: #61708a;
+      background: #fbfcff;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    span,
+    b,
+    small {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    span {
+      color: #5367f8;
+      font-size: 9px;
+      font-weight: 800;
+    }
+
+    b {
+      color: #334059;
+      font-size: 10px;
+    }
+
+    small {
+      color: #98a1b1;
+      font-size: 9px;
+      text-align: right;
+    }
+  }
+
+  .generated-package-actions {
+    margin-top: 12px;
+
+    button {
+      min-width: 0;
+      height: 30px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      flex: 1;
+      padding: 0 8px;
+      border: 1px solid #e0e5ee;
+      border-radius: 8px;
+      color: #687389;
+      background: #fafbfc;
+      font-size: 9px;
+      cursor: pointer;
+
+      &:last-child {
+        border-color: #dce2ff;
+        color: #5367f8;
+        background: #f5f7ff;
+      }
+    }
+  }
+
+  .generated-package-empty {
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+    padding: 14px;
+    border: 1px dashed #d7e1ef;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.72);
+
+    > span {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      border-radius: 12px;
+      color: #2e7d6a;
+      background: #eaf8f2;
+      place-items: center;
+    }
+
+    strong,
+    p {
+      display: block;
+      min-width: 0;
+    }
+
+    strong {
+      color: #27344c;
+      font-size: 13px;
+    }
+
+    p {
+      margin: 4px 0 0;
+      color: #7f899b;
+      font-size: 11px;
+      line-height: 1.6;
+    }
+
+    button {
+      height: 32px;
+      padding: 0 12px;
+      border: 0;
+      border-radius: 9px;
+      color: #fff;
+      background: #2e7d6a;
+      font-size: 10px;
+      font-weight: 800;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+  }
+
+  .resource-flow {
+    margin-top: 12px;
+    display: grid;
+    grid-template-columns: minmax(220px, 0.75fr) minmax(0, 1fr);
+    gap: 12px;
+    padding: 16px;
+    border: 1px solid #dfe5ff;
+    border-radius: 12px;
+    background: radial-gradient(
+        circle at right top,
+        rgba(83, 103, 248, 0.11),
+        transparent 34%
+      ),
+      #fff;
+
+    span {
+      color: #5367f8;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+    }
+
+    h2 {
+      margin: 6px 0 5px;
+      color: #26334b;
+      font-size: 18px;
+    }
+
+    p {
+      margin: 0;
+      color: #7f899b;
+      font-size: 11px;
+      line-height: 1.7;
+    }
+  }
+
+  .flow-steps {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+
+    button {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: 30px minmax(0, 1fr);
+      align-items: center;
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid #e5e9f4;
+      border-radius: 10px;
+      color: #667188;
+      background: rgba(255, 255, 255, 0.86);
+      text-align: left;
+      cursor: pointer;
+
+      &:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+
+      svg {
+        grid-row: 1 / span 2;
+        color: #5367f8;
+      }
+
+      strong,
+      small {
+        display: block;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      strong {
+        color: #334059;
+        font-size: 11px;
+      }
+
+      small {
+        margin-top: 2px;
+        font-size: 9px;
+      }
+    }
+  }
+
+  .overview-icon {
+    display: grid;
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    color: #596bfa;
+    background: #edf0ff;
+    place-items: center;
+  }
+
+  .resource-toolbar {
+    margin: 16px 0 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+
+    label {
+      width: min(320px, 100%);
+      height: 36px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 11px;
+      border: 1px solid #e1e6ef;
+      border-radius: 9px;
+      color: #929cad;
+      background: #fff;
+    }
+
+    input {
+      width: 100%;
+      border: 0;
+      outline: 0;
+      color: #354158;
+      background: transparent;
+      font-size: 11px;
+    }
+
+    > div {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+
+    > div button {
+      height: 30px;
+      padding: 0 10px;
+      border: 1px solid #e3e7ef;
+      border-radius: 8px;
+      color: #778196;
+      background: #fff;
+      font-size: 10px;
+      cursor: pointer;
+
+      &.active {
+        border-color: #d9dfff;
+        color: #5367f8;
+        background: #eef1ff;
+      }
+    }
+  }
+
+  .resource-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .resource-card {
+    min-width: 0;
+    padding: 15px;
+    border: 1px solid #e4e8f1;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 3px 12px rgba(34, 48, 88, 0.04);
+    transition: transform 160ms ease, box-shadow 160ms ease;
+
+    &:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 24px rgba(46, 59, 116, 0.08);
+    }
+
+    h2 {
+      margin: 11px 0 6px;
+      overflow: hidden;
+      color: #2b374e;
+      font-size: 13px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    p {
+      min-height: 30px;
+      margin: 0;
+      color: #8993a5;
+      font-size: 10px;
+      line-height: 1.5;
+    }
+  }
+
+  .resource-path {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    min-height: 24px;
+    margin-top: 10px;
+
+    span {
+      max-width: 100%;
+      padding: 4px 7px;
+      overflow: hidden;
+      border-radius: 999px;
+      color: #50617f;
+      background: #f3f6fb;
+      font-size: 9px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .resource-checks {
+    display: grid;
+    gap: 6px;
+    min-height: 74px;
+    margin: 10px 0 0;
+    padding: 10px 11px;
+    border-radius: 10px;
+    background: #f8fafc;
+    list-style: none;
+
+    li {
+      position: relative;
+      padding-left: 12px;
+      color: #657188;
+      font-size: 10px;
+      line-height: 1.5;
+
+      &::before {
+        position: absolute;
+        top: 7px;
+        left: 0;
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: #5367f8;
+        content: '';
+      }
+    }
+  }
+
+  .resource-card__top,
+  .resource-meta,
+  .resource-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .resource-card__top small,
+  .resource-meta {
+    color: #98a1b1;
+    font-size: 9px;
+  }
+
+  .resource-type {
+    padding: 3px 7px;
+    border-radius: 6px;
+    color: #596bfa;
+    background: #eef1ff;
+    font-size: 9px;
+  }
+
+  .resource-file-icon {
+    display: grid;
+    width: 38px;
+    height: 38px;
+    margin-top: 14px;
+    border-radius: 10px;
+    color: #5367f8;
+    background: #f0f2ff;
+    place-items: center;
+  }
+
+  .resource-meta {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid #edf0f5;
+  }
+
+  .resource-trust-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 10px;
+
+    span {
+      max-width: 100%;
+      padding: 4px 7px;
+      overflow: hidden;
+      border-radius: 999px;
+      color: #61708a;
+      background: #f2f5fb;
+      font-size: 9px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .resource-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    margin-top: 12px;
+
+    button {
+      height: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      min-width: 0;
+      border: 1px solid #e0e5ee;
+      border-radius: 8px;
+      color: #687389;
+      background: #fafbfc;
+      font-size: 9px;
+      cursor: pointer;
+    }
+
+    button.primary {
+      grid-column: 1 / -1;
+      border-color: transparent;
+      color: #fff;
+      background: #5367f8;
+      font-weight: 800;
+    }
+
+    button:nth-child(3),
+    button:last-child {
+      border-color: #dce2ff;
+      color: #5367f8;
+      background: #f5f7ff;
+    }
+  }
+
+  @media (max-width: 1080px) {
+    .resource-grid,
+    .generated-package-grid,
+    .resource-mission-board {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .material-review-preview {
+      grid-column: 1 / -1;
+    }
+  }
+
+  @media (max-width: 720px) {
+    .resource-heading,
+    .resource-toolbar,
+    .resource-flow,
+    .generated-package-head {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+
+    .resource-overview,
+    .resource-grid,
+    .generated-package-grid,
+    .generated-package-empty,
+    .resource-flow,
+    .resource-mission-board,
+    .ai-credit-panel,
+    .ai-credit-panel__value,
+    .quality-strip,
+    .flow-steps {
+      grid-template-columns: 1fr;
+    }
+
+    .generated-package-head > button,
+    .generated-package-empty button {
+      width: 100%;
+    }
+
+    .generated-package-actions {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .mobile-resource-action-strip {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 12px;
+      padding: 12px;
+      border: 1px solid #dbe6f2;
+      border-radius: 12px;
+      background: #fff;
+      box-shadow: 0 10px 24px rgba(30, 49, 84, 0.06);
+
+      > div:first-child {
+        display: grid;
+        gap: 3px;
+        min-width: 0;
+      }
+
+      span,
+      strong,
+      small {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      span {
+        color: #2e7d6a;
+        font-size: 10px;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+      }
+
+      strong {
+        color: #21304a;
+        font-size: 15px;
+      }
+
+      small {
+        color: #7e8a9f;
+        font-size: 11px;
+      }
+
+      > div:last-child {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 7px;
+      }
+
+      button {
+        min-width: 0;
+        height: 36px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        border: 1px solid #dbe2f0;
+        border-radius: 10px;
+        color: #5367f8;
+        background: #f7f9ff;
+        font-size: 11px;
+        font-weight: 900;
+        cursor: pointer;
+      }
+    }
+
+    .mission-brief__title,
+    .mission-workflow__head,
+    .mission-resource-card,
+    .mission-steps article {
+      grid-template-columns: 1fr;
+    }
+
+    .mission-brief__title,
+    .mission-workflow__head {
+      flex-direction: column;
+    }
+
+    .mission-resource-card button,
+    .mission-workflow__head button,
+    .mission-steps button {
+      width: 100%;
+      justify-content: center;
+    }
+
+    .generated-artifact-list button {
+      grid-template-columns: 56px minmax(0, 1fr);
+
+      small {
+        grid-column: 2;
+        text-align: left;
+      }
+    }
+  }
+
+  .ai-credit-panel,
+  .mobile-resource-action-strip,
+  .resource-mission-board,
+  .resource-flow,
+  .quality-strip,
+  .generated-package-panel {
+    display: none;
+  }
+
+  .course-resources {
+    animation: resource-enter 0.18s ease both;
+  }
+
+  .resource-heading {
+    padding-bottom: 14px;
+
+    h1 {
+      margin: 0 0 6px;
+      color: #101828;
+      font-size: 26px;
+      letter-spacing: 0;
+    }
+
+    p {
+      max-width: 660px;
+      color: #667085;
+      font-size: 13px;
+      line-height: 1.65;
+    }
+
+    .resource-heading__actions button {
+      height: 38px;
+      border-radius: 999px;
+      background: #6366f1;
+      box-shadow: 0 10px 22px rgba(99, 102, 241, 0.18);
+      transition: transform 160ms ease, background 160ms ease;
+
+      &:hover {
+        background: #4f46e5;
+        transform: translateY(-1px);
+      }
+    }
+
+    .resource-heading__actions .ghost {
+      color: #475467;
+      background: #fff;
+      box-shadow: none;
+
+      &:hover {
+        color: #4f46e5;
+        background: #f8faff;
+      }
+    }
+  }
+
+  .resource-overview {
+    margin: 0 0 14px;
+
+    article {
+      min-height: 58px;
+      padding: 10px 14px;
+      border-radius: 16px;
+    }
+
+    .overview-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 12px;
+    }
+
+    small {
+      font-size: 11px;
+    }
+
+    strong {
+      margin-top: 2px;
+      font-size: 18px;
+    }
+  }
+
+  .generated-package-panel {
+    margin: 0 0 14px;
+    padding: 14px 16px;
+    border-radius: 16px;
+    background: #fff;
+  }
+
+  .generated-package-head {
+    h2 {
+      margin: 3px 0;
+      font-size: 18px;
+    }
+
+    p {
+      font-size: 12px;
+      line-height: 1.5;
+    }
+  }
+
+  .generated-package-empty {
+    padding: 14px;
+    border-radius: 13px;
+    background: #f8fafc;
+  }
+
+  .resource-library-shell {
+    display: block;
+    align-items: start;
+  }
+
+  .resource-library-main,
+  .resource-inspector {
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 16px;
+    background: #fff;
+    box-shadow: 0 10px 26px rgba(15, 23, 42, 0.035);
+  }
+
+  .resource-library-main {
+    padding: 14px;
+  }
+
+  .resource-library-main .resource-toolbar {
+    margin: 0 0 10px;
+    gap: 10px;
+
+    label {
+      height: 38px;
+      border-radius: 999px;
+      background: #f8fafc;
+    }
+
+    > div {
+      padding: 4px;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      border-radius: 999px;
+      background: #f8fafc;
+    }
+
+    > div button {
+      height: 28px;
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      font-size: 12px;
+
+      &.active {
+        color: #6366f1;
+        background: #fff;
+        box-shadow: 0 3px 10px rgba(15, 23, 42, 0.06);
+      }
+    }
+  }
+
+  .resource-library-main .resource-grid {
+    grid-template-columns: 1fr;
+    gap: 7px;
+  }
+
+  .resource-library-main .resource-card {
+    position: relative;
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr) minmax(108px, auto) 46px;
+    gap: 6px 12px;
+    align-items: center;
+    min-height: 66px;
+    padding: 9px 12px;
+    border-color: transparent;
+    border-radius: 13px;
+    background: #fbfcff;
+    cursor: pointer;
+    box-shadow: none;
+
+    &:hover,
+    &.active {
+      border-color: rgba(99, 102, 241, 0.18);
+      background: #fff;
+      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+      transform: translateY(-1px);
+    }
+  }
+
+  .resource-library-main .resource-card__top {
+    grid-column: 2 / span 3;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  .resource-library-main .resource-file-icon {
+    grid-column: 1;
+    grid-row: 1 / span 4;
+    margin-top: 0;
+  }
+
+  .resource-library-main .resource-card h2 {
+    grid-column: 2;
+    margin: 0;
+    color: #101828;
+    font-size: 14px;
+    line-height: 1.25;
+  }
+
+  .resource-library-main .resource-card p {
+    grid-column: 2;
+    min-height: 0;
+    overflow: hidden;
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .resource-library-main .resource-path,
+  .resource-library-main .resource-trust-row {
+    grid-column: 2 / span 2;
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  .resource-library-main .resource-path {
+    min-height: 0;
+  }
+
+  .resource-library-main .resource-trust-row {
+    display: none;
+  }
+
+  .resource-library-main .resource-meta {
+    grid-column: 3;
+    grid-row: 2 / span 2;
+    display: grid;
+    gap: 4px;
+    justify-items: end;
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+    white-space: nowrap;
+  }
+
+  .resource-card__cta {
+    grid-column: 4;
+    grid-row: 2 / span 2;
+    justify-self: end;
+    padding: 5px 9px;
+    border-radius: 999px;
+    color: #4f46e5;
+    background: rgba(79, 70, 229, 0.08);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .resource-library-main .resource-checks {
+    display: none;
+  }
+
+  .resource-library-main .resource-actions {
+    display: none;
+  }
+
+  .resource-list-more {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 10px;
+    padding: 10px;
+    border: 1px dashed rgba(99, 102, 241, 0.22);
+    border-radius: 14px;
+    background: #f8faff;
+
+    span {
+      color: #667085;
+      font-size: 12px;
+    }
+
+    button {
+      height: 32px;
+      padding: 0 13px;
+      border: 1px solid rgba(99, 102, 241, 0.22);
+      border-radius: 999px;
+      color: #4f46e5;
+      background: #fff;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+      transition:
+        transform 150ms ease,
+        border-color 150ms ease,
+        box-shadow 150ms ease;
+
+      &:hover {
+        border-color: rgba(99, 102, 241, 0.42);
+        box-shadow: 0 8px 18px rgba(99, 102, 241, 0.1);
+        transform: translateY(-1px);
+      }
+    }
+  }
+
+  .resource-inspector {
+    position: sticky;
+    top: 82px;
+    display: grid;
+    gap: 14px;
+    padding: 18px;
+  }
+
+  .resource-inspector__head {
+    span {
+      color: #6366f1;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    h2 {
+      margin: 7px 0 6px;
+      color: #101828;
+      font-size: 18px;
+      line-height: 1.35;
+    }
+
+    p {
+      margin: 0;
+      color: #667085;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+  }
+
+  .resource-inspector__nodes {
+    strong {
+      display: block;
+      margin-bottom: 8px;
+      color: #101828;
+      font-size: 13px;
+    }
+
+    div {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    span {
+      padding: 5px 8px;
+      border-radius: 999px;
+      color: #475467;
+      background: #f2f4f7;
+      font-size: 12px;
+    }
+  }
+
+  .resource-inspector section {
+    strong {
+      display: block;
+      margin-bottom: 8px;
+      color: #101828;
+      font-size: 13px;
+    }
+
+    ol {
+      display: grid;
+      gap: 7px;
+      margin: 0;
+      padding-left: 18px;
+      color: #667085;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    button {
+      width: 100%;
+      margin-bottom: 7px;
+      padding: 9px 10px;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      border-radius: 12px;
+      color: #475467;
+      background: #f8fafc;
+      text-align: left;
+      cursor: pointer;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+  }
+
+  .resource-inspector__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+
+    button {
+      height: 34px;
+      padding: 0 12px;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      border-radius: 999px;
+      color: #475467;
+      background: #fff;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 650;
+
+      &.primary {
+        color: #fff;
+        border-color: #6366f1;
+        background: #6366f1;
+      }
+    }
+  }
+
+  .resource-inspector--drawer {
+    border: 0;
+    box-shadow: none;
+    padding: 0;
+  }
+
+  .resource-tool-drawer {
+    display: grid;
+    gap: 14px;
+    color: #101828;
+  }
+
+  .tool-section {
+    padding: 14px;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 16px;
+    background: #fff;
+  }
+
+  .tool-section__head {
+    margin-bottom: 12px;
+
+    span {
+      color: #4f46e5;
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    p {
+      margin: 4px 0 0;
+      color: #667085;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+  }
+
+  .tool-section__head--row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+
+    button {
+      height: 30px;
+      padding: 0 11px;
+      border: 1px solid rgba(99, 102, 241, 0.18);
+      border-radius: 999px;
+      color: #4f46e5;
+      background: #f8faff;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+
+      &:disabled {
+        cursor: wait;
+        opacity: 0.6;
+      }
+    }
+  }
+
+  .tool-action-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+
+    button {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: 30px minmax(0, 1fr);
+      gap: 8px;
+      align-items: center;
+      min-height: 64px;
+      padding: 10px;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      border-radius: 14px;
+      color: #475467;
+      background: #f8fafc;
+      cursor: pointer;
+      text-align: left;
+      transition:
+        transform 150ms ease,
+        border-color 150ms ease,
+        box-shadow 150ms ease;
+
+      &:hover:not(:disabled) {
+        border-color: rgba(99, 102, 241, 0.26);
+        box-shadow: 0 10px 20px rgba(15, 23, 42, 0.06);
+        transform: translateY(-1px);
+      }
+
+      &:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+      }
+    }
+
+    svg {
+      grid-row: 1 / span 2;
+      width: 30px;
+      height: 30px;
+      padding: 7px;
+      border-radius: 10px;
+      color: #4f46e5;
+      background: #eef2ff;
+    }
+
+    strong,
+    small {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    strong {
+      color: #101828;
+      font-size: 12px;
+    }
+
+    small {
+      color: #667085;
+      font-size: 11px;
+    }
+  }
+
+  .tool-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+
+    article {
+      padding: 10px;
+      border-radius: 13px;
+      background: #f8faff;
+    }
+
+    strong,
+    span {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    strong {
+      color: #101828;
+      font-size: 17px;
+    }
+
+    span {
+      margin-top: 3px;
+      color: #667085;
+      font-size: 12px;
+    }
+  }
+
+  .tool-quality-list {
+    display: grid;
+    gap: 8px;
+
+    article {
+      display: grid;
+      grid-template-columns: 32px minmax(0, 1fr);
+      gap: 9px;
+      align-items: center;
+      padding: 9px 10px;
+      border-radius: 13px;
+      background: #f8fafc;
+    }
+
+    svg {
+      width: 32px;
+      height: 32px;
+      padding: 8px;
+      border-radius: 10px;
+      color: #4f46e5;
+      background: #eef2ff;
+    }
+
+    strong,
+    span {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    strong {
+      color: #101828;
+      font-size: 12px;
+    }
+
+    span {
+      margin-top: 3px;
+      color: #667085;
+      font-size: 11px;
+    }
+  }
+
+  .tool-package-list {
+    display: grid;
+    gap: 9px;
+
+    article {
+      display: grid;
+      gap: 9px;
+      padding: 11px;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      border-radius: 14px;
+      background: #f8fafc;
+    }
+
+    strong,
+    span {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    strong {
+      color: #101828;
+      font-size: 13px;
+    }
+
+    span {
+      margin-top: 4px;
+      color: #667085;
+      font-size: 11px;
+    }
+
+    article > div:last-child {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    button {
+      height: 30px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 0 10px;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      border-radius: 999px;
+      color: #475467;
+      background: #fff;
+      cursor: pointer;
+      font-size: 11px;
+    }
+
+    .tool-package-topic {
+      width: 100%;
+      height: auto;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      text-align: left;
+    }
+  }
+
+  .generated-package-preview {
+    display: grid;
+    gap: 18px;
+    color: #101828;
+
+    > header span {
+      color: #4f46e5;
+      font-size: 11px;
+      font-weight: 750;
+    }
+
+    > header h2 {
+      margin: 7px 0 5px;
+      font-size: 20px;
+      line-height: 1.4;
+    }
+
+    > header p {
+      margin: 0;
+      color: #667085;
+      font-size: 12px;
+    }
+
+    > footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+
+      button {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 36px;
+        padding: 0 14px;
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        border-radius: 10px;
+        color: #475467;
+        background: #fff;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 700;
+
+        &.primary {
+          border-color: #4f46e5;
+          color: #fff;
+          background: #4f46e5;
+        }
+      }
+    }
+  }
+
+  .generated-package-preview__files {
+    display: grid;
+    gap: 10px;
+
+    article {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 9px 12px;
+      padding: 13px;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      border-radius: 14px;
+      background: #f8fafc;
+    }
+
+    strong,
+    span {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    strong {
+      font-size: 13px;
+    }
+
+    span {
+      margin-top: 3px;
+      color: #667085;
+      font-size: 11px;
+    }
+
+    p {
+      grid-column: 1 / -1;
+      max-height: 66px;
+      margin: 0;
+      overflow: hidden;
+      color: #475467;
+      font-size: 12px;
+      line-height: 1.8;
+    }
+
+    button {
+      grid-column: 2;
+      grid-row: 1;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      align-self: center;
+      height: 32px;
+      padding: 0 10px;
+      border: 1px solid rgba(99, 102, 241, 0.18);
+      border-radius: 9px;
+      color: #4f46e5;
+      background: #fff;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 700;
+    }
+  }
+
+  .tool-empty {
+    padding: 12px;
+    border-radius: 14px;
+    background: #f8fafc;
+
+    strong {
+      color: #101828;
+      font-size: 13px;
+    }
+
+    p {
+      margin: 5px 0 11px;
+      color: #667085;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    button {
+      height: 32px;
+      padding: 0 12px;
+      border: 0;
+      border-radius: 999px;
+      color: #fff;
+      background: #6366f1;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+    }
+  }
+
+  @keyframes resource-enter {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @media (max-width: 1180px) {
+    .resource-library-shell {
+      grid-template-columns: 1fr;
+    }
+
+    .resource-inspector {
+      display: none;
+    }
+  }
+
+  @media (max-width: 760px) {
+    .resource-library-main .resource-card {
+      grid-template-columns: 38px minmax(0, 1fr);
+    }
+
+    .resource-library-main .resource-meta,
+    .resource-library-main .resource-actions {
+      grid-column: 2;
+      grid-row: auto;
+      width: 100%;
+    }
+
+    .resource-list-more {
+      align-items: stretch;
+      flex-direction: column;
+
+      button {
+        width: 100%;
+      }
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .course-resources {
+      animation: none;
+    }
+
+    .resource-library-main .resource-card,
+    .resource-heading__actions button,
+    .resource-list-more button,
+    .tool-action-grid button {
+      transition: none;
+    }
+
+    .resource-library-main .resource-card:hover,
+    .resource-library-main .resource-card.active,
+    .resource-heading__actions button:hover,
+    .resource-list-more button:hover,
+    .tool-action-grid button:hover {
+      transform: none;
+    }
+  }
+</style>

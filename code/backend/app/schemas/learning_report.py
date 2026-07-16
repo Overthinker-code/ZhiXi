@@ -1,0 +1,68 @@
+from __future__ import annotations
+
+from typing import Optional
+from pydantic import BaseModel, Field
+
+
+class LearningReportSection(BaseModel):
+    title: str
+    content: str
+
+
+class ProcessStep(BaseModel):
+    key: str
+    label: str
+    message: str = ""
+    status: str = "done"
+
+
+class LearningReport(BaseModel):
+    learner_id: str
+    generated_at: str
+    summary: str = ""
+    current_goal: str = ""
+    learning_style: str = ""
+    risk_level: str = "medium"
+    weak_points: list[str] = Field(default_factory=list)
+    mastery_map: dict[str, float] = Field(default_factory=dict)
+    mastery_insights: list[str] = Field(default_factory=list)
+    mastery_formula: str = ""
+    strengths: list[str] = Field(default_factory=list)
+    recommended_actions: list[str] = Field(default_factory=list)
+    recommended_resources: list[str] = Field(default_factory=list)
+    follow_up_questions: list[str] = Field(default_factory=list)
+    sections: list[LearningReportSection] = Field(default_factory=list)
+    # 教育学参数联动：课堂行为摘要
+    classroom_behavior_summary: Optional[dict] = None
+    # 诊断过程步骤（供前端 Timeline 展示）
+    process_steps: list[ProcessStep] = Field(default_factory=list)
+
+
+class ReviewPlanDay(BaseModel):
+    day_label: str
+    focus: str
+    tasks: list[str] = Field(default_factory=list)
+
+
+class ReviewPlan(BaseModel):
+    learner_id: str
+    generated_at: str
+    summary: str = ""
+    focus_topics: list[str] = Field(default_factory=list)
+    daily_plan: list[ReviewPlanDay] = Field(default_factory=list)
+    checkpoints: list[str] = Field(default_factory=list)
+
+
+class MistakeDigestItem(BaseModel):
+    title: str
+    symptom: str = ""
+    evidence: str = ""
+    fix_strategy: str = ""
+
+
+class MistakeDigest(BaseModel):
+    learner_id: str
+    generated_at: str
+    summary: str = ""
+    mistakes: list[MistakeDigestItem] = Field(default_factory=list)
+    flashcards: list[str] = Field(default_factory=list)

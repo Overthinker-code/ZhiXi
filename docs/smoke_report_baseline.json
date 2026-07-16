@@ -1,0 +1,226 @@
+{
+  "generated_at": "2026-06-10T11:26:43.846899+00:00",
+  "base_url": "http://127.0.0.1:18001",
+  "elapsed_seconds": 187.39,
+  "summary": {
+    "pass": 17,
+    "fail": 2,
+    "degraded": 1,
+    "skip": 1
+  },
+  "environment": {
+    "healthz": {
+      "status": 200,
+      "body": {
+        "service": "backend",
+        "status": "ok",
+        "models": {
+          "chat_model": {
+            "provider": "ollama",
+            "model": "qwen3:14b",
+            "reachable": true,
+            "base_url": "http://127.0.0.1:11434"
+          },
+          "multimodal_model": {
+            "provider": "openai_compatible",
+            "model": "Qwen3-VL-8B-Instruct",
+            "runtime_model": "qwen3-vl:8b",
+            "fallback_model": "Qwen3-VL-4B-Instruct",
+            "configured": true,
+            "reachable": true,
+            "base_url": "http://127.0.0.1:11434/v1"
+          }
+        }
+      }
+    },
+    "readyz": {
+      "status": 200,
+      "body": {
+        "service": "backend",
+        "status": "ready",
+        "db": "ok",
+        "models": {
+          "chat_model": {
+            "provider": "ollama",
+            "model": "qwen3:14b",
+            "reachable": true,
+            "base_url": "http://127.0.0.1:11434"
+          },
+          "multimodal_model": {
+            "provider": "openai_compatible",
+            "model": "Qwen3-VL-8B-Instruct",
+            "runtime_model": "qwen3-vl:8b",
+            "fallback_model": "Qwen3-VL-4B-Instruct",
+            "configured": true,
+            "reachable": true,
+            "base_url": "http://127.0.0.1:11434/v1"
+          }
+        }
+      }
+    }
+  },
+  "results": [
+    {
+      "name": "healthz",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {}
+    },
+    {
+      "name": "readyz",
+      "status": "pass",
+      "detail": "http 200 db=ok",
+      "meta": {}
+    },
+    {
+      "name": "login",
+      "status": "pass",
+      "detail": "token acquired",
+      "meta": {}
+    },
+    {
+      "name": "users/me",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "email": "smoke.test.1781090363@example.com"
+      }
+    },
+    {
+      "name": "chat_stream_text",
+      "status": "pass",
+      "detail": "准确。\n\n总结，索引的主要作用是提高查询速度，通过某种数据结构（如B树）来组织数据，使得查找操作更高效。所以，一句话的解释应该涵盖这些要点，但简洁。\n\n\n索引是数据库中用于加速数据检索的辅助数据结构，其原理类似于书籍的目录（通过有序关键词快速定位内容位置），但底层通常采用B树、哈希表等结构实现。\n\n**补充示例**：  \n假设有一本1000页的电话簿，若按姓名首字母顺序排列并标注页码（类似索引），查找\"张\"姓时可直接跳转到对应页码范围，而非逐页翻找。数据库索引通过类似机制，将",
+      "meta": {
+        "thoughts": 17
+      }
+    },
+    {
+      "name": "chat_stream_multimodal",
+      "status": "fail",
+      "detail": "由于当前系统无法识别图片内容，我将基于您的学习目标提供结构化指导。请按以下步骤操作：\n\n1. **基础信息补充**：请用文字描述图片中的关键元素（如图表类型、文字内容、颜色分布等）。例如：\"图片是数据库索引结构示意图，包含B树分层结构和哈希表索引对比图\"。\n\n2. **知识点关联**：若涉及索引相关知识，请明确说明。例如：\"需要理解B树索引的原理\"或\"图片中包含数组索引的使用案例\"。\n\n3. **示例说明**：假设图片为数据库索引示意图，您可描述：\"图中展示B树索引结构，包含",
+      "meta": {
+        "vision_thoughts": [],
+        "unrecognized_template": true
+      }
+    },
+    {
+      "name": "learning_report_me",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "has_summary": true
+      }
+    },
+    {
+      "name": "learning_report_diagnose",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "possibly_template": true
+      }
+    },
+    {
+      "name": "learning_report_review-plan",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "possibly_template": false
+      }
+    },
+    {
+      "name": "learning_report_mistake-digest",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "possibly_template": false
+      }
+    },
+    {
+      "name": "learning_path_me",
+      "status": "skip",
+      "detail": "endpoint not deployed (404)",
+      "meta": {}
+    },
+    {
+      "name": "resource_workshop_packages",
+      "status": "pass",
+      "detail": "http 200 mode=None",
+      "meta": {
+        "generation_mode": null
+      }
+    },
+    {
+      "name": "resource_workshop_grade",
+      "status": "pass",
+      "detail": "http 200 score=4.6",
+      "meta": {}
+    },
+    {
+      "name": "resource_workshop_image",
+      "status": "degraded",
+      "detail": "http 200 source=fallback status=fallback",
+      "meta": {}
+    },
+    {
+      "name": "rag_upload",
+      "status": "fail",
+      "detail": "http 500",
+      "meta": {
+        "file_id": null
+      }
+    },
+    {
+      "name": "behavior_analyze_image",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "source": null
+      }
+    },
+    {
+      "name": "dashboard_teacher_stats",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {}
+    },
+    {
+      "name": "dashboard_teacher_alerts-trend",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {}
+    },
+    {
+      "name": "dashboard_teacher_popular",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {}
+    },
+    {
+      "name": "dashboard_teacher_content-distribution",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {}
+    },
+    {
+      "name": "digital_human_health",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "body": {
+          "engine": "musetalk",
+          "checks": {
+            "celery_enabled": true,
+            "ffmpeg": true,
+            "fallback_renderer": true,
+            "musetalk_dir": true,
+            "musetalk_unet": true,
+            "musetalk_config": true,
+            "wav2lip_dir": false,
+            "default_asset": true
+          },
+          "ready": true
+        }
+      }
+    }
+  ]
+}

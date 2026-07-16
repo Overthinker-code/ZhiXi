@@ -1,0 +1,232 @@
+/**
+ * 智屿平台全局动画与工具类
+ * 文档：designup.md §6.3
+ */
+
+/* ============================================
+   关键帧动画
+============================================ */
+
+/* 浮动动画：用于 Hero 区浮动卡片、插画 */
+@keyframes zy-float {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-12px); }
+}
+
+/* 品牌靛紫脉冲光晕：用于重要按钮、在线状态 */
+@keyframes zy-pulse-brand {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4); }
+  50%       { box-shadow: 0 0 0 8px rgba(99, 102, 241, 0); }
+}
+
+/* 骨架屏闪烁：用于加载占位 */
+@keyframes zy-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+/* AI 思考跳动圆点 */
+@keyframes zy-bounce-dot {
+  0%, 80%, 100% { transform: scale(0); opacity: 0.3; }
+  40%           { transform: scale(1); opacity: 1; }
+}
+
+/* 淡入上升：页面元素入场 */
+@keyframes zy-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ============================================
+   工具类
+============================================ */
+
+.zy-float {
+  animation: zy-float 3s ease-in-out infinite;
+}
+
+.zy-pulse {
+  animation: zy-pulse-brand 2s ease-in-out infinite;
+}
+
+.zy-skeleton {
+  background: linear-gradient(90deg, #eef2ff 25%, #c7d2fe 50%, #eef2ff 75%);
+  background-size: 200% 100%;
+  animation: zy-shimmer 1.5s infinite;
+}
+
+/* 品牌色扫光（教学总览等数据加载占位） */
+.zy-skeleton--radar {
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  background: linear-gradient(
+    105deg,
+    rgba(99, 102, 241, 0.08) 0%,
+    rgba(99, 102, 241, 0.02) 35%,
+    rgba(14, 165, 233, 0.12) 50%,
+    rgba(139, 92, 246, 0.08) 65%,
+    rgba(99, 102, 241, 0.06) 100%
+  );
+  background-size: 220% 100%;
+  animation: zy-radar-sweep 1.35s ease-in-out infinite;
+}
+
+@keyframes zy-radar-sweep {
+  0% {
+    background-position: 120% 0;
+  }
+  100% {
+    background-position: -120% 0;
+  }
+}
+
+.zy-panel-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 0 12px;
+}
+
+.zy-panel-skeleton .zy-bar {
+  height: 14px;
+  border-radius: 8px;
+}
+
+.zy-fade-up {
+  animation: zy-fade-up 0.5s ease both;
+}
+
+/* AI 思考中三点动画容器 */
+.zy-thinking-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.zy-thinking-dots span {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background-color: var(--zy-color-brand);
+  border-radius: 50%;
+  animation: zy-bounce-dot 1.4s ease-in-out infinite;
+}
+
+.zy-thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+.zy-thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+/* 渐变文字工具类 */
+.zy-gradient-text {
+  background: var(--zy-gradient-brand);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ============================================
+   Motion Design Tokens
+============================================ */
+:root {
+  --zy-duration-fast: 120ms;
+  --zy-duration-normal: 180ms;
+  --zy-duration-slow: 220ms;
+  --zy-ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --zy-ease-spring: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --zy-stagger-step: 36ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* 页面路由过渡 */
+.page-fade-enter-active,
+.page-fade-leave-active {
+  transition:
+    opacity var(--zy-duration-normal) var(--zy-ease-out),
+    transform var(--zy-duration-normal) var(--zy-ease-out);
+}
+
+.page-fade-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.page-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+/* stagger 入场子项 */
+.zy-stagger-item {
+  animation: zy-fade-up var(--zy-duration-slow) var(--zy-ease-out) both;
+  animation-delay: calc(var(--i, 0) * var(--zy-stagger-step));
+}
+
+/* 诊断扫描态 */
+@keyframes zy-scan-sweep {
+  0% {
+    background-position: -100% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.zy-scanning {
+  position: relative;
+  overflow: hidden;
+}
+
+.zy-scanning::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 30%,
+    rgba(99, 102, 241, 0.12) 50%,
+    transparent 70%
+  );
+  background-size: 200% 100%;
+  animation: zy-scan-sweep 1.8s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Agent 节点脉冲 */
+@keyframes zy-node-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(99, 102, 241, 0);
+  }
+}
+
+.zy-node-pulse {
+  animation: zy-node-pulse 1.6s ease-in-out infinite;
+}
+
+/* 卡片 flip 入场 */
+@keyframes zy-flip-in {
+  from {
+    opacity: 0;
+    transform: perspective(600px) rotateX(-12deg) translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: perspective(600px) rotateX(0) translateY(0);
+  }
+}
+
+.zy-flip-in {
+  animation: zy-flip-in var(--zy-duration-slow) var(--zy-ease-spring) both;
+}

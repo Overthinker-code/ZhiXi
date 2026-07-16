@@ -1,0 +1,78 @@
+/**
+ * 智屿像素级原型设计 Token（对照 2026-06 原型图）
+ */
+:root {
+  --px-brand: #4f46e5;
+  --px-brand-light: #6366f1;
+  --px-brand-soft: #f0f2ff;
+  --px-brand-muted: #eef2ff;
+  --px-text-primary: #1f2937;
+  --px-text-secondary: #4b5563;
+  --px-text-muted: #64748b;
+  --px-bg-page: #f8fafc;
+  --px-bg-card: #ffffff;
+  --px-radius-lg: 16px;
+  --px-radius-xl: 20px;
+  --px-radius-pill: 9999px;
+  --px-shadow-card: 0 4px 24px rgba(15, 23, 42, 0.06);
+  --px-shadow-float: 0 12px 40px rgba(79, 70, 229, 0.12);
+  --px-gradient-hero: linear-gradient(135deg, #f5f3ff 0%, #ffffff 55%, #eef2ff 100%);
+  --px-gradient-banner: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 45%, #f8fafc 100%);
+}
+
+.px-card {
+  background: var(--px-bg-card);
+  border-radius: var(--px-radius-lg);
+  box-shadow: var(--px-shadow-card);
+  border: 1px solid rgba(99, 102, 241, 0.08);
+}
+
+.px-pill-tab {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 18px;
+  border-radius: var(--px-radius-pill);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--px-text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  &:hover,
+  &--active {
+    color: var(--px-brand-light);
+    background: var(--px-brand-soft);
+    border-color: rgba(99, 102, 241, 0.15);
+  }
+}
+
+.px-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 24px;
+  border-radius: var(--px-radius-pill);
+  background: var(--px-brand);
+  color: #fff;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+  box-shadow: 0 8px 20px rgba(79, 70, 229, 0.28);
+}
+
+.px-btn-outline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 24px;
+  border-radius: var(--px-radius-pill);
+  background: #fff;
+  color: var(--px-brand);
+  font-weight: 600;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  cursor: pointer;
+  text-decoration: none;
+}

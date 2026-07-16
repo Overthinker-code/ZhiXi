@@ -1,0 +1,109 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.venv/
+code/.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.cover
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.npm
+.yarn
+
+# Build outputs
+*.local
+*.log
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Database
+*.db
+*.sqlite3
+code/backend/vector_db/
+code/backend/generated_resources/
+code/backend/digital_human_inputs/
+code/backend/digital_human_outputs/
+code/backend/digital_human_assets/
+!code/backend/digital_human_assets/
+!code/backend/digital_human_assets/digital_human_assets.json
+!code/backend/digital_human_assets/teacher_default_source.png
+!code/backend/digital_human_assets/teacher_default_cutout.png
+code/backend/models/
+code/backend/MuseTalk/configs/inference/test_local.yaml
+
+# Secrets
+*.pem
+*.key
+secrets/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Cache
+.cache/
+.parcel-cache/
+.omx/
+.playwright-cli/
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Dist
+dist/
+out/
+
+# Lock files (optional - uncomment if you want to ignore)
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml

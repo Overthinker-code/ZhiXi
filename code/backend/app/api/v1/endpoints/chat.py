@@ -1,0 +1,755 @@
+from typing import Any, List
+import json
+import asyncio
+import re
+from difflib import SequenceMatcher
+from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi.responses import StreamingResponse
+from sqlmodel import Session
+from pydantic import BaseModel
+from langchain_core.messages import HumanMessage
+
+from app.api import deps
+
+_SSE_HEADERS = {
+    "Cache-Control": "no-cache, no-transform",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
+
+
+def _sse_response(event_stream):
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers=_SSE_HEADERS,
+    )
+
+
+from app.api.deps import CurrentUser
+from app.providers.chat_provider import chat_provider
+from app.providers.chat_thread_provider import chat_thread_provider
+from app.models.chat import Chat as ChatORM
+from app.models.chat_feedback import ChatFeedback as ChatFeedbackModel
+from app.schemas.chat import Chat, ChatCreate, ChatUpdate
+from app.schemas.chat_feedback import ChatFeedback, ChatFeedbackCreate
+from app.ai.chat_service import get_chat_runtime_settings, ChatRequest, resolve_system_prompt
+from app.ai.chat_engine import stream_chat_events, chat_service, resolve_stream_user_text_for_storage
+from app.ai.chat_runtime import AgentName
+from app.services.pending_actions import pending_action_store
+from app.services.realtime_event_bus import realtime_event_bus
+from app.services.ai_usage_logger import persist_ai_usage
+from app.services.chat_artifact_service import hydrate_chat_artifacts
+from app.services.chat_semantic_cache import chat_semantic_cache
+from app.services.chat_model_factory import ChatModelFactory
+from app.services.background_tasks import schedule_memory_profile_refresh
+
+router = APIRouter()
+
+_MAX_PRIOR_TURNS = 48
+_MAX_CHAT_IMAGES = 3
+_MAX_CHAT_IMAGE_BASE64_CHARS = 8 * 1024 * 1024
+_ALLOWED_TOOL_MODES = {
+    "chat",
+    "exercise_grading",
+    "image_tutoring",
+    "digital_human_explain",
+}
+
+
+def _normalize_tool_mode(tool_mode: str | None) -> str:
+    normalized = (tool_mode or "chat").strip()
+    return normalized if normalized in _ALLOWED_TOOL_MODES else "chat"
+
+
+def _validate_chat_images(images: list[str] | None) -> None:
+    cleaned = [item for item in (images or []) if item]
+    if len(cleaned) > _MAX_CHAT_IMAGES:
+        raise HTTPException(status_code=413, detail=f"最多支持上传 {_MAX_CHAT_IMAGES} 张图片")
+    for item in cleaned:
+        body = item.split(",", 1)[1] if "," in item[:80] else item
+        if len(body) > _MAX_CHAT_IMAGE_BASE64_CHARS:
+            raise HTTPException(status_code=413, detail="单张图片过大，请压缩到 6MB 以内")
+
+
+def _prior_turns_for_request(
+    db: Session,
+    *,
+    thread_id: str,
+    user_id: str | None,
+) -> list[dict[str, str]]:
+    """从 DB 拉取已完成轮次，供 LangGraph 注入 messages（按时间正序）。"""
+    if user_id:
+        thread = chat_thread_provider.get_by_thread_id_and_user(
+            db, thread_id=thread_id, user_id=user_id
+        )
+        if not thread:
+            return []
+    rows = chat_provider.get_chat_history(
+        db, thread_id=thread_id, skip=0, limit=_MAX_PRIOR_TURNS
+    )
+    chronological = list(reversed(rows))
+    out: list[dict[str, str]] = []
+    for r in chronological:
+        u = (r.user_input or "").strip()
+        a = (r.response or "").strip()
+        if u or a:
+            out.append({"user": u, "assistant": a})
+    return out
+
+
+def _chat_to_api(row: ChatORM) -> Chat:
+    """ORM → Pydantic，避免 Pydantic v2 下 response_model 解析失败导致 500。"""
+    if hasattr(Chat, "model_validate"):
+        return Chat.model_validate(row, from_attributes=True)
+    return Chat.from_orm(row)
+
+
+def _feedback_to_api(row: ChatFeedbackModel) -> ChatFeedback:
+    if hasattr(ChatFeedback, "model_validate"):
+        return ChatFeedback.model_validate(row, from_attributes=True)
+    return ChatFeedback.from_orm(row)
+
+
+def _persist_usage_from_payload(
+    db: Session,
+    *,
+    current_user: CurrentUser,
+    thread_id: str,
+    prompt_key: str,
+    payload: dict[str, Any],
+    status: str = "success",
+) -> None:
+    metrics = payload.get("metrics") or {}
+    persist_ai_usage(
+        db,
+        user_id=str(current_user.id) if current_user else None,
+        thread_id=thread_id,
+        prompt_key=prompt_key,
+        status=status,
+        cache_hit=bool(metrics.get("cache_hit")),
+        grounding_mode=str(payload.get("grounding_mode") or ""),
+        confidence=str(payload.get("confidence") or ""),
+        ttft_ms=metrics.get("ttft_ms"),
+        latency_ms=metrics.get("latency_ms"),
+        prompt_tokens=metrics.get("prompt_tokens"),
+        completion_tokens=metrics.get("completion_tokens"),
+        total_tokens=metrics.get("total_tokens"),
+        agent_hops=metrics.get("agent_hops"),
+        tool_calls_count=metrics.get("tool_calls_count"),
+        rag_hit_count=metrics.get("rag_hit_count"),
+        route_trace=metrics.get("route_trace") or [],
+        estimated=bool(metrics.get("estimated_tokens")),
+        extra={
+            "intent": payload.get("intent"),
+            "agent": payload.get("agent"),
+            "routing_reason": payload.get("routing_reason"),
+        },
+    )
+
+
+class ChatStreamRequest(BaseModel):
+    user_input: str
+    thread_id: str = "default"
+    system_prompt: str = ""
+    prompt_key: str = "tutor"
+    rag_k: int = 4
+    strict_mode: bool = False
+    active_tools: list[str] | None = None
+    max_tokens: int | None = None
+    temperature: float | None = None
+    top_p: float | None = None
+    top_k: int | None = None
+    selected_text: str | None = None
+    surrounding_context: str | None = None
+    video_time: str | None = None
+    course_module: str | None = None
+    current_file_id: str | None = None
+    file_name: str | None = None
+    route_context: dict[str, Any] | None = None
+    context_refs: dict[str, Any] | None = None
+    image_base64_list: list[str] | None = None
+    tool_mode: str = "chat"
+    force_agent: AgentName | None = None
+    force_cache: bool = False
+    debug_mode: bool = False
+    reasoning_enabled: bool = False
+
+
+class ChatResumeRequest(BaseModel):
+    pending_action_id: str
+    approve: bool = True
+
+
+class EventTriggerRequest(BaseModel):
+    thread_id: str = "default"
+    event_type: str = "intervention"
+    content: str
+    payload: dict[str, Any] | None = None
+
+
+@router.get("/settings")
+def read_chat_settings(current_user: CurrentUser) -> Any:
+    """Return runtime chat settings for frontend display and controls."""
+    return get_chat_runtime_settings()
+
+
+class TitleGenerateRequest(BaseModel):
+    query: str
+    # 首轮助手可见答复（可选）；提供时优先生成「问+答」主题标题
+    answer: str | None = None
+
+
+def _clean_generated_title(raw: str) -> str:
+    text = (raw or '').strip()
+    text = text.replace('\n', ' ').replace('\r', ' ').strip()
+    text = text.strip().strip("\"'`.,!?;:-_()[]{}")
+    if len(text) > 12:
+        text = text[:12]
+    return text or '新对话'
+
+
+def _heuristic_title_from_query(query: str) -> str:
+    """当 LLM 标题不可用时，尽量生成主题短语而不是整句复读。"""
+    q = re.sub(r"\s+", " ", (query or "").strip())
+    if not q:
+        return "新对话"
+    q = re.sub(r"^(请|麻烦|帮我|请帮我|我想|想要|能否|可以)?", "", q)
+    q = re.sub(r"(现在|目前|最近|一下|一下子)$", "", q).strip()
+    parts = re.split(r"[，。！？；,.!?]", q)
+    core = parts[0].strip() if parts else q
+    core = re.sub(r"(帮我|教我|请你|给我|解决|总结|生成|写一份)", "", core).strip()
+    return _clean_generated_title(core or q)
+
+
+def _is_too_similar_title(title: str, query: str) -> bool:
+    t = (title or "").strip()
+    q = (query or "").strip()
+    if not t:
+        return True
+    if t == "新对话":
+        return True
+    compact_t = re.sub(r"\s+", "", t)
+    compact_q = re.sub(r"\s+", "", q)
+    if compact_t and compact_t in compact_q and len(compact_t) >= 8:
+        return True
+    return SequenceMatcher(None, compact_t.lower(), compact_q.lower()).ratio() >= 0.9
+
+
+def _generate_title_from_query(query: str) -> str:
+    """轻量级标题生成：优先 LLM，失败退化为首句截断。"""
+    clean_query = (query or "").strip()
+    if not clean_query:
+        return "新对话"
+    try:
+        llm = ChatModelFactory.create(temperature=0.2, max_tokens=48)
+        prompt = (
+            "你是标题助手。请将用户问题概括成一个4-10字中文主题短语。"
+            "必须是主题词，不要复读整句，不要标点，不要引号，不要换行。\n用户提问："
+            + clean_query
+        )
+        resp = llm.invoke([HumanMessage(content=prompt)])
+        title = _clean_generated_title(str(getattr(resp, "content", "") or ""))
+        if _is_too_similar_title(title, clean_query):
+            return _heuristic_title_from_query(clean_query)
+        return title
+    except Exception:
+        return _heuristic_title_from_query(clean_query)
+
+
+_MAX_TITLE_ANSWER_CHARS = 1600
+
+
+def _clip_for_title_answer(text: str) -> str:
+    t = re.sub(r"\s+", " ", (text or "").strip())
+    if len(t) > _MAX_TITLE_ANSWER_CHARS:
+        return t[:_MAX_TITLE_ANSWER_CHARS] + "…"
+    return t
+
+
+def _generate_title_from_first_turn(query: str, answer: str | None) -> str:
+    """首轮问答完成后生成主题标题；有 answer 时质量优于只看 query。"""
+    clean_q = (query or "").strip()
+    if not clean_q:
+        return "新对话"
+    ans = _clip_for_title_answer(answer or "")
+    if len(ans) < 12:
+        return _generate_title_from_query(clean_q)
+    try:
+        llm = ChatModelFactory.create(temperature=0.2, max_tokens=56)
+        prompt = (
+            "你是标题助手。请根据「用户首问」和「助手首答」概括本场对话主题，"
+            "输出一个4-10字中文短语作为会话标题。\n"
+            "要求：只写主题名（如学科/任务类型），不要标点、引号、换行，"
+            "不要复述长句，不要包含“用户/助手/对话”等元信息。\n\n"
+            f"【首问】\n{clean_q}\n\n"
+            f"【首答摘录】\n{ans}"
+        )
+        resp = llm.invoke([HumanMessage(content=prompt)])
+        title = _clean_generated_title(str(getattr(resp, "content", "") or ""))
+        blob = re.sub(r"\s+", "", clean_q + ans)
+        compact_t = re.sub(r"\s+", "", title)
+        if title and title != "新对话" and len(compact_t) >= 2:
+            if len(compact_t) >= 8 and compact_t in blob:
+                return _heuristic_title_from_query(clean_q)
+            return title
+        return _generate_title_from_query(clean_q)
+    except Exception:
+        return _generate_title_from_query(clean_q)
+
+
+def _maybe_autorename_thread(
+    db: Session,
+    *,
+    thread_id: str,
+    user_id: str | None,
+    first_query: str,
+    first_answer: str | None = None,
+) -> None:
+    """线程仍为默认标题时，按首轮问答自动改名并持久化。"""
+    if not thread_id or not user_id:
+        return
+    thread = chat_thread_provider.get_by_thread_id_and_user(
+        db, thread_id=thread_id, user_id=user_id
+    )
+    if not thread:
+        return
+    current_title = (thread.title or "").strip()
+    if current_title and current_title != "新对话":
+        return
+    title = _generate_title_from_first_turn(first_query, first_answer)
+    if not title:
+        return
+    chat_thread_provider.update(db, db_obj=thread, obj_in={"title": title})
+
+
+@router.post('/generate-title')
+def generate_chat_title(
+    *,
+    request: TitleGenerateRequest = Body(...),
+    current_user: CurrentUser,
+) -> Any:
+    """旁路轻量接口：可仅首问，或首问+首答二次优化标题，不走 LangGraph 主链路。"""
+    ans = (request.answer or "").strip() or None
+    return {"title": _generate_title_from_first_turn(request.query, ans)}
+
+
+@router.post("/feedback", response_model=ChatFeedback)
+def submit_feedback(
+    *,
+    db: Session = Depends(deps.get_db),
+    feedback_in: ChatFeedbackCreate,
+    current_user: CurrentUser,
+) -> Any:
+    """
+    Submit feedback for a chat response.
+    """
+    chat = chat_provider.get(db, id=feedback_in.record_id)
+    if not chat:
+        raise HTTPException(
+            status_code=404,
+            detail="Chat record not found"
+        )
+    
+    feedback = ChatFeedbackModel(
+        record_id=feedback_in.record_id,
+        user_id=str(current_user.id) if current_user else None,
+        rating=feedback_in.rating,
+        prompt_key=feedback_in.prompt_key,
+    )
+    db.add(feedback)
+    db.commit()
+    db.refresh(feedback)
+    return _feedback_to_api(feedback)
+
+
+@router.post("/", response_model=Chat)
+def create_chat(
+    *,
+    db: Session = Depends(deps.get_db),
+    chat_in: ChatCreate,
+    current_user: CurrentUser,
+) -> Any:
+    """
+    创建新的对话并获取AI响应。
+    """
+    try:
+        _validate_chat_images(chat_in.image_base64_list)
+        chat = chat_provider.create_with_ai_response(
+            db, obj_in=chat_in, current_user=current_user
+        )
+        metrics = getattr(chat, "metrics", None)
+        if isinstance(metrics, dict):
+            _persist_usage_from_payload(
+                db,
+                current_user=current_user,
+                thread_id=chat.thread_id,
+                prompt_key=chat_in.prompt_key or "tutor",
+                payload={
+                    "metrics": metrics,
+                    "grounding_mode": getattr(chat, "grounding_mode", ""),
+                    "confidence": getattr(chat, "confidence", ""),
+                    "intent": getattr(chat, "intent", ""),
+                    "agent": getattr(chat, "agent", ""),
+                    "routing_reason": getattr(chat, "routing_reason", ""),
+                },
+            )
+        return _chat_to_api(chat)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/stream")
+def stream_chat(
+    *,
+    db: Session = Depends(deps.get_db),
+    request: ChatStreamRequest,
+    current_user: CurrentUser,
+):
+    _validate_chat_images(request.image_base64_list)
+    user_id = str(current_user.id) if current_user else None
+    prior_turns = _prior_turns_for_request(
+        db, thread_id=request.thread_id, user_id=user_id
+    )
+
+    def event_stream():
+        final_text: str | None = None
+        final_payload: dict[str, Any] | None = None
+        try:
+            chat_request = ChatRequest(
+                user_input=request.user_input,
+                thread_id=request.thread_id,
+                system_prompt=request.system_prompt,
+                prompt_key=request.prompt_key,
+                rag_k=request.rag_k if request.rag_k in (3, 4, 5) else 4,
+                strict_mode=bool(request.strict_mode),
+                active_tools=request.active_tools,
+                max_tokens=request.max_tokens,
+                temperature=request.temperature,
+                top_p=request.top_p,
+                top_k=request.top_k,
+                selected_text=request.selected_text,
+                surrounding_context=request.surrounding_context,
+                video_time=request.video_time,
+                course_module=request.course_module,
+                user_id=user_id,
+                is_admin=bool(getattr(current_user, "is_superuser", False))
+                if current_user
+                else False,
+                prior_turns=prior_turns or None,
+                current_file_id=request.current_file_id,
+                file_name=request.file_name,
+                route_context=request.route_context,
+                context_refs=request.context_refs,
+                image_base64_list=request.image_base64_list,
+                tool_mode=_normalize_tool_mode(request.tool_mode),
+                force_agent=request.force_agent,
+                force_cache=bool(request.force_cache),
+                debug_mode=bool(request.debug_mode),
+                reasoning_enabled=bool(request.reasoning_enabled),
+            )
+            log_user = resolve_stream_user_text_for_storage(chat_request)
+            for payload in stream_chat_events(chat_request):
+                if isinstance(payload, dict) and payload.get("type") == "final":
+                    c = payload.get("content")
+                    if isinstance(c, str) and c.strip():
+                        final_text = c
+                    final_payload = payload
+                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            if final_text and request.thread_id and user_id:
+                try:
+                    thread = chat_thread_provider.get_by_thread_id_and_user(
+                        db, thread_id=request.thread_id, user_id=user_id
+                    )
+                    if thread:
+                        chat_provider.save_stream_turn(
+                            db,
+                            thread_id=request.thread_id,
+                            user_input=log_user,
+                            response=final_text,
+                            system_prompt=resolve_system_prompt(
+                                request.prompt_key, request.system_prompt or ""
+                            ),
+                            agent=str(final_payload.get("agent") or ""),
+                            intent=str(final_payload.get("intent") or ""),
+                            routing_reason=str(final_payload.get("routing_reason") or ""),
+                            citations=list(final_payload.get("citations") or []),
+                            confidence=str(final_payload.get("confidence") or ""),
+                            grounding_mode=str(final_payload.get("grounding_mode") or ""),
+                            suggestions=list(final_payload.get("suggestions") or []),
+                            metrics=final_payload.get("metrics") or {},
+                        )
+                        _maybe_autorename_thread(
+                            db,
+                            thread_id=request.thread_id,
+                            user_id=user_id,
+                            first_query=log_user,
+                            first_answer=final_text,
+                        )
+                        schedule_memory_profile_refresh(user_id)
+                        if isinstance(final_payload, dict):
+                            _persist_usage_from_payload(
+                                db,
+                                current_user=current_user,
+                                thread_id=request.thread_id,
+                                prompt_key=request.prompt_key,
+                                payload=final_payload,
+                            )
+                except Exception:
+                    pass
+        except Exception as exc:
+            error_payload = {"type": "error", "content": str(exc)}
+            yield f"data: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
+
+    return _sse_response(event_stream)
+
+
+@router.post("/selection-query")
+def selection_query(
+    *,
+    db: Session = Depends(deps.get_db),
+    request: ChatStreamRequest,
+    current_user: CurrentUser,
+) -> Any:
+    try:
+        _validate_chat_images(request.image_base64_list)
+        user_id = str(current_user.id) if current_user else None
+        prior_turns = _prior_turns_for_request(
+            db, thread_id=request.thread_id, user_id=user_id
+        )
+        chat_request = ChatRequest(
+            user_input=request.user_input,
+            thread_id=request.thread_id,
+            system_prompt=request.system_prompt,
+            prompt_key=request.prompt_key,
+            rag_k=request.rag_k if request.rag_k in (3, 4, 5) else 4,
+            strict_mode=bool(request.strict_mode),
+            active_tools=request.active_tools,
+            max_tokens=request.max_tokens,
+            temperature=request.temperature,
+            top_p=request.top_p,
+            top_k=request.top_k,
+            selected_text=request.selected_text,
+            surrounding_context=request.surrounding_context,
+            video_time=request.video_time,
+            course_module=request.course_module,
+            user_id=user_id,
+            is_admin=bool(getattr(current_user, "is_superuser", False))
+            if current_user
+            else False,
+            prior_turns=prior_turns or None,
+            current_file_id=request.current_file_id,
+            file_name=request.file_name,
+            route_context=request.route_context,
+            context_refs=request.context_refs,
+            image_base64_list=request.image_base64_list,
+            tool_mode=_normalize_tool_mode(request.tool_mode),
+            force_agent=request.force_agent,
+            force_cache=bool(request.force_cache),
+            debug_mode=bool(request.debug_mode),
+            reasoning_enabled=bool(request.reasoning_enabled),
+        )
+        out = chat_service(chat_request).model_dump()
+        if user_id and request.thread_id and (out.get("response") or "").strip():
+            try:
+                thread = chat_thread_provider.get_by_thread_id_and_user(
+                    db, thread_id=request.thread_id, user_id=user_id
+                )
+                if thread:
+                    log_user = resolve_stream_user_text_for_storage(chat_request)
+                    chat_provider.save_stream_turn(
+                        db,
+                        thread_id=request.thread_id,
+                        user_input=log_user,
+                        response=str(out.get("response") or ""),
+                        system_prompt=resolve_system_prompt(
+                            request.prompt_key, request.system_prompt or ""
+                        ),
+                        agent=str(out.get("agent") or ""),
+                        intent=str(out.get("intent") or ""),
+                        routing_reason=str(out.get("routing_reason") or ""),
+                        citations=list(out.get("citations") or []),
+                        confidence=str(out.get("confidence") or ""),
+                        grounding_mode=str(out.get("grounding_mode") or ""),
+                        suggestions=list(out.get("suggestions") or []),
+                        metrics=out.get("metrics") or {},
+                    )
+                    _maybe_autorename_thread(
+                        db,
+                        thread_id=request.thread_id,
+                        user_id=user_id,
+                        first_query=log_user,
+                        first_answer=str(out.get("response") or ""),
+                    )
+                    schedule_memory_profile_refresh(user_id)
+                    _persist_usage_from_payload(
+                        db,
+                        current_user=current_user,
+                        thread_id=request.thread_id,
+                        prompt_key=request.prompt_key,
+                        payload=out,
+                    )
+            except Exception:
+                pass
+        return out
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/resume")
+def resume_chat(
+    *,
+    request: ChatResumeRequest,
+    current_user: CurrentUser,
+) -> Any:
+    action = pending_action_store.get(request.pending_action_id)
+    user_id = str(current_user.id) if current_user else "anonymous"
+    if not action or action.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Pending action not found")
+    if request.approve:
+        confirmed = pending_action_store.confirm(request.pending_action_id)
+        return {
+            "status": "confirmed",
+            "message": "计划已确认并写入日历（演示模式）。",
+            "action": pending_action_store.as_dict(confirmed),  # type: ignore[arg-type]
+        }
+    rejected = pending_action_store.reject(request.pending_action_id)
+    return {
+        "status": "rejected",
+        "message": "已取消写入日历。",
+        "action": pending_action_store.as_dict(rejected),  # type: ignore[arg-type]
+    }
+
+
+@router.get("/cache/hotspots")
+def cache_hotspots(current_user: CurrentUser, top_k: int = 10):
+    return {"items": chat_semantic_cache.hotspots(top_k)}
+
+
+@router.post("/event-trigger")
+def event_trigger(
+    *,
+    request: EventTriggerRequest,
+    current_user: CurrentUser,
+):
+    user_id = str(current_user.id) if current_user else "anonymous"
+    realtime_event_bus.publish(
+        user_id=user_id,
+        event_type=request.event_type,
+        content=request.content,
+        payload=request.payload or {"thread_id": request.thread_id},
+    )
+    return {"status": "queued"}
+
+
+@router.get("/events/stream")
+def stream_events(current_user: CurrentUser):
+    user_id = str(current_user.id) if current_user else "anonymous"
+
+    async def event_stream():
+        while True:
+            events = realtime_event_bus.pop_all(user_id)
+            if events:
+                for event in events:
+                    payload = {
+                        "type": "intervention",
+                        "event_type": event.event_type,
+                        "content": event.content,
+                        "payload": event.payload,
+                        "created_at": event.created_at,
+                    }
+                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            await asyncio.sleep(1.0)
+
+    return _sse_response(event_stream)
+
+
+@router.get("/history/{thread_id}", response_model=List[Chat])
+def read_chat_history(
+    *,
+    db: Session = Depends(deps.get_db),
+    thread_id: str,
+    skip: int = 0,
+    limit: int = 100,
+    current_user: CurrentUser,
+) -> Any:
+    """
+    获取指定thread_id的对话历史。
+    用户只能访问自己的对话历史。
+    """
+    user_id = str(current_user.id) if current_user else None
+    if user_id:
+        thread = chat_thread_provider.get_by_thread_id_and_user(
+            db, thread_id=thread_id, user_id=user_id
+        )
+        if not thread:
+            raise HTTPException(
+                status_code=404,
+                detail="Chat thread not found or access denied"
+            )
+    chats = chat_provider.get_chat_history(
+        db, thread_id=thread_id, skip=skip, limit=limit
+    )
+    hydrate_chat_artifacts(db, chats)
+    return [_chat_to_api(c) for c in chats]
+
+
+@router.get("/by-id/{chat_id}", response_model=Chat)
+def read_chat(
+    *,
+    db: Session = Depends(deps.get_db),
+    chat_id: int,
+    current_user: CurrentUser,
+) -> Any:
+    """
+    通过ID获取特定的对话。
+    """
+    chat = chat_provider.get(db, id=chat_id)
+    if not chat:
+        raise HTTPException(
+            status_code=404,
+            detail="Chat not found"
+        )
+    user_id = str(current_user.id) if current_user else None
+    if user_id:
+        thread = chat_thread_provider.get_by_thread_id_and_user(
+            db, thread_id=chat.thread_id, user_id=user_id
+        )
+        if not thread:
+            raise HTTPException(
+                status_code=404,
+                detail="Chat not found or access denied"
+            )
+    hydrate_chat_artifacts(db, [chat])
+    return _chat_to_api(chat)
+
+
+@router.delete("/by-id/{chat_id}", response_model=Chat)
+def delete_chat(
+    *,
+    db: Session = Depends(deps.get_db),
+    chat_id: int,
+    current_user: CurrentUser,
+) -> Any:
+    """
+    删除特定的对话记录。
+    用户只能删除自己的对话记录。
+    """
+    chat = chat_provider.get(db, id=chat_id)
+    if not chat:
+        raise HTTPException(
+            status_code=404,
+            detail="Chat not found"
+        )
+    user_id = str(current_user.id) if current_user else None
+    if user_id:
+        thread = chat_thread_provider.get_by_thread_id_and_user(
+            db, thread_id=chat.thread_id, user_id=user_id
+        )
+        if not thread:
+            raise HTTPException(
+                status_code=404,
+                detail="Chat not found or access denied"
+            )
+    chat = chat_provider.remove(db, id=chat_id)
+    return _chat_to_api(chat)

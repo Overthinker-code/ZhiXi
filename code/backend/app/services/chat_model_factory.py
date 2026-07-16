@@ -1,0 +1,108 @@
+from app.core.config import settings
+
+
+def _with_optional_timeout(model):
+    timeout = (
+        getattr(settings, "MIMO_TIMEOUT_SECONDS", 0)
+        if settings.CHAT_PROVIDER.lower() == "mimo"
+        else getattr(settings, "LEARNING_REPORT_LLM_TIMEOUT_SECONDS", 0)
+    )
+    if not timeout:
+        return model
+    try:
+        return model.with_config({"timeout": timeout})
+    except Exception:
+        return model
+
+
+class ChatModelFactory:
+    @staticmethod
+    def create(
+        *,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        top_p: float | None = None,
+        top_k: int | None = None,
+        reasoning: bool | str | None = False,
+        model_name: str | None = None,
+    ):
+        provider = settings.CHAT_PROVIDER.lower()
+        effective_temperature = (
+            settings.CHAT_TEMPERATURE if temperature is None else temperature
+        )
+
+        if provider == "iflytek":
+            api_password = settings.IFLYTEK_API_SECRET or settings.IFLYTEK_API_KEY
+            if api_password and settings.IFLYTEK_APP_ID:
+                from langchain_openai import ChatOpenAI
+
+                kwargs = {
+                    "model": settings.IFLYTEK_SPARK_MODEL,
+                    "temperature": effective_temperature,
+                    "openai_api_key": api_password,
+                    "openai_api_base": "https://spark-api-open.xf-yun.com/v1",
+                }
+                if max_tokens is not None:
+                    kwargs["max_tokens"] = max_tokens
+                return _with_optional_timeout(ChatOpenAI(**kwargs))
+            provider = "ollama"
+
+        if provider == "ollama":
+            from langchain_ollama import ChatOllama
+
+            kwargs = {
+                "model": settings.OLLAMA_MODEL,
+                "temperature": effective_temperature,
+                "base_url": settings.OLLAMA_BASE_URL,
+                # User-visible reasoning is streamed separately. Disabling the
+                # model's hidden thinking channel prevents Qwen3 from spending
+                # the whole token budget without producing answer content.
+                "reasoning": reasoning,
+            }
+            if top_p is not None:
+                kwargs["top_p"] = top_p
+            if top_k is not None:
+                kwargs["top_k"] = top_k
+            if max_tokens is not None:
+                kwargs["num_predict"] = max_tokens
+            return _with_optional_timeout(ChatOllama(**kwargs))
+
+        if provider == "mimo":
+            from langchain_openai import ChatOpenAI
+
+            kwargs = {
+                "model": model_name or settings.MIMO_CHAT_MODEL or settings.CHAT_MODEL,
+                "temperature": effective_temperature,
+                "openai_api_key": settings.MIMO_API_KEY or "sk-placeholder",
+                "openai_api_base": settings.MIMO_API_BASE,
+                "default_headers": {
+                    "api-key": settings.MIMO_API_KEY or "sk-placeholder"
+                },
+                "extra_body": {"thinking": {"type": "disabled"}},
+                "request_timeout": settings.MIMO_TIMEOUT_SECONDS,
+            }
+            if max_tokens is not None:
+                kwargs["max_tokens"] = max_tokens
+            if top_p is not None:
+                kwargs["top_p"] = top_p
+
+            return _with_optional_timeout(ChatOpenAI(**kwargs))
+
+        if provider in {"openai", "openai_compatible"}:
+            from langchain_openai import ChatOpenAI
+
+            kwargs = {
+                "model": settings.CHAT_MODEL,
+                "temperature": effective_temperature,
+                "openai_api_key": settings.OPENAI_API_KEY or "sk-placeholder",
+            }
+            if max_tokens is not None:
+                kwargs["max_tokens"] = max_tokens
+            if top_p is not None:
+                kwargs["top_p"] = top_p
+            if settings.OPENAI_API_BASE:
+                kwargs["openai_api_base"] = settings.OPENAI_API_BASE
+
+            return _with_optional_timeout(ChatOpenAI(**kwargs))
+
+        raise ValueError(f"Unsupported chat provider: {settings.CHAT_PROVIDER}")

@@ -1,0 +1,180 @@
+{
+  "generated_at": "2026-06-11T03:03:06.405081+00:00",
+  "base_url": "http://127.0.0.1:18001",
+  "elapsed_seconds": 339.85,
+  "summary": {
+    "pass": 19,
+    "fail": 2,
+    "degraded": 0,
+    "skip": 0
+  },
+  "environment": {},
+  "results": [
+    {
+      "name": "healthz",
+      "status": "fail",
+      "detail": "timed out",
+      "meta": {}
+    },
+    {
+      "name": "readyz",
+      "status": "fail",
+      "detail": "timed out",
+      "meta": {}
+    },
+    {
+      "name": "login",
+      "status": "pass",
+      "detail": "token acquired",
+      "meta": {}
+    },
+    {
+      "name": "users/me",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "email": "admin@example.com"
+      }
+    },
+    {
+      "name": "chat_stream_text",
+      "status": "pass",
+      "detail": "数据检索的结构，类似于书籍的目录，帮助快速定位数据所在位置 [citation:1]。\n\n索引是数据库中用于加速数据检索的结构，类似于书籍的目录，帮助快速定位数据所在位置 [citation:1]。",
+      "meta": {
+        "thoughts": 11
+      }
+    },
+    {
+      "name": "chat_stream_multimodal",
+      "status": "pass",
+      "detail": "您上传的图片经视觉模型识别后显示为**纯红色背景**，未包含任何文字、图表、公式、题干或与学习相关的视觉元素（如代码、流程图、数据库结构等）[citation:1]。当前图片内容无法用于解答技术问题或学习辅导。\n\n**分层说明：**\n1. **核心概念**：图像识别模型通过颜色、边缘、纹理等特征判断图片内容。纯红色背景属于无信息图像，无法提取有效数据。\n2. **操作步骤**：若需分析图片内容，请确保上传的图片包含文字、图表、代码等可解析元素；若需学习数据库事务管理等知识点，",
+      "meta": {
+        "vision_thoughts": [
+          "【视觉识别】status=ok source=multimodal model=qwen3-vl:8b fields={'content': 36, 'reasoning': 130} summary=图片内容为纯红色背景，无题干、图表、选项、公式及已知条件等题目相关元素。"
+        ],
+        "unrecognized_template": false
+      }
+    },
+    {
+      "name": "learning_report_me",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "has_summary": true
+      }
+    },
+    {
+      "name": "learning_report_diagnose",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "possibly_template": true
+      }
+    },
+    {
+      "name": "learning_report_review-plan",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "possibly_template": false
+      }
+    },
+    {
+      "name": "learning_report_mistake-digest",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "possibly_template": false
+      }
+    },
+    {
+      "name": "learning_path_me",
+      "status": "pass",
+      "detail": "has_path",
+      "meta": {
+        "degraded": false
+      }
+    },
+    {
+      "name": "resource_workshop_packages",
+      "status": "pass",
+      "detail": "http 200 mode=llm",
+      "meta": {
+        "generation_mode": "llm"
+      }
+    },
+    {
+      "name": "resource_workshop_grade",
+      "status": "pass",
+      "detail": "http 200 score=8.0",
+      "meta": {}
+    },
+    {
+      "name": "resource_workshop_image",
+      "status": "pass",
+      "detail": "http 200 source=qwen3-vl status=success",
+      "meta": {}
+    },
+    {
+      "name": "rag_upload",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "file_id": "c6e4aba0-9e83-4630-9f2b-21e2fa9dbe5f"
+      }
+    },
+    {
+      "name": "behavior_analyze_image",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "source": null
+      }
+    },
+    {
+      "name": "dashboard_teacher_stats",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {}
+    },
+    {
+      "name": "dashboard_teacher_alerts-trend",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {}
+    },
+    {
+      "name": "dashboard_teacher_popular",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {}
+    },
+    {
+      "name": "dashboard_teacher_content-distribution",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {}
+    },
+    {
+      "name": "digital_human_health",
+      "status": "pass",
+      "detail": "http 200",
+      "meta": {
+        "body": {
+          "engine": "musetalk",
+          "checks": {
+            "celery_enabled": true,
+            "ffmpeg": true,
+            "fallback_renderer": true,
+            "musetalk_dir": true,
+            "musetalk_unet": true,
+            "musetalk_config": true,
+            "wav2lip_dir": false,
+            "default_asset": true
+          },
+          "ready": true
+        }
+      }
+    }
+  ]
+}

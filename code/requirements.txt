@@ -1,0 +1,51 @@
+fastapi[standard]
+python-multipart
+email-validator
+celery
+redis
+edge-tts
+passlib[bcrypt]
+tenacity
+pydantic
+emails
+jinja2
+alembic
+httpx
+psycopg[binary]
+sqlmodel
+bcrypt
+pydantic-settings
+sentry-sdk[fastapi]
+pyjwt
+
+# LLM and RAG dependencies
+langchain
+langchain-community
+langchain-chroma
+langgraph
+langchain-openai
+langchain-ollama
+chromadb
+
+# Document processing
+python-docx
+pypdf
+pdfplumber
+python-pptx
+aiofiles
+typing-extensions
+pymupdf
+
+# Video and image processing
+opencv-python>=4.10,<5
+numpy
+Pillow
+
+# Async support
+aiohttp
+
+# Utils
+python-jose[cryptography]
+python-dateutil
+pytz
+ddgs
