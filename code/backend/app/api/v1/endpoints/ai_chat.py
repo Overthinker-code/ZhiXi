@@ -4,6 +4,7 @@ import asyncio
 import base64
 import contextvars
 import json
+import logging
 import mimetypes
 import re
 import time
@@ -69,9 +70,11 @@ from app.services.resource_package_service import (
     ResourcePackagePersistenceError,
     resource_package_service,
 )
+from app.services.chat_artifact_service import hydrate_chat_artifacts
 
 router = APIRouter()
 rag_service = RAGService()
+logger = logging.getLogger(__name__)
 
 _SSE_HEADERS = {
     "Cache-Control": "no-cache, no-transform",
@@ -587,7 +590,60 @@ def _is_quiz_generation_intent(message: str) -> bool:
     return quiz_word and action_word
 
 
-def _quiz_context(message: str) -> tuple[str, str, int, str]:
+_QUIZ_KNOWN_COURSES = (
+    ("计算机组成原理", "计算机组成原理"),
+    ("计算机组成", "计算机组成原理"),
+    ("计算机网络", "计算机网络"),
+    ("数据库系统原理", "数据库"),
+    ("数据库", "数据库"),
+    ("数据结构", "数据结构"),
+    ("机器学习", "机器学习"),
+    ("人工智能", "人工智能"),
+    ("Python", "Python"),
+    ("TCP", "计算机网络"),
+)
+
+
+def _quiz_topic_from_text(message: str, *, course_tokens: tuple[str, ...] = ()) -> str:
+    text = re.sub(r"\s+", "", message or "")
+    quoted = re.search(r"(?:围绕|关于|针对)?[“\"']([^”\"']{1,160})[”\"']", text)
+    target = quoted.group(1) if quoted else text
+    target = re.sub(r"^(?:基于)?(?:上一轮问答|上一轮|刚才|前面)(?:的)?", "", target)
+    target = re.sub(r"^围绕", "", target)
+    target = re.sub(r"^(?:请|请你|帮我|麻烦你|给我|我想要|我要)+", "", target)
+    target = re.sub(r"^围绕", "", target)
+    target = re.sub(r"^(?:生成|创建|制作|出)(?:一份|一套|一下|一组|\d+道)?", "", target)
+    target = re.sub(
+        r"(?:的)?(?:期末考试题目|期末考试试题|期末题目|期末试题|期末试卷|专项练习|练习题|"
+        r"测试题|考试题|模拟题|习题|题库|试题|试卷|题目).*$",
+        "",
+        target,
+    )
+    target = re.sub(r"(?:入门|基础|初学者|简单|进阶|挑战|困难|高难)(?:版|难度)?", "", target)
+    target = re.sub(r"(?:生成|创建|制作).{0,80}(?:知识)?(?:图谱|导图).*$", "", target)
+    for token in sorted(course_tokens, key=len, reverse=True):
+        target = target.replace(token, "")
+    target = target.strip("，。！？:：的 ")
+    if target in {"", "图谱", "知识图谱", "导图", "资料", "当前学习主题"}:
+        return ""
+    return target
+
+
+def _known_quiz_course(text: str) -> tuple[str, str] | None:
+    for token, course in sorted(_QUIZ_KNOWN_COURSES, key=lambda item: len(item[0]), reverse=True):
+        if token.casefold() in text.casefold():
+            return token, course
+    return None
+
+
+def _quiz_context(
+    message: str,
+    *,
+    course_context: CourseContext | None = None,
+    prior_user_messages: list[str] | None = None,
+    prior_resource_package: dict[str, str] | None = None,
+) -> tuple[str, str, int, str]:
+    """Resolve a quiz scope from trusted context and user-authored turns only."""
     text = re.sub(r"\s+", "", message or "")
     is_exam = any(word in text for word in ("期末", "考试", "试卷", "模拟题"))
     count_match = re.search(r"(\d{1,2})道", text)
@@ -599,32 +655,47 @@ def _quiz_context(message: str) -> tuple[str, str, int, str]:
         if any(word in text for word in ("进阶", "挑战", "困难", "高难"))
         else "standard"
     )
-    target = re.sub(r"^(?:请|请你|帮我|麻烦你|给我|我想要|我要)+", "", text)
-    target = re.sub(r"^(?:生成|创建|制作|出)(?:一份|一套|一下|\d+道)?", "", target)
-    target = re.sub(
-        r"(?:的)?(?:期末考试题目|期末考试试题|期末题目|期末试题|期末试卷|专项练习|练习题|"
-        r"测试题|考试题|模拟题|习题|题库|试题|试卷|题目).*$",
-        "",
-        target,
+    trusted_course = _course_title(course_context.course_id) if course_context else "通用学习"
+    current_course = _known_quiz_course(text)
+    course = trusted_course if trusted_course != "通用学习" else (current_course[1] if current_course else "通用课程")
+    course_tokens = tuple(
+        token
+        for token, mapped_course in _QUIZ_KNOWN_COURSES
+        if mapped_course == course or ("数据库" in course and mapped_course == "数据库")
     )
-    target = re.sub(r"(?:入门|基础|初学者|简单|进阶|挑战|困难|高难)(?:版|难度)?", "", target)
-    target = target.strip("，。！？:：的 ") or "当前学习主题"
-    known_courses = (
-        ("数据库", "数据库"),
-        ("TCP", "计算机网络"),
-        ("计算机网络", "计算机网络"),
-        ("数据结构", "数据结构"),
-        ("机器学习", "机器学习"),
-        ("人工智能", "人工智能"),
-        ("计算机组成原理", "计算机组成原理"),
-        ("计算机组成", "计算机组成原理"),
-        ("Python", "Python"),
-    )
-    for prefix, course in known_courses:
-        if target.startswith(prefix):
-            point = target[len(prefix):].strip("：:的 ")
-            return course, point or ("期末综合" if is_exam else prefix), count, difficulty
-    return "通用课程", target, count, difficulty
+    target = _quiz_topic_from_text(text, course_tokens=course_tokens)
+
+    refers_to_prior = any(token in text for token in ("上一轮", "刚才", "前面"))
+    latest_prior = next((item.strip() for item in reversed(prior_user_messages or []) if item.strip()), "")
+    prior_course = _known_quiz_course(latest_prior) if latest_prior else None
+    prior_tokens = course_tokens
+    prior_target = _quiz_topic_from_text(latest_prior, course_tokens=prior_tokens) if latest_prior else ""
+    package_scope = prior_resource_package or {}
+    package_topic = str(package_scope.get("knowledge_point") or package_scope.get("title") or "").strip()
+    package_course = str(package_scope.get("course") or "").strip()
+    if refers_to_prior and package_topic:
+        target = package_topic
+        if package_course:
+            course = package_course
+    elif refers_to_prior and prior_target:
+        # A quoted request such as “生成一份数据库图谱” names an artifact, not
+        # a learnable topic. In that case, retain the latest owned user topic.
+        if not target or target.endswith(("图谱", "导图")):
+            target = prior_target
+        if trusted_course == "通用学习" and prior_course:
+            course = prior_course[1]
+    if not target:
+        chapter_topic = _chapter_title(
+            course_context.course_id if course_context else None,
+            course_context.chapter_id if course_context else None,
+        )
+        knowledge_ids = course_context.knowledge_point_ids if course_context else []
+        target = (
+            chapter_topic
+            or (str(knowledge_ids[0]).replace("-", " ") if knowledge_ids else "")
+            or ("期末综合" if is_exam else (current_course[0] if current_course else "当前学习主题"))
+        )
+    return course, target, count, difficulty
 
 
 def _quiz_package(quiz: Any) -> dict[str, Any]:
@@ -867,6 +938,43 @@ def _prior_turns(db: Session, thread_id: str, user_id: str | None) -> list[dict[
     for row in reversed(rows):
         turns.append({"user": row.user_input or "", "assistant": row.response or ""})
     return turns
+
+
+def _prior_owned_resource_package_context(
+    db: Session,
+    thread_id: str,
+    user_id: str | None,
+) -> dict[str, str]:
+    """Read structured server-generated package metadata from an owned chat."""
+    if user_id and not chat_thread_provider.get_by_thread_id_and_user(
+        db, thread_id=thread_id, user_id=user_id
+    ):
+        return {}
+    rows = hydrate_chat_artifacts(
+        db,
+        chat_provider.get_chat_history(db, thread_id=thread_id, skip=0, limit=48),
+    )
+    for row in rows:
+        metrics = getattr(row, "metrics", {})
+        package = metrics.get("resourcePackage") if isinstance(metrics, dict) else None
+        if not isinstance(package, dict):
+            continue
+        candidates = [package, *(item for item in package.get("artifacts", []) if isinstance(item, dict))]
+        title_fallback = ""
+        for item in candidates:
+            knowledge_point = str(item.get("knowledge_point") or "").strip()
+            course = str(item.get("course") or "").strip()
+            title = str(item.get("title") or "").strip()
+            if knowledge_point or course:
+                return {
+                    "knowledge_point": knowledge_point,
+                    "course": course,
+                    "title": title,
+                }
+            title_fallback = title_fallback or title
+        if title_fallback:
+            return {"knowledge_point": "", "course": "", "title": title_fallback}
+    return {}
 
 
 def _ensure_session(db: Session, user_id: str | None, session_id: str | None) -> tuple[str, bool]:
@@ -1677,8 +1785,19 @@ def ai_chat_stream(
                 yield _phase_delta("plan", "已允许联网检索；只有工具真实执行后才会显示检索结果")
 
             if _is_quiz_generation_intent(request.message or ""):
+                owned_prior_user_messages = [
+                    turn["user"]
+                    for turn in _prior_turns(db, session_id, user_id)
+                    if turn.get("user", "").strip()
+                ]
+                prior_resource_package = _prior_owned_resource_package_context(
+                    db, session_id, user_id
+                )
                 course, knowledge_point, question_count, difficulty = _quiz_context(
-                    request.message or ""
+                    request.message or "",
+                    course_context=request.course_context,
+                    prior_user_messages=owned_prior_user_messages,
+                    prior_resource_package=prior_resource_package,
                 )
                 yield update_task("executor", "running", 15, "正在生成结构化专项练习")
                 yield _phase_started(
@@ -1755,13 +1874,19 @@ def ai_chat_stream(
                     yield _sse("run_finished", done_payload)
                     yield _sse("done", done_payload)
                 except QuizGenerationError as exc:
+                    logger.warning("quiz generation failed run_id=%s reason=%s", run_id, exc)
                     yield task_event(
                         agent_task_service.fail_run(
                             db, run_id=run_id, message="专项练习生成失败"
                         )
                     )
                     yield _sse(
-                        "error", {"code": "QUIZ_GENERATION_FAILED", "message": str(exc)}
+                        "error",
+                        {
+                            "code": "QUIZ_GENERATION_FAILED",
+                            "message": "本次练习题未通过质量校验，未保存任何题目。请重试。",
+                            "retryAction": "retry",
+                        },
                     )
                 return
 

@@ -7,7 +7,12 @@ import pytest
 from sqlalchemy import create_engine
 from sqlmodel import SQLModel, Session, select
 
-from app.api.v1.endpoints.ai_chat import _is_quiz_generation_intent, _quiz_context
+from app.api.v1.endpoints.ai_chat import (
+    CourseContext,
+    _is_quiz_generation_intent,
+    _prior_owned_resource_package_context,
+    _quiz_context,
+)
 from app.db.base_class import Base
 from app.models import (
     CourseKnowledgeNode,
@@ -20,6 +25,9 @@ from app.models import (
     WrongQuestion,
 )
 from app.models.user import User  # noqa: F401
+from app.models.chat import Chat
+from app.models.chat_artifact import ChatArtifact
+from app.models.chat_thread import ChatThread
 from app.models.user_memory_profile import UserMemoryProfile
 from app.schemas.quiz import QuizDraft
 from app.services.chat_model_factory import ChatModelFactory
@@ -46,6 +54,124 @@ def test_chat_quiz_intent_extracts_topic_count_and_difficulty() -> None:
     request = "帮我生成一套计算机组成原理的期末题目，生成word，保存在我的资料中心"
     assert _is_quiz_generation_intent(request)
     assert _quiz_context(request) == ("计算机组成原理", "期末综合", 10, "standard")
+
+
+def test_quiz_context_prefers_trusted_course_and_latest_owned_user_topic_for_follow_up() -> None:
+    course, topic, count, difficulty = _quiz_context(
+        "基于上一轮问答，围绕“生成一份数据库图谱”生成一组针对性练习题",
+        course_context=CourseContext(
+            courseId="c1111111-1111-4111-9111-111111111101",
+            chapterId="ch4",
+        ),
+        prior_user_messages=["请围绕数据库范式与 BCNF 生成一份数据库图谱"],
+    )
+
+    assert (course, topic, count, difficulty) == ("数据库系统原理", "范式与BCNF", 10, "standard")
+
+
+def test_quiz_context_finds_known_course_tokens_anywhere_without_prior_turns() -> None:
+    course, _topic, count, difficulty = _quiz_context("请围绕关系代数为数据库生成 6 道进阶练习题")
+
+    assert (course, count, difficulty) == ("数据库", 6, "challenge")
+
+
+def test_quiz_context_uses_owned_generated_package_when_prior_user_request_is_generic() -> None:
+    db = _session()
+    user_id = uuid4()
+    thread = ChatThread(thread_id="owned-thread", title="数据库学习", user_id=str(user_id))
+    db.add(thread)
+    db.flush()
+    chat = Chat(thread_id=thread.thread_id, user_input="生成一份数据库图谱", response="通用回复")
+    db.add(chat)
+    db.flush()
+    db.add(
+        ChatArtifact(
+            chat_id=chat.id,
+            metrics_json=json.dumps(
+                {
+                    "resourcePackage": {
+                        "title": "数据库知识图谱",
+                        "artifacts": [
+                            {
+                                "kind": "knowledge_graph",
+                                "course": "数据库系统原理",
+                                "knowledge_point": "范式与 BCNF",
+                                "title": "范式与 BCNF 知识图谱",
+                            }
+                        ],
+                    }
+                },
+                ensure_ascii=False,
+            ),
+        )
+    )
+    db.commit()
+
+    package = _prior_owned_resource_package_context(db, thread.thread_id, str(user_id))
+    context = _quiz_context(
+        "基于上一轮问答生成一组针对性练习题",
+        course_context=CourseContext(courseId="c1111111-1111-4111-9111-111111111101"),
+        prior_user_messages=["生成一份数据库图谱"],
+        prior_resource_package=package,
+    )
+
+    assert package == {"knowledge_point": "范式与 BCNF", "course": "数据库系统原理", "title": "范式与 BCNF 知识图谱"}
+    assert context == ("数据库系统原理", "范式与 BCNF", 10, "standard")
+
+
+def test_normal_form_hierarchy_stem_is_repaired_only_when_key_is_unique_highest() -> None:
+    draft = QuizDraft.model_validate(
+        {
+            "title": "范式层次练习",
+            "questions": [
+                {
+                    "knowledge_point": "范式级别",
+                    "content": "设关系模式 R 已满足题设条件，下列说法正确的是？",
+                    "options": [
+                        {"key": "A", "text": "R 属于 1NF"},
+                        {"key": "B", "text": "R 属于 2NF"},
+                        {"key": "C", "text": "R 属于 3NF"},
+                        {"key": "D", "text": "R 属于 BCNF"},
+                    ],
+                    "answer": "D",
+                    "analysis": "题设条件满足 BCNF，因此其也是最高满足的范式。",
+                }
+            ],
+        }
+    )
+
+    quiz_service._repair_safe_normal_form_hierarchy_stems(draft)
+
+    assert "最高满足的范式" in draft.questions[0].content
+    quiz_service._validate_quiz_quality(draft)
+
+
+def test_normal_form_hierarchy_repair_keeps_ambiguous_ladder_fail_closed() -> None:
+    draft = QuizDraft.model_validate(
+        {
+            "title": "范式层次练习",
+            "questions": [
+                {
+                    "knowledge_point": "范式级别",
+                    "content": "设关系模式 R 已满足题设条件，下列说法正确的是？",
+                    "options": [
+                        {"key": "A", "text": "R 属于 1NF"},
+                        {"key": "B", "text": "R 属于 2NF"},
+                        {"key": "C", "text": "R 属于 3NF"},
+                        {"key": "D", "text": "R 属于 BCNF"},
+                    ],
+                    "answer": "C",
+                    "analysis": "题设条件满足第三范式。",
+                }
+            ],
+        }
+    )
+
+    quiz_service._repair_safe_normal_form_hierarchy_stems(draft)
+
+    assert "最高满足的范式" not in draft.questions[0].content
+    with pytest.raises(ValueError, match="可同时为真"):
+        quiz_service._validate_quiz_quality(draft)
 
 
 def test_quiz_payload_normalizes_common_model_field_variants() -> None:
@@ -89,6 +215,33 @@ def test_quiz_payload_normalizes_common_model_field_variants() -> None:
     assert draft.questions[0].content.startswith("CPU")
     assert draft.questions[0].options[0].key == "A"
     assert draft.questions[1].options[0].text == "提高访存速度"
+
+
+def test_normalize_draft_removes_duplicated_course_prefix_from_title() -> None:
+    payload = {
+        "title": "数据库数据库专项练习",
+        "questions": [
+            {
+                "content": "数据库事务的原子性表示什么？",
+                "options": {
+                    "A": "事务中的操作全部成功或全部回滚",
+                    "B": "事务提交后数据永久保存",
+                },
+                "answer": "A",
+                "analysis": "原子性要求事务不可分割，故选 A。",
+            }
+        ],
+    }
+
+    draft = quiz_service._normalize_draft_payload(
+        payload,
+        course="数据库",
+        knowledge_point="数据库",
+        difficulty="standard",
+        count=1,
+    )
+
+    assert draft.title == "数据库专项练习"
 
 
 @pytest.mark.parametrize(
@@ -658,6 +811,117 @@ def test_unsupported_scope_remains_fail_closed_without_curated_fallback(
     assert generation_calls == 2
 
 
+def test_targeted_repair_replaces_only_the_deterministically_failing_question(monkeypatch) -> None:
+    original_second = {
+        "knowledge_point": "范式级别",
+        "content": "数据库关系模式满足题设条件，下列说法正确的是？",
+        "options": [
+            {"key": "A", "text": "R 属于 1NF"},
+            {"key": "B", "text": "R 属于 2NF"},
+            {"key": "C", "text": "R 属于 3NF"},
+            {"key": "D", "text": "R 属于 BCNF"},
+        ],
+        "answer": "C",
+        "analysis": "题设条件满足第三范式。",
+    }
+    source = {
+        "title": "数据库专项练习",
+        "questions": [
+            {
+                "knowledge_point": "事务",
+                "content": "数据库事务原子性表示什么？",
+                "options": {"A": "整体成功或回滚", "B": "允许部分提交"},
+                "answer": "A",
+                "analysis": "原子性要求事务整体成功或整体回滚，因此答案为 A。",
+            },
+            original_second,
+        ],
+    }
+    replacement = {
+        "knowledge_point": "范式级别",
+        "content": "数据库关系模式满足题设条件，其最高满足的范式是？",
+        "options": {"A": "3NF", "B": "BCNF"},
+        "answer": "A",
+        "analysis": "题设仅能推出 3NF，不能推出 BCNF，因此选择 A。",
+        "difficulty": "standard",
+    }
+    calls = {"generation": 0, "targeted": 0, "review": 0}
+
+    class Model:
+        def __init__(self, kind: str):
+            self.kind = kind
+
+        def invoke(self, _messages):
+            calls[self.kind] += 1
+            if self.kind == "generation":
+                return SimpleNamespace(content=json.dumps(source, ensure_ascii=False))
+            if self.kind == "targeted":
+                return SimpleNamespace(content=json.dumps(replacement, ensure_ascii=False))
+            return SimpleNamespace(
+                content=json.dumps(
+                    {
+                        "reviewed_question_count": 2,
+                        "questions": [
+                            {"question_index": 1, "verdict": "pass", "correct_option_keys": ["A"], "issues": []},
+                            {"question_index": 2, "verdict": "pass", "correct_option_keys": ["A"], "issues": []},
+                        ],
+                        "issues": [],
+                    },
+                    ensure_ascii=False,
+                )
+            )
+
+    def create_model(**kwargs):
+        if kwargs.get("max_tokens") == quiz_service._TARGETED_REPAIR_MAX_TOKENS:
+            return Model("targeted")
+        if kwargs.get("temperature") == 0.0:
+            return Model("review")
+        return Model("generation")
+
+    monkeypatch.setattr(ChatModelFactory, "create", create_model)
+
+    draft = quiz_service._generate_with_llm(
+        course="数据库", knowledge_point="范式", count=2, difficulty="standard"
+    )
+
+    assert calls == {"generation": 1, "targeted": 1, "review": 1}
+    assert draft.questions[0].content == source["questions"][0]["content"]
+    assert draft.questions[1].content == replacement["content"]
+
+
+def test_targeted_repair_rejects_unparseable_or_incomplete_replacement(monkeypatch) -> None:
+    draft = QuizDraft.model_validate(
+        {
+            "title": "数据库专项练习",
+            "questions": [
+                {
+                    "knowledge_point": "范式级别",
+                    "content": "数据库关系模式满足题设条件，下列说法正确的是？",
+                    "options": [{"key": "A", "text": "R 属于 1NF"}, {"key": "B", "text": "R 属于 BCNF"}],
+                    "answer": "A",
+                    "analysis": "题设条件满足第一范式。",
+                }
+            ],
+        }
+    )
+
+    class InvalidRepairModel:
+        def invoke(self, _messages):
+            return SimpleNamespace(content='{"content":"不完整"}')
+
+    monkeypatch.setattr(ChatModelFactory, "create", lambda **_: InvalidRepairModel())
+
+    with pytest.raises(ValueError, match="有效题目不足"):
+        quiz_service._repair_single_invalid_question(
+            draft,
+            reason="第 1 题范式层次选项 A 与 B 可同时为真；题干需明确询问最高范式",
+            course="数据库",
+            knowledge_point="范式",
+            difficulty="standard",
+        )
+    assert draft.questions[0].content == "数据库关系模式满足题设条件，下列说法正确的是？"
+
+
 def test_quiz_generation_retries_with_concise_quality_failure_reason(monkeypatch) -> None:
     responses = [
         {
@@ -687,6 +951,7 @@ def test_quiz_generation_retries_with_concise_quality_failure_reason(monkeypatch
     ]
     generation_prompts: list[str] = []
     review_prompts: list[str] = []
+    targeted_prompts: list[str] = []
 
     class GenerationModel:
         def invoke(self, messages):
@@ -716,12 +981,22 @@ def test_quiz_generation_retries_with_concise_quality_failure_reason(monkeypatch
                 )
             )
 
+    class InvalidTargetedRepairModel:
+        def invoke(self, messages):
+            targeted_prompts.append(messages[0].content)
+            return SimpleNamespace(content="not valid json")
+
     generation_model = GenerationModel()
     review_model = ReviewModel()
+    targeted_model = InvalidTargetedRepairModel()
     monkeypatch.setattr(
         ChatModelFactory,
         "create",
-        lambda **kwargs: review_model if kwargs.get("temperature") == 0.0 else generation_model,
+        lambda **kwargs: targeted_model
+        if kwargs.get("max_tokens") == quiz_service._TARGETED_REPAIR_MAX_TOKENS
+        else review_model
+        if kwargs.get("temperature") == 0.0
+        else generation_model,
     )
 
     draft = quiz_service._generate_with_llm(
@@ -733,6 +1008,7 @@ def test_quiz_generation_retries_with_concise_quality_failure_reason(monkeypatch
 
     assert draft.questions[0].answer == "A"
     assert len(generation_prompts) == 2
+    assert len(targeted_prompts) == 1
     assert len(review_prompts) == 1
     assert "失败原因：第 1 题的解析否定了题目有效性" in generation_prompts[1]
     assert "不要复用上一版题目" in generation_prompts[1]

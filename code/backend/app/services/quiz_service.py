@@ -41,6 +41,8 @@ class QuizReviewError(ValueError):
 class QuizService:
     _MAX_GENERATION_ATTEMPTS = 2
     _REVIEW_TIMEOUT_SECONDS = 45
+    _TARGETED_REPAIR_TIMEOUT_SECONDS = 20
+    _TARGETED_REPAIR_MAX_TOKENS = 900
     _CURATED_BANK_PATH = (
         Path(__file__).resolve().parents[2]
         / "data"
@@ -601,6 +603,7 @@ BCNF 的定义是每个非平凡函数依赖的决定因素都是超键（等价
 不得输出“题目不恰当”、“无法确定正确答案”、“需要重查题目”等自我否定的解析；如果无法构造唯一正确的题目，请改写整题后再输出。"""
         model = ChatModelFactory.create(temperature=0.25, max_tokens=6000, reasoning=False)
         errors: list[str] = []
+        targeted_repair_attempted = False
         for attempt in range(self._MAX_GENERATION_ATTEMPTS):
             try:
                 previous_reason = re.sub(r"\s+", " ", errors[-1]).strip()[:120] if errors else ""
@@ -622,7 +625,31 @@ BCNF 的定义是每个非平凡函数依赖的决定因素都是超键（等价
                     count=count,
                 )
                 self._validate_topic_alignment(draft, course=course)
-                self._validate_quiz_quality(draft)
+                self._repair_safe_normal_form_hierarchy_stems(draft)
+                try:
+                    self._validate_quiz_quality(draft)
+                except ValueError as exc:
+                    if targeted_repair_attempted or not self._validation_question_index(str(exc)):
+                        raise
+                    targeted_repair_attempted = True
+                    original_reason = str(exc)
+                    try:
+                        self._repair_single_invalid_question(
+                            draft,
+                            reason=original_reason,
+                            course=course,
+                            knowledge_point=knowledge_point,
+                            difficulty=difficulty,
+                        )
+                    except Exception as repair_exc:
+                        raise ValueError(
+                            f"{original_reason}；定点修复未通过：{str(repair_exc)[:120]}"
+                        ) from repair_exc
+                    # The replacement is untrusted until every deterministic
+                    # invariant succeeds again across the complete draft.
+                    self._validate_topic_alignment(draft, course=course)
+                    self._repair_safe_normal_form_hierarchy_stems(draft)
+                    self._validate_quiz_quality(draft)
                 self._review_quiz_with_llm(
                     draft,
                     course=course,
@@ -641,6 +668,53 @@ BCNF 的定义是每个非平凡函数依赖的决定因素都是超键（等价
             return fallback
         detail = errors[-1][:160] if errors else "模型未返回有效 JSON"
         raise QuizGenerationError(f"结构化题目生成失败：{detail}")
+
+    @staticmethod
+    def _validation_question_index(reason: str) -> int | None:
+        match = re.search(r"第\s*(\d{1,2})\s*题", reason or "")
+        return int(match.group(1)) if match else None
+
+    def _repair_single_invalid_question(
+        self,
+        draft: QuizDraft,
+        *,
+        reason: str,
+        course: str,
+        knowledge_point: str,
+        difficulty: str,
+    ) -> None:
+        question_index = self._validation_question_index(reason)
+        if question_index is None or question_index > len(draft.questions):
+            raise ValueError("无法定位需要修复的题目")
+        original = draft.questions[question_index - 1]
+        prompt = f"""你是 Quiz Agent 的定点修复器。仅修复第 {question_index} 题，不要改动其他题。
+课程：{course}；范围：{knowledge_point}；难度：{difficulty}。
+确定性校验失败原因：{reason[:300]}
+原题 JSON：
+{json.dumps(original.model_dump(), ensure_ascii=False)}
+
+只输出一个修复后的单题 JSON 对象，字段必须是 knowledge_point、question_type、content、options、answer、analysis、difficulty。
+必须保留单选题、唯一正确答案和学术严谨性；不要输出解释、Markdown 或其他题目。"""
+        model = ChatModelFactory.create(
+            temperature=0.0,
+            max_tokens=self._TARGETED_REPAIR_MAX_TOKENS,
+            reasoning=False,
+            timeout_seconds=self._TARGETED_REPAIR_TIMEOUT_SECONDS,
+        )
+        raw_result = model.invoke([HumanMessage(content=prompt)])
+        raw = str(getattr(raw_result, "content", raw_result) or "")
+        match = re.search(r"\{[\s\S]*\}", raw)
+        payload = json.loads(match.group(0) if match else raw)
+        if isinstance(payload, dict) and isinstance(payload.get("question"), dict):
+            payload = payload["question"]
+        repaired = self._normalize_draft_payload(
+            {"title": draft.title, "questions": [payload]},
+            course=course,
+            knowledge_point=knowledge_point,
+            difficulty=difficulty,
+            count=1,
+        )
+        draft.questions[question_index - 1] = repaired.questions[0]
 
     @staticmethod
     def _supports_curated_quiz_bank(*, course: str, knowledge_point: str) -> bool:
@@ -710,6 +784,7 @@ BCNF 的定义是每个非平凡函数依赖的决定因素都是超键（等价
         # Curated questions skip the probabilistic reviewer, but never bypass
         # the same deterministic invariants applied to model output.
         self._validate_topic_alignment(draft, course=course)
+        self._repair_safe_normal_form_hierarchy_stems(draft)
         self._validate_quiz_quality(draft)
         return draft
 
@@ -999,9 +1074,13 @@ verdict 只能是 pass 或 block；severity 只能是 blocking 或 warning。每
         minimum = min(count, 3)
         if len(valid) < minimum:
             raise ValueError(f"有效题目不足：期望至少 {minimum} 道，实际 {len(valid)} 道")
+        title = str(root.get("title") or f"{course}{knowledge_point}专项练习").strip()
+        duplicated_course_prefix = f"{course}{course}"
+        if course and title.startswith(duplicated_course_prefix):
+            title = title[len(course) :]
         return QuizDraft.model_validate(
             {
-                "title": str(root.get("title") or f"{course}{knowledge_point}专项练习").strip(),
+                "title": title,
                 "questions": valid,
             }
         )
@@ -1189,6 +1268,48 @@ verdict 只能是 pass 或 block；severity 只能是 blocking 或 warning。每
                     raise ValueError(
                         f"第 {question_index} 题范式层次选项 {left_key} 与 {right_key} 可同时为真；题干需明确询问最高范式"
                     )
+
+    @staticmethod
+    def _repair_safe_normal_form_hierarchy_stems(draft: QuizDraft) -> None:
+        """Qualify one provably safe hierarchy stem without relaxing validation.
+
+        A model occasionally emits the canonical 1NF/2NF/3NF/BCNF ladder and
+        keys the uniquely highest option, but phrases the stem as a generic
+        “which statement is correct”.  The facts and answer are intact; only
+        the question scope is underspecified.  Repair only when option labels
+        prove the keyed option is the sole highest level. Any ambiguity remains
+        fail-closed and is handled by the normal validator/reviewer path.
+        """
+        rank_for_label = {"1NF": 1, "2NF": 2, "3NF": 3, "BCNF": 4}
+        for question in draft.questions:
+            content = re.sub(r"\s+", "", question.content).upper()
+            if not any(token in content for token in ("正确", "符合")) or any(
+                token in content
+                for token in ("最高范式", "最高满足", "最高属于", "最高级别", "最高可以达到")
+            ):
+                continue
+            claims: list[tuple[str, int, set[int]]] = []
+            for option in question.options:
+                compact = re.sub(r"[\s，,。；;:：！!?？（）()]+", "", option.text).upper()
+                labels = re.findall(r"(?:属于|满足|达到|是)(BCNF|3NF|2NF|1NF)", compact)
+                levels = QuizService._normal_form_membership_truth_levels(option.text)
+                if len(set(labels)) == 1 and levels:
+                    claims.append((option.key.strip().upper(), rank_for_label[labels[0]], levels))
+            answer = question.answer.strip().upper()
+            selected = next((claim for claim in claims if claim[0] == answer), None)
+            if not selected or selected[2] != {selected[1]}:
+                continue
+            other_ranks = [rank for key, rank, _levels in claims if key != answer]
+            if len(claims) < 2 or not other_ranks or selected[1] <= max(other_ranks):
+                continue
+            repaired = re.sub(
+                r"下列(?:说法)?(?:正确|符合题意|符合条件)(?:的是|为)?[？?]?$",
+                "该关系模式最高满足的范式是？",
+                question.content.strip(),
+            )
+            if repaired == question.content.strip():
+                repaired = f"{question.content.strip().rstrip('？?。')}；该关系模式最高满足的范式是？"
+            question.content = repaired
 
     @staticmethod
     def _validate_bcnf_decomposition_option_combo(question, *, question_index: int) -> None:
