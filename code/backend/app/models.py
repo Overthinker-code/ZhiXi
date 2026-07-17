@@ -601,8 +601,23 @@ class Resource(ResourceBase, table=True):
     uploader: User = Relationship(back_populates="resources")
 
 
-class ResourcePublic(ResourceBase):
+class ResourcePublic(SQLModel):
+    """Public resource metadata deliberately excludes the server storage path."""
+
     id: UUID
+    title: str
+    type: str
+    subject: str
+    file_name: str
+    file_size: int
+    content_type: str
+    course_id: Optional[UUID] = None
+    package_id: Optional[str] = None
+    content: Optional[dict[str, Any]] = None
+    url: Optional[str] = None
+    knowledge_point: Optional[str] = None
+    difficulty: Optional[str] = None
+    source: Optional[str] = None
     upload_time: datetime
     uploader_id: UUID
     favorite: bool = False

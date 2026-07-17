@@ -8,7 +8,6 @@ export interface ResourceRecord {
   type: string;
   subject: string;
   file_name: string;
-  file_path: string;
   file_size: number;
   content_type: string;
   course_id?: string | null;
@@ -78,6 +77,13 @@ export function downloadResource(resourceId: string) {
   return axios.get(`/api/education/resources/${resourceId}/download`, {
     responseType: 'blob',
     timeout: READ_TIMEOUT_MS,
+  });
+}
+
+export function previewResource(resourceId: string) {
+  return axios.get(`/api/education/resources/${resourceId}/preview`, {
+    responseType: 'blob',
+    timeout: READ_TIMEOUT_MS * 3,
   });
 }
 

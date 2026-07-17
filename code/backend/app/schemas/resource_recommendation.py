@@ -27,15 +27,37 @@ class RecommendationItem(BaseModel):
     knowledge_point: str = ""
     difficulty: str = ""
     source: str = ""
+    source_domain: str | None = None
     url: str | None = None
     reason: str
-    score: float
     evidence: list[str] = Field(default_factory=list)
     preview: str = ""
     favorite: bool = False
     status: str = "active"
     generation: int = 1
     resource: dict[str, Any] | None = None
+
+
+class RecommendationPreviewResource(BaseModel):
+    """Metadata needed by the client previewer, without storage internals."""
+
+    id: UUID
+    title: str
+    type: str
+    file_name: str = ""
+    file_size: int = 0
+    content_type: str = "application/octet-stream"
+    knowledge_point: str | None = None
+    difficulty: str | None = None
+    # Only knowledge-graph resources expose this field. It contains a
+    # validated nodes/edges payload, never file metadata or server paths.
+    content: dict[str, Any] | None = None
+
+
+class RecommendationPreviewResponse(BaseModel):
+    recommendation: RecommendationItem
+    resource: RecommendationPreviewResource | None = None
+    message: str
 
 
 class ResourceRecommendationResponse(BaseModel):
@@ -49,6 +71,12 @@ class ResourceRecommendationResponse(BaseModel):
 
 class RecommendationFavoriteRequest(BaseModel):
     favorite: bool = True
+
+
+class RecommendationFeedbackRequest(BaseModel):
+    """Only actions that cannot be observed server-side are accepted."""
+
+    action: Literal["source_opened"]
 
 
 class RecommendationActionResponse(BaseModel):

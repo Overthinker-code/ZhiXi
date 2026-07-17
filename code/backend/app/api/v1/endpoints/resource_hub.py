@@ -12,6 +12,8 @@ from app.schemas.resource_recommendation import (
     ExternalResourceCreate,
     RecommendationActionResponse,
     RecommendationFavoriteRequest,
+    RecommendationFeedbackRequest,
+    RecommendationPreviewResponse,
     ResourceRecommendationResponse,
 )
 from app.services.resource_subject_service import resolve_resource_subject
@@ -68,6 +70,22 @@ def favorite_recommendation(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.post("/recommendations/{recommendation_id}/feedback")
+def recommendation_feedback(
+    *, session: SessionDep, current_user: CurrentUser, recommendation_id: UUID,
+    request: RecommendationFeedbackRequest,
+) -> Any:
+    try:
+        return resource_recommendation_service.record_explicit_feedback(
+            session, user_id=current_user.id, recommendation_id=recommendation_id,
+            action=request.action,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.post(
     "/recommendations/{recommendation_id}/regenerate",
     response_model=RecommendationActionResponse,
@@ -100,6 +118,27 @@ def add_recommendation_to_library(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"推荐资源入库失败：{exc}") from exc
+
+
+@router.post(
+    "/recommendations/{recommendation_id}/preview",
+    response_model=RecommendationPreviewResponse,
+)
+def preview_recommendation(
+    *, session: SessionDep, current_user: CurrentUser, recommendation_id: UUID
+) -> Any:
+    """Prepare a recommendation preview without putting it into the library."""
+    try:
+        return resource_recommendation_service.preview(
+            session, user_id=current_user.id, recommendation_id=recommendation_id
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="暂时无法准备预览，请稍后重试或重新生成推荐",
+        ) from exc
 
 
 @router.post("/external", response_model=ExternalResource)

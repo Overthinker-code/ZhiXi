@@ -10,15 +10,33 @@ export interface ResourceRecommendationItem {
   knowledge_point: string;
   difficulty: string;
   source: string;
+  source_domain?: string | null;
   url?: string | null;
   reason: string;
-  score: number;
   evidence: string[];
   preview: string;
   favorite: boolean;
   status: string;
   generation: number;
   resource?: ResourceRecord | null;
+}
+
+export interface RecommendationPreviewResource {
+  id: string;
+  title: string;
+  type: string;
+  file_name: string;
+  file_size: number;
+  content_type: string;
+  knowledge_point?: string | null;
+  difficulty?: string | null;
+  content?: Record<string, unknown> | null;
+}
+
+export interface RecommendationPreviewResponse {
+  recommendation: ResourceRecommendationItem;
+  resource?: RecommendationPreviewResource | null;
+  message: string;
 }
 
 export interface ResourceRecommendationResponse {
@@ -65,5 +83,21 @@ export function addRecommendationToLibrary(recommendationId: string) {
     `/api/resource-hub/recommendations/${recommendationId}/add-to-library`,
     {},
     { timeout: 180000 }
+  );
+}
+
+export function previewRecommendation(recommendationId: string) {
+  return axios.post<RecommendationPreviewResponse>(
+    `/api/resource-hub/recommendations/${recommendationId}/preview`,
+    {},
+    { timeout: 180000 }
+  );
+}
+
+export function reportRecommendationSourceOpened(recommendationId: string) {
+  return axios.post<ResourceRecommendationItem>(
+    `/api/resource-hub/recommendations/${recommendationId}/feedback`,
+    { action: 'source_opened' },
+    { timeout: 5000 }
   );
 }

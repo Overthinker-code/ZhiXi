@@ -6,7 +6,7 @@ from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from sqlmodel import select, and_, func, or_
 
@@ -15,6 +15,7 @@ from app.api import deps
 from app.core.config import settings
 from app.core.upload_security import random_storage_name, validate_upload
 from app.services.resource_subject_service import resolve_resource_subject
+from app.services.resource_preview_service import ResourcePreviewError, resource_preview_service
 
 router = APIRouter()
 
@@ -102,6 +103,18 @@ def _resource_payload(
     return payload
 
 
+def _preview_headers(filename: str) -> dict[str, str]:
+    # The converted HTML is deliberately inert. Keep these headers on binary
+    # previews too, so browser MIME sniffing/caching cannot widen exposure.
+    safe_filename = Path(filename).name.replace('"', "").replace("\r", "").replace("\n", "") or "resource"
+    return {
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+        "Content-Disposition": f'inline; filename="{safe_filename}"',
+    }
+
+
 def _record_resource_event(
     db: Any,
     *,
@@ -110,6 +123,12 @@ def _record_resource_event(
     event_type: str,
 ) -> None:
     from app.services.learning_report_service import learning_report_service
+    from app.services.recommendation_feedback_service import (
+        feedback_idempotency_key,
+        signed_weight,
+    )
+
+    observed_at = datetime.now(timezone.utc)
 
     learning_report_service.record_evidence(
         db,
@@ -117,14 +136,19 @@ def _record_resource_event(
         course_id=resource.course_id,
         knowledge_point=resource.knowledge_point or resource.title,
         source_type="resource_interaction",
-        source_id=f"{resource.id}:{event_type}:{datetime.now(timezone.utc).isoformat()}",
+        source_id=f"{resource.id}:{event_type}",
         event_type=event_type,
         weight=0.2,
         score=None,
+        observed_at=observed_at,
+        idempotency_key=feedback_idempotency_key(str(resource.id), event_type, observed_at),
         payload={
             "resource_id": str(resource.id),
             "resource_type": resource.type,
             "subject": resource.subject,
+            "origin": "external" if resource.type == "external" else "generated",
+            "topic": resource.knowledge_point,
+            "signed_preference_weight": signed_weight(event_type),
         },
     )
 
@@ -544,4 +568,43 @@ def download_resource(
         str(abs_file_path),
         media_type=resource.content_type,
         filename=resource.file_name
+    )
+
+
+@router.get("/{resource_id}/preview")
+def preview_resource(
+    *,
+    db: Any = Depends(deps.get_db),
+    current_user: models.User = Depends(deps.get_current_user),
+    resource_id: UUID,
+) -> Response:
+    """Prepare an authenticated, non-download resource preview."""
+    resource = _resource_or_404(db, resource_id, current_user)
+    abs_file_path = _resolve_resource_file(resource)
+    if not abs_file_path.is_file():
+        raise HTTPException(status_code=404, detail="资源文件不存在或已被删除")
+    try:
+        preview = resource_preview_service.prepare(abs_file_path)
+    except ResourcePreviewError as exc:
+        raise HTTPException(status_code=415, detail=str(exc)) from exc
+
+    # Evidence is written only after both authorization and parsing/preparation
+    # succeed; failed previews never become learning activity.
+    _record_resource_event(
+        db,
+        current_user=current_user,
+        resource=resource,
+        event_type="resource_previewed",
+    )
+    db.commit()
+    if preview.stream_file:
+        return FileResponse(
+            str(abs_file_path),
+            media_type=preview.media_type,
+            headers=_preview_headers(resource.file_name),
+        )
+    return Response(
+        content=preview.content or "",
+        media_type=preview.media_type,
+        headers=_preview_headers(resource.file_name),
     )

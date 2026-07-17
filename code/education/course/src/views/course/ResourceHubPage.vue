@@ -5,6 +5,7 @@
   import {
     BookOpen,
     Download,
+    Eye,
     ExternalLink,
     Pin,
     Plus,
@@ -24,12 +25,15 @@
     setResourceTop,
     type ResourceRecord,
   } from '@/api/resources';
+  import ResourcePreviewDialog from '@/components/resource/ResourcePreviewDialog.vue';
+  import RecommendationPreviewDialog from '@/components/resource/RecommendationPreviewDialog.vue';
   import {
     addRecommendationToLibrary,
     dismissResourceRecommendation,
     favoriteResourceRecommendation,
     fetchResourceRecommendations,
     regenerateResourceRecommendation,
+    reportRecommendationSourceOpened,
     type ResourceRecommendationItem,
   } from '@/api/resource-hub';
 
@@ -45,6 +49,8 @@
   const refreshingRecommendations = ref(false);
   const resourceBusy = ref<Record<string, string>>({});
   const recommendationBusy = ref<Record<string, string>>({});
+  const previewingResource = ref<ResourceRecord | null>(null);
+  const previewingRecommendation = ref<ResourceRecommendationItem | null>(null);
 
   const typeLabels: Record<string, string> = {
     pdf: 'PDF',
@@ -237,6 +243,50 @@
     }
   }
 
+  function canPreview(resource: ResourceRecord) {
+    if (resource.url || ['question', 'quiz'].includes(resource.type)) return false;
+    const name = resource.file_name.toLowerCase();
+    return ['.pdf', '.png', '.jpg', '.jpeg', '.docx', '.pptx', '.md', '.markdown', '.txt']
+      .some((extension) => name.endsWith(extension));
+  }
+
+  function preview(resource: ResourceRecord) {
+    if (!canPreview(resource)) return;
+    previewingResource.value = resource;
+  }
+
+  function previewRecommendation(item: ResourceRecommendationItem) {
+    previewingRecommendation.value = item;
+  }
+
+  function trackRecommendationSourceOpened(item: ResourceRecommendationItem) {
+    // The source must open immediately; feedback persistence is deliberately
+    // non-blocking so a slow API never interferes with the user's click.
+    void reportRecommendationSourceOpened(item.id).catch(() => undefined);
+  }
+
+  function updateRecommendation(item: ResourceRecommendationItem) {
+    const index = recommendations.value.findIndex((entry) => entry.id === item.id);
+    if (index >= 0) recommendations.value[index] = item;
+    if (previewingRecommendation.value?.id === item.id) previewingRecommendation.value = item;
+  }
+
+  function safeExternalUrl(value?: string | null) {
+    if (!value) return '';
+    try {
+      const url = new URL(value);
+      return ['http:', 'https:'].includes(url.protocol) ? url.toString() : '';
+    } catch {
+      return '';
+    }
+  }
+
+  function sourceMatchesDomain(item: ResourceRecommendationItem) {
+    return Boolean(
+      item.source_domain && item.source.trim().toLowerCase() === item.source_domain.trim().toLowerCase()
+    );
+  }
+
   function removeFromLibrary(resource: ResourceRecord) {
     Modal.confirm({
       title: '从资料库移除',
@@ -396,19 +446,42 @@
                 :aria-label="item.favorite ? '取消收藏推荐' : '收藏推荐'"
                 :disabled="Boolean(recommendationBusy[item.id])"
                 @click="toggleRecommendationFavorite(item)"
-              ><Star :size="15" :fill="item.favorite ? 'currentColor' : 'none'" /></button>
+              ><Star :size="15" :fill="item.favorite ? 'currentColor' : 'none'" />{{ item.favorite ? '已收藏' : '收藏' }}</button>
               <button
                 type="button"
                 aria-label="忽略该推荐"
                 :disabled="Boolean(recommendationBusy[item.id])"
                 @click="dismissRecommendation(item)"
-              ><X :size="15" /></button>
+              ><X :size="15" />不感兴趣</button>
             </div>
           </header>
           <strong>{{ item.title }}</strong>
           <p>{{ item.reason || item.preview }}</p>
           <small>{{ item.subject || '通用学习' }}<template v-if="item.knowledge_point"> · {{ item.knowledge_point }}</template></small>
+          <div class="recommendation-source">
+            <template v-if="item.origin === 'external' && safeExternalUrl(item.url)">
+              <span>来源：</span>
+              <a
+                :href="safeExternalUrl(item.url)"
+                target="_blank"
+                rel="noopener noreferrer"
+                :aria-label="`在新窗口打开${item.source}原文`"
+                @click="trackRecommendationSourceOpened(item)"
+              >
+                {{ item.source }}<template v-if="!sourceMatchesDomain(item)"> · {{ item.source_domain }}</template> <ExternalLink :size="12" />
+              </a>
+            </template>
+            <template v-else>来源：{{ item.source || '来源暂不可用' }}</template>
+          </div>
           <footer>
+            <button
+              type="button"
+              class="secondary"
+              :disabled="Boolean(recommendationBusy[item.id])"
+              @click="previewRecommendation(item)"
+            >
+              <Eye :size="14" /> 预览
+            </button>
             <button
               type="button"
               class="secondary"
@@ -472,14 +545,21 @@
               :aria-label="resource.favorite ? `取消收藏${resource.title}` : `收藏${resource.title}`"
               :disabled="Boolean(resourceBusy[resource.id])"
               @click="toggleFavorite(resource)"
-            ><Star :size="15" :fill="resource.favorite ? 'currentColor' : 'none'" /></button>
+            ><Star :size="15" :fill="resource.favorite ? 'currentColor' : 'none'" />{{ resource.favorite ? '取消收藏' : '收藏' }}</button>
             <button
               type="button"
               :class="{ active: resource.top }"
               :aria-label="resource.top ? `取消置顶${resource.title}` : `置顶${resource.title}`"
               :disabled="Boolean(resourceBusy[resource.id])"
               @click="toggleTop(resource)"
-            ><Pin :size="15" :fill="resource.top ? 'currentColor' : 'none'" /></button>
+            ><Pin :size="15" :fill="resource.top ? 'currentColor' : 'none'" />{{ resource.top ? '取消置顶' : '置顶' }}</button>
+            <button
+              v-if="canPreview(resource)"
+              type="button"
+              :aria-label="`预览${resource.title}`"
+              :disabled="Boolean(resourceBusy[resource.id])"
+              @click="preview(resource)"
+            ><Eye :size="15" />预览</button>
             <button
               type="button"
               :aria-label="['question', 'quiz'].includes(resource.type) ? `开始${resource.title}` : resource.url ? `打开${resource.title}` : `下载${resource.title}`"
@@ -489,6 +569,7 @@
               <BookOpen v-if="['question', 'quiz'].includes(resource.type)" :size="15" />
               <ExternalLink v-else-if="resource.url" :size="15" />
               <Download v-else :size="15" />
+              {{ ['question', 'quiz'].includes(resource.type) ? '开始练习' : resource.url ? '打开来源' : '下载' }}
             </button>
             <button
               type="button"
@@ -496,7 +577,7 @@
               :aria-label="`从资料库移除${resource.title}`"
               :disabled="Boolean(resourceBusy[resource.id])"
               @click="removeFromLibrary(resource)"
-            ><Trash2 :size="15" /></button>
+            ><Trash2 :size="15" />移除</button>
           </div>
         </article>
       </div>
@@ -513,6 +594,17 @@
         </div>
       </footer>
     </section>
+    <ResourcePreviewDialog
+      :resource="previewingResource"
+      @close="previewingResource = null"
+      @download="download"
+    />
+    <RecommendationPreviewDialog
+      :item="previewingRecommendation"
+      @close="previewingRecommendation = null"
+      @download="download"
+      @updated="updateRecommendation"
+    />
   </main>
 </template>
 
@@ -676,7 +768,7 @@
   .recommendation-card {
     min-width: 0;
     display: flex;
-    min-height: 206px;
+    min-height: 234px;
     flex-direction: column;
     padding: 16px;
     border: 1px solid #e8eaf1;
@@ -707,17 +799,19 @@
       gap: 3px;
     }
 
-    > header button,
-    .resource-actions button {
+    > header button {
       display: inline-flex;
-      width: 32px;
+      min-height: 30px;
       height: 32px;
       align-items: center;
       justify-content: center;
+      gap: 4px;
+      padding: 0 7px;
       border: 0;
       border-radius: 9px;
       color: #667085;
       background: transparent;
+      font-size: 11px;
 
       &:hover,
       &.active {
@@ -750,6 +844,31 @@
     > small {
       color: #98a2b3;
       font-size: 11px;
+    }
+
+    .recommendation-source {
+      min-height: 18px;
+      margin-top: 7px;
+      overflow: hidden;
+      color: #667085;
+      font-size: 11px;
+      line-height: 1.45;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+
+      a {
+        display: inline-flex;
+        max-width: calc(100% - 28px);
+        align-items: center;
+        gap: 3px;
+        overflow: hidden;
+        color: #4f46e5;
+        text-decoration: none;
+        text-overflow: ellipsis;
+        vertical-align: bottom;
+
+        &:hover { text-decoration: underline; }
+      }
     }
 
     > footer {
@@ -895,7 +1014,28 @@
 
   .resource-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 2px;
+
+    button {
+      display: inline-flex;
+      min-height: 32px;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      padding: 0 7px;
+      border: 0;
+      border-radius: 8px;
+      color: #667085;
+      background: transparent;
+      font-size: 11px;
+
+      &:hover,
+      &.active {
+        color: #4f46e5;
+        background: #f2f4ff;
+      }
+    }
 
     button.danger:hover {
       color: #d92d20;

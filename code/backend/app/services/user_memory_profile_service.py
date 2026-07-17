@@ -55,8 +55,10 @@ class MemoryProfilePayload(BaseModel):
     learning_rhythm: str = ""
     self_regulation: str = ""
     interest_topics: list[str] = Field(default_factory=list)
+    explicit_interest_topics: list[str] = Field(default_factory=list)
     activity_summary: dict[str, Any] = Field(default_factory=dict)
     knowledge_base_context: dict[str, Any] = Field(default_factory=dict)
+    recommendation_feedback: dict[str, Any] = Field(default_factory=dict)
     profile_dimensions: dict[str, ProfileDimensionRecord] = Field(default_factory=dict)
     profile_schema_version: str = "dynamic_profile_v2"
 
@@ -102,6 +104,14 @@ class UserMemoryProfileService:
     ) -> UserMemoryProfile:
         record = self.get_record(session, user_id)
         data = payload.model_dump(mode="json")
+        if (
+            "interest_topics" in payload.model_fields_set
+            and "explicit_interest_topics" not in payload.model_fields_set
+        ):
+            # Dialogue extraction is the authoritative source of explicit
+            # interests. Behavioral aggregation must not infer that status from
+            # a legacy mixed interest list.
+            data["explicit_interest_topics"] = list(data.get("interest_topics") or [])
         if record:
             existing = record.memory_profile if isinstance(record.memory_profile, dict) else {}
             # Callers that only know the legacy payload must not erase the
@@ -114,8 +124,10 @@ class UserMemoryProfileService:
                 "learning_rhythm",
                 "self_regulation",
                 "interest_topics",
+                "explicit_interest_topics",
                 "activity_summary",
                 "knowledge_base_context",
+                "recommendation_feedback",
                 "profile_dimensions",
                 "profile_schema_version",
             ):
@@ -413,30 +425,30 @@ class UserMemoryProfileService:
         dimensions = dict(profile.get("profile_dimensions") or {})
         timestamp = (observed_at or datetime.now(timezone.utc)).isoformat()
 
+        from app.services.recommendation_feedback_service import aggregate_feedback
+
         source_counts = Counter(row.source_type for row in rows)
-        topic_counts: Counter[str] = Counter()
-        resource_types: Counter[str] = Counter()
+        explicit_interests = [
+            str(value).strip()
+            for value in (profile.get("explicit_interest_topics") or [])
+            if str(value).strip()
+        ][:8]
         rhythm_buckets: Counter[str] = Counter()
         task_events: list[dict[str, Any]] = []
         kb_documents: list[dict[str, str]] = []
+        kb_event_topics: list[str] = []
         seen_documents: set[tuple[str, str]] = set()
 
         for row in rows:
-            if row.knowledge_point != "unscopedlearninginteraction":
-                topic = (row.display_name or row.knowledge_point).strip()
-                if topic:
-                    topic_counts[topic] += 1
             payload = row.payload if isinstance(row.payload, dict) else {}
-            resource_type = str(
-                payload.get("resource_type") or payload.get("modality") or ""
-            ).strip()
-            if resource_type:
-                resource_types[resource_type] += 1
             task_execution = payload.get("task_execution")
             if isinstance(task_execution, dict) and task_execution:
                 task_events.append(task_execution)
             citations = payload.get("citations")
             if isinstance(citations, list):
+                topic = str(row.display_name or row.knowledge_point or "").strip()
+                if topic and topic != "unscopedlearninginteraction":
+                    kb_event_topics.append(topic)
                 for citation in citations[:8]:
                     if not isinstance(citation, dict):
                         continue
@@ -472,22 +484,84 @@ class UserMemoryProfileService:
             )
             rhythm_buckets[bucket] += 1
 
-        interest_topics = [topic for topic, _ in topic_counts.most_common(8)]
+        # Use only decayed, signed feedback for implicit preferences. A single
+        # incidental preview cannot replace dialogue-provided interests.
+        feedback = aggregate_feedback(rows)
+
+        def positive_labels(group: str) -> list[tuple[str, dict[str, Any]]]:
+            values = feedback.get(group)
+            if not isinstance(values, dict):
+                return []
+            selected: list[tuple[str, dict[str, Any]]] = []
+            for label, details in values.items():
+                if not isinstance(details, dict):
+                    continue
+                try:
+                    affinity = float(details.get("affinity", 0))
+                    positive_weight = float(details.get("positive_weight", 0))
+                    samples = int(details.get("sample_count", 0))
+                except (TypeError, ValueError):
+                    continue
+                if affinity > 0 and positive_weight >= 0.25 and samples >= 2:
+                    selected.append((str(label), details))
+            return sorted(selected, key=lambda item: float(item[1].get("affinity", 0)), reverse=True)
+
+        implicit_topics = [label for label, _ in positive_labels("topics")[:6]]
+        interest_topics = list(dict.fromkeys([*explicit_interests, *implicit_topics]))[:8]
+        if explicit_interests:
+            profile["explicit_interest_topics"] = explicit_interests
         profile["interest_topics"] = interest_topics
         profile["activity_summary"] = {
             "event_count": len(rows),
             "source_counts": dict(source_counts),
             "last_activity_at": rows[0].observed_at.isoformat() if rows else timestamp,
         }
+        existing_kb = profile.get("knowledge_base_context")
+        existing_kb = existing_kb if isinstance(existing_kb, dict) else {}
+        existing_documents = [
+            item
+            for item in (existing_kb.get("recent_documents") or [])
+            if isinstance(item, dict) and str(item.get("title") or "").strip()
+        ]
+        merged_documents: list[dict[str, str]] = []
+        merged_document_keys: set[tuple[str, str]] = set()
+        for item in [*kb_documents, *existing_documents]:
+            title = str(item.get("title") or "").strip()[:160]
+            source = str(item.get("source") or "课程知识库").strip()[:80]
+            if not title or (title, source) in merged_document_keys:
+                continue
+            merged_document_keys.add((title, source))
+            merged_documents.append({"title": title, "source": source})
+        existing_kb_topics = [
+            str(value).strip()
+            for value in (existing_kb.get("topic_signals") or [])
+            if str(value).strip()
+        ]
         profile["knowledge_base_context"] = {
-            "recent_documents": kb_documents[:12],
-            "topic_signals": interest_topics[:6],
+            "recent_documents": merged_documents[:12],
+            "topic_signals": list(
+                dict.fromkeys([*kb_event_topics, *existing_kb_topics])
+            )[:6],
         }
+        # Kept separate from broad activity summaries so rankers can use
+        # bounded, signed and time-decayed affinities without interpreting
+        # browsing as mastery or a negative action as interest.
+        profile["recommendation_feedback"] = feedback
 
-        if resource_types:
+        preferred_modalities = positive_labels("modalities")[:3]
+        if preferred_modalities:
             preference = {
-                "dominant_types": [name for name, _ in resource_types.most_common(3)],
-                "sample_count": sum(resource_types.values()),
+                "method_version": feedback.get("method_version"),
+                "dominant_types": [name for name, _ in preferred_modalities],
+                "affinity_summary": [
+                    {
+                        "modality": name,
+                        "affinity": round(float(details.get("affinity", 0)), 4),
+                        "sample_count": int(details.get("sample_count", 0)),
+                    }
+                    for name, details in preferred_modalities
+                ],
+                "sample_count": sum(int(details.get("sample_count", 0)) for _, details in preferred_modalities),
             }
             profile["resource_preference"] = "、".join(preference["dominant_types"])
             dimensions["resource_preference"] = self._dimension_record(
@@ -498,6 +572,13 @@ class UserMemoryProfileService:
                 previous=dimensions.get("resource_preference"),
                 updated_at=timestamp,
             ).model_dump(mode="json")
+        elif isinstance(dimensions.get("resource_preference"), dict) and (
+            dimensions["resource_preference"].get("source_type") == "behavioral_evidence"
+        ):
+            # Do not keep a former implicit preference when only negative or
+            # insufficiently supported feedback remains. Dialogue preference
+            # records are left untouched.
+            profile["resource_preference"] = ""
 
         if rhythm_buckets:
             dominant_period, _ = rhythm_buckets.most_common(1)[0]
