@@ -15,11 +15,14 @@ _MIME_BY_EXTENSION = {
     ".doc": {"application/msword", "application/octet-stream"},
     ".docx": {"application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/zip"},
     ".java": {"text/plain", "text/x-java-source"},
+    ".gif": {"image/gif"},
     ".jpeg": {"image/jpeg"},
     ".jpg": {"image/jpeg"},
     ".js": {"text/javascript", "application/javascript", "text/plain"},
     ".md": {"text/markdown", "text/plain"},
     ".markdown": {"text/markdown", "text/plain"},
+    ".mmd": {"text/markdown", "text/plain"},
+    ".mp3": {"audio/mpeg", "audio/mp3"},
     ".mp4": {"video/mp4"},
     ".pdf": {"application/pdf"},
     ".png": {"image/png"},
@@ -29,7 +32,9 @@ _MIME_BY_EXTENSION = {
     ".sql": {"application/sql", "text/plain"},
     ".ts": {"text/typescript", "application/typescript", "text/plain"},
     ".txt": {"text/plain"},
+    ".wav": {"audio/wav", "audio/x-wav"},
     ".webm": {"video/webm"},
+    ".webp": {"image/webp"},
 }
 
 
@@ -71,10 +76,15 @@ async def validate_upload(
         ".png": lambda value: value.startswith(b"\x89PNG\r\n\x1a\n"),
         ".jpg": lambda value: value.startswith(b"\xff\xd8\xff"),
         ".jpeg": lambda value: value.startswith(b"\xff\xd8\xff"),
+        ".gif": lambda value: value.startswith((b"GIF87a", b"GIF89a")),
         ".docx": lambda value: value.startswith(b"PK"),
         ".pptx": lambda value: value.startswith(b"PK"),
         ".mp4": lambda value: len(value) >= 12 and value[4:8] == b"ftyp",
+        ".mp3": lambda value: value.startswith(b"ID3") or (len(value) >= 2 and value[0] == 0xff and value[1] & 0xe0 == 0xe0),
+        ".mmd": lambda value: b"\x00" not in value,
+        ".wav": lambda value: len(value) >= 12 and value.startswith(b"RIFF") and value[8:12] == b"WAVE",
         ".webm": lambda value: value.startswith(b"\x1a\x45\xdf\xa3"),
+        ".webp": lambda value: len(value) >= 12 and value.startswith(b"RIFF") and value[8:12] == b"WEBP",
     }
     check = signatures.get(extension)
     if check and not check(header):

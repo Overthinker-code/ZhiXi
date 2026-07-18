@@ -3,12 +3,14 @@ import os
 import aiofiles
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote
+import unicodedata
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
-from sqlmodel import select, and_, func, or_
+from sqlmodel import select, and_, func
 
 from app import models
 from app.api import deps
@@ -48,24 +50,24 @@ VALID_RESOURCE_TYPES = {
     "reading_list",
     "case_project",
     "video_script",
+    "video",
+    "audio",
     "quality_checklist",
     "knowledge_graph",
     "question",
 }
 ALLOWED_RESOURCE_EXTENSIONS = {
-    ".doc", ".docx", ".jpeg", ".jpg", ".md", ".pdf", ".png", ".ppt", ".pptx", ".txt"
+    ".doc", ".docx", ".gif", ".jpeg", ".jpg", ".md", ".mmd", ".mp3", ".mp4",
+    ".pdf", ".png", ".ppt", ".pptx", ".txt", ".wav", ".webm", ".webp"
 }
 
 
-def _ensure_generated_resource_access(
+def _ensure_resource_access(
     resource: models.Resource,
     current_user: models.User,
 ) -> None:
-    if (
-        (resource.package_id or resource.source == "agent")
-        and resource.uploader_id != current_user.id
-        and not current_user.is_superuser
-    ):
+    """Resources without an explicit visibility policy are private by default."""
+    if resource.uploader_id != current_user.id and not current_user.is_superuser:
         raise HTTPException(status_code=404, detail="未找到指定的资源")
 
 
@@ -88,7 +90,7 @@ def _resource_or_404(
     resource = db.get(models.Resource, resource_id)
     if not resource:
         raise HTTPException(status_code=404, detail="未找到指定的资源")
-    _ensure_generated_resource_access(resource, current_user)
+    _ensure_resource_access(resource, current_user)
     return resource
 
 
@@ -106,12 +108,23 @@ def _resource_payload(
 def _preview_headers(filename: str) -> dict[str, str]:
     # The converted HTML is deliberately inert. Keep these headers on binary
     # previews too, so browser MIME sniffing/caching cannot widen exposure.
-    safe_filename = Path(filename).name.replace('"', "").replace("\r", "").replace("\n", "") or "resource"
+    # Do not set frame-ancestors here: converted HTML is fetched into an
+    # authenticated blob URL and rendered in a sandboxed iframe.  A
+    # `frame-ancestors 'none'` policy follows that document and makes the
+    # otherwise safe preview unrenderable.  The remaining policy keeps the
+    # document inert (no scripts, network, navigation, or forms).
+    original_name = Path(filename).name.replace("\\", "_").replace('"', "").replace("\r", "").replace("\n", "") or "resource"
+    suffix = Path(original_name).suffix.lower()
+    ascii_name = unicodedata.normalize("NFKD", original_name).encode("ascii", "ignore").decode("ascii")
+    ascii_name = "".join(char if char.isalnum() or char in {".", "_", "-"} else "_" for char in ascii_name).strip("._")
+    if not ascii_name or ascii_name == suffix.removeprefix("."):
+        ascii_name = f"resource{suffix}" if suffix else "resource"
+    encoded_name = quote(original_name.encode("utf-8"), safe="!#$&+-.^_`|~")
     return {
         "Cache-Control": "private, no-store",
         "X-Content-Type-Options": "nosniff",
-        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
-        "Content-Disposition": f'inline; filename="{safe_filename}"',
+        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; base-uri 'none'; form-action 'none'",
+        "Content-Disposition": f"inline; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded_name}",
     }
 
 
@@ -183,19 +196,12 @@ def read_resources(
     if owned_only:
         conditions.append(models.Resource.uploader_id == current_user.id)
 
-    if not current_user.is_superuser and not owned_only:
-        conditions.append(
-            or_(
-                models.Resource.uploader_id == current_user.id,
-                and_(
-                    models.Resource.package_id.is_(None),
-                    or_(
-                        models.Resource.source.is_(None),
-                        models.Resource.source != "agent",
-                    ),
-                ),
-            )
-        )
+    if not current_user.is_superuser:
+        # Resource currently has no visibility column.  Do not infer
+        # publication from source/package metadata: that leaked ordinary
+        # uploads from other accounts.  A future explicit visibility policy
+        # must opt in to broader access deliberately.
+        conditions.append(models.Resource.uploader_id == current_user.id)
 
     if course_id:
         conditions.append(models.Resource.course_id == course_id)
@@ -541,14 +547,7 @@ def download_resource(
     """
     下载资源文件
     """
-    resource = db.get(models.Resource, resource_id)
-    if not resource:
-        raise HTTPException(
-            status_code=404,
-            detail="未找到指定的资源"
-        )
-
-    _ensure_generated_resource_access(resource, current_user)
+    resource = _resource_or_404(db, resource_id, current_user)
     abs_file_path = _resolve_resource_file(resource)
     if not abs_file_path.is_file():
         raise HTTPException(
@@ -581,10 +580,14 @@ def preview_resource(
     """Prepare an authenticated, non-download resource preview."""
     resource = _resource_or_404(db, resource_id, current_user)
     abs_file_path = _resolve_resource_file(resource)
-    if not abs_file_path.is_file():
-        raise HTTPException(status_code=404, detail="资源文件不存在或已被删除")
     try:
+        # This check and prepare are intentionally both inside the boundary:
+        # an uploader can delete/replace the file between them.
+        if not abs_file_path.is_file():
+            raise FileNotFoundError(abs_file_path)
         preview = resource_preview_service.prepare(abs_file_path)
+    except (FileNotFoundError, OSError) as exc:
+        raise HTTPException(status_code=404, detail="资源文件不存在或已被删除") from exc
     except ResourcePreviewError as exc:
         raise HTTPException(status_code=415, detail=str(exc)) from exc
 

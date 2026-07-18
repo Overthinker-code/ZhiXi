@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import DateTime
+from sqlalchemy import JSON, Column, DateTime
 from sqlmodel import Field, SQLModel
 
 
@@ -20,6 +20,21 @@ class ExternalResource(SQLModel, table=True):
     knowledge_point: str = Field(default="", max_length=160, index=True)
     difficulty: str = Field(default="standard", max_length=32, index=True)
     recommend_reason: str = Field(default="", max_length=500)
+    # Provider-returned metadata is deliberately bounded by the discovery
+    # service.  It is display metadata, never arbitrary page content.
+    provider: str = Field(default="manual", max_length=40, index=True)
+    provider_kind: str = Field(default="resource", max_length=32, index=True)
+    summary: str = Field(default="", max_length=1200)
+    authors: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
+    published_year: int | None = Field(default=None)
+    language: str | None = Field(default=None, max_length=32)
+    license_status: str | None = Field(default=None, max_length=160)
+    cover_url: str | None = Field(default=None, max_length=1000)
+    source_metadata: dict[str, object] = Field(
+        default_factory=dict, sa_column=Column(JSON, nullable=False)
+    )
+    discovered_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+    verified_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
     created_by: UUID | None = Field(default=None, foreign_key="user.id", index=True)
     created_time: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),

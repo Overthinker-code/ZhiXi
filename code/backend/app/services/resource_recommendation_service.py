@@ -8,6 +8,7 @@ from uuid import UUID
 
 from sqlmodel import Session, select
 
+from app.core.config import settings
 from app.models import (
     Course,
     ExternalResource,
@@ -22,12 +23,17 @@ from app.schemas.resource_generation import ResourceGenerationRequest
 from app.schemas.knowledge_graph import KnowledgeGraphPayload
 from app.schemas.resource_recommendation import (
     RecommendationActionResponse,
+    RecommendationContentPreview,
     RecommendationItem,
     RecommendationPreviewResource,
     RecommendationPreviewResponse,
     ResourceRecommendationResponse,
 )
 from app.services.generated_knowledge_graph_service import knowledge_graph_service
+from app.services.external_resource_discovery_service import (
+    TOPIC_QUERY_ALIASES,
+    external_resource_discovery_service,
+)
 from app.services.quiz_service import quiz_service
 from app.services.resource_package_service import resource_package_service
 from app.services.resource_subject_service import resolve_resource_subject
@@ -214,7 +220,10 @@ class ResourceRecommendationService:
                 session,
                 user_id=user_id,
                 topics=weak_points or goals or ["当前学习目标"],
-                allow_discovery=refresh or not bool(session.exec(select(ExternalResource.id)).first()),
+                # Normal page loads rank the durable catalog only. Network
+                # discovery is an explicit refresh action, never a cold-start
+                # request that blocks a student's first visit.
+                allow_discovery=refresh,
             )
             active = session.exec(
                 select(PersonalizedResourceRecommendation).where(
@@ -236,11 +245,10 @@ class ResourceRecommendationService:
     ) -> RecommendationPreviewResponse:
         """Prepare an owner-only recommendation preview.
 
-        Generated recommendations are materialized once as hidden resources. A
-        preview never changes the recommendation generation counter or makes
-        the resource visible in the user's library. External recommendations
-        are deliberately metadata-only: this service never fetches or proxies
-        their origin URL.
+        A non-materialized generated recommendation gets an immediate local
+        outline.  This deliberately does *not* call a model, quiz generator or
+        package generator: full content is created only after the student adds
+        it to the library.  External recommendations remain metadata-only.
         """
         item = self._owned(session, user_id=user_id, recommendation_id=recommendation_id)
         self._record_resource_signal(
@@ -259,17 +267,11 @@ class ResourceRecommendationService:
 
         resource = self._owned_materialized_resource(session, item=item, user_id=user_id)
         if resource is None:
-            resource_id = self._materialize_generated(
-                session, item=item, user_id=user_id, hidden=True
+            return RecommendationPreviewResponse(
+                recommendation=self._public_current(session, user_id=user_id, item=item),
+                content_preview=self._instant_content_preview(item),
+                message="先查看围绕该主题安排的学习重点、示例和自测方向。",
             )
-            resource = session.get(Resource, resource_id)
-            if not resource or resource.uploader_id != user_id:
-                raise RuntimeError("个性化资料未能安全准备")
-            item.resource_id = resource.id
-            item.updated_time = datetime.now(timezone.utc)
-            session.add(item)
-            session.commit()
-            session.refresh(item)
 
         return RecommendationPreviewResponse(
             recommendation=self._public_current(session, user_id=user_id, item=item),
@@ -277,8 +279,49 @@ class ResourceRecommendationService:
             message=(
                 "练习已准备好，可开始作答。"
                 if item.type == "question"
-                else "个性化资料已准备好，尚未加入资料库。"
+                else "这份个性化资料可直接预览和学习。"
             ),
+        )
+
+    @staticmethod
+    def _instant_content_preview(
+        item: PersonalizedResourceRecommendation,
+    ) -> RecommendationContentPreview:
+        """Build a truthful type-specific outline solely from recommendation metadata."""
+        subject = item.subject or "通用学习"
+        topic = item.knowledge_point or item.title or "当前学习目标"
+        difficulty = item.difficulty or "standard"
+        reason = item.reason or f"围绕{topic}安排一次针对性学习"
+        common = {"type": item.type, "subject": subject, "topic": topic, "difficulty": difficulty, "reason": reason}
+        if item.type == "question":
+            sections = [
+                {"kind": "sample_question", "title": "练习样题", "prompt": f"在{subject}中，{topic}最需要先澄清的核心概念是什么？", "options": ["定义与适用条件", "无关的术语罗列", "跳过前提直接套结论", "只记住结论名称"]},
+                {"kind": "plan", "title": "学习内容包含", "points": ["基础概念辨析", "机制或步骤判断", "情境应用与解析"]},
+            ]
+        elif item.type in {"knowledge_graph", "image"}:
+            sections = [
+                {"kind": "graph", "title": "图谱骨架", "nodes": [topic, "关键概念", "应用场景"], "edges": [{"source": topic, "target": "关键概念", "label": "拆解"}, {"source": "关键概念", "target": "应用场景", "label": "迁移"}]},
+                {"kind": "plan", "title": "学习内容包含", "points": ["前置与后续知识", "易混淆关系", "待复习节点"]},
+            ]
+        elif item.type == "video":
+            sections = [
+                {"kind": "storyboard", "title": "视频分镜", "points": [f"00:00 提出 {topic} 的学习问题", "00:45 分解核心概念与条件", "02:00 用小例子演示应用", "03:30 总结易错点与复习动作"]},
+                {"kind": "plan", "title": "学习内容包含", "points": ["口播脚本", "演示步骤", "课后自测提示"]},
+            ]
+        elif item.type == "code":
+            sections = [
+                {"kind": "code_task", "title": "代码任务", "task": f"为 {topic} 写一个最小可运行示例，并记录输入、关键步骤和输出。", "points": ["明确接口或数据结构", "实现可观察的核心过程", "用一组边界样例验证"]},
+                {"kind": "plan", "title": "学习内容包含", "points": ["项目骨架", "实验步骤", "结果观察问题"]},
+            ]
+        else:
+            sections = [
+                {"kind": "outline", "title": "讲解提纲", "points": [f"{topic} 的定义与适用范围", "关键机制或步骤", "一个可检查的小例子", "常见误区与复习清单"]},
+                {"kind": "plan", "title": "学习内容包含", "points": ["完整讲解内容", "针对难度的例题", "可保存的复习清单"]},
+            ]
+        return RecommendationContentPreview(
+            **common,
+            sections=sections,
+            note="内容围绕推荐的学科、主题和难度组织，便于先判断学习重点与练习方向。",
         )
 
     def dismiss(self, session: Session, *, user_id: UUID, recommendation_id: UUID) -> None:
@@ -340,7 +383,7 @@ class ResourceRecommendationService:
                 item.subject = replacement.subject
                 item.external_resource_id = replacement.id
             item.generation += 1
-            item.reason = f"根据你的“{item.knowledge_point}”画像信号重新检索的网络资源。"
+            item.reason = f"根据你的“{item.knowledge_point}”学习信号更新的公开来源资料。"
             item.updated_time = datetime.now(timezone.utc)
             session.add(item)
             self._record_resource_signal(
@@ -353,7 +396,7 @@ class ResourceRecommendationService:
             session.refresh(item)
             return RecommendationActionResponse(
                 recommendation=self._public_current(session, user_id=user_id, item=item),
-                message="已重新检索网络推荐",
+                message="已更新公开来源推荐",
             )
 
         resource_id = self._materialize_generated(session, item=item, user_id=user_id, hidden=True)
@@ -395,6 +438,11 @@ class ResourceRecommendationService:
             safe_url = self._safe_external_url(item.url)
             if not safe_url:
                 raise ValueError("外部来源暂不可用，无法加入资料库")
+            external = (
+                session.get(ExternalResource, item.external_resource_id)
+                if item.external_resource_id
+                else None
+            )
             resource = Resource(
                 title=item.title,
                 type="external",
@@ -406,7 +454,11 @@ class ResourceRecommendationService:
                 source=item.source,
                 uploader_id=user_id,
                 course_id=course_id,
-                content={"recommendation_id": str(item.id), "external": True},
+                content={
+                    "recommendation_id": str(item.id),
+                    "external": True,
+                    "source_metadata": self._external_source_metadata(external),
+                },
             )
             session.add(resource)
             session.flush([resource])
@@ -488,7 +540,7 @@ class ResourceRecommendationService:
                 knowledge_point=topic,
                 difficulty="foundation" if index in {0, 3, 5} else "standard",
                 source="智屿个性化生成",
-                reason=f"根据你的个人画像，为“{topic}”规划的{label}，内容会在生成时动态创建。",
+                reason=f"根据你的个人画像，为“{topic}”安排{label}，围绕概念辨析、示例和自测展开。",
                 evidence=evidence,
                 content_spec={
                     "preview": preview,
@@ -543,24 +595,65 @@ class ResourceRecommendationService:
         allow_discovery: bool,
     ) -> None:
         externals = list(session.exec(select(ExternalResource)).all())
-        # Discovery only asks the search provider for title/link metadata. It
-        # never requests or proxies the target website itself.
-        if allow_discovery and topics:
-            externals.extend(self._discover_external(session, topic=topics[0]))
+        # A deliberate refresh may fill only missing or stale topic coverage.
+        # Default page loads stay entirely DB-backed.
+        if allow_discovery:
+            fresh_after = datetime.now(timezone.utc) - timedelta(
+                hours=settings.EXTERNAL_DISCOVERY_STALE_HOURS
+            )
+            for topic in self._unique(topics)[: max(1, min(3, settings.EXTERNAL_DISCOVERY_MAX_TOPICS))]:
+                matching = [
+                    row for row in externals
+                    if lexical_similarity(topic, f"{row.knowledge_point} {row.title}") >= 0.16
+                ]
+                # A single fresh paper must not suppress the book/video
+                # catalogs for the whole topic.  Refresh only skips network
+                # discovery when all fixed catalogs already have recent rows.
+                fresh_providers = {
+                    row.provider
+                    for row in matching
+                    if row.discovered_at and row.discovered_at >= fresh_after
+                }
+                if {"open_library", "openalex", "internet_archive"} <= fresh_providers:
+                    continue
+                discovered = self._discover_external(session, topic=topic)
+                externals.extend(discovered)
         seen_urls: set[str] = set()
         external_rows: list[tuple[ExternalResource, str]] = []
         for external in externals:
+            # Shared legacy/manual records have no reviewed catalog provenance.
+            # They remain useful to the student who saved them, but must not
+            # appear in another student's automatic recommendation batch.
+            if external.provider == "manual" and external.created_by != user_id:
+                continue
             safe_url = self._safe_external_url(external.url)
             if not safe_url or safe_url in seen_urls:
                 continue
             seen_urls.add(safe_url)
             external_rows.append((external, safe_url))
-        context = RecommendationContext(weak_points=topics)
+        # Use the full profile context here rather than a new minimal context.
+        # Besides recent practice and feedback, this carries the reviewed
+        # Chinese-to-catalog aliases needed to judge an English catalog title
+        # against the original (Chinese) learning signal.  Without it, a
+        # successful Open Library/OpenAlex lookup could be dropped by the
+        # relevance gate before the student ever sees it.
+        context = self._recommendation_context(session, user_id=user_id)
+        if not context.query_topics:
+            aliases = {
+                topic: TOPIC_QUERY_ALIASES[self._normalize_course_text(topic)]
+                for topic in topics
+                if self._normalize_course_text(topic) in TOPIC_QUERY_ALIASES
+            }
+            context = RecommendationContext(
+                weak_points=topics,
+                external_topic_aliases=aliases,
+            )
         candidates = [
             Candidate(
                 title=external.title, subject=external.subject, source=external.source,
                 knowledge_point=external.knowledge_point, modality=external.type,
                 difficulty=external.difficulty, origin="external",
+                trusted_catalog_context=self._trusted_catalog_context(external),
             )
             for external, _ in external_rows
         ]
@@ -586,78 +679,24 @@ class ResourceRecommendationService:
                     difficulty=external.difficulty,
                     source=external.source,
                     url=safe_url,
-                    reason=detail.reason,
-                    evidence=detail.evidence + ["来源：公开网络"],
-                    content_spec={"preview": "打开原网站查看完整内容", "network": True},
+                    reason=self._external_reason(detail.reason, external),
+                    evidence=detail.evidence + [f"公开来源：{external.source}"],
+                    content_spec={"preview": "打开公开来源查看完整内容", "external": True},
                     external_resource_id=external.id,
                 )
             )
         session.commit()
 
     def _discover_external(self, session: Session, *, topic: str) -> list[ExternalResource]:
-        """Persist safe title/link metadata returned by DuckDuckGo discovery.
-
-        The target URLs are never fetched here; users open them directly in a
-        new browser tab after client-side and server-side scheme validation.
-        """
+        """Persist bounded metadata from the three fixed public catalogs."""
         topic = self._clean_query_topic(topic)
         if not topic:
             return []
-        try:
-            from langchain_community.tools import DuckDuckGoSearchResults
-
-            results = DuckDuckGoSearchResults(
-                output_format="list", num_results=4
-            ).invoke(f"{topic} 教学 视频 课程 练习")
-            if not isinstance(results, list):
-                return []
-        except Exception:
-            return []
-
-        created: list[ExternalResource] = []
-        existing_urls = {
-            url
-            for value in session.exec(select(ExternalResource.url)).all()
-            if (url := self._safe_external_url(value))
-        }
-        for result in results:
-            if not isinstance(result, dict):
-                continue
-            title = self._clean_external_title(result.get("title"))
-            safe_url = self._safe_external_url(
-                str(result.get("link") or result.get("url") or "")
-            )
-            if not title or not safe_url or safe_url in existing_urls:
-                continue
-            domain = self._external_domain(safe_url)
-            normalized_topic = self._normalize_course_text(topic)
-            normalized_title = self._normalize_course_text(title)
-            if (
-                normalized_topic not in normalized_title
-                and lexical_similarity(topic, f"{title} {domain}") < 0.12
-            ):
-                continue
-            resource_type = (
-                "video" if any(name in domain for name in ("bilibili", "youtube")) else "document"
-            )
-            external = ExternalResource(
-                title=title[:255],
-                source=domain,
-                url=safe_url,
-                type=resource_type,
-                subject=resolve_resource_subject(None, topic, title),
-                knowledge_point=topic[:160],
-                difficulty="standard",
-                recommend_reason=f"网络检索结果与薄弱知识点“{topic}”相关。",
-            )
-            session.add(external)
-            created.append(external)
-            existing_urls.add(safe_url)
-        if created:
-            session.commit()
-            for external in created:
-                session.refresh(external)
-        return created
+        return external_resource_discovery_service.persist(
+            session,
+            topic=topic,
+            candidates=external_resource_discovery_service.discover(topic=topic),
+        )
 
     @staticmethod
     def _clean_query_topic(value: object) -> str:
@@ -767,10 +806,17 @@ class ResourceRecommendationService:
         ).all()
         context = self._recommendation_context(session, user_id=user_id)
         candidate_rows = [
-            row for row in candidates if self._safe_external_url(row.url)
+            row
+            for row in candidates
+            if self._safe_external_url(row.url)
+            and (row.provider != "manual" or row.created_by == user_id)
         ]
         candidate_models = [
-            Candidate(row.title, row.subject, row.source, row.knowledge_point, row.type, row.difficulty, "external")
+            Candidate(
+                row.title, row.subject, row.source, row.knowledge_point,
+                row.type, row.difficulty, "external",
+                self._trusted_catalog_context(row),
+            )
             for row in candidate_rows
         ]
         ranked = rank_candidates(candidate_models, context)
@@ -785,7 +831,11 @@ class ResourceRecommendationService:
         discovered = self._discover_external(session, topic=item.knowledge_point)
         safe_discovered = [row for row in discovered if self._safe_external_url(row.url)]
         discovered_models = [
-            Candidate(row.title, row.subject, row.source, row.knowledge_point, row.type, row.difficulty, "external")
+            Candidate(
+                row.title, row.subject, row.source, row.knowledge_point,
+                row.type, row.difficulty, "external",
+                self._trusted_catalog_context(row),
+            )
             for row in safe_discovered
         ]
         discovered_ranked = rank_candidates(discovered_models, context)
@@ -804,12 +854,21 @@ class ResourceRecommendationService:
             raise LookupError("未找到指定推荐")
         return item
 
-    @staticmethod
-    def _candidate(item: PersonalizedResourceRecommendation) -> Candidate:
+    def _candidate(
+        self, session: Session, item: PersonalizedResourceRecommendation
+    ) -> Candidate:
+        external = (
+            session.get(ExternalResource, item.external_resource_id)
+            if item.origin == "external" and item.external_resource_id
+            else None
+        )
         return Candidate(
             title=item.title, subject=item.subject, source=item.source,
             knowledge_point=item.knowledge_point, modality=item.type,
             difficulty=item.difficulty, origin=item.origin,
+            trusted_catalog_context=(
+                self._trusted_catalog_context(external) if external else ""
+            ),
         )
 
     def _rank_public_items(
@@ -817,7 +876,7 @@ class ResourceRecommendationService:
         items: list[PersonalizedResourceRecommendation], limit: int,
     ) -> list[RecommendationItem]:
         context = self._recommendation_context(session, user_id=user_id)
-        candidates = [self._candidate(item) for item in items]
+        candidates = [self._candidate(session, item) for item in items]
         ranked = rank_candidates(candidates, context)
         eligible = [
             index for index, (item, detail) in enumerate(zip(items, ranked, strict=True))
@@ -840,7 +899,120 @@ class ResourceRecommendationService:
             limit=len(eligible),
         )
         ordered = [eligible[index] for index in ordered_relative]
-        return [self._public(items[index], ranked[index]) for index in ordered[:limit]]
+        selected = ordered[:limit]
+        # A six-card student batch deliberately combines catalog discovery
+        # with first-party personalized study materials.  Keep public sources
+        # to at most half the batch (and include up to three when available),
+        # so a strong catalog response cannot crowd out practice, explanation
+        # and other learning actions generated for this learner.
+        desired_external = min(
+            limit // 2,
+            sum(items[index].origin == "external" for index in ordered),
+        )
+        current_external = sum(items[index].origin == "external" for index in selected)
+        changed_composition = False
+        if current_external > desired_external:
+            generated_replacements = [
+                index for index in ordered[limit:]
+                if items[index].origin != "external"
+            ]
+            for replacement in generated_replacements:
+                removable = next(
+                    (
+                        position for position in range(len(selected) - 1, -1, -1)
+                        if items[selected[position]].origin == "external"
+                        and not items[selected[position]].favorite
+                    ),
+                    None,
+                )
+                if removable is None:
+                    break
+                selected[removable] = replacement
+                current_external -= 1
+                changed_composition = True
+                if current_external <= desired_external:
+                    break
+        if current_external < desired_external:
+            replacements = [
+                index for index in ordered[limit:]
+                if items[index].origin == "external"
+            ]
+            for replacement in replacements:
+                removable = next(
+                    (
+                        position for position in range(len(selected) - 1, -1, -1)
+                        if items[selected[position]].origin != "external"
+                        and not items[selected[position]].favorite
+                    ),
+                    None,
+                )
+                if removable is None:
+                    break
+                selected[removable] = replacement
+                current_external += 1
+                changed_composition = True
+                if current_external >= desired_external:
+                    break
+        # When the catalog offers several relevant formats, avoid spending all
+        # public slots on near-duplicate papers or videos.  This replacement
+        # runs only after relevance gating and only removes an unfavorited
+        # duplicate, so it cannot override an explicit learner choice.
+        available_external_kinds = {
+            items[index].type
+            for index in ordered
+            if items[index].origin == "external"
+        }
+        target_kind_count = min(desired_external, len(available_external_kinds))
+        selected_external_kinds = {
+            items[index].type
+            for index in selected
+            if items[index].origin == "external"
+        }
+        if len(selected_external_kinds) < target_kind_count:
+            for replacement in ordered:
+                if (
+                    items[replacement].origin != "external"
+                    or items[replacement].type in selected_external_kinds
+                    or replacement in selected
+                ):
+                    continue
+                removable = next(
+                    (
+                        position
+                        for position in range(len(selected) - 1, -1, -1)
+                        if items[selected[position]].origin == "external"
+                        and not items[selected[position]].favorite
+                        and sum(
+                            1
+                            for selected_index in selected
+                            if items[selected_index].origin == "external"
+                            and items[selected_index].type == items[selected[position]].type
+                        ) > 1
+                    ),
+                    None,
+                )
+                if removable is None:
+                    break
+                selected[removable] = replacement
+                selected_external_kinds = {
+                    items[index].type
+                    for index in selected
+                    if items[index].origin == "external"
+                }
+                changed_composition = True
+                if len(selected_external_kinds) >= target_kind_count:
+                    break
+        if changed_composition:
+            # Restore MMR ordering after the constrained composition step;
+            # relevance stays the primary score and the external gate above
+            # ensures only topic-matching catalog items enter this branch.
+            selected_relative = mmr_order(
+                [candidates[index] for index in selected],
+                [ranked[index] for index in selected],
+                limit=len(selected),
+            )
+            selected = [selected[index] for index in selected_relative]
+        return [self._public(session, items[index], ranked[index]) for index in selected]
 
     def _public_current(
         self, session: Session, *, user_id: UUID, item: PersonalizedResourceRecommendation
@@ -852,9 +1024,11 @@ class ResourceRecommendationService:
         if item.id not in {row.id for row in active}:
             active.append(item)
         public_items = self._rank_public_items(session, user_id=user_id, items=active, limit=len(active))
-        return next((row for row in public_items if row.id == str(item.id)), self._public(item, None))
+        return next((row for row in public_items if row.id == str(item.id)), self._public(session, item, None))
 
-    def _public(self, item: PersonalizedResourceRecommendation, detail: Any | None) -> RecommendationItem:
+    def _public(
+        self, session: Session, item: PersonalizedResourceRecommendation, detail: Any | None
+    ) -> RecommendationItem:
         resource_payload = None
         if item.resource_id:
             resource_payload = {"id": str(item.resource_id), "type": item.type}
@@ -866,6 +1040,11 @@ class ResourceRecommendationService:
             else self._external_source_name(item.source, source_domain)
             if safe_url
             else "来源暂不可用"
+        )
+        external = (
+            session.get(ExternalResource, item.external_resource_id)
+            if item.origin == "external" and item.external_resource_id
+            else None
         )
         return RecommendationItem(
             id=str(item.id),
@@ -885,7 +1064,69 @@ class ResourceRecommendationService:
             status=item.status,
             generation=item.generation,
             resource=resource_payload,
+            source_metadata=self._external_source_metadata(external),
         )
+
+    @staticmethod
+    def _external_source_metadata(external: ExternalResource | None) -> dict[str, Any]:
+        if not external:
+            return {}
+        safe_cover = ResourceRecommendationService._safe_external_url(external.cover_url)
+        catalog: dict[str, Any] = {}
+        if isinstance(external.source_metadata, dict):
+            for key, value in list(external.source_metadata.items())[:8]:
+                clean_key = str(key)[:80]
+                if not clean_key:
+                    continue
+                if clean_key.endswith(("url", "_url")):
+                    catalog[clean_key] = ResourceRecommendationService._safe_external_url(
+                        str(value or "")
+                    )
+                elif isinstance(value, (bool, int, float)) or value is None:
+                    catalog[clean_key] = value
+                elif isinstance(value, list):
+                    catalog[clean_key] = [str(item)[:200] for item in value[:8]]
+                else:
+                    catalog[clean_key] = " ".join(str(value or "").split())[:300]
+        return {
+            "provider": str(external.provider or "manual")[:40],
+            "provider_name": str(external.source or "开放学习来源")[:80],
+            "kind": str(external.provider_kind or external.type)[:32],
+            "summary": str(external.summary or "")[:1200],
+            "authors": [str(value)[:160] for value in (external.authors or [])[:8]],
+            "year": external.published_year,
+            "language": str(external.language or "")[:32] or None,
+            "license_status": str(external.license_status or "")[:160] or None,
+            "cover_url": safe_cover,
+            "canonical_url": ResourceRecommendationService._safe_external_url(external.url),
+            "discovered_at": external.discovered_at.isoformat() if external.discovered_at else None,
+            "verified_at": external.verified_at.isoformat() if external.verified_at else None,
+            "catalog": catalog,
+        }
+
+    @staticmethod
+    def _trusted_catalog_context(external: ExternalResource) -> str:
+        """Return only server-generated context from the fixed source set."""
+        if external.provider not in {"open_library", "openalex", "internet_archive"}:
+            return ""
+        metadata = external.source_metadata if isinstance(external.source_metadata, dict) else {}
+        parts = [external.knowledge_point]
+        for name in ("query_alias", "video_query_alias"):
+            value = metadata.get(name)
+            if isinstance(value, str):
+                parts.append(value)
+        return " ".join(" ".join(str(value or "").split())[:160] for value in parts if value)[:480]
+
+    @staticmethod
+    def _external_reason(base_reason: str, external: ExternalResource) -> str:
+        topic = external.knowledge_point or "当前学习主题"
+        format_label = {"book": "图书", "paper": "开放获取论文", "video": "视频讲座"}.get(
+            external.provider_kind or external.type, "公开资料"
+        )
+        signal = str(base_reason or "").rstrip("。")
+        if signal and "当前可用学习信息" not in signal:
+            return f"{signal}；“{external.title}”是一份{format_label}，可用于围绕“{topic}”继续学习。"
+        return f"你的学习画像关联“{topic}”；“{external.title}”是一份{format_label}，可补充该主题的阅读或观看。"
 
     @staticmethod
     def _safe_external_url(value: str | None) -> str | None:
@@ -893,7 +1134,12 @@ class ResourceRecommendationService:
             parsed = urlparse(str(value or "").strip())
         except (TypeError, ValueError):
             return None
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or parsed.username
+            or parsed.password
+        ):
             return None
         return parsed.geturl()
 
@@ -1020,6 +1266,11 @@ class ResourceRecommendationService:
         kb_topics = [str(value).strip() for value in (kb_context or {}).get("topic_signals", []) if str(value).strip()]
         interests = [str(value).strip() for value in (profile.get("interest_topics") or []) if str(value).strip()]
         preferred = affinities("modalities")
+        aliases = {
+            topic: TOPIC_QUERY_ALIASES[self._normalize_course_text(topic)]
+            for topic in [*weak_points, *practice_gaps, *mastery_gaps, *goals, *interests, *kb_topics]
+            if self._normalize_course_text(topic) in TOPIC_QUERY_ALIASES
+        }
         return RecommendationContext(
             weak_points=weak_points,
             practice_gaps=practice_gaps,
@@ -1033,6 +1284,7 @@ class ResourceRecommendationService:
             subject_affinity=affinities("subjects"),
             seen_topics=list(affinities("topics")),
             difficulty="foundation" if practice_gaps or weak_points else "standard",
+            external_topic_aliases=aliases,
         )
 
     def _profile_signals(

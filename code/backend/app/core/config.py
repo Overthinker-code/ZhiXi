@@ -200,6 +200,14 @@ class Settings(BaseSettings):
     RAG_UPLOAD_DIR: str = os.path.join(BASE_PATH, "uploads")
     CHROMA_DB_PATH: str = os.path.join(BASE_PATH, "vector_db")
 
+    # Fixed public catalog APIs used for deliberate external-resource refreshes.
+    # No user supplied URL is fetched by this feature.
+    EXTERNAL_DISCOVERY_TIMEOUT_SECONDS: float = 2.5
+    EXTERNAL_DISCOVERY_MAX_RESULTS_PER_PROVIDER: int = 3
+    EXTERNAL_DISCOVERY_MAX_TOPICS: int = 3
+    EXTERNAL_DISCOVERY_STALE_HOURS: int = 72
+    EXTERNAL_DISCOVERY_USER_AGENT: str = "ZhiXiStudentResourceDiscovery/1.0 (+https://zhixi.local)"
+
     CHAT_PROVIDER: str = "mimo"
     CHAT_MODEL: str = "mimo-v2.5-pro"
     CHAT_TEMPERATURE: float = 0.0

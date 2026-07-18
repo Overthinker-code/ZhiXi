@@ -11,6 +11,9 @@ export interface ResourceRecommendationItem {
   difficulty: string;
   source: string;
   source_domain?: string | null;
+  source_metadata?: RecommendationSourceMetadata | null;
+  /** Some deployments serialize the additive metadata field in camel case. */
+  sourceMetadata?: RecommendationSourceMetadata | null;
   url?: string | null;
   reason: string;
   evidence: string[];
@@ -19,6 +22,31 @@ export interface ResourceRecommendationItem {
   status: string;
   generation: number;
   resource?: ResourceRecord | null;
+}
+
+export interface RecommendationSourceMetadata {
+  provider?: string | null;
+  provider_name?: string | null;
+  providerName?: string | null;
+  kind?: 'book' | 'paper' | 'video' | string | null;
+  summary?: string | null;
+  authors?: string | string[] | null;
+  year?: string | number | null;
+  language?: string | null;
+  license_access_label?: string | null;
+  licenseAccessLabel?: string | null;
+  license_status?: string | null;
+  licenseStatus?: string | null;
+  thumbnail_url?: string | null;
+  thumbnailUrl?: string | null;
+  cover_url?: string | null;
+  coverUrl?: string | null;
+  canonical_url?: string | null;
+  canonicalUrl?: string | null;
+  preview_url?: string | null;
+  previewUrl?: string | null;
+  verified_at?: string | null;
+  verifiedAt?: string | null;
 }
 
 export interface RecommendationPreviewResource {
@@ -33,9 +61,20 @@ export interface RecommendationPreviewResource {
   content?: Record<string, unknown> | null;
 }
 
+export interface RecommendationContentPreview {
+  type: string;
+  subject: string;
+  topic: string;
+  difficulty: string;
+  reason: string;
+  sections: Array<Record<string, unknown>>;
+  note: string;
+}
+
 export interface RecommendationPreviewResponse {
   recommendation: ResourceRecommendationItem;
   resource?: RecommendationPreviewResource | null;
+  content_preview?: RecommendationContentPreview | null;
   message: string;
 }
 
@@ -90,7 +129,7 @@ export function previewRecommendation(recommendationId: string) {
   return axios.post<RecommendationPreviewResponse>(
     `/api/resource-hub/recommendations/${recommendationId}/preview`,
     {},
-    { timeout: 180000 }
+    { timeout: 12000 }
   );
 }
 

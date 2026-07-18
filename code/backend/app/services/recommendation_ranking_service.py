@@ -95,10 +95,14 @@ class RecommendationContext:
     subject_affinity: dict[str, float] = field(default_factory=dict)
     seen_topics: list[str] = field(default_factory=list)
     difficulty: str = ""
+    # Explicit catalog-query aliases for a small reviewed course vocabulary.
+    # They are not model-generated translations and are used only to evaluate
+    # public-catalog titles against the originating profile topic.
+    external_topic_aliases: dict[str, str] = field(default_factory=dict)
 
     @property
     def query_topics(self) -> list[str]:
-        values = [*self.weak_points, *self.practice_gaps, *self.mastery_gaps, *self.goals, *self.interests, *self.kb_topics]
+        values = [*self.weak_points, *self.practice_gaps, *self.mastery_gaps, *self.goals, *self.interests, *self.kb_topics, *self.external_topic_aliases.values()]
         return list(dict.fromkeys(value.strip() for value in values if value and value.strip()))[:12]
 
     @property
@@ -108,7 +112,7 @@ class RecommendationContext:
     @property
     def concrete_topics(self) -> list[str]:
         """Topics suitable for the external title gate, excluding generic goals."""
-        values = [*self.weak_points, *self.practice_gaps, *self.mastery_gaps, *self.kb_topics, *self.interests]
+        values = [*self.weak_points, *self.practice_gaps, *self.mastery_gaps, *self.kb_topics, *self.interests, *self.external_topic_aliases.values()]
         cores = [_topic_core(value) for value in dict.fromkeys(values)]
         return [value for value in cores if len(value) >= 2]
 
@@ -122,12 +126,15 @@ class Candidate:
     modality: str
     difficulty: str
     origin: str
+    # This is set only for records returned by a fixed, reviewed catalog.  It
+    # contains the server-selected catalog query, never arbitrary user content.
+    trusted_catalog_context: str = ""
 
     @property
     def external_document(self) -> str:
         # Do not use knowledge_point here: external metadata can be stale or
         # maliciously labelled. Title/subject/source are what the user can see.
-        return f"{self.title} {self.subject} {self.source}"
+        return f"{self.title} {self.subject} {self.source} {self.trusted_catalog_context}"
 
     @property
     def internal_document(self) -> str:
@@ -171,6 +178,20 @@ def _title_matches_concrete_topic(title: str, context: RecommendationContext) ->
     return False
 
 
+def _topic_similarity(topic: str, searchable: str, context: RecommendationContext) -> float:
+    """Compare a profile topic and its reviewed public-catalog alias.
+
+    The alias is used for matching only.  Explanations continue to reference
+    the learner's original topic, so a Chinese profile is never replaced by a
+    machine-translated label in the UI.
+    """
+    alias = context.external_topic_aliases.get(topic, "")
+    return max(
+        lexical_similarity(topic, searchable),
+        lexical_similarity(alias, searchable) if alias else 0.0,
+    )
+
+
 def rank_candidates(candidates: list[Candidate], context: RecommendationContext) -> list[RankedCandidate]:
     documents = [candidate.external_document if candidate.origin == "external" else candidate.internal_document for candidate in candidates]
     lexical = bm25_scores(context.query, documents)
@@ -180,29 +201,29 @@ def rank_candidates(candidates: list[Candidate], context: RecommendationContext)
         score = 0.08 + 0.52 * lexical_score
         searchable = candidate.external_document if candidate.origin == "external" else candidate.internal_document
         for topic, gap in context.practice_gaps.items():
-            if lexical_similarity(topic, searchable) >= 0.18:
+            if _topic_similarity(topic, searchable, context) >= 0.18:
                 amount = 0.18 + min(0.12, max(0.0, gap) * 0.12)
                 score += amount
                 evidence.append((amount, f"近期练习在“{topic}”正确率偏低"))
                 break
         for topic, gap in context.mastery_gaps.items():
-            if lexical_similarity(topic, searchable) >= 0.18:
+            if _topic_similarity(topic, searchable, context) >= 0.18:
                 amount = 0.10 + min(0.12, max(0.0, gap) * 0.16)
                 score += amount
                 evidence.append((amount, f"需要巩固“{topic}”"))
                 break
         for topic in context.weak_points:
-            if lexical_similarity(topic, searchable) >= 0.18:
+            if _topic_similarity(topic, searchable, context) >= 0.18:
                 score += 0.16
                 evidence.append((0.16, f"需要巩固“{topic}”"))
                 break
         for goal in context.goals:
-            if lexical_similarity(goal, searchable) >= 0.14:
+            if _topic_similarity(goal, searchable, context) >= 0.14:
                 score += 0.11
                 evidence.append((0.11, f"贴合当前目标“{goal}”"))
                 break
         for topic in context.kb_topics:
-            if lexical_similarity(topic, searchable) >= 0.16:
+            if _topic_similarity(topic, searchable, context) >= 0.16:
                 score += 0.07
                 evidence.append((0.07, f"关联课程知识库主题“{topic}”"))
                 break
@@ -214,18 +235,27 @@ def rank_candidates(candidates: list[Candidate], context: RecommendationContext)
         elif modality_matches_style(context.learning_style, candidate.modality):
             score += 0.06
             evidence.append((0.06, "符合你的学习形式偏好"))
-        topic_affinity = max((value for topic, value in context.topic_affinity.items() if lexical_similarity(topic, searchable) >= 0.18), default=0.0)
+        topic_affinity = max((
+            value
+            for topic, value in context.topic_affinity.items()
+            if _topic_similarity(topic, searchable, context) >= 0.18
+        ), default=0.0)
         score += max(-0.12, min(0.10, topic_affinity * 0.08))
         score += max(-0.08, min(0.06, context.subject_affinity.get(candidate.subject, 0.0) * 0.05))
         # A small novelty prior only breaks near ties: relevance remains the
         # dominant term and previously explored topics are not punished.
-        if context.seen_topics and not any(lexical_similarity(topic, searchable) >= 0.22 for topic in context.seen_topics):
+        if context.seen_topics and not any(
+            _topic_similarity(topic, searchable, context) >= 0.22
+            for topic in context.seen_topics
+        ):
             score += 0.035
         if context.difficulty and candidate.difficulty == context.difficulty:
             score += 0.04
         external_relevant = candidate.origin != "external" or (
             lexical_score >= EXTERNAL_RELEVANCE_FLOOR
-            and _title_matches_concrete_topic(candidate.title, context)
+            and _title_matches_concrete_topic(
+                f"{candidate.title} {candidate.trusted_catalog_context}", context
+            )
         )
         if candidate.origin == "external" and not external_relevant:
             score = 0.0

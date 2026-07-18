@@ -6,6 +6,7 @@ import {
   LoginData,
 } from '@/api/user';
 import { removeRouteListener } from '@/utils/route-listener';
+import { clearPreviewBlobCache } from '@/components/resource/previewBlobCache';
 import { UserState } from './types';
 import useAppStore from '../app';
 
@@ -132,6 +133,7 @@ const useUserStore = defineStore('user', {
     },
     logoutCallBack() {
       const appStore = useAppStore();
+      clearPreviewBlobCache();
       this.resetInfo();
       this.clearToken();
       removeRouteListener();

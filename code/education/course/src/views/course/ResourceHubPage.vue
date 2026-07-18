@@ -7,6 +7,7 @@
     Download,
     Eye,
     ExternalLink,
+    FileText,
     Pin,
     Plus,
     RefreshCw,
@@ -15,6 +16,7 @@
     Sparkles,
     Star,
     Trash2,
+    Video,
     X,
   } from 'lucide-vue-next';
   import {
@@ -36,6 +38,11 @@
     reportRecommendationSourceOpened,
     type ResourceRecommendationItem,
   } from '@/api/resource-hub';
+  import {
+    sourceCategory,
+    sourceReferenceFrom,
+    studentFacingReason,
+  } from '@/components/resource/sourceReference';
 
   const router = useRouter();
   const resources = ref<ResourceRecord[]>([]);
@@ -81,6 +88,7 @@
     txt: '文本资料',
     document: '个性化讲解',
     video: '视频讲解',
+    audio: '音频资料',
     code: '代码案例',
     external: '网络资料',
     lecture: '讲义',
@@ -244,14 +252,20 @@
   }
 
   function canPreview(resource: ResourceRecord) {
-    if (resource.url || ['question', 'quiz'].includes(resource.type)) return false;
-    const name = resource.file_name.toLowerCase();
-    return ['.pdf', '.png', '.jpg', '.jpeg', '.docx', '.pptx', '.md', '.markdown', '.txt']
-      .some((extension) => name.endsWith(extension));
+    // ResourcePreviewDialog handles files, quizzes, graph JSON and external
+    // references through one accessible entry point.
+    return Boolean(resource.id);
+  }
+
+  function canDownloadResource(resource: ResourceRecord) {
+    return Boolean(resource.file_name) && !resource.url && !['question', 'quiz', 'knowledge_graph'].includes(resource.type);
+  }
+
+  function hasSecondaryAction(resource: ResourceRecord) {
+    return ['question', 'quiz'].includes(resource.type) || Boolean(resource.url) || canDownloadResource(resource);
   }
 
   function preview(resource: ResourceRecord) {
-    if (!canPreview(resource)) return;
     previewingResource.value = resource;
   }
 
@@ -272,19 +286,36 @@
   }
 
   function safeExternalUrl(value?: string | null) {
-    if (!value) return '';
-    try {
-      const url = new URL(value);
-      return ['http:', 'https:'].includes(url.protocol) ? url.toString() : '';
-    } catch {
-      return '';
-    }
+    return sourceReferenceFrom(null, { url: value }).canonicalUrl;
   }
 
-  function sourceMatchesDomain(item: ResourceRecommendationItem) {
-    return Boolean(
-      item.source_domain && item.source.trim().toLowerCase() === item.source_domain.trim().toLowerCase()
-    );
+  function recommendationSource(item: ResourceRecommendationItem) {
+    return sourceReferenceFrom(item, {
+      provider: item.source,
+      url: item.url,
+      domain: item.source_domain,
+      summary: studentFacingReason(item.preview, item.reason, item.evidence?.[0]),
+    });
+  }
+
+  function recommendationCategory(item: ResourceRecommendationItem) {
+    if (item.origin === 'generated') {
+      if (['question', 'quiz', 'practice'].includes(item.type)) return '个性化练习';
+      if (item.type === 'video') return '讲解结构';
+      return '学习方案';
+    }
+    return sourceCategory(recommendationSource(item).kind);
+  }
+
+  function recommendationCategoryIcon(item: ResourceRecommendationItem) {
+    const kind = recommendationSource(item).kind;
+    if (kind === 'video' || item.type === 'video') return Video;
+    if (kind === 'paper') return FileText;
+    return BookOpen;
+  }
+
+  function recommendationReason(item: ResourceRecommendationItem) {
+    return studentFacingReason(item.reason, item.evidence?.[0], item.preview);
   }
 
   function removeFromLibrary(resource: ResourceRecord) {
@@ -317,15 +348,15 @@
     }
     if (resource.url) {
       try {
-        const url = new URL(resource.url);
-        if (!['http:', 'https:'].includes(url.protocol)) throw new Error('unsupported protocol');
-        window.open(url.toString(), '_blank', 'noopener,noreferrer');
+        const url = safeExternalUrl(resource.url);
+        if (!url) throw new Error('unsupported or credential-bearing URL');
+        window.open(url, '_blank', 'noopener,noreferrer');
       } catch {
         Message.error('资源链接无效');
       }
       return;
     }
-    void download(resource);
+    if (canDownloadResource(resource)) void download(resource);
   }
 
   async function toggleRecommendationFavorite(item: ResourceRecommendationItem) {
@@ -438,7 +469,7 @@
       <div v-else class="recommendation-grid">
         <article v-for="item in recommendations" :key="item.id" class="recommendation-card">
           <header>
-            <span>{{ typeLabel(item.type) }}</span>
+            <span class="recommendation-category"><component :is="recommendationCategoryIcon(item)" :size="13" />{{ recommendationCategory(item) }}</span>
             <div>
               <button
                 type="button"
@@ -456,22 +487,23 @@
             </div>
           </header>
           <strong>{{ item.title }}</strong>
-          <p>{{ item.reason || item.preview }}</p>
+          <p>{{ recommendationReason(item) }}</p>
           <small>{{ item.subject || '通用学习' }}<template v-if="item.knowledge_point"> · {{ item.knowledge_point }}</template></small>
           <div class="recommendation-source">
-            <template v-if="item.origin === 'external' && safeExternalUrl(item.url)">
-              <span>来源：</span>
+            <template v-if="item.origin === 'external' && recommendationSource(item).canonicalUrl">
+              <span>提供方：</span>
               <a
-                :href="safeExternalUrl(item.url)"
+                :href="recommendationSource(item).canonicalUrl"
                 target="_blank"
                 rel="noopener noreferrer"
-                :aria-label="`在新窗口打开${item.source}原文`"
+                :aria-label="`在新窗口访问${recommendationSource(item).provider}`"
                 @click="trackRecommendationSourceOpened(item)"
               >
-                {{ item.source }}<template v-if="!sourceMatchesDomain(item)"> · {{ item.source_domain }}</template> <ExternalLink :size="12" />
+                {{ recommendationSource(item).provider }}<template v-if="recommendationSource(item).domain"> · {{ recommendationSource(item).domain }}</template> <ExternalLink :size="12" />
               </a>
             </template>
-            <template v-else>来源：{{ item.source || '来源暂不可用' }}</template>
+            <template v-else-if="item.origin === 'external'">提供方：{{ recommendationSource(item).provider }}</template>
+            <template v-else>学习内容：{{ typeLabel(item.type) }}</template>
           </div>
           <footer>
             <button
@@ -561,6 +593,7 @@
               @click="preview(resource)"
             ><Eye :size="15" />预览</button>
             <button
+              v-if="hasSecondaryAction(resource)"
               type="button"
               :aria-label="['question', 'quiz'].includes(resource.type) ? `开始${resource.title}` : resource.url ? `打开${resource.title}` : `下载${resource.title}`"
               :disabled="Boolean(resourceBusy[resource.id])"
@@ -787,6 +820,9 @@
     }
 
     > header > span {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
       padding: 3px 8px;
       border-radius: 999px;
       color: #4f46e5;

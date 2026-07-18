@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import html
 import zipfile
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
+from threading import RLock
 
 from docx import Document
 from pptx import Presentation
@@ -34,30 +36,76 @@ class ResourcePreviewService:
     _MAX_TABLE_ROWS = 120
     _MAX_TABLE_COLUMNS = 24
     _MAX_SLIDES = 100
+    _CACHE_LIMIT = 32
+    _TEXT_EXTENSIONS = {
+        ".md", ".markdown", ".mmd", ".txt", ".py", ".js", ".ts", ".tsx",
+        ".jsx", ".json", ".yaml", ".yml", ".xml", ".html", ".css", ".scss",
+        ".java", ".c", ".cc", ".cpp", ".h", ".hpp", ".go", ".rs", ".sh",
+        ".sql", ".csv", ".log", ".ini", ".toml", ".vue",
+    }
+    _IMAGE_TYPES = {
+        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".webp": "image/webp", ".gif": "image/gif",
+    }
+    _VIDEO_TYPES = {".mp4": "video/mp4", ".webm": "video/webm"}
+    _AUDIO_TYPES = {".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4"}
+
+    def __init__(self) -> None:
+        # Parsed Office and text previews are immutable strings.  The cache key
+        # includes the canonical path and complete stat fingerprint so a same-
+        # named replacement cannot accidentally expose previous file content.
+        self._cache: OrderedDict[tuple[str, int, int], ResourcePreview] = OrderedDict()
+        self._cache_lock = RLock()
 
     def prepare(self, path: Path) -> ResourcePreview:
         if not path.is_file():
             raise ResourcePreviewError("资源文件不存在或已被删除")
-        if path.stat().st_size > self._MAX_FILE_BYTES:
+        stat = path.stat()
+        if stat.st_size > self._MAX_FILE_BYTES:
             raise ResourcePreviewError("文件过大，暂不支持在线预览，请下载后查看")
 
         extension = path.suffix.lower()
         if extension == ".pdf":
             return ResourcePreview("pdf", "application/pdf", stream_file=True)
-        if extension in {".png", ".jpg", ".jpeg"}:
-            media_type = "image/png" if extension == ".png" else "image/jpeg"
-            return ResourcePreview("image", media_type, stream_file=True)
-        if extension == ".docx":
-            self._validate_office_archive(path)
-            return ResourcePreview("document", "text/html; charset=utf-8", self._document_html(path))
-        if extension == ".pptx":
-            self._validate_office_archive(path)
-            return ResourcePreview("presentation", "text/html; charset=utf-8", self._presentation_html(path))
-        if extension in {".md", ".markdown", ".txt"}:
-            return ResourcePreview("text", "text/html; charset=utf-8", self._text_html(path))
+        if extension in self._IMAGE_TYPES:
+            return ResourcePreview("image", self._IMAGE_TYPES[extension], stream_file=True)
+        if extension in self._VIDEO_TYPES:
+            return ResourcePreview("video", self._VIDEO_TYPES[extension], stream_file=True)
+        if extension in self._AUDIO_TYPES:
+            return ResourcePreview("audio", self._AUDIO_TYPES[extension], stream_file=True)
+
+        cache_key = (str(path.resolve()), stat.st_mtime_ns, stat.st_size)
+        if extension in {".docx", ".pptx"} | self._TEXT_EXTENSIONS:
+            cached = self._get_cached(cache_key)
+            if cached is not None:
+                return cached
+            if extension == ".docx":
+                self._validate_office_archive(path)
+                preview = ResourcePreview("document", "text/html; charset=utf-8", self._document_html(path))
+            elif extension == ".pptx":
+                self._validate_office_archive(path)
+                preview = ResourcePreview("presentation", "text/html; charset=utf-8", self._presentation_html(path))
+            else:
+                preview = ResourcePreview("mermaid" if extension == ".mmd" else "text", "text/html; charset=utf-8", self._text_html(path))
+            self._set_cached(cache_key, preview)
+            return preview
         # Legacy binary office formats are deliberately not handed to a local
         # converter or shell command.  That is both safer and more predictable.
         raise ResourcePreviewError("该文件格式暂不支持在线预览，请下载后查看")
+
+    def _get_cached(self, key: tuple[str, int, int]) -> ResourcePreview | None:
+        with self._cache_lock:
+            cached = self._cache.get(key)
+            if cached is not None:
+                self._cache.move_to_end(key)
+            return cached
+
+    def _set_cached(self, key: tuple[str, int, int], preview: ResourcePreview) -> None:
+        with self._cache_lock:
+            self._cache[key] = preview
+            self._cache.move_to_end(key)
+            while len(self._cache) > self._CACHE_LIMIT:
+                self._cache.popitem(last=False)
 
     def _validate_office_archive(self, path: Path) -> None:
         try:
@@ -127,7 +175,7 @@ class ResourcePreviewService:
             raise ResourcePreviewError("PPTX 文件无法安全解析，请下载后查看") from exc
         slides: list[str] = []
         remaining = self._MAX_TEXT_CHARS
-        for index, slide in enumerate(presentation.slides[: self._MAX_SLIDES], start=1):
+        for index, slide in enumerate(list(presentation.slides)[: self._MAX_SLIDES], start=1):
             blocks: list[str] = []
             for shape in slide.shapes:
                 if remaining <= 0:

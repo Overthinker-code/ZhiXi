@@ -245,6 +245,41 @@ def test_upload_checks_binary_signature() -> None:
     asyncio.run(exercise())
 
 
+@pytest.mark.parametrize(
+    ("filename", "content_type", "payload"),
+    [
+        ("diagram.gif", "image/gif", b"GIF89a-safe"),
+        ("diagram.webp", "image/webp", b"RIFF\x04\x00\x00\x00WEBP"),
+        ("recording.mp3", "audio/mpeg", b"ID3\x04\x00\x00"),
+        ("recording.wav", "audio/wav", b"RIFF\x00\x00\x00\x00WAVE"),
+        ("diagram.mmd", "text/plain", b"graph TD\nA-->B"),
+    ],
+)
+def test_new_preview_upload_formats_require_matching_mime_and_signature(
+    filename: str, content_type: str, payload: bytes
+) -> None:
+    upload = UploadFile(filename=filename, file=BytesIO(payload), headers=Headers({"content-type": content_type}))
+
+    async def exercise() -> None:
+        _, extension = await validate_upload(upload, allowed_extensions={Path(filename).suffix})
+        assert extension == Path(filename).suffix
+
+    asyncio.run(exercise())
+
+
+def test_mmd_upload_rejects_non_text_mime_and_binary_header() -> None:
+    binary_mime = UploadFile(filename="diagram.mmd", file=BytesIO(b"graph TD"), headers=Headers({"content-type": "application/octet-stream"}))
+    binary_data = UploadFile(filename="diagram.mmd", file=BytesIO(b"\x00not-text"), headers=Headers({"content-type": "text/plain"}))
+
+    async def exercise() -> None:
+        for upload in (binary_mime, binary_data):
+            with pytest.raises(Exception) as exc_info:
+                await validate_upload(upload, allowed_extensions={".mmd"})
+            assert getattr(exc_info.value, "status_code", None) == 415
+
+    asyncio.run(exercise())
+
+
 def test_generated_resource_path_cannot_escape_package_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

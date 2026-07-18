@@ -36,6 +36,9 @@ class RecommendationItem(BaseModel):
     status: str = "active"
     generation: int = 1
     resource: dict[str, Any] | None = None
+    # Additive metadata for a provider catalog item. Generated resources keep
+    # this empty so the established contract remains compatible.
+    source_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class RecommendationPreviewResource(BaseModel):
@@ -54,9 +57,22 @@ class RecommendationPreviewResource(BaseModel):
     content: dict[str, Any] | None = None
 
 
+class RecommendationContentPreview(BaseModel):
+    """Immediate, local preview for a recommendation not yet materialized."""
+
+    type: str
+    subject: str
+    topic: str
+    difficulty: str
+    reason: str
+    sections: list[dict[str, Any]] = Field(default_factory=list)
+    note: str
+
+
 class RecommendationPreviewResponse(BaseModel):
     recommendation: RecommendationItem
     resource: RecommendationPreviewResource | None = None
+    content_preview: RecommendationContentPreview | None = None
     message: str
 
 

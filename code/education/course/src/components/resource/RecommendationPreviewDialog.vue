@@ -1,9 +1,10 @@
 <script setup lang="ts">
   import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
   import { useRouter } from 'vue-router';
-  import { ExternalLink, LoaderCircle, PlayCircle, X } from 'lucide-vue-next';
+  import { BookOpen, ExternalLink, FileText, LoaderCircle, PlayCircle, Video, X } from 'lucide-vue-next';
   import {
     previewRecommendation,
+    type RecommendationContentPreview,
     reportRecommendationSourceOpened,
     type RecommendationPreviewResource,
     type ResourceRecommendationItem,
@@ -18,6 +19,12 @@
     isRecommendationPreviewCurrent,
     shouldPrepareRecommendation,
   } from './recommendationPreviewSession';
+  import {
+    sourceActionLabel,
+    sourceCategory,
+    sourceReferenceFrom,
+    studentFacingReason,
+  } from './sourceReference';
 
   const props = defineProps<{ item: ResourceRecommendationItem | null }>();
   const emit = defineEmits<{
@@ -31,25 +38,43 @@
   const state = ref<'loading' | 'ready' | 'error'>('loading');
   const message = ref('');
   const preparedResource = ref<ResourceRecord | null>(null);
+  const instantPreview = ref<RecommendationContentPreview | null>(null);
   const quiz = ref<QuizResource | null>(null);
   const quizError = ref('');
   const quizLoading = ref(false);
   const showingFilePreview = ref(false);
+  const showThumbnail = ref(true);
   let requestVersion = 0;
   let previousBodyOverflow = '';
   let previouslyFocused: HTMLElement | null = null;
 
   const isPractice = computed(() => ['question', 'quiz'].includes(props.item?.type || ''));
   const isKnowledgeGraph = computed(() => props.item?.type === 'knowledge_graph');
-  const safeExternalUrl = computed(() => {
-    if (props.item?.origin !== 'external' || !props.item.url) return '';
-    try {
-      const url = new URL(props.item.url);
-      return ['http:', 'https:'].includes(url.protocol) ? url.toString() : '';
-    } catch {
-      return '';
-    }
+  const sourceReference = computed(() => sourceReferenceFrom(props.item, {
+    provider: props.item?.source,
+    url: props.item?.url,
+    domain: props.item?.source_domain,
+    summary: studentFacingReason(props.item?.preview, props.item?.reason, props.item?.evidence?.[0]),
+  }));
+  const sourceSummary = computed(() => sourceReference.value.summary || '这是一项与当前学习主题相关的开放学习参考。');
+  const sourceCategoryLabel = computed(() => sourceCategory(sourceReference.value.kind));
+  const sourceAction = computed(() => sourceActionLabel(sourceReference.value.kind));
+  const sourceIcon = computed(() => {
+    if (sourceReference.value.kind === 'video') return Video;
+    if (sourceReference.value.kind === 'paper') return FileText;
+    return BookOpen;
   });
+  const generatedPreviewHeading = computed(() => {
+    if (isPractice.value) return '练习概览';
+    if (isKnowledgeGraph.value) return '学习结构';
+    if (props.item?.type === 'video') return '讲解结构';
+    return '学习方案';
+  });
+  const generatedPreviewSummary = computed(() => studentFacingReason(
+    props.item?.reason,
+    props.item?.evidence?.[0],
+    instantPreview.value?.reason
+  ));
   const graphJson = computed<KnowledgeGraphJson | null>(() => {
     const content = preparedResource.value?.content;
     if (!content || !Array.isArray(content.nodes) || !Array.isArray(content.edges)) return null;
@@ -65,7 +90,7 @@
     const resource = preparedResource.value;
     if (!resource || isPractice.value || isKnowledgeGraph.value || resource.url) return false;
     const name = resource.file_name.toLowerCase();
-    return ['.pdf', '.png', '.jpg', '.jpeg', '.docx', '.pptx', '.md', '.markdown', '.txt']
+    return ['.pdf', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.docx', '.pptx', '.md', '.markdown', '.mmd', '.txt', '.mp4', '.webm', '.mp3', '.wav', '.m4a']
       .some((extension) => name.endsWith(extension));
   });
 
@@ -141,7 +166,7 @@
       const response = await getQuiz(resourceId);
       if (isCurrentPreview(version, recommendationId)) quiz.value = response.data;
     } catch {
-      if (isCurrentPreview(version, recommendationId)) quizError.value = '练习已生成，但题目暂时无法载入；请稍后重试。';
+      if (isCurrentPreview(version, recommendationId)) quizError.value = '题目暂时无法载入，请稍后重试。';
     } finally {
       if (isCurrentPreview(version, recommendationId)) quizLoading.value = false;
     }
@@ -152,13 +177,13 @@
     state.value = 'loading';
     message.value = '';
     preparedResource.value = null;
+    instantPreview.value = null;
+    showThumbnail.value = true;
     quiz.value = null;
     quizError.value = '';
     if (item.origin === 'external') {
       state.value = 'ready';
-      message.value = safeExternalUrl.value
-        ? '将在新窗口打开原文，本站不会加载或代理该内容。'
-        : '来源暂不可用，请换一条推荐或稍后重试。';
+      message.value = '';
       return;
     }
     try {
@@ -167,9 +192,10 @@
       emit('updated', response.data.recommendation);
       message.value = response.data.message;
       preparedResource.value = response.data.resource ? resourceRecord(response.data.resource) : null;
+      instantPreview.value = response.data.content_preview || null;
       if (!preparedResource.value) {
-        state.value = 'error';
-        message.value = '资料已生成，但暂时没有可预览内容；你可以加入资料库后查看。';
+        state.value = instantPreview.value ? 'ready' : 'error';
+        if (!instantPreview.value) message.value = '暂时无法查看这项内容，请稍后再试。';
         return;
       }
       state.value = 'ready';
@@ -179,11 +205,9 @@
         await nextTick();
         if (isCurrentPreview(currentVersion, item.id)) showingFilePreview.value = true;
       }
-    } catch (error) {
+    } catch {
       if (!isCurrentPreview(currentVersion, item.id)) return;
-      const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data
-        ?.detail;
-      message.value = detail || '暂时无法准备预览，请稍后重试或重新生成推荐。';
+      message.value = '暂时无法查看这项内容，请稍后再试。';
       state.value = 'error';
     }
   }
@@ -254,19 +278,39 @@
           </header>
 
           <main aria-live="polite">
-            <div v-if="state === 'loading'" class="preview-state"><LoaderCircle :size="22" class="spinning" />正在准备个性化资料…</div>
+            <div v-if="state === 'loading'" class="preview-state"><LoaderCircle :size="22" class="spinning" /><strong>正在准备{{ item.title }}</strong><span>{{ item.subject || '通用学习' }}<template v-if="item.knowledge_point"> · {{ item.knowledge_point }}</template></span></div>
             <template v-else-if="item.origin === 'external'">
-              <p>{{ item.preview || item.reason }}</p>
-              <dl>
-                <div><dt>来源名称</dt><dd>{{ item.source }}</dd></div>
-                <div><dt>来源域名</dt><dd>{{ item.source_domain || '来源暂不可用' }}</dd></div>
-                <div><dt>原文链接</dt><dd><a v-if="safeExternalUrl" class="url-link" :href="safeExternalUrl" target="_blank" rel="noopener noreferrer">{{ safeExternalUrl }}</a><span v-else>来源暂不可用</span></dd></div>
-              </dl>
-              <p class="source-note">{{ message }}</p>
-              <a v-if="safeExternalUrl" class="primary-link" :href="safeExternalUrl" target="_blank" rel="noopener noreferrer" aria-label="在新窗口打开外部资料原文" @click="reportSourceOpened"><ExternalLink :size="16" />打开原文</a>
+              <section class="source-card">
+                <img v-if="sourceReference.thumbnailUrl && showThumbnail" :src="sourceReference.thumbnailUrl" :alt="`${item.title} 封面`" @error="showThumbnail = false" />
+                <div class="source-card__copy">
+                  <span class="source-kind"><component :is="sourceIcon" :size="14" />{{ sourceCategoryLabel }}</span>
+                  <p>{{ sourceSummary }}</p>
+                  <dl>
+                    <div><dt>{{ sourceReference.verifiedAt ? '已核验来源' : '来源提供方' }}</dt><dd>{{ sourceReference.provider }}</dd></div>
+                    <div v-if="sourceReference.authors || sourceReference.year"><dt>作者 / 年份</dt><dd>{{ [sourceReference.authors, sourceReference.year].filter(Boolean).join(' · ') }}</dd></div>
+                    <div v-if="sourceReference.language"><dt>语言</dt><dd>{{ sourceReference.language }}</dd></div>
+                    <div v-if="sourceReference.accessLabel"><dt>访问方式</dt><dd>{{ sourceReference.accessLabel }}</dd></div>
+                    <div><dt>来源域名</dt><dd>{{ sourceReference.domain || '链接暂不可用' }}</dd></div>
+                    <div v-if="sourceReference.verifiedAt"><dt>核验信息</dt><dd>{{ sourceReference.verifiedAt }}</dd></div>
+                  </dl>
+                </div>
+              </section>
+              <a v-if="sourceReference.canonicalUrl" class="primary-link" :href="sourceReference.canonicalUrl" target="_blank" rel="noopener noreferrer" :aria-label="`在新窗口${sourceAction}${item.title}`" @click="reportSourceOpened"><ExternalLink :size="16" />{{ sourceAction }}</a>
+              <p v-else class="source-note">该来源链接暂不可用。</p>
+            </template>
+            <template v-else-if="state === 'ready' && instantPreview">
+              <div class="generated-preview-intro"><span>{{ generatedPreviewHeading }}</span><p>{{ generatedPreviewSummary }}</p></div>
+              <section v-for="section in instantPreview.sections" :key="String(section.title)" class="instant-section">
+                <strong>{{ String(section.title || '预览内容') }}</strong>
+                <p v-if="typeof section.prompt === 'string'">{{ section.prompt }}</p>
+                <p v-if="typeof section.task === 'string'">{{ section.task }}</p>
+                <ul v-if="Array.isArray(section.options)"><li v-for="(option, index) in section.options" :key="String(option)">{{ String.fromCharCode(65 + index) }}. {{ option }}</li></ul>
+                <ul v-if="Array.isArray(section.points)"><li v-for="point in section.points" :key="String(point)">{{ point }}</li></ul>
+                <div v-if="Array.isArray(section.nodes)" class="graph-skeleton"><span v-for="node in section.nodes" :key="String(node)">{{ node }}</span></div>
+              </section>
             </template>
             <template v-else-if="state === 'ready' && preparedResource && isPractice">
-              <p>{{ message }}</p>
+              <p>练习概览</p>
               <div v-if="quizLoading" class="preview-state compact"><LoaderCircle :size="20" class="spinning" />正在载入练习题…</div>
               <div v-else-if="quiz" class="quiz-preview">
                 <strong>共 {{ quiz.questions.length }} 题 · 预览前 {{ Math.min(3, quiz.questions.length) }} 题</strong>
@@ -279,11 +323,11 @@
               <button type="button" class="primary-link" @click="startFullPractice"><PlayCircle :size="16" />开始完整练习</button>
             </template>
             <template v-else-if="state === 'ready' && preparedResource && isKnowledgeGraph">
-              <p>{{ message }}</p>
+              <p>学习结构</p>
               <KnowledgeGraphViewer v-if="graphJson" :graph-json="graphJson" />
               <div v-else class="preview-state compact is-error"><strong>知识图谱暂不可预览</strong><span>图谱数据不完整或格式无效，可重新生成后再试。</span></div>
             </template>
-            <div v-else-if="state === 'ready'" class="preview-state is-error"><strong>当前资料暂不支持在线预览</strong><span>该类型没有可安全展示的内容；你可以加入资料库后下载或查看。</span></div>
+            <div v-else-if="state === 'ready'" class="preview-state is-error"><strong>当前内容暂不支持预览</strong><span>可返回资料中心继续选择其他学习内容。</span></div>
             <div v-else class="preview-state is-error"><strong>预览暂未准备好</strong><span>{{ message }}</span></div>
           </main>
           <footer><button type="button" @click="close">关闭</button></footer>
@@ -304,8 +348,13 @@
   header span { color: #4f46e5; font-size: 12px; font-weight: 750; } h2 { margin: 3px 0 0; color: #101828; font-size: 17px; line-height: 1.35; }
   main { min-height: 170px; overflow: auto; padding: 20px; color: #475467; font-size: 14px; line-height: 1.7; } main > p { margin: 0 0 14px; }
   dl { display: grid; gap: 7px; margin: 0 0 16px; } dl div { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 10px; } dt { color: #667085; } dd { min-width: 0; margin: 0; color: #1d2939; overflow-wrap: anywhere; }
-  .url-link { display: block; overflow: hidden; color: #4f46e5; text-overflow: ellipsis; white-space: nowrap; } .source-note { color: #667085; font-size: 13px; }
+  .source-note { color: #667085; font-size: 13px; }
+  .source-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-bottom: 16px; padding: 14px; border: 1px solid #e4e7ec; border-radius: 12px; background: #fafbff; } .source-card:has(img) { grid-template-columns: 92px minmax(0, 1fr); } .source-card img { width: 92px; height: 116px; border-radius: 8px; object-fit: cover; background: #eaecf0; } .source-card__copy > p { margin: 7px 0 10px; color: #475467; } .source-kind { display: inline-flex; align-items: center; gap: 5px; color: #4338ca; font-size: 12px; font-weight: 700; } .source-card dl { margin-bottom: 0; font-size: 13px; } .source-card dl div { grid-template-columns: 72px minmax(0, 1fr); }
   .preview-state { display: grid; min-height: 130px; place-content: center; justify-items: center; gap: 10px; text-align: center; } .preview-state.compact { min-height: 82px; } .preview-state.is-error strong { color: #344054; } .preview-state.is-error span { color: #667085; font-size: 13px; }
+  .generated-preview-intro { margin-bottom: 14px; } .generated-preview-intro span { color: #4f46e5; font-size: 12px; font-weight: 750; } .generated-preview-intro p { margin: 4px 0 0; color: #475467; }
+  .instant-section { margin: 0 0 12px; padding: 12px 14px; border: 1px solid #e4e7ec; border-radius: 10px; background: #fafbff; }
+  .instant-section > strong { color: #344054; } .instant-section p { margin: 5px 0; color: #1d2939; } .instant-section ul { display: grid; gap: 3px; margin: 7px 0 0; padding-left: 20px; color: #667085; font-size: 13px; }
+  .graph-skeleton { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; } .graph-skeleton span { padding: 4px 8px; border: 1px solid #c7d2fe; border-radius: 999px; color: #4338ca; background: #eef2ff; font-size: 12px; }
   .quiz-preview { display: grid; gap: 10px; margin-bottom: 16px; } .quiz-preview > strong { color: #344054; font-size: 13px; } .quiz-preview article { padding: 11px 13px; border: 1px solid #e4e7ec; border-radius: 10px; background: #fafbff; } .quiz-preview article > span { color: #4f46e5; font-size: 12px; font-weight: 700; } .quiz-preview p { margin: 4px 0; color: #1d2939; } .quiz-preview ul { display: grid; gap: 2px; margin: 0; padding-left: 20px; color: #667085; font-size: 13px; }
   button, .primary-link { display: inline-flex; min-height: 36px; align-items: center; justify-content: center; gap: 7px; padding: 0 14px; border: 1px solid #d0d5dd; border-radius: 9px; color: #344054; background: #fff; font: inherit; cursor: pointer; text-decoration: none; } .primary-link { border-color: #4f46e5; color: #fff; background: #4f46e5; } .icon-button { width: 36px; padding: 0; }
   .spinning { animation: spin 0.8s linear infinite; } .recommendation-preview-enter-active, .recommendation-preview-leave-active { transition: opacity 0.16s ease; } .recommendation-preview-enter-from, .recommendation-preview-leave-to { opacity: 0; } @keyframes spin { to { transform: rotate(360deg); } }
