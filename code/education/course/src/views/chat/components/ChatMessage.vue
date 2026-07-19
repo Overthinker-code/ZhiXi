@@ -21,6 +21,7 @@
   import ReasoningBlock from '@/views/chat/components/ReasoningBlock.vue';
   import CitationArea from '@/views/chat/components/CitationArea.vue';
   import FollowUpActions from '@/views/chat/components/FollowUpActions.vue';
+  import MarkdownWithMermaid from '@/components/chat/MarkdownWithMermaid.vue';
 
   // 定义props
   const props = defineProps({
@@ -276,8 +277,7 @@
     });
   });
 
-  // 将消息内容转换为 HTML
-  const renderedContent = computed(() => {
+  const normalizedDisplayContent = computed(() => {
     let raw = props.message.content || '';
     if (isStreamingAssistantBubble()) {
       raw = raw.slice(0, streamTypeLen.value);
@@ -285,7 +285,12 @@
     if (props.message.role === 'assistant') {
       raw = normalizeAssistantMarkdown(raw);
     }
-    return renderMarkdown(raw, {
+    return raw;
+  });
+
+  // 将普通用户消息转换为 HTML；助手消息由 MarkdownWithMermaid 处理。
+  const renderedContent = computed(() => {
+    return renderMarkdown(normalizedDisplayContent.value, {
       streaming: isStreamingAssistantBubble(),
     });
   });
@@ -423,7 +428,13 @@
         class="bubble-row"
         :class="{ 'bubble-row--user': message.role === 'user' }"
       >
-        <div class="bubble markdown-body" v-html="renderedContent" />
+        <MarkdownWithMermaid
+          v-if="message.role === 'assistant'"
+          class="bubble markdown-body"
+          :content="normalizedDisplayContent"
+          :streaming="isStreamingAssistantBubble()"
+        />
+        <div v-else class="bubble markdown-body" v-html="renderedContent" />
         <span
           v-if="message.role === 'assistant' && message.loading"
           class="stream-tail-caret"

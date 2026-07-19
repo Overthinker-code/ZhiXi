@@ -10,8 +10,14 @@
       @mousedown="startDragRobot"
     >
       <a-button type="primary" class="float-btn__inner" @click="handleClick">
-        <icon-robot :style="{ fontSize: '24px' }" />
-        <span class="float-btn__label">小智</span>
+        <span class="float-btn__aura" aria-hidden="true" />
+        <span class="float-btn__face">
+          <icon-robot :style="{ fontSize: '24px' }" />
+        </span>
+        <span class="float-btn__label">
+          <b>小智</b>
+          <small>{{ capsuleStatus }}</small>
+        </span>
       </a-button>
     </div>
     <div
@@ -74,6 +80,8 @@
 
   const visible = ref(false);
   const quickChatRef = ref<any>(null);
+  const capsuleIndex = ref(0);
+  let capsuleTimer: number | undefined;
   const PANEL_MIN_WIDTH = 340;
   const PANEL_MIN_HEIGHT = 480;
   const PANEL_MAX_WIDTH = 760;
@@ -104,6 +112,18 @@
     startWidth: 0,
     startHeight: 0,
   });
+  const capsuleMessages = computed(() => {
+    if (route.name === 'WrongQuestionBook') {
+      return ['练习 Agent 看错题', '画像 Agent 找薄弱点', '提醒 Agent 待命'];
+    }
+    if (route.path.startsWith('/course/')) {
+      return ['课程 Agent 在线', '资料 Agent 可问答', '画像 Agent 跟进'];
+    }
+    return ['画像 Agent 在线', '练习 Agent 待命', '提醒 Agent 轻敲'];
+  });
+  const capsuleStatus = computed(
+    () => capsuleMessages.value[capsuleIndex.value % capsuleMessages.value.length]
+  );
 
   const fitFloatingUiToViewport = () => {
     const maxWidth = panelViewportMaxWidth();
@@ -120,8 +140,8 @@
       y: Math.max(72, Math.min(window.innerHeight - panelSize.value.height - 8, panelPos.value.y)),
     };
     robotPos.value = {
-      x: Math.max(8, Math.min(window.innerWidth - 88, robotPos.value.x)),
-      y: Math.max(72, Math.min(window.innerHeight - 88, robotPos.value.y)),
+      x: Math.max(8, Math.min(window.innerWidth - 110, robotPos.value.x)),
+      y: Math.max(72, Math.min(window.innerHeight - 110, robotPos.value.y)),
     };
   };
   const preparePanelForOpen = () => {
@@ -228,8 +248,8 @@
     if (!dragState.value.target) return;
     if (dragState.value.target === 'robot') {
       robotPos.value = {
-        x: Math.max(0, Math.min(window.innerWidth - 80, e.clientX - dragState.value.offsetX)),
-        y: Math.max(64, Math.min(window.innerHeight - 80, e.clientY - dragState.value.offsetY)),
+        x: Math.max(0, Math.min(window.innerWidth - 110, e.clientX - dragState.value.offsetX)),
+        y: Math.max(64, Math.min(window.innerHeight - 110, e.clientY - dragState.value.offsetY)),
       };
       return;
     }
@@ -256,6 +276,9 @@
   };
   onMounted(() => {
     fitFloatingUiToViewport();
+    capsuleTimer = window.setInterval(() => {
+      capsuleIndex.value += 1;
+    }, 6000);
     window.addEventListener('mousemove', onDragMove);
     window.addEventListener('mouseup', onDragEnd);
     window.addEventListener('resize', fitFloatingUiToViewport);
@@ -263,6 +286,7 @@
     window.addEventListener('open-classroom-ai', openClassroomAi as EventListener);
   });
   onUnmounted(() => {
+    if (capsuleTimer) window.clearInterval(capsuleTimer);
     window.removeEventListener('mousemove', onDragMove);
     window.removeEventListener('mouseup', onDragEnd);
     window.removeEventListener('resize', fitFloatingUiToViewport);
@@ -314,9 +338,9 @@
 
   .float-btn__inner {
     position: relative;
-    width: 58px !important;
-    height: 58px !important;
-    min-width: 58px !important;
+    width: 68px !important;
+    height: 68px !important;
+    min-width: 68px !important;
     padding: 0 !important;
     border-radius: 50% !important;
     display: flex !important;
@@ -331,6 +355,7 @@
     transition:
       transform 0.16s ease,
       box-shadow 0.16s ease;
+    animation: xiaozhi-breathe 4.8s ease-in-out infinite;
 
     &:hover {
       transform: translateY(-2px);
@@ -347,21 +372,71 @@
     }
   }
 
+  .float-btn__aura {
+    position: absolute;
+    inset: -11px;
+    border-radius: inherit;
+    background:
+      conic-gradient(from 120deg, rgba(124, 58, 237, 0), rgba(124, 58, 237, .28), rgba(56, 189, 248, .22), rgba(124, 58, 237, 0));
+    filter: blur(1px);
+    opacity: .8;
+    animation: xiaozhi-orbit 5.5s linear infinite;
+    pointer-events: none;
+  }
+
+  .float-btn__face {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 15px;
+    background: rgba(255, 255, 255, 0.14);
+
+    &::before,
+    &::after {
+      content: '';
+      position: absolute;
+      top: 8px;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, .92);
+      animation: xiaozhi-blink 4.2s ease-in-out infinite;
+    }
+
+    &::before { left: 10px; }
+    &::after { right: 10px; }
+  }
+
   .float-btn__label {
     position: absolute;
-    right: 50px;
+    right: 56px;
     top: 50%;
     transform: translateY(-50%);
-    padding: 5px 9px;
+    display: grid;
+    gap: 2px;
+    min-width: 96px;
+    padding: 7px 10px;
     border: 1px solid rgba(15, 23, 42, 0.08);
-    border-radius: 999px;
+    border-radius: 16px;
     background: rgba(255, 255, 255, 0.94);
     color: #4f46e5;
-    font-size: 12px;
     line-height: 1.1;
-    font-weight: 760;
     white-space: nowrap;
     box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+
+    b {
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    small {
+      color: #64748b;
+      font-size: 11px;
+      font-weight: 650;
+    }
   }
 
   .float-ai-panel {
@@ -412,11 +487,41 @@
 
   @media (prefers-reduced-motion: reduce) {
     .float-btn__inner {
+      animation: none;
       transition: none;
 
       &:hover {
         transform: none;
       }
+    }
+    .float-btn__aura,
+    .float-btn__face::before,
+    .float-btn__face::after {
+      animation: none;
+    }
+  }
+
+  @keyframes xiaozhi-breathe {
+    0%, 100% {
+      transform: translateY(0) scale(1);
+    }
+    50% {
+      transform: translateY(-3px) scale(1.035);
+    }
+  }
+
+  @keyframes xiaozhi-orbit {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes xiaozhi-blink {
+    0%, 88%, 100% {
+      transform: scaleY(1);
+    }
+    92% {
+      transform: scaleY(.18);
     }
   }
 

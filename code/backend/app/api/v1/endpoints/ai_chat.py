@@ -14,10 +14,12 @@ from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlmodel import Session
 
+from app.ai.chat_tools import get_llm, message_text
 from app.ai.chat_engine import (
     resolve_stream_user_text_for_storage,
     stream_chat_events,
@@ -71,6 +73,9 @@ from app.services.resource_package_service import (
     resource_package_service,
 )
 from app.services.chat_artifact_service import hydrate_chat_artifacts
+from app.services.bailian_service import BailianImageRequest, bailian_service
+from app.services.teaching_artifact_service import teaching_artifact_service
+from app.services.vision_client import build_chat_image_context
 
 router = APIRouter()
 rag_service = RAGService()
@@ -84,8 +89,29 @@ _SSE_HEADERS = {
 
 ATTACHMENT_DIR = Path(settings.BASE_PATH) / "uploads" / "chat_attachments"
 ATTACHMENT_INDEX = ATTACHMENT_DIR / "index.json"
+GENERATED_IMAGE_DIR = Path(settings.BASE_PATH) / "uploads" / "generated_images"
+GENERATED_ARTIFACT_DIR = Path(settings.BASE_PATH) / "uploads" / "generated_artifacts"
 
 COURSES = [
+    {
+        "courseId": "c1111111-1111-4111-9111-111111111107",
+        "title": "软件工程导论",
+        "chapters": [
+            {"chapterId": "ch01", "title": "第1章 软件工程学概述", "knowledgePointIds": ["software-crisis", "software-engineering", "software-characteristics"]},
+            {"chapterId": "ch02", "title": "第2章 可行性研究", "knowledgePointIds": ["feasibility-study", "cost-benefit", "system-flowchart"]},
+            {"chapterId": "ch03", "title": "第3章 需求分析", "knowledgePointIds": ["requirements-analysis", "srs", "dfd", "data-dictionary"]},
+            {"chapterId": "ch04", "title": "第4章 形式化说明技术", "knowledgePointIds": ["formal-specification", "z-language", "state-machine"]},
+            {"chapterId": "ch05", "title": "第5章 总体设计", "knowledgePointIds": ["architecture-design", "module-structure", "coupling-cohesion"]},
+            {"chapterId": "ch06", "title": "第6章 详细设计", "knowledgePointIds": ["detailed-design", "process-design", "decision-table"]},
+            {"chapterId": "ch07", "title": "第7章 实现", "knowledgePointIds": ["coding-style", "implementation", "white-box-testing", "black-box-testing"]},
+            {"chapterId": "ch08", "title": "第8章 维护", "knowledgePointIds": ["software-maintenance", "maintainability", "reverse-engineering"]},
+            {"chapterId": "ch09", "title": "第9章 面向对象方法学引论", "knowledgePointIds": ["object-oriented", "class", "object", "inheritance"]},
+            {"chapterId": "ch10", "title": "第10章 面向对象分析", "knowledgePointIds": ["ooa", "use-case", "object-model", "dynamic-model"]},
+            {"chapterId": "ch11", "title": "第11章 面向对象设计", "knowledgePointIds": ["ood", "class-diagram", "sequence-diagram", "interface-design"]},
+            {"chapterId": "ch12", "title": "第12章 面向对象实现", "knowledgePointIds": ["oo-implementation", "programming-language", "reuse"]},
+            {"chapterId": "ch13", "title": "第13章 软件项目管理", "knowledgePointIds": ["project-management", "risk-management", "schedule", "quality-management"]},
+        ],
+    },
     {
         "courseId": "c1111111-1111-4111-9111-111111111101",
         "title": "数据库系统原理",
@@ -546,6 +572,352 @@ def _is_resource_generation_intent(message: str) -> bool:
         for word in ("生成", "创建", "制作", "整理", "给我出", "出一", "出题")
     )
     return resource_word and action_word
+
+
+def _is_seedance_video_intent(message: str) -> bool:
+    text = re.sub(r"\s+", "", message or "")
+    video_word = any(
+        word in text
+        for word in (
+            "视频",
+            "讲解视频",
+            "教学视频",
+            "动画",
+            "动画短片",
+            "演示视频",
+            "短片",
+        )
+    )
+    action_word = any(
+        word in text
+        for word in (
+            "生成",
+            "创建",
+            "制作",
+            "做一个",
+            "做一段",
+            "给我生成",
+            "帮我生成",
+        )
+    )
+    return video_word and action_word
+
+
+def _is_ppt_generation_intent(message: str) -> bool:
+    text = re.sub(r"\s+", "", message or "")
+    return any(word in text for word in ("PPT", "ppt", "课件", "演示文稿")) and any(
+        word in text for word in ("生成", "创建", "制作", "整理", "做一份", "帮我做")
+    )
+
+
+def _is_scientific_chart_intent(message: str) -> bool:
+    text = re.sub(r"\s+", "", message or "")
+    if _is_structured_diagram_intent(message):
+        return False
+    chart_word = any(
+        word in text
+        for word in ("函数图像", "函数曲线", "坐标图", "折线图", "柱状图", "散点图", "科学图表", "实验曲线", "数据图表")
+    )
+    action_word = any(word in text for word in ("生成", "绘制", "画", "制作", "创建"))
+    return chart_word and action_word
+
+
+def _seedance_video_topic(message: str) -> str:
+    text = re.sub(r"\s+", " ", message or "").strip()
+    text = re.sub(r"^(?:请|请你|帮我|麻烦你|给我|我想要|我要)?", "", text)
+    text = re.sub(r"^(?:生成|创建|制作|做)(?:一个|一段|一条|一下)?", "", text)
+    text = re.sub(r"(?:的)?(?:讲解视频|教学视频|演示视频|动画短片|动画|视频|短片)$", "", text)
+    return text.strip(" ，。！？：:的") or "当前学习主题"
+
+
+def _seedance_video_prompt(message: str) -> tuple[str, str]:
+    topic = _seedance_video_topic(message)
+    prompt = (
+        f"生成一段适合课堂学习的中文讲解视频，主题：{topic}。"
+        "画面风格为清晰教育信息图、简洁动画和白板讲解；"
+        "先用标题点明主题，再分步骤展示核心概念、过程变化和关键结论；"
+        "全程使用中文关键字幕，节奏适合初学者理解；"
+        "不要出现品牌水印，不要堆叠复杂公式。"
+    )
+    return topic, prompt
+
+
+def _extract_seedance_task_id(payload: dict[str, Any]) -> str:
+    candidates = [
+        payload.get("taskId"),
+        payload.get("task_id"),
+        payload.get("id"),
+        payload.get("videoId"),
+        payload.get("video_id"),
+    ]
+    data = payload.get("data")
+    if isinstance(data, dict):
+        candidates.extend(
+            [
+                data.get("taskId"),
+                data.get("task_id"),
+                data.get("id"),
+                data.get("videoId"),
+                data.get("video_id"),
+            ]
+        )
+    for item in candidates:
+        if item:
+            return str(item)
+    return ""
+
+
+def _is_image_generation_intent(message: str) -> bool:
+    text = re.sub(r"\s+", "", message or "")
+    if _is_structured_diagram_intent(message):
+        return False
+    image_word = any(
+        word in text
+        for word in (
+            "图片",
+            "图像",
+            "配图",
+            "插图",
+            "概念图",
+            "示意图",
+            "海报",
+            "画",
+            "画一张",
+            "生成图",
+        )
+    )
+    action_word = any(
+        word in text
+        for word in (
+            "生成",
+            "创建",
+            "制作",
+            "画",
+            "绘制",
+            "给我生成",
+            "帮我生成",
+        )
+    )
+    return image_word and action_word and not _is_seedance_video_intent(message)
+
+
+def _image_generation_topic(message: str) -> str:
+    text = re.sub(r"\s+", " ", message or "").strip()
+    text = re.sub(r"^#{1,6}\s*\d*[.、]?\s*", "", text)
+    text = re.sub(r"^(?:请|请你|帮我|麻烦你|给我|我想要|我要)?", "", text)
+    text = re.sub(r"^(?:生成|创建|制作|画|绘制)(?:一张|一个|一幅|一下)?", "", text)
+    text = re.sub(r"(?:帮我|请|请你)?(?:生成|创建|制作|画|绘制)(?:一张|一个|一幅|一下)?(?:图片|图像|配图|插图|概念图|示意图|海报)?$", "", text)
+    text = re.sub(r"(?:的)?(?:图片|图像|配图|插图|概念图|示意图|海报)$", "", text)
+    return text.strip(" ，。！？：:的") or "当前学习主题"
+
+
+def _is_diagram_image_request(message: str) -> bool:
+    text = re.sub(r"\s+", "", message or "")
+    return any(
+        word in text
+        for word in (
+            "数据流图",
+            "DFD",
+            "dfd",
+            "实体联系图",
+            "实体关系图",
+            "E-R图",
+            "ER图",
+            "ERD",
+            "流程图",
+            "系统流程",
+            "业务流程",
+            "数据对象",
+        )
+    )
+
+
+def _is_structured_diagram_intent(message: str) -> bool:
+    text = re.sub(r"\s+", "", message or "")
+    diagram_word = any(
+        word in text
+        for word in (
+            "数据流图",
+            "DFD",
+            "dfd",
+            "实体联系图",
+            "实体关系图",
+            "E-R图",
+            "ER图",
+            "ERD",
+            "流程图",
+            "系统流程",
+            "业务流程",
+            "类图",
+            "时序图",
+            "状态图",
+            "用例图",
+            "UML",
+            "uml",
+            "TCP拥塞控制",
+            "tcp拥塞控制",
+            "拥塞控制",
+            "慢启动",
+            "拥塞避免",
+            "快速重传",
+            "快速恢复",
+            "滑动窗口",
+            "窗口变化",
+            "机制图",
+            "原理图",
+            "思维导图",
+            "知识点导图",
+            "知识导图",
+        )
+    )
+    action_word = any(
+        word in text
+        for word in ("生成", "创建", "制作", "画", "绘制", "给我生成", "帮我生成", "描绘")
+    )
+    return diagram_word and action_word
+
+
+def _structured_diagram_topic(message: str) -> str:
+    topic = _image_generation_topic(message)
+    return topic or "系统分析图"
+
+
+def _structured_diagram_mermaid(message: str) -> tuple[str, str]:
+    text = re.sub(r"\s+", "", message or "")
+    if any(word in text for word in ("TCP拥塞控制", "tcp拥塞控制", "拥塞控制", "慢启动", "拥塞避免", "快速重传", "快速恢复")):
+        return (
+            "flowchart",
+            """flowchart TD
+    Start([连接建立]) --> SlowStart[慢启动 Slow Start]
+    SlowStart -->|cwnd 指数增长<br/>每个 RTT 约翻倍| CheckThreshold{cwnd >= ssthresh?}
+    CheckThreshold -->|否| SlowStart
+    CheckThreshold -->|是| CongAvoid[拥塞避免 Congestion Avoidance]
+    CongAvoid -->|cwnd 线性增长<br/>每 RTT 约 +1 MSS| Detect{检测到拥塞?}
+    Detect -->|超时 Timeout| Timeout[严重拥塞]
+    Timeout -->|ssthresh = cwnd / 2<br/>cwnd = 1 MSS| SlowStart
+    Detect -->|3 个重复 ACK| FastRetransmit[快速重传 Fast Retransmit]
+    FastRetransmit -->|ssthresh = cwnd / 2<br/>cwnd = ssthresh + 3 MSS| FastRecovery[快速恢复 Fast Recovery]
+    FastRecovery -->|收到新的 ACK<br/>cwnd = ssthresh| CongAvoid
+    Detect -->|未拥塞| CongAvoid
+
+    classDef phase fill:#eef2ff,stroke:#4f46e5,color:#172033;
+    classDef warn fill:#fff7ed,stroke:#f97316,color:#172033;
+    class SlowStart,CongAvoid,FastRetransmit,FastRecovery phase;
+    class Timeout warn;""",
+        )
+    if any(word in text for word in ("实体联系图", "实体关系图", "E-R图", "ER图", "ERD")) and not any(
+        word in text for word in ("数据流图", "DFD", "dfd")
+    ):
+        return (
+            "erDiagram",
+            """erDiagram
+    CUSTOMER ||--o{ ACCOUNT : owns
+    CUSTOMER ||--o{ TRANSACTION_FORM : submits
+    ACCOUNT ||--o{ TRANSACTION_FORM : records
+    ACCOUNT ||--o{ INTEREST_STATEMENT : produces
+
+    CUSTOMER {
+      string customer_id "储户编号"
+      string name "姓名"
+      string id_no "证件号"
+      string contact "联系方式"
+    }
+    ACCOUNT {
+      string account_id "账户号"
+      string deposit_type "存款类型"
+      date open_date "开户日期"
+      date maturity_date "到期日"
+      float interest_rate "利率"
+      string password_hash "密码凭据"
+    }
+    TRANSACTION_FORM {
+      string form_id "单据号"
+      string transaction_type "存取类型"
+      float amount "金额"
+      date transaction_date "办理日期"
+    }
+    INTEREST_STATEMENT {
+      string statement_id "清单号"
+      float interest_amount "利息"
+      date print_date "打印日期"
+    }""",
+        )
+    if any(word in text for word in ("思维导图", "知识点导图", "知识导图")):
+        topic = re.sub(r"[\[\]{}()<>\"'`|]", "", _structured_diagram_topic(message))[:60]
+        return (
+            "mindmap",
+            f"""mindmap
+  root(({topic}))
+    核心概念
+      定义与目标
+      关键术语
+    关键流程
+      输入与条件
+      处理步骤
+      输出与结果
+    方法与工具
+      分析方法
+      实践工具
+    学习评价
+      典型问题
+      应用练习""",
+        )
+    if not any(word in text for word in ("银行", "储户", "存款", "取款", "利息", "存取款")):
+        topic = re.sub(r"[\[\]{}()<>\"'`|]", "", _structured_diagram_topic(message))[:60]
+        return (
+            "flowchart",
+            f"""flowchart LR
+    Input[输入与已知条件] --> Analyze[分析 {topic}]
+    Analyze --> Process[执行关键步骤]
+    Process --> Validate{{结果是否满足要求?}}
+    Validate -->|否| Analyze
+    Validate -->|是| Output[输出结论或产物]""",
+        )
+    return (
+        "flowchart",
+        """flowchart LR
+    Depositor[储户] -->|存款单/取款单| Clerk[业务员]
+    Clerk --> Input[录入单据信息]
+    Input --> Judge{业务类型}
+
+    Judge -->|存款| SaveInfo[记录存款信息]
+    SaveInfo --> CustomerDB[(储户信息库)]
+    SaveInfo --> DepositDB[(存款记录库)]
+    SaveInfo --> PrintDeposit[打印存款凭单]
+    PrintDeposit --> Depositor
+
+    Judge -->|取款且有密码| Verify[校验储户密码]
+    Verify --> CustomerDB
+    Verify -->|密码正确| CalcInterest[计算利息]
+    Verify -->|密码错误| Reject[拒绝办理并提示重试]
+    CalcInterest --> DepositDB
+    CalcInterest --> PrintInterest[打印利息清单]
+    PrintInterest --> Depositor
+
+    Judge -->|取款且存款时未留密码| CalcInterest""",
+    )
+
+
+def _image_generation_prompt(message: str) -> tuple[str, str]:
+    topic = _image_generation_topic(message)
+    if _is_diagram_image_request(message):
+        prompt = (
+            f"生成一张白底软件工程图表，不要画插画、不要画人物、不要画办公室场景。主题：{topic}。"
+            "画面必须像教材中的系统分析图：干净白色背景、黑/蓝色线条、矩形框、圆角处理框、数据存储双线框、实体矩形、菱形关系、箭头连接。"
+            "如果题目同时要求数据流图和实体联系图，请把画面分成上下两部分：上半部分标题为“数据流图 DFD”，下半部分标题为“实体联系图 ERD”。"
+            "DFD 部分包含外部实体“储户”“业务员”，处理过程“录入单据”“校验密码”“记录存取款信息”“计算利息”“打印凭单/利息清单”，数据存储“储户信息库”“存款记录库”。"
+            "ERD 部分包含实体“储户”“账户”“存取款单”“利息清单”，属性可用短标签表示，例如姓名、证件号、存款类型、日期、到期日、利率、密码。"
+            "要求中文标签尽量短且清晰，版式规整，适合直接放入课程 PPT。"
+            "绝对不要生成装饰性插画、真实照片、收银机、银行柜台、植物、票据照片或杂乱背景。"
+        )
+        return topic, prompt
+    prompt = (
+        f"生成一张适合教学课件使用的中文学习插图，主题：{topic}。"
+        "画面清晰、结构简洁、信息图风格、适合学生理解；"
+        "包含少量中文关键词标签，避免密集小字；"
+        "不要出现品牌水印，不要出现错误公式。"
+    )
+    return topic, prompt
 
 
 def _infer_resource_request(message: str) -> ResourceRequest:
@@ -1459,6 +1831,32 @@ def get_ai_attachment(*, file_id: str, current_user: CurrentUser) -> Any:
     return _get_owned_attachment(file_id, current_user)
 
 
+@router.get("/generated-images/{file_name}")
+def get_generated_image(file_name: str) -> FileResponse:
+    safe_name = Path(file_name).name
+    if safe_name != file_name:
+        raise HTTPException(status_code=404, detail="Image not found")
+    path = GENERATED_IMAGE_DIR / safe_name
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail="Image not found")
+    return FileResponse(path)
+
+
+@router.get("/generated-artifacts/{file_name}")
+def get_generated_artifact(file_name: str, current_user: CurrentUser) -> FileResponse:
+    _ = current_user
+    safe_name = Path(file_name).name
+    if safe_name != file_name:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    path = GENERATED_ARTIFACT_DIR / safe_name
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    allowed_suffixes = {".pptx", ".png", ".mp4"}
+    if path.suffix.lower() not in allowed_suffixes:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return FileResponse(path, filename=safe_name)
+
+
 @router.get("/context/courses")
 def list_context_courses(current_user: CurrentUser) -> Any:
     _ = current_user
@@ -1651,12 +2049,27 @@ def ai_chat_stream(
                 resource_mode=bool(
                     request.mode == "resource_generation"
                     or request.tools.resource_generation
+                    or _is_structured_diagram_intent(request.message or "")
+                    or _is_image_generation_intent(request.message or "")
+                    or _is_seedance_video_intent(request.message or "")
+                    or _is_ppt_generation_intent(request.message or "")
+                    or _is_scientific_chart_intent(request.message or "")
                     or _is_resource_generation_intent(request.message or "")
                     or _is_quiz_generation_intent(request.message or "")
                     or _is_knowledge_graph_intent(request.message or "")
                 ),
                 executor_name=(
-                    "Quiz Agent"
+                    "Diagram Agent"
+                    if _is_structured_diagram_intent(request.message or "")
+                    else "PPT Courseware Agent"
+                    if _is_ppt_generation_intent(request.message or "")
+                    else "Scientific Chart Agent"
+                    if _is_scientific_chart_intent(request.message or "")
+                    else "Image Generation Agent"
+                    if _is_image_generation_intent(request.message or "")
+                    else "Qwen Manim Agent"
+                    if _is_seedance_video_intent(request.message or "")
+                    else "Quiz Agent"
                     if _is_quiz_generation_intent(request.message or "")
                     else "KnowledgeGraph Agent"
                     if _is_knowledge_graph_intent(request.message or "")
@@ -1723,8 +2136,9 @@ def ai_chat_stream(
                 yield _tool_started("attachment_reader", "解析上传材料", f"正在检查 {len(request.attachments)} 个上传附件")
                 yield _tool_delta("attachment_reader", "将附件加入本轮可检索上下文")
             for item in request.attachments:
-                if item.type == "image":
-                    meta = owned_attachments.get(item.file_id)
+                meta = owned_attachments.get(item.file_id)
+                actual_type = str((meta or {}).get("type") or item.type or "other").lower()
+                if actual_type == "image":
                     if not meta:
                         yield _sse(
                             "tool_result",
@@ -1756,7 +2170,7 @@ def ai_chat_stream(
                     image_base64_list.append(f"data:{meta.get('contentType') or 'image/png'};base64,{encoded}")
                 elif not current_file_id:
                     current_file_id = item.file_id
-                    file_name = item.name or item.file_id
+                    file_name = str((meta or {}).get("name") or item.name or item.file_id)
 
             if request.attachments:
                 yield _tool_result(
@@ -1783,6 +2197,567 @@ def ai_chat_stream(
 
             if request.tools.web_search or request.mode == "deep_research":
                 yield _phase_delta("plan", "已允许联网检索；只有工具真实执行后才会显示检索结果")
+
+            if image_base64_list:
+                yield update_task("executor", "running", 20, "正在识别上传图片中的题目")
+                yield _phase_started(
+                    "perceive",
+                    "识别图片题目",
+                    "Vision Agent 正在读取图片中的题干、选项、图表和公式",
+                )
+                image_context, vision_meta = build_chat_image_context(
+                    image_base64_list,
+                    user_hint=request.message or "请识别图片中的题目并解答",
+                )
+                if vision_meta.status not in {"ok", "ocr_fallback"}:
+                    detail = vision_meta.error or "视觉模型没有返回可用识别内容"
+                    yield _phase_finished(
+                        "perceive",
+                        "识别图片题目",
+                        "视觉识别失败，已停止解题以避免胡乱回答",
+                        status="error",
+                    )
+                    yield task_event(
+                        agent_task_service.fail_run(
+                            db,
+                            run_id=run_id,
+                            message="视觉模型未能识别上传图片",
+                        )
+                    )
+                    yield _sse(
+                        "error",
+                        {
+                            "code": "VISION_RECOGNITION_FAILED",
+                            "message": (
+                                "我已经收到图片，但当前视觉模型没有成功识别图片内容，"
+                                "所以不能可靠解题。请检查 MULTIMODAL_MODEL / MULTIMODAL_API_KEY，"
+                                f"后端返回：{detail[:220]}"
+                            ),
+                            "retryAction": "retry",
+                        },
+                    )
+                    return
+
+                recognized_text = (vision_meta.text or image_context or "").strip()
+                yield _phase_delta(
+                    "perceive",
+                    f"已识别到图片内容：{recognized_text[:160]}",
+                )
+                yield _phase_finished(
+                    "perceive",
+                    "识别图片题目",
+                    "图片题目识别完成，开始解题",
+                )
+                yield update_task("executor", "running", 55, "正在根据图片题目生成解答")
+                yield _phase_started(
+                    "compose",
+                    "解答图片题目",
+                    "Tutor Agent 正在基于视觉识别结果给出分步解析",
+                )
+                try:
+                    grading_mode = any(
+                        word in (request.message or "")
+                        for word in ("批改", "判分", "检查答案", "作业")
+                    )
+                    answer = bailian_service.chat(
+                        system_prompt=(
+                            "你是高校作业拍照批改助手。请只基于 qwen-vl 的图片识别结果工作；"
+                            "看不清的内容必须指出，禁止补写不存在的题干。"
+                            + (
+                                "请按题逐项判断正误，给出得分依据、错误位置、正确解法和改进建议。"
+                                if grading_mode
+                                else "请输出题意复述、解题步骤、最终答案和易错提醒。"
+                            )
+                        ),
+                        user_prompt=(
+                            f"用户要求：{request.message or '帮我解答这道题'}\n\n"
+                            f"qwen-vl 图片识别结果：\n{recognized_text[:5000]}"
+                        ),
+                        temperature=0.2,
+                        max_tokens=5000,
+                    ).strip()
+                except Exception as exc:
+                    logger.warning("image homework direct solve failed run_id=%s reason=%s", run_id, exc)
+                    yield _phase_finished(
+                        "compose",
+                        "解答图片题目",
+                        "图片题目解答生成失败",
+                        status="error",
+                    )
+                    yield task_event(
+                        agent_task_service.fail_run(
+                            db, run_id=run_id, message="图片题目解答生成失败"
+                        )
+                    )
+                    yield _sse(
+                        "error",
+                        {
+                            "code": "IMAGE_HOMEWORK_SOLVE_FAILED",
+                            "message": str(exc),
+                            "retryAction": "retry",
+                        },
+                    )
+                    return
+
+                final_text = answer or "我已识别图片，但没有生成有效解答，请重新上传更清晰的图片。"
+                suggestions = ["把这道题生成同类练习", "提取本题知识点", "把解题过程整理成笔记"]
+                metrics = {
+                    "route_trace": ["orchestrator", "qwen_vl_agent", "qwen_grading_agent"],
+                    "vision_status": vision_meta.status,
+                    "vision_model": vision_meta.model,
+                    "suggestions": suggestions,
+                }
+                yield _phase_finished("compose", "解答图片题目", "图片题目解答完成")
+                yield _sse("answer_delta", {"text": final_text})
+                yield _sse("suggestions", {"items": suggestions})
+                yield update_task("executor", "completed", 100, "图片题目解答完成")
+                yield task_event(
+                    agent_task_service.complete_run(
+                        db, run_id=run_id, message="图片题目解答任务已完成"
+                    )
+                )
+                if user_id:
+                    chat_provider.save_stream_turn(
+                        db,
+                        thread_id=session_id,
+                        user_input=request.message or "解答图片题目",
+                        response=final_text,
+                        system_prompt=_system_prompt(request),
+                        agent="qwen_vl_grading_agent",
+                        intent="solve_image_homework",
+                        routing_reason="image attachment direct vision solve",
+                        citations=[
+                            {
+                                "title": file_name or "上传图片",
+                                "source_type": "uploaded_image",
+                                "summary": recognized_text[:500],
+                            }
+                        ],
+                        confidence="high" if vision_meta.status == "ok" else "medium",
+                        grounding_mode="uploaded_image",
+                        suggestions=suggestions,
+                        metrics=metrics,
+                    )
+                    schedule_memory_profile_refresh(user_id)
+                done_payload = {
+                    "runId": run_id,
+                    "sessionId": session_id,
+                    "messageId": uuid4().hex,
+                    "summary": "图片题目解答任务已完成",
+                    "usage": metrics,
+                    "suggestions": suggestions,
+                }
+                yield _sse("run_finished", done_payload)
+                yield _sse("done", done_payload)
+                return
+
+            if _is_ppt_generation_intent(request.message or ""):
+                topic = _image_generation_topic(request.message or "")
+                yield update_task("executor", "running", 20, "千问正在设计 PPT 课件结构")
+                yield _phase_started("compose", "生成 PPT 课件", "Qwen 正在生成结构化课件大纲并自动排版")
+                yield _sse("artifact_started", {"label": "正在生成 PPT 课件"})
+                if not teaching_artifact_service.configured():
+                    yield _sse("error", {"code": "BAILIAN_NOT_CONFIGURED", "message": "阿里云百炼 API Key 未配置。请设置 DASHSCOPE_API_KEY 后重启后端。", "retryAction": "retry"})
+                    return
+                try:
+                    artifact = teaching_artifact_service.generate_ppt(topic, request.message or "")
+                    package = {"package_id": f"ppt-{run_id}", "title": artifact["title"], "artifacts": [artifact]}
+                    suggestions = ["下载 PPT 课件", "生成配套练习题", "生成课件讲稿"]
+                    final_text = f"已使用千问生成并排版《{artifact['title']}》，共 {artifact.get('slide_count', 0)} 页，可从资源卡下载 PPTX 文件。"
+                    metrics = {"route_trace": ["orchestrator", "qwen_ppt_agent", "python_pptx_renderer"], "resourcePackage": package, "suggestions": suggestions}
+                    yield _phase_finished("compose", "生成 PPT 课件", "课件结构与 PPTX 文件已生成")
+                    yield _sse("artifact_finished", package)
+                    yield _sse("answer_delta", {"text": final_text})
+                    yield _sse("suggestions", {"items": suggestions})
+                    yield update_task("executor", "completed", 100, "PPT 课件已生成")
+                    yield task_event(agent_task_service.complete_run(db, run_id=run_id, message="PPT 课件生成完成"))
+                    if user_id:
+                        chat_provider.save_stream_turn(db, thread_id=session_id, user_input=request.message or "生成PPT", response=final_text, system_prompt=_system_prompt(request), agent="qwen_ppt_agent", intent="generate_ppt", routing_reason="orchestrator intent=generate_ppt", citations=[], confidence="high", grounding_mode="tool", suggestions=suggestions, metrics=metrics)
+                        schedule_memory_profile_refresh(user_id)
+                    done_payload = {"runId": run_id, "sessionId": session_id, "messageId": uuid4().hex, "summary": "PPT 课件生成完成", "usage": metrics, "suggestions": suggestions}
+                    yield _sse("run_finished", done_payload)
+                    yield _sse("done", done_payload)
+                except Exception as exc:
+                    logger.warning("PPT generation failed run_id=%s reason=%s", run_id, exc)
+                    yield task_event(agent_task_service.fail_run(db, run_id=run_id, message="PPT 课件生成失败"))
+                    yield _phase_finished("compose", "生成 PPT 课件", "PPT 课件生成失败", status="error")
+                    yield _sse("error", {"code": "PPT_GENERATION_FAILED", "message": str(exc), "retryAction": "retry"})
+                return
+
+            if _is_scientific_chart_intent(request.message or ""):
+                topic = _image_generation_topic(request.message or "")
+                yield update_task("executor", "running", 20, "千问正在生成科学图表规格")
+                yield _phase_started("compose", "生成科学图表", "Qwen 生成结构化数据，Matplotlib 负责确定性绘图")
+                yield _sse("artifact_started", {"label": "正在绘制科学图表"})
+                if not teaching_artifact_service.configured():
+                    yield _sse("error", {"code": "BAILIAN_NOT_CONFIGURED", "message": "阿里云百炼 API Key 未配置。请设置 DASHSCOPE_API_KEY 后重启后端。", "retryAction": "retry"})
+                    return
+                try:
+                    artifact = teaching_artifact_service.generate_scientific_chart(topic, request.message or "")
+                    package = {"package_id": f"chart-{run_id}", "title": artifact["title"], "artifacts": [artifact]}
+                    suggestions = ["下载高清图表", "解释图表中的规律", "把图表加入PPT"]
+                    final_text = f"已使用千问生成经过数值校验的图表规格，并由 Matplotlib 绘制《{artifact['title']}》。"
+                    metrics = {"route_trace": ["orchestrator", "qwen_chart_agent", "matplotlib_renderer"], "resourcePackage": package, "suggestions": suggestions}
+                    yield _phase_finished("compose", "生成科学图表", "科学图表已完成")
+                    yield _sse("artifact_finished", package)
+                    yield _sse("answer_delta", {"text": final_text})
+                    yield _sse("suggestions", {"items": suggestions})
+                    yield update_task("executor", "completed", 100, "科学图表已生成")
+                    yield task_event(agent_task_service.complete_run(db, run_id=run_id, message="科学图表生成完成"))
+                    if user_id:
+                        chat_provider.save_stream_turn(db, thread_id=session_id, user_input=request.message or "生成科学图表", response=final_text, system_prompt=_system_prompt(request), agent="qwen_chart_agent", intent="generate_scientific_chart", routing_reason="orchestrator intent=generate_scientific_chart", citations=[], confidence="high", grounding_mode="tool", suggestions=suggestions, metrics=metrics)
+                        schedule_memory_profile_refresh(user_id)
+                    done_payload = {"runId": run_id, "sessionId": session_id, "messageId": uuid4().hex, "summary": "科学图表生成完成", "usage": metrics, "suggestions": suggestions}
+                    yield _sse("run_finished", done_payload)
+                    yield _sse("done", done_payload)
+                except Exception as exc:
+                    logger.warning("scientific chart generation failed run_id=%s reason=%s", run_id, exc)
+                    yield task_event(agent_task_service.fail_run(db, run_id=run_id, message="科学图表生成失败"))
+                    yield _phase_finished("compose", "生成科学图表", "科学图表生成失败", status="error")
+                    yield _sse("error", {"code": "SCIENTIFIC_CHART_FAILED", "message": str(exc), "retryAction": "retry"})
+                return
+
+            if _is_structured_diagram_intent(request.message or ""):
+                topic = _structured_diagram_topic(request.message or "")
+                if not bailian_service.configured():
+                    yield _sse("error", {"code": "BAILIAN_NOT_CONFIGURED", "message": "阿里云百炼 API Key 未配置。请设置 DASHSCOPE_API_KEY 后重启后端。", "retryAction": "retry"})
+                    return
+                diagram_source = "qwen-max"
+                try:
+                    diagram_kind, mermaid_code = bailian_service.generate_mermaid(request.message or "")
+                except Exception as exc:
+                    logger.warning("Qwen Mermaid generation failed, using verified fallback: %s", exc)
+                    diagram_kind, mermaid_code = _structured_diagram_mermaid(request.message or "")
+                    diagram_source = "verified_template_fallback"
+                yield update_task("executor", "running", 25, "正在生成结构化图表")
+                yield _phase_started(
+                    "compose",
+                    "生成结构化图表",
+                    "正在使用 Diagram Agent 生成可渲染、可复制的 Mermaid 图表",
+                )
+                yield _phase_delta("compose", f"图表主题：{topic}")
+                package = {
+                    "package_id": f"diagram-{run_id}",
+                    "title": f"{topic}结构化图表",
+                    "artifacts": [
+                        {
+                            "kind": "diagram",
+                            "resource_type": "diagram",
+                            "title": f"{topic}结构化图表",
+                            "preview": (
+                                "下面是结构化 Mermaid 图表，可直接复制到支持 Mermaid 的编辑器、"
+                                "Markdown 或 PPT 插件中渲染。\n\n"
+                                f"```mermaid\n{mermaid_code}\n```"
+                            ),
+                            "diagram_type": diagram_kind,
+                            "mermaid_code": mermaid_code,
+                        }
+                    ],
+                }
+                suggestions = [
+                    "再生成一版更适合PPT的简化图",
+                    "把这张图拆成数据流图和ER图两张",
+                    "根据这张图生成讲解稿",
+                ]
+                final_text = (
+                    f"已为“{topic}”生成结构化图表，已避开图片插画模型。\n\n"
+                    f"```mermaid\n{mermaid_code}\n```\n\n"
+                    "你也可以打开下方资源卡查看渲染预览并复制 Mermaid 代码。"
+                )
+                metrics = {
+                    "route_trace": ["orchestrator", "qwen_diagram_agent", "mermaid_renderer"],
+                    "diagram_source": diagram_source,
+                    "resourcePackage": package,
+                    "suggestions": suggestions,
+                }
+                yield _phase_finished("compose", "生成结构化图表", "结构化图表已生成")
+                yield _sse("artifact_finished", package)
+                yield _sse("answer_delta", {"text": final_text})
+                yield _sse("suggestions", {"items": suggestions})
+                yield update_task("executor", "completed", 100, "结构化图表已生成")
+                yield task_event(
+                    agent_task_service.complete_run(
+                        db, run_id=run_id, message="结构化图表生成任务已完成"
+                    )
+                )
+                if user_id:
+                    chat_provider.save_stream_turn(
+                        db,
+                        thread_id=session_id,
+                        user_input=request.message or "生成结构化图表",
+                        response=final_text,
+                        system_prompt=_system_prompt(request),
+                        agent="diagram_agent",
+                        intent="generate_diagram",
+                        routing_reason="orchestrator intent=generate_diagram",
+                        citations=[],
+                        confidence="high",
+                        grounding_mode="tool",
+                        suggestions=suggestions,
+                        metrics=metrics,
+                    )
+                    schedule_memory_profile_refresh(user_id)
+                done_payload = {
+                    "runId": run_id,
+                    "sessionId": session_id,
+                    "messageId": uuid4().hex,
+                    "summary": "结构化图表生成任务已完成",
+                    "usage": metrics,
+                    "suggestions": suggestions,
+                }
+                yield _sse("run_finished", done_payload)
+                yield _sse("done", done_payload)
+                return
+
+            if _is_image_generation_intent(request.message or ""):
+                topic, image_prompt = _image_generation_prompt(request.message or "")
+                yield update_task("executor", "running", 15, "正在调用通义万相生成图片")
+                yield _phase_started(
+                    "compose",
+                    "生成教学图片",
+                    "正在把学习主题转换为图片生成提示词",
+                )
+                yield _phase_delta("compose", f"图片主题：{topic}")
+                yield _sse("artifact_started", {"label": "正在生成教学图片"})
+                if not bailian_service.configured():
+                    yield task_event(
+                        agent_task_service.fail_run(
+                            db, run_id=run_id, message="图片生成 API Key 未配置"
+                        )
+                    )
+                    yield _phase_finished(
+                        "compose",
+                        "生成教学图片",
+                        "图片生成 API Key 未配置",
+                        status="error",
+                    )
+                    yield _sse(
+                        "error",
+                        {
+                            "code": "IMAGE_GENERATION_NOT_CONFIGURED",
+                            "message": "阿里云百炼 API Key 未配置。请在 code/.env 填写 DASHSCOPE_API_KEY，保存后重启后端。",
+                            "retryAction": "retry",
+                        },
+                    )
+                    return
+                try:
+                    images = bailian_service.generate_and_store(
+                        BailianImageRequest(prompt=image_prompt)
+                    )
+                    if not images:
+                        raise RuntimeError("图片生成接口未返回可用图片")
+                    primary = images[0]
+                    image_url = primary.local_url or primary.url
+                    package_id = f"image-{primary.file_name or run_id}"
+                    image_markdown = f"![{topic}教学图片]({image_url})"
+                    package = {
+                        "package_id": package_id,
+                        "title": f"{topic}教学图片",
+                        "artifacts": [
+                            {
+                                "kind": "image",
+                                "title": f"{topic}教学图片",
+                                "preview": (
+                                    f"{image_markdown}\n\n"
+                                    f"生成提示词：{image_prompt}"
+                                ),
+                                "image_url": image_url,
+                                "download_url": image_url if primary.local_url else "",
+                                "file_name": primary.file_name or "",
+                                "provider_url": primary.url,
+                                "revised_prompt": primary.revised_prompt or "",
+                            }
+                        ],
+                    }
+                    suggestions = [
+                        "再生成一版更简洁的图片",
+                        "把这张图做成PPT",
+                        f"生成{topic}讲解视频",
+                    ]
+                    final_text = (
+                        f"已为「{topic}」生成教学图片。\n\n"
+                        "你可以打开下方资源卡预览；如果要参赛展示，建议再让我把它整理进 PPT。"
+                    )
+                    metrics = {
+                        "route_trace": ["orchestrator", "qwen_prompt_agent", "wanx_image"],
+                        "resourcePackage": package,
+                        "suggestions": suggestions,
+                    }
+                    yield _phase_finished("compose", "生成教学图片", "图片已生成并保存到本地")
+                    yield _sse("artifact_finished", package)
+                    yield _sse("answer_delta", {"text": final_text})
+                    yield _sse("suggestions", {"items": suggestions})
+                    yield update_task("executor", "completed", 100, "教学图片已生成")
+                    yield task_event(
+                        agent_task_service.complete_run(
+                            db, run_id=run_id, message="图片生成任务已完成"
+                        )
+                    )
+                    if user_id:
+                        chat_provider.save_stream_turn(
+                            db,
+                            thread_id=session_id,
+                            user_input=request.message or "生成图片",
+                            response=final_text,
+                            system_prompt=_system_prompt(request),
+                            agent="wanx_image",
+                            intent="generate_image",
+                            routing_reason="orchestrator intent=generate_image",
+                            citations=[],
+                            confidence="high",
+                            grounding_mode="tool",
+                            suggestions=suggestions,
+                            metrics=metrics,
+                        )
+                        schedule_memory_profile_refresh(user_id)
+                    done_payload = {
+                        "runId": run_id,
+                        "sessionId": session_id,
+                        "messageId": uuid4().hex,
+                        "summary": "图片生成任务已完成",
+                        "usage": metrics,
+                        "suggestions": suggestions,
+                    }
+                    yield _sse("run_finished", done_payload)
+                    yield _sse("done", done_payload)
+                except Exception as exc:
+                    logger.warning("image generation failed run_id=%s reason=%s", run_id, exc)
+                    yield task_event(
+                        agent_task_service.fail_run(
+                            db, run_id=run_id, message="图片生成失败"
+                        )
+                    )
+                    yield _phase_finished(
+                        "compose",
+                        "生成教学图片",
+                        "图片生成失败",
+                        status="error",
+                    )
+                    yield _sse(
+                        "error",
+                        {
+                            "code": "IMAGE_GENERATION_FAILED",
+                            "message": str(exc),
+                            "retryAction": "retry",
+                        },
+                    )
+                return
+
+            if _is_seedance_video_intent(request.message or ""):
+                topic, _ = _seedance_video_prompt(request.message or "")
+                yield update_task("executor", "running", 15, "千问正在设计 Manim 教学分镜")
+                yield _phase_started(
+                    "compose",
+                    "生成教学动画",
+                    "Qwen 生成结构化教学分镜，Manim 负责本地渲染",
+                )
+                yield _phase_delta("compose", f"视频主题：{topic}")
+                yield _sse("artifact_started", {"label": "正在渲染 Manim 教学动画"})
+                if not teaching_artifact_service.configured():
+                    yield task_event(
+                        agent_task_service.fail_run(
+                            db, run_id=run_id, message="阿里云百炼 API Key 未配置"
+                        )
+                    )
+                    yield _phase_finished(
+                        "compose",
+                        "生成教学动画",
+                        "阿里云百炼 API Key 未配置",
+                        status="error",
+                    )
+                    yield _sse(
+                        "error",
+                        {
+                            "code": "BAILIAN_NOT_CONFIGURED",
+                            "message": "阿里云百炼 API Key 未配置。请在 code/.env 填写 DASHSCOPE_API_KEY，保存后重启后端。",
+                            "retryAction": "retry",
+                        },
+                    )
+                    return
+                try:
+                    artifact = teaching_artifact_service.generate_manim_video(
+                        topic, request.message or ""
+                    )
+                    package_id = f"manim-{run_id}"
+                    package = {
+                        "package_id": package_id,
+                        "title": artifact["title"],
+                        "artifacts": [artifact],
+                    }
+                    suggestions = [
+                        "下载教学动画",
+                        "再生成一版更短的视频",
+                        f"生成{topic}配套讲义",
+                    ]
+                    final_text = f"已使用千问生成「{topic}」教学分镜，并由 Manim 渲染为可下载的 MP4 动画。"
+                    metrics = {
+                        "route_trace": ["orchestrator", "qwen_storyboard_agent", "manim_renderer"],
+                        "resourcePackage": package,
+                        "suggestions": suggestions,
+                    }
+                    yield _phase_finished(
+                        "compose",
+                        "生成教学动画",
+                        "Manim 教学动画已渲染完成",
+                    )
+                    yield _sse("artifact_finished", package)
+                    yield _sse("answer_delta", {"text": final_text})
+                    yield _sse("suggestions", {"items": suggestions})
+                    yield update_task("executor", "completed", 100, "Manim 教学动画已生成")
+                    yield task_event(
+                        agent_task_service.complete_run(
+                            db, run_id=run_id, message="Manim 教学动画生成完成"
+                        )
+                    )
+                    if user_id:
+                        chat_provider.save_stream_turn(
+                            db,
+                            thread_id=session_id,
+                            user_input=request.message or "生成讲解视频",
+                            response=final_text,
+                            system_prompt=_system_prompt(request),
+                            agent="qwen_manim_agent",
+                            intent="generate_video",
+                            routing_reason="orchestrator intent=generate_manim_video",
+                            citations=[],
+                            confidence="high",
+                            grounding_mode="tool",
+                            suggestions=suggestions,
+                            metrics=metrics,
+                        )
+                        schedule_memory_profile_refresh(user_id)
+                    done_payload = {
+                        "runId": run_id,
+                        "sessionId": session_id,
+                        "messageId": uuid4().hex,
+                        "summary": "Manim 教学动画生成完成",
+                        "usage": metrics,
+                        "suggestions": suggestions,
+                    }
+                    yield _sse("run_finished", done_payload)
+                    yield _sse("done", done_payload)
+                except Exception as exc:
+                    logger.warning("Manim video generation failed run_id=%s reason=%s", run_id, exc)
+                    yield task_event(
+                        agent_task_service.fail_run(
+                            db, run_id=run_id, message="Manim 教学动画生成失败"
+                        )
+                    )
+                    yield _phase_finished(
+                        "compose",
+                        "生成教学动画",
+                        "Manim 教学动画生成失败",
+                        status="error",
+                    )
+                    yield _sse(
+                        "error",
+                        {
+                            "code": "MANIM_VIDEO_GENERATION_FAILED",
+                            "message": str(exc),
+                            "retryAction": "retry",
+                        },
+                    )
+                return
 
             if _is_quiz_generation_intent(request.message or ""):
                 owned_prior_user_messages = [

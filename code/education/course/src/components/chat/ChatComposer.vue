@@ -24,6 +24,7 @@
 
   const input = ref('');
   const files = ref<File[]>([]);
+  const dragActive = ref(false);
   const composing = ref(false);
   const rootRef = ref<HTMLElement | null>(null);
   const textareaRef = ref<HTMLTextAreaElement | null>(null);
@@ -130,9 +131,55 @@
 
   const onFileChange = (event: Event) => {
     const target = event.target as HTMLInputElement;
-    const next = Array.from(target.files || []);
-    files.value = [...files.value, ...next].slice(0, 4);
+    addFiles(target.files || []);
     target.value = '';
+  };
+
+  const addFiles = (incoming: FileList | File[]) => {
+    const next = Array.from(incoming || []).filter(Boolean);
+    if (!next.length) return;
+    files.value = [...files.value, ...next].slice(0, 6);
+    nextTick(resizeTextarea);
+  };
+
+  const onDrop = (event: DragEvent) => {
+    event.preventDefault();
+    dragActive.value = false;
+    addFiles(event.dataTransfer?.files || []);
+  };
+
+  const onDragOver = (event: DragEvent) => {
+    event.preventDefault();
+    if (event.dataTransfer?.types?.includes('Files')) {
+      dragActive.value = true;
+    }
+  };
+
+  const onDragLeave = (event: DragEvent) => {
+    const root = rootRef.value;
+    if (!root || !root.contains(event.relatedTarget as Node | null)) {
+      dragActive.value = false;
+    }
+  };
+
+  const onPaste = (event: ClipboardEvent) => {
+    const clipboardFiles = Array.from(event.clipboardData?.files || []);
+    const itemFiles = Array.from(event.clipboardData?.items || [])
+      .filter((item) => item.kind === 'file')
+      .map((item, index) => {
+        const file = item.getAsFile();
+        if (!file) return null;
+        if (file.name) return file;
+        const ext = file.type?.split('/')[1] || 'png';
+        return new File([file], `pasted-${Date.now()}-${index}.${ext}`, {
+          type: file.type || 'application/octet-stream',
+        });
+      })
+      .filter(Boolean) as File[];
+    const pastedFiles = clipboardFiles.length ? clipboardFiles : itemFiles;
+    if (!pastedFiles.length) return;
+    event.preventDefault();
+    addFiles(pastedFiles);
   };
 
   const removeFile = (index: number) => {
@@ -144,6 +191,7 @@
     emit('send', { text: input.value.trim(), files: [...files.value] });
     input.value = '';
     files.value = [];
+    dragActive.value = false;
     closeFloatingPanels();
     nextTick(resizeTextarea);
   };
@@ -212,6 +260,7 @@
 
   defineExpose({
     openUpload: chooseFiles,
+    addFiles,
     setDraft(value: string) {
       input.value = value;
       nextTick(() => {
@@ -226,10 +275,17 @@
   <section
     ref="rootRef"
     class="chat-composer"
+    :class="{ 'is-dragging': dragActive }"
     data-testid="tutor-composer"
     :style="{ '--composer-width': `${composerWidth}px` }"
+    @drop="onDrop"
+    @dragover="onDragOver"
+    @dragleave="onDragLeave"
   >
     <div class="composer-box" :class="{ 'has-tools': hasActiveTools }">
+      <div v-if="dragActive" class="composer-drop-layer">
+        释放文件或图片，小智会在本轮对话中识别内容
+      </div>
       <div v-if="files.length" class="composer-files">
         <button
           v-for="(file, index) in files"
@@ -252,6 +308,7 @@
         @compositionend="composing = false"
         @input="resizeTextarea"
         @keydown="onKeydown"
+        @paste="onPaste"
       />
 
       <div class="composer-toolbar">
@@ -428,6 +485,7 @@
 
 <style scoped lang="scss">
   .chat-composer {
+    position: relative;
     width: min(var(--composer-width, 680px), calc(100% - 32px));
     max-width: 100%;
     margin: 0 auto;
@@ -435,6 +493,7 @@
   }
 
   .composer-box {
+    position: relative;
     border: 1px solid rgba(15, 23, 42, 0.08);
     border-radius: 26px;
     background: #fff;
@@ -445,6 +504,25 @@
       border-color: #94a3b8;
       box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.07), 0 14px 42px rgba(15, 23, 42, 0.07);
     }
+  }
+
+  .chat-composer.is-dragging .composer-box {
+    border-color: rgba(99, 102, 241, 0.52);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12), 0 18px 46px rgba(15, 23, 42, 0.12);
+  }
+
+  .composer-drop-layer {
+    position: absolute;
+    inset: 8px;
+    z-index: 35;
+    display: grid;
+    place-items: center;
+    border: 1px dashed rgba(99, 102, 241, 0.58);
+    border-radius: 20px;
+    background: rgba(248, 247, 255, 0.96);
+    color: #4f46e5;
+    font-weight: 800;
+    pointer-events: none;
   }
 
   .composer-files {

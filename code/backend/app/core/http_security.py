@@ -220,49 +220,55 @@ class AIRequestBudgetMiddleware:
             if is_sse
             else settings.AI_SYNC_MAX_CONCURRENT_PER_USER
         )
-        now = time.monotonic()
         window = settings.AI_RATE_LIMIT_WINDOW_SECONDS
-        async with self._lock:
-            cleanup_due = (
-                now - self._last_cleanup
-                >= settings.AI_BUDGET_CLEANUP_INTERVAL_SECONDS
-                or identity not in self._recent
-                and len(self._recent) >= settings.AI_BUDGET_MAX_IDENTITIES
-            )
-            if cleanup_due:
-                self._cleanup_identities(now)
-            identity_capacity = max(1, settings.AI_BUDGET_MAX_IDENTITIES)
-            if identity not in self._recent and len(self._recent) >= identity_capacity:
-                await _json_response(
-                    send,
-                    429,
-                    "AI request identity capacity exceeded",
-                    [(b"retry-after", b"1")],
+        wait_seconds = max(0.0, float(settings.AI_CONCURRENCY_WAIT_SECONDS))
+        wait_until = time.monotonic() + wait_seconds
+        while True:
+            now = time.monotonic()
+            async with self._lock:
+                cleanup_due = (
+                    now - self._last_cleanup
+                    >= settings.AI_BUDGET_CLEANUP_INTERVAL_SECONDS
+                    or identity not in self._recent
+                    and len(self._recent) >= settings.AI_BUDGET_MAX_IDENTITIES
                 )
-                return
-            recent = self._recent.setdefault(identity, deque())
-            while recent and recent[0] <= now - window:
-                recent.popleft()
-            if len(recent) >= settings.AI_RATE_LIMIT_REQUESTS:
-                retry_after = max(1, int(window - (now - recent[0])))
-                await _json_response(
-                    send,
-                    429,
-                    "AI request rate limit exceeded",
-                    [(b"retry-after", str(retry_after).encode())],
-                )
-                return
-            if self._active[identity] >= concurrency_limit:
-                await _json_response(
-                    send,
-                    429,
-                    "AI concurrency limit exceeded",
-                    [(b"retry-after", b"1")],
-                )
-                return
-            recent.append(now)
-            self._last_seen[identity] = now
-            self._active[identity] += 1
+                if cleanup_due:
+                    self._cleanup_identities(now)
+                identity_capacity = max(1, settings.AI_BUDGET_MAX_IDENTITIES)
+                if identity not in self._recent and len(self._recent) >= identity_capacity:
+                    await _json_response(
+                        send,
+                        429,
+                        "AI request identity capacity exceeded",
+                        [(b"retry-after", b"1")],
+                    )
+                    return
+                recent = self._recent.setdefault(identity, deque())
+                while recent and recent[0] <= now - window:
+                    recent.popleft()
+                if len(recent) >= settings.AI_RATE_LIMIT_REQUESTS:
+                    retry_after = max(1, int(window - (now - recent[0])))
+                    await _json_response(
+                        send,
+                        429,
+                        "AI request rate limit exceeded",
+                        [(b"retry-after", str(retry_after).encode())],
+                    )
+                    return
+                if self._active[identity] < concurrency_limit:
+                    recent.append(now)
+                    self._last_seen[identity] = now
+                    self._active[identity] += 1
+                    break
+                if now >= wait_until:
+                    await _json_response(
+                        send,
+                        429,
+                        "AI concurrency limit exceeded",
+                        [(b"retry-after", b"1")],
+                    )
+                    return
+            await asyncio.sleep(min(0.25, max(0.0, wait_until - time.monotonic())))
 
         response_started = False
 

@@ -274,7 +274,7 @@ class QuizService:
                 question=self._public_question(question),
                 resource_id=resource.id,
                 resource_title=resource.title,
-                subject=resource.subject,
+                subject=self._practice_agent_subject(resource=resource, question=question),
                 wrong_count=wrong.wrong_count,
                 mastered=wrong.mastered,
                 created_time=wrong.created_time,
@@ -332,6 +332,222 @@ class QuizService:
             results=results,
             attempt_ids=[item.attempt_id for item in submissions],
         )
+
+    def generate_wrong_book_practice(
+        self,
+        session: Session,
+        *,
+        user_id: UUID,
+        subject: str | None = None,
+        question_ids: list[UUID] | None = None,
+        count: int = 8,
+        difficulty: str = "standard",
+    ) -> QuizResourcePublic:
+        query = (
+            select(WrongQuestion, Question, Resource)
+            .join(Question, Question.id == WrongQuestion.question_id)
+            .join(Resource, Resource.id == Question.resource_id)
+            .where(WrongQuestion.user_id == user_id, WrongQuestion.is_favorite.is_(True))
+            .order_by(WrongQuestion.wrong_count.desc(), WrongQuestion.updated_time.desc())
+        )
+        if question_ids:
+            query = query.where(WrongQuestion.question_id.in_(question_ids))
+
+        rows = list(session.exec(query).all())
+        if subject and not self._is_generic_subject(subject):
+            rows = [
+                row
+                for row in rows
+                if self._practice_agent_subject(resource=row[2], question=row[1]) == subject
+            ]
+        if not rows:
+            raise QuizGenerationError("这个错题本里还没有可用于生成练习的错题")
+
+        inferred_subjects = [
+            self._practice_agent_subject(resource=resource, question=question)
+            for _, question, resource in rows
+        ]
+        course = (
+            subject
+            if subject and not self._is_generic_subject(subject)
+            else next((item for item in inferred_subjects if not self._is_generic_subject(item)), "通用课程")
+        )
+        points = []
+        examples = []
+        for wrong, question, resource in rows[:12]:
+            if question.knowledge_point and question.knowledge_point not in points:
+                points.append(question.knowledge_point)
+            examples.append(
+                f"{len(examples) + 1}. [{resource.title}] {question.knowledge_point}："
+                f"{question.content}；正确答案 {question.answer}；已错 {wrong.wrong_count} 次"
+            )
+
+        knowledge_point = "错题专项巩固：" + "、".join(points[:8])
+        if examples:
+            knowledge_point += "\n参考错题画像：\n" + "\n".join(examples[:8])
+        return self._build_wrong_book_practice_resource(
+            session,
+            user_id=user_id,
+            course=course,
+            subject=course,
+            knowledge_point=knowledge_point,
+            rows=rows,
+            count=count,
+            difficulty=difficulty,
+        )
+
+    def _build_wrong_book_practice_resource(
+        self,
+        session: Session,
+        *,
+        user_id: UUID,
+        course: str,
+        subject: str,
+        knowledge_point: str,
+        rows: list[tuple[WrongQuestion, Question, Resource]],
+        count: int,
+        difficulty: str,
+    ) -> QuizResourcePublic:
+        """Create a reliable practice quiz from wrong-book data without depending on provider latency."""
+        count = max(1, min(20, count))
+        source_rows = rows[:count]
+        title = f"{subject}错题专项练习"
+        points = list(
+            dict.fromkeys(
+                question.knowledge_point
+                for _, question, _ in source_rows
+                if question.knowledge_point
+            )
+        )
+        resource = Resource(
+            title=title,
+            type="question",
+            subject=subject,
+            content_type="application/json",
+            content={
+                "course": course,
+                "source": "wrong_book_practice_agent",
+                "source_question_count": len(source_rows),
+                "wrong_points": points,
+                "generation_strategy": "deterministic_wrong_question_variant",
+            },
+            knowledge_point="、".join(points[:6]) or "错题专项巩固",
+            difficulty=difficulty,
+            source="wrong_book_practice_agent",
+            uploader_id=user_id,
+        )
+        session.add(resource)
+        session.flush([resource])
+        records: list[Question] = []
+        for index, (wrong, original, original_resource) in enumerate(source_rows):
+            options = [
+                {
+                    "key": str(option.get("key", "")).strip(),
+                    "text": str(option.get("text", "")).strip(),
+                }
+                for option in (original.options or [])
+                if str(option.get("key", "")).strip() and str(option.get("text", "")).strip()
+            ]
+            if not options:
+                continue
+            record = Question(
+                resource_id=resource.id,
+                knowledge_point=original.knowledge_point,
+                question_type=original.question_type or "single_choice",
+                content=(
+                    f"【错题同类巩固】围绕「{original.knowledge_point or subject}」重新判断："
+                    f"{original.content}"
+                ),
+                options=options,
+                answer=original.answer,
+                analysis=(
+                    f"本题由练习 Agent 根据你在《{original_resource.title}》中的错题生成。"
+                    f"原题累计错误 {wrong.wrong_count} 次。{original.analysis}"
+                ),
+                difficulty=difficulty or original.difficulty or "standard",
+                order=index,
+            )
+            session.add(record)
+            records.append(record)
+        if not records:
+            session.rollback()
+            raise QuizGenerationError("错题数据不完整，暂时无法生成专项练习")
+        word_path: Path | None = None
+        try:
+            word_path = self._write_word_file(resource=resource, questions=records)
+            resource.file_name = word_path.name
+            resource.file_path = f"resources/{word_path.name}"
+            resource.file_size = word_path.stat().st_size
+            resource.content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            resource.content = {
+                **(resource.content or {}),
+                "formats": ["interactive_quiz", "docx"],
+            }
+            session.add(resource)
+            session.commit()
+        except Exception as exc:
+            session.rollback()
+            if word_path:
+                word_path.unlink(missing_ok=True)
+            raise QuizGenerationError("错题练习已生成，但文件保存失败") from exc
+        for record in records:
+            session.refresh(record)
+        session.refresh(resource)
+        return self._public(resource, records)
+
+    @classmethod
+    def _practice_agent_subject(cls, *, resource: Resource, question: Question) -> str:
+        """Practice Agent: infer the notebook subject from tags, source, knowledge point and stem."""
+        explicit = str(resource.subject or "").strip()
+        searchable = " ".join(
+            str(value or "")
+            for value in (
+                resource.subject,
+                resource.title,
+                resource.knowledge_point,
+                (resource.content or {}).get("course") if isinstance(resource.content, dict) else "",
+                question.knowledge_point,
+                question.content,
+                question.analysis,
+            )
+        ).lower()
+        subject_rules: tuple[tuple[str, tuple[str, ...]], ...] = (
+            ("软件工程导论", ("软件工程", "需求分析", "数据流图", "dfd", "实体联系", "er图", "uml", "软件测试", "白盒", "黑盒", "软件生命周期", "软件危机", "总体设计", "详细设计", "项目管理")),
+            ("计算机组成原理", ("计算机组成", "组成原理", "cpu", "cache", "主存", "存储器", "指令系统", "流水线", "总线", "运算器", "控制器")),
+            ("计算机网络", ("计算机网络", "tcp", "udp", "拥塞控制", "滑动窗口", "路由", "ip协议", "http", "dns", "osi", "网络层", "传输层")),
+            ("数据库系统", ("数据库", "sql", "事务", "acid", "索引", "范式", "函数依赖", "er模型", "关系代数", "并发控制", "mvcc")),
+            ("数据结构与算法", ("数据结构", "算法", "链表", "二叉树", "栈", "队列", "排序", "查找", "图算法", "时间复杂度")),
+            ("操作系统", ("操作系统", "进程", "线程", "死锁", "虚拟内存", "页面置换", "文件系统", "调度算法", "信号量")),
+            ("人工智能", ("人工智能", "机器学习", "深度学习", "神经网络", "大模型", "llm", "agent", "知识图谱", "搜索算法")),
+            ("程序设计", ("python", "java", "c++", "程序设计", "编程", "代码", "类与对象", "函数", "数组")),
+            ("高等数学", ("高等数学", "极限", "导数", "微分", "积分", "级数", "偏导")),
+            ("线性代数", ("线性代数", "矩阵", "向量", "行列式", "特征值", "线性方程组")),
+            ("概率论与数理统计", ("概率论", "数理统计", "随机变量", "概率分布", "期望", "方差", "假设检验")),
+            ("英语", ("english", "英语", "阅读理解", "完形填空", "词汇", "grammar", "translation")),
+        )
+        for subject, keywords in subject_rules:
+            if any(keyword in searchable for keyword in keywords):
+                return subject
+        if explicit and not cls._is_generic_subject(explicit):
+            return explicit[:80]
+        return "通用课程"
+
+    @staticmethod
+    def _is_generic_subject(subject: str | None) -> bool:
+        value = str(subject or "").strip().lower()
+        return value in {
+            "",
+            "全部学科",
+            "未分类",
+            "未分类学科",
+            "通用",
+            "通用课程",
+            "通用学习",
+            "个性化学习",
+            "当前学习目标",
+            "ai专项练习",
+            "专项练习",
+        }
 
     def _submit_questions(
         self,

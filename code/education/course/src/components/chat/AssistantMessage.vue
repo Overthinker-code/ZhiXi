@@ -1,7 +1,7 @@
 <script setup lang="ts">
   import { computed } from 'vue';
-  import { renderMarkdown } from '@/utils/markdown';
   import ArtifactCards from './ArtifactCards.vue';
+  import MarkdownWithMermaid from './MarkdownWithMermaid.vue';
   import CitationList from './CitationList.vue';
   import LiveProcessPanel from './LiveProcessPanel.vue';
   import type { GeneratePracticeFollowUp } from './postAnswerActions';
@@ -21,11 +21,6 @@
   }>();
 
   const safeContent = computed(() => sanitizeAssistantText(props.message.content || ''));
-  const rendered = computed(() =>
-    renderMarkdown(safeContent.value, {
-      streaming: Boolean(props.message.loading),
-    })
-  );
   const suggestions = computed(() =>
     (Array.isArray(props.message.suggestions) ? props.message.suggestions : [])
       .map((item: unknown) => String(item || '').trim())
@@ -42,11 +37,12 @@
       @stop="emit('stop')"
     />
 
-    <div
+    <MarkdownWithMermaid
       v-if="safeContent"
       class="assistant-message__body markdown-body"
       :class="{ 'is-streaming': message.loading }"
-      v-html="rendered"
+      :content="safeContent"
+      :streaming="Boolean(message.loading)"
     />
     <div
       v-else-if="message.loading && !message.liveProcess?.runId"

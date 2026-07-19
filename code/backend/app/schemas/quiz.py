@@ -110,6 +110,13 @@ class WrongQuestionBookResponse(BaseModel):
     count: int
 
 
+class WrongBookPracticeRequest(BaseModel):
+    subject: str | None = None
+    question_ids: list[UUID] = Field(default_factory=list)
+    count: int = Field(default=8, ge=1, le=20)
+    difficulty: Literal["foundation", "standard", "challenge"] = "standard"
+
+
 class WrongBookSubmitResponse(BaseModel):
     total_questions: int
     correct_count: int

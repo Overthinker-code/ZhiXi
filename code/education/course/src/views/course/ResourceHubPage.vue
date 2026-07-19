@@ -43,6 +43,8 @@
     sourceReferenceFrom,
     studentFacingReason,
   } from '@/components/resource/sourceReference';
+  import { useSelectionQueryMenu } from '@/composables/useSelectionQueryMenu';
+  import SelectionAiAnswerPanel from '@/views/course/coursevideo/components/SelectionAiAnswerPanel.vue';
 
   const router = useRouter();
   const resources = ref<ResourceRecord[]>([]);
@@ -58,6 +60,55 @@
   const recommendationBusy = ref<Record<string, string>>({});
   const previewingResource = ref<ResourceRecord | null>(null);
   const previewingRecommendation = ref<ResourceRecommendationItem | null>(null);
+
+  function resourceSelectionContext() {
+    const library = visibleResources.value
+      .slice(0, 12)
+      .map((resource) =>
+        [
+          resource.title,
+          resource.subject,
+          resource.knowledge_point,
+          resource.file_name,
+          typeLabel(resource.type),
+        ]
+          .filter(Boolean)
+          .join(' / ')
+      )
+      .join('\n');
+    const recommended = recommendations.value
+      .slice(0, 6)
+      .map((item) =>
+        [item.title, item.reason || item.preview, item.subject, item.knowledge_point]
+          .filter(Boolean)
+          .join(' / ')
+      )
+      .join('\n');
+    return [recommended && `个性化推荐：\n${recommended}`, library && `资料库：\n${library}`]
+      .filter(Boolean)
+      .join('\n\n');
+  }
+
+  const {
+    promptTemplates: selectionPromptTemplates,
+    showContextMenu: showSelectionContextMenu,
+    contextMenuStyle: selectionContextMenuStyle,
+    isLoadingResponse: isSelectionLoadingResponse,
+    responseCitations: selectionResponseCitations,
+    responseCitationHints: selectionResponseCitationHints,
+    responseConfidence: selectionResponseConfidence,
+    responseGroundingMode: selectionResponseGroundingMode,
+    responseMetrics: selectionResponseMetrics,
+    showAnswerPanel: showSelectionAnswerPanel,
+    answerPanelBounds: selectionAnswerPanelBounds,
+    answerPanelSession: selectionAnswerPanelSession,
+    isTypingAnswer: isSelectionTypingAnswer,
+    renderedResponse: selectionRenderedResponse,
+    bridgeLine: selectionBridgeLine,
+    handleTextSelection: handleSelectionTextSelection,
+    sendAIQuery: sendSelectionAIQuery,
+    clearAnswerPanel: clearSelectionAnswerPanel,
+  } = useSelectionQueryMenu(resourceSelectionContext);
 
   const typeLabels: Record<string, string> = {
     pdf: 'PDF',
@@ -427,7 +478,11 @@
 </script>
 
 <template>
-  <main class="resource-hub-page">
+  <main
+    class="resource-hub-page resource-selection-root"
+    @mouseup="handleSelectionTextSelection('.resource-selection-root', $event)"
+    @touchend="handleSelectionTextSelection('.resource-selection-root', $event)"
+  >
     <header class="resource-hub-hero">
       <div>
         <span><Sparkles :size="15" /> AI 资料中心</span>
@@ -638,6 +693,58 @@
       @download="download"
       @updated="updateRecommendation"
     />
+    <Transition name="sel-menu">
+      <div
+        v-if="showSelectionContextMenu"
+        :style="selectionContextMenuStyle"
+        class="selection-context-menu"
+        @mousedown.stop
+        @pointerdown.stop
+      >
+        <div class="selection-context-menu__title">划词唤醒</div>
+        <button
+          v-for="template in selectionPromptTemplates"
+          :key="template.key"
+          type="button"
+          class="selection-context-menu__item"
+          @click="sendSelectionAIQuery(template.key)"
+        >
+          {{ template.label }}
+        </button>
+      </div>
+    </Transition>
+    <svg
+      v-if="selectionBridgeLine.active"
+      class="selection-bridge"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <line
+        :x1="selectionBridgeLine.x1"
+        :y1="selectionBridgeLine.y1"
+        :x2="selectionBridgeLine.x2"
+        :y2="selectionBridgeLine.y2"
+        stroke="#2563eb"
+        stroke-width="2.5"
+        stroke-linecap="round"
+        class="selection-bridge-line"
+      />
+    </svg>
+    <SelectionAiAnswerPanel
+      v-if="showSelectionAnswerPanel && selectionAnswerPanelBounds"
+      :visible="showSelectionAnswerPanel"
+      :session="selectionAnswerPanelSession"
+      :initial-bounds="selectionAnswerPanelBounds"
+      :html="selectionRenderedResponse"
+      :loading="isSelectionLoadingResponse"
+      :typing="isSelectionTypingAnswer"
+      :citations="selectionResponseCitations"
+      :citation-hints="selectionResponseCitationHints"
+      :confidence="selectionResponseConfidence"
+      :grounding-mode="selectionResponseGroundingMode"
+      :metrics="selectionResponseMetrics"
+      @close="clearSelectionAnswerPanel"
+    />
   </main>
 </template>
 
@@ -647,6 +754,74 @@
     padding: 34px clamp(24px, 5vw, 72px) 70px;
     color: #1d2939;
     background: #f7f8fc;
+
+    ::selection {
+      color: #172033;
+      background: rgba(99, 102, 241, 0.18);
+    }
+  }
+
+  .selection-context-menu {
+    position: fixed;
+    z-index: 10003;
+    width: 172px;
+    padding: 8px;
+    border: 1px solid rgba(209, 216, 238, 0.96);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow: 0 18px 42px rgba(22, 31, 60, 0.18);
+    backdrop-filter: blur(16px);
+  }
+
+  .selection-context-menu__title {
+    margin-bottom: 4px;
+    padding: 6px 8px 8px;
+    border-bottom: 1px solid #edf0fb;
+    color: #172033;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .selection-context-menu__item {
+    width: 100%;
+    padding: 9px 8px;
+    border: 0;
+    border-radius: 8px;
+    color: #43506a;
+    background: transparent;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+
+    &:hover {
+      color: #2f63e6;
+      background: #f0f4ff;
+    }
+  }
+
+  .sel-menu-enter-active,
+  .sel-menu-leave-active {
+    transition: opacity 0.18s ease, transform 0.18s ease;
+  }
+
+  .sel-menu-enter-from,
+  .sel-menu-leave-to {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+
+  .selection-bridge {
+    position: fixed;
+    z-index: 10002;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+  }
+
+  .selection-bridge-line {
+    stroke-dasharray: 8 7;
+    filter: drop-shadow(0 0 6px rgba(47, 123, 255, 0.55));
   }
 
   button,

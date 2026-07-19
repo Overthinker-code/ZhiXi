@@ -13,6 +13,7 @@ from app.schemas.quiz import (
     QuizSubmitRequest,
     QuizSubmitResponse,
     WrongBookSubmitResponse,
+    WrongBookPracticeRequest,
     WrongQuestionBookResponse,
     WrongQuestionFavoriteRequest,
 )
@@ -76,6 +77,28 @@ def get_quiz_attempt(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.get("/wrong-book", response_model=WrongQuestionBookResponse)
+def get_wrong_question_book(*, session: SessionDep, current_user: CurrentUser) -> Any:
+    return quiz_service.list_wrong_book(session, user_id=current_user.id)
+
+
+@router.post("/wrong-book/practice", response_model=QuizResourcePublic)
+def generate_wrong_question_practice(
+    *, session: SessionDep, current_user: CurrentUser, request: WrongBookPracticeRequest
+) -> Any:
+    try:
+        return quiz_service.generate_wrong_book_practice(
+            session,
+            user_id=current_user.id,
+            subject=request.subject,
+            question_ids=request.question_ids,
+            count=request.count,
+            difficulty=request.difficulty,
+        )
+    except QuizGenerationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.put("/wrong-book/{question_id}")
 def set_wrong_question_favorite(
     *,
@@ -93,11 +116,6 @@ def set_wrong_question_favorite(
         )
     except QuizGenerationError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-
-@router.get("/wrong-book", response_model=WrongQuestionBookResponse)
-def get_wrong_question_book(*, session: SessionDep, current_user: CurrentUser) -> Any:
-    return quiz_service.list_wrong_book(session, user_id=current_user.id)
 
 
 @router.post("/wrong-book/submit", response_model=WrongBookSubmitResponse)

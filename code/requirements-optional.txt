@@ -4,6 +4,8 @@
 
 docling
 mediapipe
+manim>=0.19,<1
+audioop-lts; python_version >= "3.13"
 
 # Local Hugging Face embeddings. The default hash/MiMo path does not need
 # PyTorch or sentence-transformers.

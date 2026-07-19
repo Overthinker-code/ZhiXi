@@ -42,6 +42,7 @@ pymupdf
 opencv-python>=4.10,<5
 numpy
 Pillow>=12.3,<13
+matplotlib>=3.9,<4
 
 # Async support
 aiohttp>=3.14.1,<4

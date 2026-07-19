@@ -9,6 +9,7 @@ from app.models.item import Item
 from app.models.chat_thread import ChatThread
 from app.models.user import User
 from app.models.user_memory_profile import UserMemoryProfile
+from app.models.student_profile import StudentProfile
 from app.models.conversation_message import ConversationMessage
 from app.models.learning_context import LearningContext
 from app.models.agent_task import AgentTask
@@ -115,6 +116,7 @@ __all__ = [
     "Item",
     "User",
     "UserMemoryProfile",
+    "StudentProfile",
     "ConversationMessage",
     "LearningContext",
     "AgentTask",

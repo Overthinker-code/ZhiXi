@@ -3035,6 +3035,19 @@ def stream_chat_events(request: ChatRequest):
             if vision_meta is not None and (vision_meta.text or "").strip():
                 reasoning.on_vision((vision_meta.text or "")[:160])
                 yield from _flush_reasoning()
+            if vision_meta is not None and vision_meta.status not in {"ok", "ocr_fallback"}:
+                detail = vision_meta.error or "视觉模型没有返回可用识别内容"
+                yield {
+                    "type": "error",
+                    "code": "VISION_RECOGNITION_FAILED",
+                    "content": (
+                        "我已经收到图片，但当前视觉模型没有成功识别图片内容，"
+                        f"所以不能可靠解题。请检查 MULTIMODAL_PROVIDER / MULTIMODAL_MODEL / "
+                        f"MULTIMODAL_API_KEY 配置，或换用确认支持图片输入的视觉模型。"
+                        f"后端返回：{detail[:180]}"
+                    ),
+                }
+                return
             if req.debug_mode and vision_meta is not None:
                 summary = (vision_meta.text or "")[:160].replace("\n", " ")
                 yield from _stream_thought_events(

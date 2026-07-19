@@ -49,6 +49,8 @@
     computeChatBottomInset,
     DEFAULT_CHAT_BOTTOM_INSET,
   } from './chatLayoutMetrics';
+  import { useSelectionQueryMenu } from '@/composables/useSelectionQueryMenu';
+  import SelectionAiAnswerPanel from '@/views/course/coursevideo/components/SelectionAiAnswerPanel.vue';
   import sanitizeAssistantText from './sanitizeAssistantText';
   import streamTutorChat from './useTutorStream';
   import {
@@ -102,6 +104,36 @@
   const composerDockRef = ref<HTMLElement | null>(null);
   const chatBottomInset = ref(DEFAULT_CHAT_BOTTOM_INSET);
   let composerResizeObserver: ResizeObserver | null = null;
+
+  function chatSelectionContext() {
+    const course = selectedCourse.value?.title ? `当前课程：${selectedCourse.value.title}` : '';
+    const recentMessages = messages.value
+      .slice(-8)
+      .map((item: any) => `${item.role === 'assistant' ? 'AI' : '用户'}：${String(item.content || '')}`)
+      .join('\n');
+    return [course, recentMessages].filter(Boolean).join('\n\n');
+  }
+
+  const {
+    promptTemplates: selectionPromptTemplates,
+    showContextMenu: showSelectionContextMenu,
+    contextMenuStyle: selectionContextMenuStyle,
+    isLoadingResponse: isSelectionLoadingResponse,
+    responseCitations: selectionResponseCitations,
+    responseCitationHints: selectionResponseCitationHints,
+    responseConfidence: selectionResponseConfidence,
+    responseGroundingMode: selectionResponseGroundingMode,
+    responseMetrics: selectionResponseMetrics,
+    showAnswerPanel: showSelectionAnswerPanel,
+    answerPanelBounds: selectionAnswerPanelBounds,
+    answerPanelSession: selectionAnswerPanelSession,
+    isTypingAnswer: isSelectionTypingAnswer,
+    renderedResponse: selectionRenderedResponse,
+    bridgeLine: selectionBridgeLine,
+    handleTextSelection: handleSelectionTextSelection,
+    sendAIQuery: sendSelectionAIQuery,
+    clearAnswerPanel: clearSelectionAnswerPanel,
+  } = useSelectionQueryMenu(chatSelectionContext);
 
   const conversations = computed(() => chatStore.conversations || []);
   const messages = computed(() => chatStore.currentMessages || []);
@@ -733,9 +765,22 @@
     return Promise.all(
       files.map(async (file) => {
         const res = await uploadAIAttachment(file, sessionId, scopedCourseContext);
+        const lowerName = file.name.toLowerCase();
+        const inferredType: ChatAttachmentPayload['type'] =
+          file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(lowerName)
+            ? 'image'
+            : /\.(pptx?|ppsx?)$/i.test(lowerName)
+              ? 'ppt'
+              : /\.pdf$/i.test(lowerName)
+                ? 'pdf'
+                : /\.(docx?|txt|md|markdown)$/i.test(lowerName)
+                  ? 'doc'
+                  : /\.(py|js|ts|java|cpp|c|sql)$/i.test(lowerName)
+                    ? 'code'
+                    : res.type;
         return {
           fileId: String(res.fileId),
-          type: res.type,
+          type: inferredType,
           name: res.name || file.name,
         };
       })
@@ -1316,7 +1361,12 @@
           @click="openContextDrawer"
         >上下文</button>
       </div>
-      <div ref="mainScroller" class="chat-main-scroll">
+      <div
+        ref="mainScroller"
+        class="chat-main-scroll chat-selection-root"
+        @mouseup="handleSelectionTextSelection('.chat-selection-root', $event)"
+        @touchend="handleSelectionTextSelection('.chat-selection-root', $event)"
+      >
         <ChatMain
           :messages="messages"
           :loading="chatStore.isLoading"
@@ -1331,6 +1381,58 @@
           @send-starter="send({ text: $event, files: [] })"
         />
       </div>
+      <Transition name="sel-menu">
+        <div
+          v-if="showSelectionContextMenu"
+          :style="selectionContextMenuStyle"
+          class="selection-context-menu"
+          @mousedown.stop
+          @pointerdown.stop
+        >
+          <div class="selection-context-menu__title">划词唤醒</div>
+          <button
+            v-for="template in selectionPromptTemplates"
+            :key="template.key"
+            type="button"
+            class="selection-context-menu__item"
+            @click="sendSelectionAIQuery(template.key)"
+          >
+            {{ template.label }}
+          </button>
+        </div>
+      </Transition>
+      <svg
+        v-if="selectionBridgeLine.active"
+        class="selection-bridge"
+        xmlns="http://www.w3.org/2000/svg"
+        aria-hidden="true"
+      >
+        <line
+          :x1="selectionBridgeLine.x1"
+          :y1="selectionBridgeLine.y1"
+          :x2="selectionBridgeLine.x2"
+          :y2="selectionBridgeLine.y2"
+          stroke="#2563eb"
+          stroke-width="2.5"
+          stroke-linecap="round"
+          class="selection-bridge-line"
+        />
+      </svg>
+      <SelectionAiAnswerPanel
+        v-if="showSelectionAnswerPanel && selectionAnswerPanelBounds"
+        :visible="showSelectionAnswerPanel"
+        :session="selectionAnswerPanelSession"
+        :initial-bounds="selectionAnswerPanelBounds"
+        :html="selectionRenderedResponse"
+        :loading="isSelectionLoadingResponse"
+        :typing="isSelectionTypingAnswer"
+        :citations="selectionResponseCitations"
+        :citation-hints="selectionResponseCitationHints"
+        :confidence="selectionResponseConfidence"
+        :grounding-mode="selectionResponseGroundingMode"
+        :metrics="selectionResponseMetrics"
+        @close="clearSelectionAnswerPanel"
+      />
       <div ref="composerDockRef" class="composer-dock">
         <ChatComposer
           ref="composerRef"
@@ -1394,6 +1496,76 @@
     min-height: 0;
     flex: 1;
     overflow: hidden;
+  }
+
+  .chat-selection-root {
+    ::selection {
+      color: #172033;
+      background: rgba(99, 102, 241, 0.18);
+    }
+  }
+
+  .selection-context-menu {
+    position: fixed;
+    z-index: 10003;
+    width: 172px;
+    padding: 8px;
+    border: 1px solid rgba(209, 216, 238, 0.96);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow: 0 18px 42px rgba(22, 31, 60, 0.18);
+    backdrop-filter: blur(16px);
+  }
+
+  .selection-context-menu__title {
+    margin-bottom: 4px;
+    padding: 6px 8px 8px;
+    border-bottom: 1px solid #edf0fb;
+    color: #172033;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .selection-context-menu__item {
+    width: 100%;
+    padding: 9px 8px;
+    border: 0;
+    border-radius: 8px;
+    color: #43506a;
+    background: transparent;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+
+    &:hover {
+      color: #2f63e6;
+      background: #f0f4ff;
+    }
+  }
+
+  .sel-menu-enter-active,
+  .sel-menu-leave-active {
+    transition: opacity 0.18s ease, transform 0.18s ease;
+  }
+
+  .sel-menu-enter-from,
+  .sel-menu-leave-to {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+
+  .selection-bridge {
+    position: fixed;
+    z-index: 10002;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+  }
+
+  .selection-bridge-line {
+    stroke-dasharray: 8 7;
+    filter: drop-shadow(0 0 6px rgba(47, 123, 255, 0.55));
   }
 
   .current-learning-task {

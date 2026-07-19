@@ -87,6 +87,13 @@ export interface WrongBookSubmitResult {
   profile_updated: boolean;
 }
 
+export interface WrongBookPracticeRequest {
+  subject?: string;
+  question_ids?: string[];
+  count?: number;
+  difficulty?: 'foundation' | 'standard' | 'challenge';
+}
+
 export function getQuiz(resourceId: string) {
   return axios.get<QuizResource>(`/api/resource-hub/quizzes/${resourceId}`);
 }
@@ -118,4 +125,8 @@ export function getWrongQuestionBook() {
 
 export function submitWrongQuestionBook(answers: Record<string, string>) {
   return axios.post<WrongBookSubmitResult>('/api/resource-hub/wrong-book/submit', { answers });
+}
+
+export function generateWrongQuestionPractice(payload: WrongBookPracticeRequest) {
+  return axios.post<QuizResource>('/api/resource-hub/wrong-book/practice', payload);
 }

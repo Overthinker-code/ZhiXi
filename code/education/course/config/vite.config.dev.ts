@@ -26,6 +26,7 @@ export default defineConfig(({ mode }) => {
     '/learning-report',
     '/ai-metrics',
     '/resource-generation',
+    '/seedance',
     '/ai',
     '/alerts',
     '/education',

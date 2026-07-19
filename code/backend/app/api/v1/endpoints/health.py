@@ -245,12 +245,16 @@ def _build_model_checks(deep: bool = False) -> dict:
         "fallback_model": settings.MULTIMODAL_FALLBACK_MODEL,
     }
     multimodal_base = _multimodal_base_url()
+    multimodal_key = (
+        settings.DASHSCOPE_API_KEY
+        if settings.MULTIMODAL_PROVIDER.lower() in {"qwen", "dashscope", "bailian"}
+        else settings.MULTIMODAL_API_KEY or settings.MIMO_API_KEY
+    )
     if not deep:
         multimodal_check.update(
             {
                 "configured": bool(
-                    (settings.MULTIMODAL_API_KEY or settings.MIMO_API_KEY)
-                    and _multimodal_base_url()
+                    multimodal_key and _multimodal_base_url()
                 ),
                 "reachable": None,
                 "base_url": multimodal_base,

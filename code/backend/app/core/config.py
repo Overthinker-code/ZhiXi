@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     AI_BUDGET_CLEANUP_INTERVAL_SECONDS: int = 30
     AI_SSE_MAX_CONCURRENT_PER_USER: int = 2
     AI_SYNC_MAX_CONCURRENT_PER_USER: int = 1
+    AI_CONCURRENCY_WAIT_SECONDS: float = 0.0
     AI_SSE_TIMEOUT_SECONDS: int = 180
     AI_SYNC_TIMEOUT_SECONDS: int = 240
     WS_MAX_MESSAGE_SIZE: int = 3 * 1024 * 1024
@@ -254,6 +255,35 @@ class Settings(BaseSettings):
     MULTIMODAL_API_BASE: str | None = None
     MULTIMODAL_API_KEY: str | None = None
     MULTIMODAL_TIMEOUT_SECONDS: int = 180
+
+    # Alibaba Cloud Model Studio (Bailian). DeepSeek remains the CHAT_PROVIDER
+    # for ordinary text; these settings are reserved for multimodal/artifacts.
+    DASHSCOPE_API_KEY: str | None = None
+    DASHSCOPE_OPENAI_BASE: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    DASHSCOPE_API_BASE: str = "https://dashscope.aliyuncs.com/api/v1"
+    QWEN_TEXT_MODEL: str = "qwen-max"
+    QWEN_VISION_MODEL: str = "qwen-vl-max"
+    QWEN_VISION_FALLBACK_MODEL: str = "qwen3-vl-plus"
+    WANX_MODEL: str = "wanx-v1"
+    WANX_IMAGE_SIZE: str = "1024*1024"
+    BAILIAN_TIMEOUT_SECONDS: int = 180
+    BAILIAN_POLL_INTERVAL_SECONDS: float = 2.0
+    TEACHING_ARTIFACT_TIMEOUT_SECONDS: int = 300
+    MANIM_ENABLED: bool = True
+
+    IMAGE_GENERATION_API_BASE: str = "https://api.siliconflow.cn/v1"
+    IMAGE_GENERATION_API_KEY: str | None = None
+    IMAGE_GENERATION_MODEL: str = "Kwai-Kolors/Kolors"
+    IMAGE_GENERATION_SIZE: str = "1024x1024"
+    IMAGE_GENERATION_TIMEOUT_SECONDS: int = 120
+
+    SEEDANCE_API_BASE: str = "https://api.seedance2.ai"
+    SEEDANCE_API_KEY: str | None = None
+    SEEDANCE_MODEL: str = "seedance-2-0-fast"
+    SEEDANCE_DEFAULT_DURATION: int = 5
+    SEEDANCE_DEFAULT_ASPECT_RATIO: str = "16:9"
+    SEEDANCE_DEFAULT_RESOLUTION: str = "720p"
+    SEEDANCE_TIMEOUT_SECONDS: int = 60
 
     RAG_TOP_K: int = 4
     RAG_CHUNK_SIZE: int = 1000

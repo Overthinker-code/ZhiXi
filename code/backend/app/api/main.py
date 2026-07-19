@@ -33,6 +33,7 @@ from app.api.v1.endpoints import (
     learning_task,
     resource_hub,
     quiz,
+    student_profile,
 )
 from app.core.config import settings
 
@@ -64,6 +65,7 @@ api_router.include_router(ai_metrics.router, prefix="/ai-metrics", tags=["ai-met
 api_router.include_router(resource_workshop.router, prefix="/resource-workshop", tags=["resource-workshop"])
 api_router.include_router(resource_generation.router, prefix="/resource-generation", tags=["resource-generation"])
 api_router.include_router(ai_chat.router, prefix="/ai", tags=["ai-chat"])
+api_router.include_router(student_profile.router, prefix="/profile", tags=["student-profile"])
 api_router.include_router(
     digital_human_assistant.router, tags=["classroom-assistant"]
 )

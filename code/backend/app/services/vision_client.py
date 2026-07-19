@@ -135,6 +135,8 @@ def _multimodal_api_base() -> str | None:
 def _multimodal_api_key() -> str | None:
     if settings.MULTIMODAL_PROVIDER.lower() == "mimo":
         return settings.MULTIMODAL_API_KEY or settings.MIMO_API_KEY
+    if settings.MULTIMODAL_PROVIDER.lower() in {"qwen", "dashscope", "bailian"}:
+        return settings.DASHSCOPE_API_KEY or settings.MULTIMODAL_API_KEY
     return settings.MULTIMODAL_API_KEY
 
 
@@ -203,7 +205,21 @@ def call_vision_model(
                         headers=headers,
                         json=payload,
                     )
-                    resp.raise_for_status()
+                    try:
+                        resp.raise_for_status()
+                    except httpx.HTTPStatusError as exc:
+                        body = (resp.text or "").strip()
+                        body = re.sub(r"\s+", " ", body)
+                        last_error = (
+                            f"{model} request failed with HTTP {resp.status_code}: "
+                            f"{body[:180] or exc.response.reason_phrase}"
+                        )
+                        if resp.status_code == 403:
+                            last_error += (
+                                "；403 通常表示当前 API Key 无权访问该模型、模型名不可用，"
+                                "或账户未开通对应的视觉模型权限"
+                            )
+                        break
                     data = resp.json()
                     message = data.get("choices", [{}])[0].get("message", {})
                     if not isinstance(message, dict):

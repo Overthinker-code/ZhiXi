@@ -1,8 +1,8 @@
 <template>
   <ZyPageShell
     class="learning-portrait-page"
-    title="我的学习画像"
-    subtitle="结合课程学习、练习表现和提问记录，持续呈现你的成长变化与学习节律"
+    title="AI 学习数字分身"
+    subtitle="基于你的学习行为、知识掌握和 AI 交互，系统正在持续理解你的学习特点"
     max-width="1360px"
   >
     <ZyPageEnter>
@@ -58,19 +58,11 @@
         </section>
 
         <div class="portrait-grid zy-stagger-child">
-          <section class="portrait-card growth-card">
-            <header class="card-heading">
-              <h2>能力成长趋势</h2>
-              <span class="trend-range">近 12 周</span>
-            </header>
-            <PortraitGrowthChart
-              v-if="portrait.trendSeries.length"
-              :labels="portrait.trendLabels"
-              :series="portrait.trendSeries"
-              height="258px"
-            />
-            <EmptyState v-else compact text="完成更多练习后，这里会显示你的成长趋势" />
-          </section>
+          <DigitalTwinPanel
+            class="digital-twin-card"
+            :twin="digitalTwin"
+            :loading="loadingDigitalTwin"
+          />
 
           <section class="portrait-card capability-card">
             <header class="card-heading">
@@ -85,7 +77,7 @@
             <PortraitCapabilityChart
               v-if="portrait.dimensions.length >= 3"
               :dimensions="portrait.dimensions"
-              height="270px"
+              height="248px"
             />
             <div v-else-if="portrait.dimensionStatuses.length" class="dimension-statuses">
               <span
@@ -306,6 +298,10 @@
   import { useRouter } from 'vue-router';
   import { Message } from '@arco-design/web-vue';
   import { ChartPie } from 'lucide-vue-next';
+  import {
+    fetchLearnerDigitalTwin,
+    type LearnerDigitalTwin,
+  } from '@/api/profile';
   import { fetchCourses, type Course } from '@/api/course';
   import {
     fetchPortraitAnalytics,
@@ -314,7 +310,7 @@
   import { fetchPracticeSummary, type PracticeSummary } from '@/api/student-hub';
   import { useLearningData } from '@/composables/useLearningData';
   import PortraitCapabilityChart from './components/PortraitCapabilityChart.vue';
-  import PortraitGrowthChart from './components/PortraitGrowthChart.vue';
+  import DigitalTwinPanel from './components/DigitalTwinPanel.vue';
   import PortraitRhythmChart from './components/PortraitRhythmChart.vue';
   import { buildResourceChartAccessibility } from './components/chartAccessibility';
   import { buildLearningPortraitViewModel } from './learningPortraitViewModel';
@@ -324,6 +320,8 @@
   const practice = ref<PracticeSummary | null>(null);
   const analytics = ref<PortraitAnalytics | null>(null);
   const loadingAnalytics = ref(false);
+  const loadingDigitalTwin = ref(false);
+  const digitalTwin = ref<LearnerDigitalTwin | null>(null);
   const portraitRefreshError = ref('');
   const detailDrawerVisible = ref(false);
 
@@ -437,11 +435,13 @@
 
   async function loadSupportingData() {
     loadingAnalytics.value = true;
+    loadingDigitalTwin.value = true;
     try {
-      const [courseResult, practiceResult, analyticsResult] = await Promise.allSettled([
+      const [courseResult, practiceResult, analyticsResult, twinResult] = await Promise.allSettled([
         fetchCourses({ limit: 8 }),
         fetchPracticeSummary(),
         fetchPortraitAnalytics(),
+        fetchLearnerDigitalTwin(),
       ]);
       courses.value = courseResult.status === 'fulfilled' ? courseResult.value.data || [] : [];
       practice.value = practiceResult.status === 'fulfilled' ? practiceResult.value : null;
@@ -452,8 +452,10 @@
         analytics.value = null;
         portraitRefreshError.value = '画像数据暂时无法更新';
       }
+      digitalTwin.value = twinResult.status === 'fulfilled' ? twinResult.value : null;
     } finally {
       loadingAnalytics.value = false;
+      loadingDigitalTwin.value = false;
     }
   }
 
@@ -461,13 +463,20 @@
     portraitRefreshError.value = '';
     await handleRunDiagnosis();
     loadingAnalytics.value = true;
+    loadingDigitalTwin.value = true;
     try {
-      analytics.value = await fetchPortraitAnalytics();
+      const [analyticsResult, twinResult] = await Promise.all([
+        fetchPortraitAnalytics(),
+        fetchLearnerDigitalTwin(),
+      ]);
+      analytics.value = analyticsResult;
+      digitalTwin.value = twinResult;
     } catch {
       portraitRefreshError.value = '更新未完成，当前显示上次结果';
       Message.error('画像分析更新失败，请稍后重试');
     } finally {
       loadingAnalytics.value = false;
+      loadingDigitalTwin.value = false;
     }
   }
 
@@ -626,12 +635,8 @@
 
   .portrait-grid {
     display: grid;
-    grid-template-columns:
-      minmax(0, 600fr)
-      minmax(0, 224fr)
-      minmax(0, 51fr)
-      minmax(0, 389fr);
-    grid-template-rows: 330px 202px 204px;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    grid-template-rows: auto 310px 260px auto;
     gap: 16px;
   }
 
@@ -641,12 +646,12 @@
     border-radius: 12px;
   }
 
-  .growth-card { grid-column: 1 / 3; grid-row: 1; padding: 18px 16px 8px; }
-  .capability-card { grid-column: 3 / 5; grid-row: 1; padding: 18px 16px 8px; }
-  .rhythm-card { grid-column: 1; grid-row: 2; padding: 14px 14px 6px; }
-  .preference-card { grid-column: 2 / 4; grid-row: 2; padding: 14px 14px 10px; }
-  .recommendation-card { grid-column: 4; grid-row: 2 / 4; padding: 14px; }
-  .course-card { grid-column: 1 / 4; grid-row: 3; padding: 12px 14px 8px; }
+  .digital-twin-card { grid-column: 1 / -1; grid-row: 1; }
+  .capability-card { grid-column: 1 / 8; grid-row: 2; padding: 16px 16px 8px; }
+  .rhythm-card { grid-column: 8 / -1; grid-row: 2; padding: 16px 16px 8px; }
+  .preference-card { grid-column: 1 / 6; grid-row: 3; padding: 16px; }
+  .recommendation-card { grid-column: 6 / -1; grid-row: 3; padding: 16px; }
+  .course-card { grid-column: 1 / -1; grid-row: 4; padding: 14px 16px 10px; }
 
   .card-heading {
     display: flex;
@@ -660,7 +665,6 @@
     min-height: 31px;
   }
 
-  .growth-card > .card-heading,
   .capability-card > .card-heading {
     min-height: 39px;
   }
@@ -845,17 +849,17 @@
   }
 
   .recommendations {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
   }
 
   .recommendation {
     display: grid;
     grid-template-columns: 38px minmax(0, 1fr) 14px;
     align-items: center;
-    min-height: 86px;
-    padding: 10px 8px;
+    min-height: 122px;
+    padding: 12px 10px;
     border: 1px solid #e3e7ef;
     border-radius: 7px;
     color: inherit;
@@ -1103,15 +1107,25 @@
 
     .portrait-grid {
       grid-template-columns: minmax(0, 1.45fr) minmax(240px, .8fr);
-      grid-template-rows: 330px 280px auto auto;
+      grid-template-rows: auto 300px 380px auto;
     }
 
-    .growth-card { grid-column: 1; grid-row: 1; }
-    .capability-card { grid-column: 2; grid-row: 1; }
-    .rhythm-card { grid-column: 1; grid-row: 2; }
-    .preference-card { grid-column: 2; grid-row: 2; }
-    .recommendation-card { grid-column: 1 / 3; grid-row: 3; }
+    .digital-twin-card { grid-column: 1 / 3; grid-row: 1; }
+    .capability-card { grid-column: 1; grid-row: 2; }
+    .rhythm-card { grid-column: 2; grid-row: 2; }
+    .preference-card { grid-column: 1; grid-row: 3; }
+    .recommendation-card { grid-column: 2; grid-row: 3; }
     .course-card { grid-column: 1 / 3; grid-row: 4; }
+
+    .recommendations {
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+
+    .recommendation {
+      min-height: 86px;
+      padding: 10px 8px;
+    }
   }
 
   @media (max-width: 820px) {

@@ -3,6 +3,7 @@
     ref="rootRef"
     class="classroom-ai"
     :class="{ 'is-dragging': dragActive }"
+    @paste="handlePaste"
   >
     <div v-if="dragActive" class="panel-drag-layer">
       释放文件，添加到小智对话
@@ -495,6 +496,26 @@
     addFiles(event.dataTransfer?.files || []);
   };
 
+  const handlePaste = (event: ClipboardEvent) => {
+    const clipboardFiles = Array.from(event.clipboardData?.files || []);
+    const itemFiles = Array.from(event.clipboardData?.items || [])
+      .filter((item) => item.kind === 'file')
+      .map((item, index) => {
+        const file = item.getAsFile();
+        if (!file) return null;
+        if (file.name) return file;
+        const ext = file.type?.split('/')[1] || 'png';
+        return new File([file], `pasted-${Date.now()}-${index}.${ext}`, {
+          type: file.type || 'application/octet-stream',
+        });
+      })
+      .filter(Boolean) as File[];
+    const pastedFiles = clipboardFiles.length ? clipboardFiles : itemFiles;
+    if (!pastedFiles.length) return;
+    event.preventDefault();
+    addFiles(pastedFiles);
+  };
+
   const handleDragOver = (event: DragEvent) => {
     event.preventDefault();
     dragActive.value = true;
@@ -521,6 +542,7 @@
     handleDrop,
     handleDragOver,
     handleDragLeave,
+    handlePaste,
     prefillPrompt,
   });
 

@@ -69,6 +69,7 @@ output/
 *.sqlite3
 code/backend/vector_db/
 code/backend/generated_resources/
+code/backend/uploads/
 code/backend/files/resources/
 code/backend/digital_human_inputs/
 code/backend/digital_human_outputs/
@@ -84,6 +85,11 @@ code/backend/MuseTalk/configs/inference/test_local.yaml
 *.pem
 *.key
 secrets/
+
+# Local competition source corpus. It contains large PPT/PDF files (some over
+# GitHub's 100 MB limit); the reproducible ingestion scripts and corpus README
+# remain versioned under code/backend/scripts and code/backend/data.
+/原始资料/
 
 # Temporary files
 tmp/

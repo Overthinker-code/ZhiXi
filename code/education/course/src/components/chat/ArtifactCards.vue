@@ -9,6 +9,7 @@
   import KnowledgeGraphViewer, {
     type KnowledgeGraphJson,
   } from './KnowledgeGraphViewer.vue';
+  import MermaidDiagramViewer from './MermaidDiagramViewer.vue';
   import { artifactSummary, markdownToPlainText } from './artifactPresentation';
 
   const props = defineProps<{
@@ -44,6 +45,10 @@
     case_project: '代码案例',
     code_case: '代码案例',
     video_script: '视频脚本',
+    video: '讲解视频',
+    ppt: 'PPT 课件',
+    image: '教学图片',
+    diagram: '结构图表',
   };
 
   function family(item: Record<string, any>) {
@@ -62,6 +67,9 @@
   }
 
   function formatLabel(item: Record<string, any>) {
+    if (String(item.kind || '') === 'image') return '图片';
+    if (String(item.kind || '') === 'video') return 'MP4';
+    if (String(item.kind || '') === 'ppt') return 'PPTX';
     if (isQuiz(item)) return '在线答题';
     if (String(item.kind || item.resource_type || '') === 'knowledge_graph') {
       return '交互式图谱';
@@ -93,6 +101,12 @@
     if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return null;
     return graph as KnowledgeGraphJson;
   });
+  const selectedMermaidCode = computed(() => String(selectedArtifact.value?.mermaid_code || '').trim());
+  const selectedDiagramDescription = computed(() =>
+    String(selectedArtifact.value?.preview || '')
+      .replace(/```mermaid\s*[\s\S]*?```/gi, '')
+      .trim()
+  );
   const selectedLabel = computed(() => {
     const item = selectedArtifact.value;
     return item ? labelMap[item.kind] || item.kind || '资源' : '';
@@ -256,6 +270,27 @@
               class="artifact-preview__graph"
               :graph-json="selectedGraph"
             />
+            <div v-else-if="selectedMermaidCode" class="artifact-preview__diagram">
+              <MermaidDiagramViewer :code="selectedMermaidCode" />
+              <div
+                class="artifact-preview__content markdown-body"
+                v-html="renderMarkdown(selectedDiagramDescription)"
+              />
+            </div>
+            <div
+              v-else-if="selectedArtifact?.image_url"
+              class="artifact-preview__image-wrap"
+            >
+              <img
+                class="artifact-preview__image"
+                :src="selectedArtifact.image_url"
+                :alt="displayTitle(selectedArtifact || {})"
+              />
+              <div
+                class="artifact-preview__content markdown-body"
+                v-html="renderMarkdown(selectedArtifact?.preview || '')"
+              />
+            </div>
             <div
               v-else
               class="artifact-preview__content markdown-body"
@@ -352,6 +387,20 @@
       color: #98a2b3;
       font-size: 11px;
     }
+  }
+
+  .artifact-preview__image-wrap {
+    display: grid;
+    gap: 14px;
+  }
+
+  .artifact-preview__image {
+    width: 100%;
+    max-height: 58vh;
+    object-fit: contain;
+    border-radius: 18px;
+    background: #f8fafc;
+    border: 1px solid rgba(15, 23, 42, 0.08);
   }
 
   .artifact-preview {
