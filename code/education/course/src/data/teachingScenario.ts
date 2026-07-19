@@ -14,6 +14,7 @@ export const SCENARIO_COURSE_IDS = [
   'c1111111-1111-4111-9111-111111111104',
   'c1111111-1111-4111-9111-111111111105',
   'c1111111-1111-4111-9111-111111111106',
+  'c1111111-1111-4111-9111-111111111107',
 ] as const;
 
 export const SCENARIO_UD_ID = 'b0000001-0000-4000-8000-000000000001';
@@ -80,6 +81,16 @@ export const scenarioCourses: Course[] = [
     created_at: scenarioBaseTime,
     updated_at: scenarioBaseTime,
   },
+  {
+    id: SCENARIO_COURSE_IDS[6],
+    name: '软件工程导论',
+    description: '软件生命周期、需求分析、系统建模、设计、测试、维护与项目管理。',
+    course_type: '专业核心',
+    identifier: 'CS-SE-001',
+    ud_id: SCENARIO_UD_ID,
+    created_at: scenarioBaseTime,
+    updated_at: scenarioBaseTime,
+  },
 ];
 
 export const scenarioCourseDepartments: Record<string, '计算机学院' | '经管学院'> = {
@@ -89,6 +100,7 @@ export const scenarioCourseDepartments: Record<string, '计算机学院' | '经�
   [SCENARIO_COURSE_IDS[3]]: '经管学院',
   [SCENARIO_COURSE_IDS[4]]: '经管学院',
   [SCENARIO_COURSE_IDS[5]]: '经管学院',
+  [SCENARIO_COURSE_IDS[6]]: '计算机学院',
 };
 
 export const scenarioCourseMetrics: Record<
@@ -101,6 +113,7 @@ export const scenarioCourseMetrics: Record<
   [SCENARIO_COURSE_IDS[3]]: { progress: 42, rating: '4.6', teacher: '王老师', learners: 96 },
   [SCENARIO_COURSE_IDS[4]]: { progress: 50, rating: '4.7', teacher: '赵老师', learners: 88 },
   [SCENARIO_COURSE_IDS[5]]: { progress: 42, rating: '4.6', teacher: '许老师', learners: 103 },
+  [SCENARIO_COURSE_IDS[6]]: { progress: 38, rating: '4.9', teacher: '软件工程课程组', learners: 126 },
 };
 
 export function getScenarioCourseById(id: string) {

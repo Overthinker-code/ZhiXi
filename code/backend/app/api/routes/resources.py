@@ -10,7 +10,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
-from sqlmodel import select, and_, func
+from sqlmodel import select, and_, func, or_
 
 from app import models
 from app.api import deps
@@ -18,6 +18,11 @@ from app.core.config import settings
 from app.core.upload_security import random_storage_name, validate_upload
 from app.services.resource_subject_service import resolve_resource_subject
 from app.services.resource_preview_service import ResourcePreviewError, resource_preview_service
+from app.services.knowledge_graph_service import can_access_course
+from app.services.software_engineering_course_service import (
+    is_shared_course_resource,
+    resolve_course_source,
+)
 
 router = APIRouter()
 
@@ -63,15 +68,30 @@ ALLOWED_RESOURCE_EXTENSIONS = {
 
 
 def _ensure_resource_access(
+    db: Any,
     resource: models.Resource,
     current_user: models.User,
 ) -> None:
     """Resources without an explicit visibility policy are private by default."""
-    if resource.uploader_id != current_user.id and not current_user.is_superuser:
+    shared_course_access = bool(
+        is_shared_course_resource(resource)
+        and resource.course_id
+        and can_access_course(db, user=current_user, course_id=resource.course_id)
+    )
+    if (
+        resource.uploader_id != current_user.id
+        and not current_user.is_superuser
+        and not shared_course_access
+    ):
         raise HTTPException(status_code=404, detail="未找到指定的资源")
 
 
 def _resolve_resource_file(resource: models.Resource) -> Path:
+    if is_shared_course_resource(resource):
+        try:
+            return resolve_course_source(resource.file_path)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail="资源文件路径无效") from exc
     if resource.package_id:
         root = (Path(settings.BASE_PATH) / "generated_resources").resolve()
         target = (Path(settings.BASE_PATH) / resource.file_path).resolve()
@@ -90,7 +110,7 @@ def _resource_or_404(
     resource = db.get(models.Resource, resource_id)
     if not resource:
         raise HTTPException(status_code=404, detail="未找到指定的资源")
-    _ensure_resource_access(resource, current_user)
+    _ensure_resource_access(db, resource, current_user)
     return resource
 
 
@@ -201,7 +221,22 @@ def read_resources(
         # publication from source/package metadata: that leaked ordinary
         # uploads from other accounts.  A future explicit visibility policy
         # must opt in to broader access deliberately.
-        conditions.append(models.Resource.uploader_id == current_user.id)
+        enrolled_course_ids = list(
+            db.exec(
+                select(models.TC.course_id)
+                .join(models.StudentTC, models.StudentTC.tc_id == models.TC.id)
+                .join(models.Student, models.Student.id == models.StudentTC.student_id)
+                .where(models.Student.user_id == current_user.id)
+            ).all()
+        )
+        shared_condition = and_(
+            models.Resource.course_id.in_(enrolled_course_ids),
+            models.Resource.source == "课程内置资料",
+            models.Resource.file_path.startswith("course_sources/"),
+        ) if enrolled_course_ids else False
+        conditions.append(
+            or_(models.Resource.uploader_id == current_user.id, shared_condition)
+        )
 
     if course_id:
         conditions.append(models.Resource.course_id == course_id)

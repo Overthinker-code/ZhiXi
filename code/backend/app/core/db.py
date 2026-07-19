@@ -70,6 +70,13 @@ DEMO_COURSE_SPECS: list[tuple[UUID, str, str, str, str]] = [
         "金融市场、资产定价与公司金融基础。",
         "专业核心",
     ),
+    (
+        UUID("c1111111-1111-4111-9111-111111111107"),
+        "软件工程导论",
+        "CS-SE-001",
+        "软件生命周期、需求分析、系统建模、设计、测试、维护与项目管理。",
+        "专业核心",
+    ),
 ]
 
 DEMO_COURSE_OUTLINES: dict[UUID, list[tuple[str, list[str]]]] = {
@@ -109,6 +116,21 @@ DEMO_COURSE_OUTLINES: dict[UUID, list[tuple[str, list[str]]]] = {
         ("公司金融", ["资本预算", "资本结构", "股利政策"]),
         ("风险管理", ["衍生工具", "投资组合", "金融监管"]),
     ],
+    DEMO_COURSE_SPECS[6][0]: [
+        ("软件工程学概述", ["软件危机", "软件工程基本原理"]),
+        ("可行性研究", ["系统流程图", "成本效益分析"]),
+        ("需求分析", ["需求获取", "数据流图", "需求规格说明"]),
+        ("形式化说明技术", ["有限状态机", "Petri 网"]),
+        ("总体设计", ["模块化", "耦合与内聚"]),
+        ("详细设计", ["程序流程图", "判定表与 PAD 图"]),
+        ("实现", ["编码规范", "单元测试"]),
+        ("维护", ["维护类型", "软件再工程"]),
+        ("面向对象方法学", ["对象模型", "动态模型"]),
+        ("面向对象分析", ["识别类", "建立对象模型"]),
+        ("面向对象设计", ["系统设计", "对象设计"]),
+        ("面向对象实现", ["程序设计语言", "测试策略"]),
+        ("软件项目管理", ["估算", "进度计划", "质量保证"]),
+    ],
 }
 
 
@@ -118,7 +140,7 @@ DEMO_COURSE_OUTLINES: dict[UUID, list[tuple[str, list[str]]]] = {
 
 
 def seed_education_demo(session: Session) -> None:
-    """幂等补齐六门演示课程、教学班、课程计划与作业。"""
+    """幂等补齐演示课程、教学班、课程计划与作业。"""
 
     ud = session.get(UD, DEMO_UD_ID)
     if not ud:
@@ -342,3 +364,8 @@ def init_db(session: Session) -> None:
 
     seed_education_demo(session)
     ensure_demo_student_links(session)
+    from app.services.software_engineering_course_service import (
+        seed_software_engineering_course_resources,
+    )
+
+    seed_software_engineering_course_resources(session, uploader=user)

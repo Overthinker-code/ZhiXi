@@ -30,12 +30,14 @@
   const previewHtml = ref('');
   const mermaidSvgUrl = ref('');
   const state = ref<'loading' | 'ready' | 'error'>('loading');
-  const mode = ref<'pdf' | 'image' | 'document' | 'video' | 'audio' | 'mermaid' | 'quiz' | 'graph' | 'external'>('document');
+  const mode = ref<'pdf' | 'presentation-pdf' | 'presentation' | 'image' | 'document' | 'video' | 'audio' | 'mermaid' | 'quiz' | 'graph' | 'external'>('document');
   const errorMessage = ref('');
   const quiz = ref<QuizResource | null>(null);
   const mermaidSource = ref('');
   const mermaidError = ref('');
   const showThumbnail = ref(true);
+  const presentationPage = ref(1);
+  const presentationPages = ref(1);
   let previouslyFocused: HTMLElement | null = null;
   let requestVersion = 0;
   let previousBodyOverflow = '';
@@ -48,6 +50,16 @@
   const isGraph = computed(() => props.resource?.type === 'knowledge_graph');
   const isExternal = computed(() => Boolean(props.resource?.url));
   const isMermaid = computed(() => props.resource?.file_name.toLowerCase().endsWith('.mmd'));
+  const isPresentation = computed(() => {
+    const type = (props.resource?.type || '').toLowerCase();
+    const name = (props.resource?.file_name || '').toLowerCase();
+    return ['ppt', 'pptx', 'presentation'].includes(type) || /\.(ppt|pptx)$/.test(name);
+  });
+  const presentationUrl = computed(() =>
+    mode.value === 'presentation-pdf' && objectUrl.value
+      ? `${objectUrl.value}#page=${presentationPage.value}&view=FitH&toolbar=0&navpanes=0`
+      : objectUrl.value
+  );
   const sourceReference = computed(() => sourceReferenceFrom(props.resource, {
     provider: props.resource?.source,
     url: props.resource?.url,
@@ -170,11 +182,48 @@
     emit('close');
   }
 
+  function syncPresentationSlide() {
+    if (mode.value !== 'presentation') return;
+    try {
+      const slides = Array.from(
+        previewFrame.value?.contentDocument?.querySelectorAll<HTMLElement>('.slide') || []
+      );
+      presentationPages.value = Math.max(slides.length, 1);
+      presentationPage.value = Math.min(presentationPage.value, presentationPages.value);
+      slides.forEach((slide, index) => {
+        slide.style.display = index === presentationPage.value - 1 ? 'block' : 'none';
+        slide.style.margin = '0 auto';
+      });
+      const main = previewFrame.value?.contentDocument?.querySelector<HTMLElement>('main');
+      if (main) main.style.padding = '18px';
+    } catch {
+      // The safe preview is same-origin, but keep the reader usable if a
+      // browser applies a stricter iframe policy.
+    }
+  }
+
+  function setPresentationPage(page: number) {
+    presentationPage.value = Math.max(1, Math.min(page, presentationPages.value));
+    syncPresentationSlide();
+  }
+
+  function toggleFullscreen() {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void panel.value?.requestFullscreen?.();
+  }
+
   function onWindowKeydown(event: KeyboardEvent) {
-    if (event.key !== 'Escape') return;
-    event.preventDefault();
-    event.stopPropagation();
-    close();
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      close();
+    } else if (isPresentation.value && event.key === 'ArrowLeft') {
+      event.preventDefault();
+      setPresentationPage(presentationPage.value - 1);
+    } else if (isPresentation.value && event.key === 'ArrowRight') {
+      event.preventDefault();
+      setPresentationPage(presentationPage.value + 1);
+    }
   }
 
   function addEscapeListeners() {
@@ -198,6 +247,7 @@
     try {
       iframeWindow = previewFrame.value?.contentWindow || null;
       iframeWindow?.addEventListener('keydown', onWindowKeydown, true);
+      syncPresentationSlide();
     } catch {
       iframeWindow = null;
     }
@@ -236,6 +286,11 @@
     quiz.value = null;
     mermaidSource.value = '';
     mermaidError.value = '';
+    presentationPage.value = 1;
+    presentationPages.value = Math.max(
+      1,
+      Number(resource.content?.page_count || 1) || 1
+    );
     if (isQuiz.value) {
       mode.value = 'quiz';
       try {
@@ -278,19 +333,19 @@
       mode.value = isMermaid.value
         ? 'mermaid'
         : contentType.includes('pdf')
-        ? 'pdf'
+        ? (isPresentation.value ? 'presentation-pdf' : 'pdf')
         : contentType.startsWith('image/')
         ? 'image'
         : contentType.startsWith('video/')
         ? 'video'
         : contentType.startsWith('audio/')
         ? 'audio'
-        : 'document';
+        : (isPresentation.value ? 'presentation' : 'document');
       if (mode.value === 'mermaid') {
         mermaidSource.value = sourceFromPreviewHtml(await blob.text());
         if (currentVersion !== requestVersion) return;
         void renderMermaid(mermaidSource.value, currentVersion);
-      } else if (mode.value === 'document') {
+      } else if (mode.value === 'document' || mode.value === 'presentation') {
         // Office and text previews are server-converted, escaped HTML with an
         // inert CSP.  srcdoc avoids the cross-browser blank iframe behaviour
         // seen when that HTML is first wrapped in a blob URL.  The iframe
@@ -380,6 +435,25 @@
             :class="`is-${mode}`"
             aria-live="polite"
           >
+            <nav
+              v-if="state === 'ready' && (mode === 'presentation' || mode === 'presentation-pdf')"
+              class="presentation-controls"
+              aria-label="PPT 放映控制"
+            >
+              <button
+                type="button"
+                :disabled="presentationPage <= 1"
+                @click="setPresentationPage(presentationPage - 1)"
+              >上一页</button>
+              <strong>第 {{ presentationPage }} / {{ presentationPages }} 页</strong>
+              <button
+                type="button"
+                :disabled="presentationPage >= presentationPages"
+                @click="setPresentationPage(presentationPage + 1)"
+              >下一页</button>
+              <button type="button" @click="toggleFullscreen">全屏放映</button>
+              <small>可使用键盘 ← → 翻页</small>
+            </nav>
             <div v-if="state === 'loading'" class="resource-preview__state">
               <LoaderCircle :size="22" class="spinning" />
               <strong>正在准备{{ title }}</strong><span>{{ fileName }} · {{ resource?.type || '学习资料' }}</span>
@@ -428,7 +502,7 @@
               <pre v-if="mermaidError || !mermaidSvgUrl">{{ mermaidSource }}</pre>
             </div>
             <iframe
-              v-else-if="mode === 'document'"
+              v-else-if="mode === 'document' || mode === 'presentation'"
               ref="previewFrame"
               :srcdoc="previewHtml"
               :title="`${title}预览`"
@@ -437,9 +511,9 @@
               @load="bindFrameEscape"
             />
             <iframe
-              v-else-if="mode === 'pdf'"
+              v-else-if="mode === 'pdf' || mode === 'presentation-pdf'"
               ref="previewFrame"
-              :src="objectUrl"
+              :src="presentationUrl"
               :title="`${title}预览`"
               tabindex="0"
               @load="bindFrameEscape"
@@ -532,6 +606,42 @@
     background: #edf0f4;
     scrollbar-gutter: stable;
   }
+  .resource-preview__canvas.is-presentation,
+  .resource-preview__canvas.is-presentation-pdf {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 14px;
+    background: #111827;
+  }
+  .presentation-controls {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    min-height: 44px;
+    padding: 6px 10px;
+    border-radius: 10px;
+    color: #fff;
+    background: rgba(255, 255, 255, .1);
+  }
+  .presentation-controls button {
+    min-height: 30px;
+    padding: 0 10px;
+    border-color: rgba(255, 255, 255, .22);
+    color: #fff;
+    background: rgba(255, 255, 255, .08);
+  }
+  .presentation-controls button:disabled { opacity: .4; cursor: not-allowed; }
+  .presentation-controls strong { font-size: 13px; }
+  .presentation-controls small { color: #cbd5e1; font-size: 11px; }
+  .resource-preview__panel:fullscreen {
+    width: 100vw;
+    height: 100vh;
+    border: 0;
+    border-radius: 0;
+  }
   .resource-preview__canvas iframe {
     display: block;
     width: 100%;
@@ -547,6 +657,11 @@
     height: 100%;
     min-height: 0;
     box-shadow: none;
+  }
+  .resource-preview__canvas.is-presentation iframe,
+  .resource-preview__canvas.is-presentation-pdf iframe {
+    min-height: 0;
+    flex: 1;
   }
   .resource-preview__canvas.is-image { overflow: auto; }
   .resource-preview__canvas img {

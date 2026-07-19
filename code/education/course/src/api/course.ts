@@ -108,8 +108,17 @@ export interface CourseWorkspaceData {
     course_id: string;
     title: string;
     type: string;
+    subject: string;
     file_name: string;
     file_size: number;
+    content_type: string;
+    content?: Record<string, any> | null;
+    url?: string | null;
+    knowledge_point?: string | null;
+    difficulty?: string | null;
+    source?: string | null;
+    upload_time: string;
+    uploader_id: string;
   }>;
   summary: {
     teaching_class_count: number;

@@ -246,7 +246,7 @@
   const loading = ref(false);
   const error = ref('');
   const sourceCourses = ref<Course[]>([...scenarioCourses]);
-  const courses = ref<Course[]>(scenarioCourses.slice(0, 6));
+  const courses = ref<Course[]>(scenarioCourses.slice(0, 8));
   const searchQuery = ref('');
   const selectedCategory = ref('全部');
   const statusFilter = ref('all');
@@ -263,7 +263,7 @@
 
   const pagination = ref({
     current: 1,
-    pageSize: 6,
+    pageSize: 8,
     total: scenarioCourses.length,
   });
   const pageCount = computed(() =>

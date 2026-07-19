@@ -17,6 +17,15 @@
     buildCourseResources,
     type CourseResourceItem,
   } from '@/data/courseWorkspace';
+  import { fetchCourseWorkspace } from '@/api/course';
+  import {
+    downloadResource,
+    type ResourceRecord,
+  } from '@/api/resources';
+  import {
+    fetchResourceRecommendations,
+  } from '@/api/resource-hub';
+  import ResourcePreviewDialog from '@/components/resource/ResourcePreviewDialog.vue';
   import { courseWorkspaceLocation } from '@/composables/useCourseRouteContext';
   import {
     fetchRecentGeneratedPackages,
@@ -37,6 +46,9 @@
   const generatedPackagePreviewVisible = ref(false);
   const previewedGeneratedPackage = ref<RecentGeneratedPackage | null>(null);
   const showAllResources = ref(false);
+  const backendResources = ref<ResourceRecord[]>([]);
+  const previewResourceRecord = ref<ResourceRecord | null>(null);
+  const profileSignals = ref<string[]>([]);
   const defaultResourcePreviewCount = 6;
   const aiTrialLimit = 3;
   const aiTrialStorageKey = 'zhixi-course-resource-ai-trial-v1';
@@ -55,9 +67,17 @@
   const course = computed(() =>
     getClassroomCourse(String(route.params.courseId || ''))
   );
-  const resources = computed(() =>
-    course.value ? buildCourseResources(course.value) : []
-  );
+  const resources = computed(() => {
+    if (!course.value) return [];
+    const serverItems = backendResources.value.map(mapBackendResource);
+    return serverItems.length ? serverItems : buildCourseResources(course.value);
+  });
+  const networkResources = computed(() => {
+    const signals = profileSignals.value.map((item) => item.toLowerCase());
+    return resources.value
+      .filter((item) => ['视频', '笔记'].includes(item.type) && item.backendResource?.url)
+      .sort((left, right) => networkMatchScore(right, signals) - networkMatchScore(left, signals));
+  });
   const generatedPackagesForCourse = computed(() => {
     const activeCourse = course.value;
     if (!activeCourse) return [] as RecentGeneratedPackage[];
@@ -113,6 +133,110 @@
   const hiddenResourceCount = computed(() =>
     Math.max(visibleResources.value.length - displayedResources.value.length, 0)
   );
+
+  function resourceTypeLabel(resource: ResourceRecord): CourseResourceItem['type'] {
+    if (resource.type === 'ppt' || /课件|ppt/i.test(resource.title)) return '课件';
+    if (resource.type === 'lecture_markdown') return '讲义';
+    if (resource.type === 'practice_markdown' || resource.type === 'question') return '练习';
+    if (resource.type === 'external_video') return '视频';
+    if (resource.type === 'external_note') return '笔记';
+    if (resource.type === 'knowledge_graph' || resource.type === 'mind_map') return '导图';
+    return '资料' as CourseResourceItem['type'];
+  }
+
+  function mapBackendResource(resource: ResourceRecord): CourseResourceItem {
+    const metadata = resource.content || {};
+    const chapter = typeof metadata.chapter === 'string'
+      ? metadata.chapter
+      : resource.knowledge_point || '课程拓展';
+    return {
+      id: resource.id,
+      title: resource.title,
+      type: resourceTypeLabel(resource),
+      chapter,
+      size: resource.file_size
+        ? `${(resource.file_size / 1024 / 1024).toFixed(resource.file_size > 1024 * 1024 ? 1 : 2)} MB`
+        : '在线资源',
+      updatedAt: resource.upload_time
+        ? new Date(resource.upload_time).toLocaleDateString('zh-CN')
+        : '持续更新',
+      downloads: 0,
+      backendResource: { ...resource, favorite: false, top: false },
+    };
+  }
+
+  function networkMatchScore(item: CourseResourceItem, signals: string[]) {
+    const metadata = item.backendResource?.content || {};
+    const tags = Array.isArray(metadata.profile_tags)
+      ? metadata.profile_tags.map((tag) => String(tag).toLowerCase())
+      : [];
+    const text = `${item.title} ${item.chapter} ${tags.join(' ')}`.toLowerCase();
+    return signals.reduce((score, signal) => score + (signal && text.includes(signal) ? 1 : 0), 0);
+  }
+
+  function networkReason(item: CourseResourceItem) {
+    const metadata = item.backendResource?.content || {};
+    const matched = profileSignals.value.find((signal) =>
+      `${item.title} ${item.chapter} ${(metadata.profile_tags || []).join?.(' ') || ''}`.includes(signal)
+    );
+    if (matched) return `画像信号“${matched}”与该资源匹配，建议作为当前课程的补充学习。`;
+    return typeof metadata.summary === 'string'
+      ? metadata.summary
+      : '根据当前课程进度与资源偏好推荐。';
+  }
+
+  function openNetworkResource(item: CourseResourceItem) {
+    const url = item.backendResource?.url;
+    if (!url) return;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+
+  function openOnlinePreview(item: CourseResourceItem) {
+    const resource = item.backendResource;
+    if (!resource) {
+      Message.info('该演示资料暂无原文件，请选择已入库的课程资料。');
+      return;
+    }
+    if (resource.url) {
+      openNetworkResource(item);
+      return;
+    }
+    previewResourceRecord.value = resource;
+  }
+
+  async function downloadOriginalResource(resource: ResourceRecord) {
+    try {
+      const response = await downloadResource(resource.id);
+      const url = URL.createObjectURL(response.data);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = resource.file_name || resource.title;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      Message.warning('原始资料暂时无法下载，请检查后端是否已启动。');
+    }
+  }
+
+  async function loadCourseResources() {
+    if (!course.value) return;
+    try {
+      const workspace = await fetchCourseWorkspace(course.value.id);
+      backendResources.value = workspace.resources.map((resource) => ({
+        ...resource,
+        favorite: false,
+        top: false,
+      }));
+    } catch {
+      // Keep the deterministic local course shell available when the backend is offline.
+    }
+    try {
+      const recommendations = await fetchResourceRecommendations(12, false);
+      profileSignals.value = recommendations.data.profile_signals || [];
+    } catch {
+      profileSignals.value = [];
+    }
+  }
   const resourceQuality = computed(() => [
     {
       label: '资料关联',
@@ -550,7 +674,10 @@
     }
   }
 
-  onMounted(loadRecentPackages);
+  onMounted(() => {
+    void loadRecentPackages();
+    void loadCourseResources();
+  });
 </script>
 
 <template>
@@ -602,6 +729,32 @@
         >
       </article>
     </div>
+
+    <section v-if="networkResources.length" class="network-recommendations" aria-label="画像驱动的网络学习资源">
+      <header>
+        <div>
+          <span>PROFILE × RESOURCE AGENT</span>
+          <h2>根据个人画像推送</h2>
+          <p>结合薄弱知识点、学习偏好与课程进度排序；外部内容将在原平台打开。</p>
+        </div>
+        <div class="network-recommendations__signals">
+          <span v-for="signal in profileSignals.slice(0, 3)" :key="signal">{{ signal }}</span>
+        </div>
+      </header>
+      <div class="network-recommendations__grid">
+        <article v-for="item in networkResources.slice(0, 5)" :key="item.id">
+          <div class="network-resource__meta">
+            <span>{{ item.backendResource?.source }}</span>
+            <small>{{ item.type }}</small>
+          </div>
+          <h3>{{ item.title }}</h3>
+          <p>{{ networkReason(item) }}</p>
+          <button type="button" @click="openNetworkResource(item)">
+            前往原平台学习
+          </button>
+        </article>
+      </div>
+    </section>
 
     <section class="resource-library-shell" aria-label="课程资料库">
       <div class="resource-library-main">
@@ -733,6 +886,21 @@
           </button>
         </section>
         <div class="resource-inspector__actions">
+          <button
+            v-if="selectedResource.backendResource"
+            type="button"
+            class="primary"
+            @click="openOnlinePreview(selectedResource)"
+          >
+            <icon-file /> {{ selectedResource.type === '课件' ? 'PPT 放映' : '在线阅读' }}
+          </button>
+          <button
+            v-if="selectedResource.backendResource && !selectedResource.backendResource.url"
+            type="button"
+            @click="downloadOriginalResource(selectedResource.backendResource)"
+          >
+            <icon-download /> 原始文件
+          </button>
           <button type="button" class="primary" @click="downloadResourceBrief(selectedResource)">
             <icon-download /> 学习包
           </button>
@@ -924,12 +1092,128 @@
         </footer>
       </div>
     </a-drawer>
+    <ResourcePreviewDialog
+      :resource="previewResourceRecord"
+      @close="previewResourceRecord = null"
+      @download="downloadOriginalResource"
+    />
   </section>
 </template>
 
 <style scoped lang="less">
   .course-resources {
     color: #17213a;
+  }
+
+  .network-recommendations {
+    margin: 0 0 16px;
+    padding: 18px;
+    border: 1px solid rgba(79, 70, 229, 0.16);
+    border-radius: 16px;
+    background: linear-gradient(135deg, #f7f7ff, #fff 62%);
+  }
+
+  .network-recommendations > header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 14px;
+  }
+
+  .network-recommendations > header span {
+    color: #4f46e5;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .1em;
+  }
+
+  .network-recommendations h2 {
+    margin: 4px 0;
+    font-size: 18px;
+  }
+
+  .network-recommendations p {
+    margin: 0;
+    color: #667085;
+    font-size: 11px;
+    line-height: 1.6;
+  }
+
+  .network-recommendations__signals {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
+  .network-recommendations__signals span {
+    padding: 5px 8px;
+    border-radius: 999px;
+    background: #eeecff;
+    letter-spacing: 0;
+  }
+
+  .network-recommendations__grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .network-recommendations__grid article {
+    display: flex;
+    min-width: 0;
+    min-height: 174px;
+    flex-direction: column;
+    padding: 13px;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    background: #fff;
+  }
+
+  .network-resource__meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: #4f46e5;
+    font-size: 10px;
+    font-weight: 700;
+  }
+
+  .network-recommendations__grid h3 {
+    margin: 10px 0 6px;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .network-recommendations__grid article > p {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+  }
+
+  .network-recommendations__grid button {
+    margin-top: auto;
+    padding: 7px 9px;
+    border: 1px solid #d9dcff;
+    border-radius: 8px;
+    color: #4338ca;
+    background: #f7f7ff;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  @media (max-width: 1180px) {
+    .network-recommendations__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+
+  @media (max-width: 640px) {
+    .network-recommendations > header { align-items: flex-start; flex-direction: column; }
+    .network-recommendations__signals { justify-content: flex-start; }
+    .network-recommendations__grid { grid-template-columns: 1fr; }
   }
 
   .resource-heading {

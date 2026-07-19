@@ -6,6 +6,7 @@ from sqlmodel import select, and_, or_
 from app import models
 from app.api import deps
 from uuid import UUID
+from app.services.knowledge_graph_service import can_access_course
 
 router = APIRouter()
 
@@ -272,6 +273,8 @@ def get_course_workspace(
     """返回课程壳层需要的教学班、计划、作业与资源聚合数据。"""
     course = db.get(models.Course, course_id)
     if not course:
+        raise HTTPException(status_code=404, detail="未找到指定的课程")
+    if not can_access_course(db, user=current_user, course_id=course_id):
         raise HTTPException(status_code=404, detail="未找到指定的课程")
 
     teaching_classes = list(

@@ -16,11 +16,12 @@ export interface CourseTask {
 export interface CourseResourceItem {
   id: string;
   title: string;
-  type: '课件' | '讲义' | '案例' | '练习' | '导图' | '数据集';
+  type: '课件' | '讲义' | '案例' | '练习' | '导图' | '数据集' | '视频' | '笔记';
   chapter: string;
   size: string;
   updatedAt: string;
   downloads: number;
+  backendResource?: import('@/api/resources').ResourceRecord;
 }
 
 export type CourseKnowledgeMapType =
