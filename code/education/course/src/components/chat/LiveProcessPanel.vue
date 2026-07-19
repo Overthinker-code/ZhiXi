@@ -48,9 +48,35 @@
   });
 
   function timestamp(value: unknown) {
-    if (typeof value === 'number') return value;
+    const numeric =
+      typeof value === 'number'
+        ? value
+        : typeof value === 'string' && value.trim() !== ''
+          ? Number(value)
+          : Number.NaN;
+    if (Number.isFinite(numeric)) {
+      // Unix timestamps from the backend may be seconds while browser times use ms.
+      return Math.abs(numeric) < 100_000_000_000 ? numeric * 1000 : numeric;
+    }
     const parsed = Date.parse(String(value || ''));
     return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function elapsedDurationMs(
+    currentStatus: ProcessStatus,
+    currentStartedAt: number,
+    currentFinishedAt: number,
+    currentDurationMs: unknown,
+    currentTime: number
+  ) {
+    const declaredDuration = Number(currentDurationMs || 0);
+    if (Number.isFinite(declaredDuration) && declaredDuration > 0) {
+      return declaredDuration;
+    }
+    if (!currentStartedAt) return 0;
+    const terminal = ['done', 'stopped', 'error'].includes(currentStatus);
+    const end = terminal ? currentFinishedAt : currentFinishedAt || currentTime;
+    return end > currentStartedAt ? end - currentStartedAt : 0;
   }
 
   function inferCategory(item: Record<string, any>, isTool = false) {
@@ -115,12 +141,26 @@
     () => status.value !== 'idle' || phases.value.length > 0 || tools.value.length > 0
   );
   const startedAt = computed(() =>
-    timestamp(process.value.startedAt || phases.value[0]?.startedAt || tools.value[0]?.startedAt)
+    timestamp(
+      process.value.startedAt ||
+        process.value.created_time ||
+        phases.value[0]?.startedAt ||
+        tools.value[0]?.startedAt
+    )
   );
-  const finishedAt = computed(() => timestamp(process.value.finishedAt));
+  const finishedAt = computed(() =>
+    timestamp(process.value.finishedAt || process.value.updated_time)
+  );
   const elapsedSeconds = computed(() => {
-    if (!startedAt.value) return 0;
-    return Math.max(0, Math.floor(((finishedAt.value || now.value) - startedAt.value) / 1000));
+    return Math.floor(
+      elapsedDurationMs(
+        status.value,
+        startedAt.value,
+        finishedAt.value,
+        process.value.durationMs,
+        now.value
+      ) / 1000
+    );
   });
   const elapsed = computed(() => (elapsedSeconds.value ? `${elapsedSeconds.value} 秒` : ''));
 

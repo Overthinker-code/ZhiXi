@@ -501,6 +501,31 @@
     return 'running';
   }
 
+  function agentTaskCapability(task: Record<string, any>) {
+    const identity = `${task.task_key || ''} ${task.agent_name || ''}`;
+    if (/manim|animation/i.test(identity)) return '教学动画智能体';
+    if (/image|illustration|picture|绘图|插图/i.test(identity)) return '教学插图智能体';
+    return '';
+  }
+
+  function userFacingAgentText(value: unknown, capability: string) {
+    const text = String(value || '').trim();
+    if (!text) return text;
+    const inferredCapability =
+      capability ||
+      (/manim|animation/i.test(text)
+        ? '教学动画智能体'
+        : /image|illustration|picture|绘图|插图/i.test(text)
+          ? '教学插图智能体'
+          : '');
+    if (!inferredCapability) return text;
+    if (/已路由到\s*/.test(text)) return `已选择${inferredCapability}`;
+    return text.replace(
+      /(?:qwen\s*)?(?:manim|animation|image(?:\s*generation)?|illustration|picture)(?:\s*(?:agent|智能体))?/gi,
+      inferredCapability
+    );
+  }
+
   function agentTaskTitle(task: Record<string, any>) {
     const key = String(task.task_key || '');
     const name = String(task.agent_name || '');
@@ -511,6 +536,8 @@
       evaluator: '结果校验智能体',
     };
     if (fixedLabels[key]) return fixedLabels[key];
+    const capability = agentTaskCapability(task);
+    if (capability) return capability;
     if (/Quiz/i.test(name)) return '练习生成智能体';
     if (/KnowledgeGraph/i.test(name)) return '知识图谱智能体';
     if (/Resource/i.test(name)) return '资源生成智能体';
@@ -527,7 +554,8 @@
     tasks.forEach((task, index) => {
       const status = agentTaskStatus(task.status);
       const progress = Math.max(0, Math.min(100, Number(task.progress || 0)));
-      const message = String(task.message || '');
+      const capability = agentTaskCapability(task);
+      const message = userFacingAgentText(task.message, capability);
       const progressText = progress > 0 && progress < 100 ? ` · ${progress}%` : '';
       upsertTool(process, {
         stepId: `agent-task-${task.task_key || index}`,
@@ -548,10 +576,16 @@
     const failed = tasks.find((task) => task.status === 'failed');
     if (failed) {
       process.status = 'error';
-      process.currentSummary = String(failed.message || '部分任务未完成');
+      process.currentSummary = userFacingAgentText(
+        failed.message || '部分任务未完成',
+        agentTaskCapability(failed)
+      );
     } else if (running) {
       process.status = 'running';
-      process.currentSummary = String(running.message || '正在执行学习任务');
+      process.currentSummary = userFacingAgentText(
+        running.message || '正在执行学习任务',
+        agentTaskCapability(running)
+      );
     } else if (tasks.every((task) => task.status === 'completed')) {
       process.status = 'done';
       process.currentSummary = '多智能体任务已完成';
