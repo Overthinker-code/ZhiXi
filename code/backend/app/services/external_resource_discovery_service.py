@@ -1,18 +1,19 @@
-"""Safe, bounded discovery from fixed public open-resource catalogs.
+"""Bounded discovery for auditable, China-accessible learning platforms.
 
-This module only reads catalog JSON endpoints.  It never follows a result URL,
-proxies target pages, or accepts a caller-controlled provider URL.
+This feature deliberately does not crawl arbitrary pages, proxy resource URLs,
+or expose general web-search results as course materials.  The provider map is
+small, reviewed, and HTTPS-only.  When a provider cannot return an audited
+catalog item, we return a clearly-labelled *search entry* for that provider;
+students still have to select a concrete resource on the provider's site.
 """
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import re
-from typing import Any, Iterable
-from urllib.parse import urlparse
+from typing import Any, Callable, Iterable
+from urllib.parse import quote_plus, urlparse
 
-import httpx
 from sqlmodel import select
 
 from app.core.config import settings
@@ -20,37 +21,109 @@ from app.models import ExternalResource
 from app.services.resource_subject_service import resolve_resource_subject
 
 
-OPEN_LIBRARY_URL = "https://openlibrary.org/search.json"
-OPENALEX_URL = "https://api.openalex.org/works"
-INTERNET_ARCHIVE_URL = "https://archive.org/advancedsearch.php"
-
 MAX_TITLE = 255
 MAX_SUMMARY = 1200
 MAX_AUTHORS = 8
 MAX_METADATA_ITEMS = 8
 
-# This deliberately small, reviewable map covers the concepts in the seeded
-# 数据库系统原理 course.  It is not a translation model and is only used as a
-# transparent catalog query alias; the original profile topic remains durable.
-TOPIC_QUERY_ALIASES: dict[str, str] = {
-    "事务隔离": "database transaction isolation",
-    "范式与bcnf": "database normalization BCNF",
-    "死锁处理": "database deadlock",
-    "日志恢复": "database recovery logging checkpoint",
-    "可串行化": "database serializability",
-}
 
-# The video catalog indexes lecture titles less precisely than article/book
-# catalogs.  These reviewed, deliberately broad queries keep a video result
-# useful for the same seeded-course topic without turning the endpoint into a
-# general web search.
-TOPIC_VIDEO_QUERY_ALIASES: dict[str, str] = {
-    "事务隔离": "database transaction",
-    "范式与bcnf": "database systems",
-    "死锁处理": "database deadlock",
-    "日志恢复": "database recovery",
-    "可串行化": "database concurrency control",
-}
+@dataclass(frozen=True)
+class DomesticProvider:
+    key: str
+    name: str
+    domain: str
+    kind: str
+    quality_tier: str
+    search_url: Callable[[str], str]
+
+
+@dataclass(frozen=True)
+class CuratedResource:
+    """A reviewed concrete course page, never a scraped search result."""
+
+    provider: str
+    title: str
+    url: str
+    kind: str
+    quality_tier: str
+    topics: tuple[str, ...]
+    summary: str
+
+
+DOMESTIC_PROVIDERS: tuple[DomesticProvider, ...] = (
+    DomesticProvider(
+        "smartedu", "国家高等教育智慧教育平台", "higher.smartedu.cn", "course",
+        "national_platform", lambda query: f"https://higher.smartedu.cn/search?keyword={quote_plus(query)}",
+    ),
+    DomesticProvider(
+        "icourse163", "中国大学MOOC（爱课程）", "icourse163.org", "course",
+        "national_mooc", lambda query: f"https://www.icourse163.org/search.htm?search={quote_plus(query)}",
+    ),
+    DomesticProvider(
+        "xuetangx", "学堂在线", "xuetangx.com", "course",
+        "university_mooc", lambda query: f"https://www.xuetangx.com/search?query={quote_plus(query)}",
+    ),
+    DomesticProvider(
+        "bilibili", "哔哩哔哩", "bilibili.com", "video",
+        "video_platform", lambda query: f"https://search.bilibili.com/all?keyword={quote_plus(query)}",
+    ),
+)
+PROVIDER_BY_KEY = {provider.key: provider for provider in DOMESTIC_PROVIDERS}
+ALLOWED_DOMESTIC_DOMAINS = frozenset(provider.domain for provider in DOMESTIC_PROVIDERS)
+
+# Small, auditable directory.  Course titles and direct URLs below were
+# checked against their official platform pages on 2026-07-19.  It is not a
+# crawler and must grow only through a reviewed code change with a source URL.
+CURATED_DOMESTIC_RESOURCES: tuple[CuratedResource, ...] = (
+    CuratedResource(
+        "smartedu", "数据结构", "https://higher.smartedu.cn/course/622aca59bee70ef79f441af1",
+        "course", "national_platform",
+        ("数据结构", "栈", "队列", "LIFO", "push", "pop", "线性表", "树", "图", "排序"),
+        "国家高等教育智慧教育平台课程，覆盖线性表、栈、队列、树、图、查找和排序。",
+    ),
+    CuratedResource(
+        "smartedu", "数据结构与算法Python版", "https://higher.smartedu.cn/course/66eb6480130d17e111b59462",
+        "course", "national_platform",
+        ("数据结构", "栈", "队列", "LIFO", "push", "pop", "Python", "算法"),
+        "北京大学课程，包含栈和队列抽象数据类型及 Python 实现。",
+    ),
+    CuratedResource(
+        "smartedu", "（第十四期）数据结构", "https://higher.smartedu.cn/course/68ac63b3d5f9b8b6cf61fc55",
+        "course", "national_platform",
+        ("数据结构", "栈", "队列", "线性表", "树", "图"),
+        "国家高等教育智慧教育平台上的数据结构课程。",
+    ),
+    CuratedResource(
+        "icourse163", "数据结构与算法（大连理工大学）", "https://www.icourse163.org/course/DUT-1205981804",
+        "course", "national_mooc",
+        ("数据结构", "栈", "队列", "LIFO", "push", "pop", "算法"),
+        "中国大学MOOC 的大连理工大学数据结构与算法课程。",
+    ),
+    CuratedResource(
+        "icourse163", "数据结构（南京师范大学）", "https://www.icourse163.org/course/NJNU-1474462161",
+        "course", "national_mooc",
+        ("数据结构", "栈", "队列", "LIFO", "push", "pop", "线性表"),
+        "中国大学MOOC 的南京师范大学数据结构课程。",
+    ),
+    CuratedResource(
+        "smartedu", "数据库系统", "https://higher.smartedu.cn/course/66d78e1a711dc30c34a0e833",
+        "course", "national_platform",
+        ("数据库系统", "事务隔离", "可串行化", "日志恢复", "范式", "BCNF", "并发控制", "事务", "恢复"),
+        "国家高等教育智慧教育平台课程，包含规范化理论、恢复技术和并发控制。",
+    ),
+    CuratedResource(
+        "smartedu", "数据库系统原理与开发", "https://higher.smartedu.cn/course/687eb4e316c43a09c0e584a6",
+        "course", "national_platform",
+        ("数据库系统", "事务隔离", "可串行化", "日志恢复", "范式", "BCNF", "SQL", "数据库设计"),
+        "国家高等教育智慧教育平台课程，覆盖数据库系统原理、SQL、设计与开发。",
+    ),
+    CuratedResource(
+        "icourse163", "数据库原理（理论）（武汉大学）", "https://www.icourse163.org/course/WHU-1474003161",
+        "course", "national_mooc",
+        ("数据库系统", "事务隔离", "可串行化", "日志恢复", "范式", "BCNF", "并发控制", "恢复"),
+        "中国大学MOOC 的数据库原理课程，覆盖恢复技术、并发控制和关系数据理论。",
+    ),
+)
 
 
 def _text(value: object, limit: int) -> str:
@@ -58,70 +131,48 @@ def _text(value: object, limit: int) -> str:
     return " ".join(plain.split())[:limit]
 
 
-def _safe_url(value: object) -> str | None:
+def allowed_domestic_url(value: object) -> str | None:
+    """Return a normalized URL only for an HTTPS allowlisted platform host."""
     try:
         parsed = urlparse(str(value or "").strip())
     except (TypeError, ValueError):
         return None
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+    hostname = (parsed.hostname or "").casefold().removesuffix(".")
+    if (
+        parsed.scheme != "https"
+        or not hostname
+        or parsed.username
+        or parsed.password
+        or not any(hostname == domain or hostname.endswith(f".{domain}") for domain in ALLOWED_DOMESTIC_DOMAINS)
+    ):
         return None
     return parsed.geturl()[:1000]
 
 
-def _strings(value: object, *, limit: int = MAX_AUTHORS, width: int = 160) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return list(dict.fromkeys(_text(item, width) for item in value if _text(item, width)))[:limit]
-
-
-def _year(value: object) -> int | None:
-    try:
-        result = int(str(value))
-    except (TypeError, ValueError):
+def provider_for_url(value: object) -> DomesticProvider | None:
+    safe_url = allowed_domestic_url(value)
+    if not safe_url:
         return None
-    return result if 1000 <= result <= 3000 else None
-
-
-def _abstract(inverted: object) -> str:
-    if not isinstance(inverted, dict):
-        return ""
-    words: list[tuple[int, str]] = []
-    for word, positions in inverted.items():
-        if isinstance(positions, list):
-            for position in positions[:12]:
-                if isinstance(position, int) and position >= 0:
-                    words.append((position, _text(word, 80)))
-    return _text(" ".join(word for _, word in sorted(words)[:400]), MAX_SUMMARY)
-
-
-def _metadata(value: object) -> dict[str, object]:
-    """Keep a small, plain-text display subset of provider metadata."""
-    if not isinstance(value, dict):
-        return {}
-    safe: dict[str, object] = {}
-    for raw_key, raw_value in list(value.items())[:MAX_METADATA_ITEMS]:
-        key = _text(raw_key, 80)
-        if not key:
-            continue
-        if key.endswith(("url", "_url")):
-            safe[key] = _safe_url(raw_value)
-        elif isinstance(raw_value, (bool, int, float)) or raw_value is None:
-            safe[key] = raw_value
-        elif isinstance(raw_value, list):
-            safe[key] = _strings(raw_value, limit=MAX_METADATA_ITEMS, width=200)
-        else:
-            safe[key] = _text(raw_value, 300) or None
-    return safe
+    hostname = (urlparse(safe_url).hostname or "").casefold()
+    return next(
+        (
+            provider
+            for provider in DOMESTIC_PROVIDERS
+            if hostname == provider.domain or hostname.endswith(f".{provider.domain}")
+        ),
+        None,
+    )
 
 
 def catalog_query_for_topic(topic: object) -> str:
-    normalized = "".join(_text(topic, 80).casefold().split())
-    return TOPIC_QUERY_ALIASES.get(normalized, _text(topic, 80))
+    """Use the learner's Chinese topic directly; no English alias translation."""
+    return _text(topic, 80)
 
 
-def catalog_video_query_for_topic(topic: object) -> str:
-    normalized = "".join(_text(topic, 80).casefold().split())
-    return TOPIC_VIDEO_QUERY_ALIASES.get(normalized, catalog_query_for_topic(topic))
+# Kept as an empty compatibility export while callers migrate away from the
+# former English-only catalog aliases.  It must never be populated by runtime
+# model output or used to translate a learner's topic.
+TOPIC_QUERY_ALIASES: dict[str, str] = {}
 
 
 @dataclass(frozen=True)
@@ -133,132 +184,146 @@ class CatalogCandidate:
     summary: str = ""
     authors: list[str] | None = None
     year: int | None = None
-    language: str | None = None
+    language: str | None = "zh-CN"
     license_status: str | None = None
     cover_url: str | None = None
     metadata: dict[str, object] | None = None
 
 
 class ExternalResourceDiscoveryService:
-    """Discover books, OA papers and video lectures with failure isolation."""
+    """Create fixed, truthful provider search-entry candidates.
+
+    Provider builders are isolated so a future audited provider parser can
+    fail without suppressing the remaining fixed providers.
+    """
 
     def discover(self, *, topic: str) -> list[CatalogCandidate]:
-        original_topic = _text(topic, 80)
-        query = catalog_query_for_topic(original_topic)
-        video_query = catalog_video_query_for_topic(original_topic)
-        if len(original_topic) < 2 or len(query) < 2:
+        query = catalog_query_for_topic(topic)
+        if not query or (len(query) < 2 and not any("\u4e00" <= char <= "\u9fff" for char in query)):
             return []
-        timeout = httpx.Timeout(max(0.5, min(5.0, settings.EXTERNAL_DISCOVERY_TIMEOUT_SECONDS)))
-        provider_limit = max(1, min(5, settings.EXTERNAL_DISCOVERY_MAX_RESULTS_PER_PROVIDER))
-        headers = {"User-Agent": settings.EXTERNAL_DISCOVERY_USER_AGENT, "Accept": "application/json"}
-        try:
-            with httpx.Client(timeout=timeout, headers=headers, follow_redirects=False) as client:
-                requests = (
-                    (self._open_library, OPEN_LIBRARY_URL, {"q": query, "limit": provider_limit, "fields": "key,title,author_name,first_publish_year,language,cover_i,edition_key"}),
-                    (self._openalex, OPENALEX_URL, {"search": query, "filter": "is_oa:true", "per-page": provider_limit, "select": "id,title,authorships,publication_year,language,open_access,primary_location,doi,abstract_inverted_index"}),
-                    # Internet Archive's advanced-search parser requires the
-                    # media type value to be grouped.  The previous shorthand
-                    # silently returned zero video rows for valid course
-                    # queries, which made the multi-format catalog look like
-                    # a papers-only recommender.
-                    (self._internet_archive, INTERNET_ARCHIVE_URL, {"q": f'title:({video_query}) AND mediatype:(movies)', "fl[]": ["identifier", "title", "creator", "year", "description", "language", "licenseurl"], "rows": provider_limit, "output": "json"}),
-                )
-                # Three fixed provider requests run together.  A provider
-                # outage therefore costs one short timeout, not three.
-                with ThreadPoolExecutor(max_workers=3) as executor:
-                    futures = [executor.submit(client.get, url, params=params) for _, url, params in requests]
-                    results: list[CatalogCandidate] = []
-                    for (mapper, _, _), future in zip(requests, futures, strict=True):
-                        try:
-                            response = future.result()
-                            response.raise_for_status()
-                            results.extend(mapper(response.json()))
-                        except (httpx.HTTPError, ValueError, TypeError):
-                            continue
-        except (httpx.HTTPError, ValueError, TypeError):
-            return []
+        curated = self._curated_candidates(query)
+        if curated:
+            return curated
+        candidates: list[CatalogCandidate] = []
+        for provider in DOMESTIC_PROVIDERS:
+            try:
+                candidate = self._provider_search_entry(provider, query)
+            except (TypeError, ValueError, RuntimeError):
+                continue
+            if candidate:
+                candidates.append(candidate)
         seen: set[str] = set()
-        if query != original_topic:
-            results = [
-                replace(item, metadata={**(item.metadata or {}), "query_alias": query})
-                for item in results
-            ]
-        if video_query != query:
-            results = [
-                replace(
-                    item,
-                    metadata=(
-                        {**(item.metadata or {}), "video_query_alias": video_query}
-                        if item.provider == "internet_archive"
-                        else item.metadata
-                    ),
+        return [item for item in candidates if not (item.url in seen or seen.add(item.url))]
+
+    @staticmethod
+    def _topic_matches(query: str, topic: str) -> bool:
+        normalized_query = "".join(query.casefold().split())
+        normalized_topic = "".join(topic.casefold().split())
+        return bool(
+            normalized_query
+            and normalized_topic
+            and (
+                normalized_query in normalized_topic
+                or normalized_topic in normalized_query
+            )
+        )
+
+    def _curated_candidates(self, query: str) -> list[CatalogCandidate]:
+        result: list[CatalogCandidate] = []
+        for resource in CURATED_DOMESTIC_RESOURCES:
+            if not any(self._topic_matches(query, topic) for topic in resource.topics):
+                continue
+            provider = PROVIDER_BY_KEY[resource.provider]
+            url = allowed_domestic_url(resource.url)
+            if not url:
+                continue
+            result.append(
+                CatalogCandidate(
+                    provider=resource.provider,
+                    provider_kind=resource.kind,
+                    title=resource.title,
+                    url=url,
+                    summary=resource.summary,
+                    language="zh-CN",
+                    metadata={
+                        "entry_type": "resource",
+                        "topics": list(resource.topics),
+                        "provider_name": provider.name,
+                        "quality_tier": resource.quality_tier,
+                        "catalog_reviewed_at": "2026-07-19",
+                    },
                 )
-                for item in results
-            ]
-        return [item for item in results if not (item.url in seen or seen.add(item.url))]
-
-    @staticmethod
-    def _open_library(payload: object) -> list[CatalogCandidate]:
-        docs = payload.get("docs") if isinstance(payload, dict) else None
-        result: list[CatalogCandidate] = []
-        for doc in docs if isinstance(docs, list) else []:
-            if not isinstance(doc, dict):
-                continue
-            key, title = _text(doc.get("key"), 160), _text(doc.get("title"), MAX_TITLE)
-            url = _safe_url(f"https://openlibrary.org{key}") if key.startswith("/") else None
-            cover = _safe_url(f"https://covers.openlibrary.org/b/id/{doc.get('cover_i')}-M.jpg") if doc.get("cover_i") else None
-            if title and url:
-                result.append(CatalogCandidate("open_library", "book", title, url, authors=_strings(doc.get("author_name")), year=_year(doc.get("first_publish_year")), language=(_strings(doc.get("language"), limit=1, width=32) or [None])[0], cover_url=cover, metadata={"catalog_key": key, "edition_key": (_strings(doc.get("edition_key"), limit=1) or [None])[0]}))
+            )
         return result
 
     @staticmethod
-    def _openalex(payload: object) -> list[CatalogCandidate]:
-        works = payload.get("results") if isinstance(payload, dict) else None
-        result: list[CatalogCandidate] = []
-        for work in works if isinstance(works, list) else []:
-            if not isinstance(work, dict):
-                continue
-            title, url = _text(work.get("title"), MAX_TITLE), _safe_url(work.get("id"))
-            oa = work.get("open_access") if isinstance(work.get("open_access"), dict) else {}
-            location = work.get("primary_location") if isinstance(work.get("primary_location"), dict) else {}
-            source = location.get("source") if isinstance(location.get("source"), dict) else {}
-            authors = [authorship.get("author", {}).get("display_name") for authorship in work.get("authorships", []) if isinstance(authorship, dict) and isinstance(authorship.get("author"), dict)]
-            if title and url and oa.get("is_oa") is True:
-                result.append(CatalogCandidate("openalex", "paper", title, url, summary=_abstract(work.get("abstract_inverted_index")), authors=_strings(authors), year=_year(work.get("publication_year")), language=_text(work.get("language"), 32) or None, license_status=_text(location.get("license") or oa.get("oa_status"), 160) or "open_access", metadata={"doi": _text(work.get("doi"), 300) or None, "open_access": True, "landing_page": _safe_url(location.get("landing_page_url")), "venue": _text(source.get("display_name"), 160) or None}))
-        return result
-
-    @staticmethod
-    def _internet_archive(payload: object) -> list[CatalogCandidate]:
-        response = payload.get("response") if isinstance(payload, dict) else None
-        docs = response.get("docs") if isinstance(response, dict) else None
-        result: list[CatalogCandidate] = []
-        for doc in docs if isinstance(docs, list) else []:
-            if not isinstance(doc, dict):
-                continue
-            identifier, title = _text(doc.get("identifier"), 160), _text(doc.get("title"), MAX_TITLE)
-            url = _safe_url(f"https://archive.org/details/{identifier}") if identifier else None
-            if title and url:
-                result.append(CatalogCandidate("internet_archive", "video", title, url, summary=_text(doc.get("description"), MAX_SUMMARY), authors=_strings(doc.get("creator") if isinstance(doc.get("creator"), list) else [doc.get("creator")]), year=_year(doc.get("year")), language=(_strings(doc.get("language"), limit=1, width=32) or [None])[0] if isinstance(doc.get("language"), list) else _text(doc.get("language"), 32) or None, license_status=_text(doc.get("licenseurl"), 160) or None, metadata={"identifier": identifier, "license_url": _safe_url(doc.get("licenseurl"))}))
-        return result
+    def _provider_search_entry(provider: DomesticProvider, query: str) -> CatalogCandidate | None:
+        url = allowed_domestic_url(provider.search_url(query))
+        if not url:
+            return None
+        return CatalogCandidate(
+            provider=provider.key,
+            provider_kind=provider.kind,
+            title=f"{provider.name}：搜索“{query}”",
+            url=url,
+            summary=(
+                f"这是 {provider.name} 的站内搜索入口，不代表某一具体课程或视频已被平台核验。"
+                "请在打开后查看课程发布方、章节和适用范围。"
+            ),
+            language="zh-CN",
+            metadata={
+                "entry_type": "search_entry",
+                "query": query,
+                "provider_name": provider.name,
+                "quality_tier": provider.quality_tier,
+            },
+        )
 
     def persist(self, session: Any, *, topic: str, candidates: Iterable[CatalogCandidate]) -> list[ExternalResource]:
         existing = {row.url: row for row in session.exec(select(ExternalResource)).all()}
         now = datetime.now(timezone.utc)
         saved: list[ExternalResource] = []
         for candidate in candidates:
-            if not _safe_url(candidate.url) or not candidate.title:
+            safe_url = allowed_domestic_url(candidate.url)
+            provider = PROVIDER_BY_KEY.get(candidate.provider)
+            if not safe_url or not provider or not candidate.title:
                 continue
-            record = existing.get(candidate.url)
+            metadata = dict(candidate.metadata or {})
+            entry_type = str(metadata.get("entry_type") or "search_entry")
+            if entry_type not in {"resource", "search_entry"}:
+                continue
+            metadata["entry_type"] = entry_type
+            metadata["provider_name"] = provider.name
+            metadata["quality_tier"] = provider.quality_tier
             values = dict(
-                title=candidate.title[:MAX_TITLE], source={"open_library": "Open Library", "openalex": "OpenAlex", "internet_archive": "Internet Archive"}[candidate.provider], url=candidate.url, type=candidate.provider_kind, subject=resolve_resource_subject(None, topic, candidate.title), knowledge_point=_text(topic, 160), difficulty="standard", recommend_reason=f"围绕你的“{_text(topic, 80)}”学习信号，匹配到{candidate.provider_kind}形式的公开资料。", provider=candidate.provider, provider_kind=candidate.provider_kind, summary=_text(candidate.summary, MAX_SUMMARY), authors=_strings(candidate.authors or []), published_year=candidate.year, language=_text(candidate.language, 32) or None, license_status=_text(candidate.license_status, 160) or None, cover_url=_safe_url(candidate.cover_url), source_metadata=_metadata(candidate.metadata), discovered_at=now, verified_at=now,
+                title=_text(candidate.title, MAX_TITLE),
+                source=provider.name,
+                url=safe_url,
+                type=provider.kind,
+                subject=resolve_resource_subject(None, topic, candidate.title),
+                knowledge_point=_text(topic, 160),
+                difficulty="standard",
+                recommend_reason=f"围绕“{_text(topic, 80)}”的国内正规平台搜索入口。",
+                provider=provider.key,
+                provider_kind=provider.kind,
+                summary=_text(candidate.summary, MAX_SUMMARY),
+                authors=[],
+                published_year=None,
+                language="zh-CN",
+                license_status=None,
+                cover_url=None,
+                source_metadata=metadata,
+                discovered_at=now,
+                verified_at=now,
             )
+            record = existing.get(safe_url)
             if record:
                 for name, value in values.items():
                     setattr(record, name, value)
             else:
                 record = ExternalResource(**values)
                 session.add(record)
-                existing[record.url] = record
+                existing[safe_url] = record
             saved.append(record)
         if saved:
             session.commit()

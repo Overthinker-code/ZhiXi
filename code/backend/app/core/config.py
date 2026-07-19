@@ -276,6 +276,16 @@ class Settings(BaseSettings):
     IMAGE_GENERATION_MODEL: str = "Kwai-Kolors/Kolors"
     IMAGE_GENERATION_SIZE: str = "1024x1024"
     IMAGE_GENERATION_TIMEOUT_SECONDS: int = 120
+    IMAGE_GENERATION_NEGATIVE_PROMPT: str = (
+        "Chinese text, gibberish, title, caption, footer, watermark, logo, "
+        "extra letters, extra blocks, deformed arrows, cluttered background"
+    )
+    MEDIA_IMAGE_MAX_BYTES: int = 20 * 1024 * 1024
+    # Media providers and their temporary CDN URLs are contacted directly by
+    # default. Local desktop proxy variables have caused TLS truncation during
+    # large binary downloads; deployments that require an egress proxy may
+    # explicitly opt back in.
+    MEDIA_HTTP_TRUST_ENV: bool = False
 
     SEEDANCE_API_BASE: str = "https://api.seedance2.ai"
     SEEDANCE_API_KEY: str | None = None
@@ -283,7 +293,11 @@ class Settings(BaseSettings):
     SEEDANCE_DEFAULT_DURATION: int = 5
     SEEDANCE_DEFAULT_ASPECT_RATIO: str = "16:9"
     SEEDANCE_DEFAULT_RESOLUTION: str = "720p"
-    SEEDANCE_TIMEOUT_SECONDS: int = 60
+    # Kept below the 180-second AI SSE hard timeout. The provider client also
+    # enforces a runtime margin when deployments override this value.
+    SEEDANCE_TIMEOUT_SECONDS: int = 150
+    SEEDANCE_POLL_INTERVAL_SECONDS: float = 10.0
+    MEDIA_VIDEO_MAX_BYTES: int = 150 * 1024 * 1024
 
     RAG_TOP_K: int = 4
     RAG_CHUNK_SIZE: int = 1000

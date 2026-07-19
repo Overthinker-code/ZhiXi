@@ -44,9 +44,9 @@ def resolve_course_source(relative_path: str) -> Path:
 
 def is_shared_course_resource(resource: Resource) -> bool:
     return (
-        resource.course_id == SOFTWARE_ENGINEERING_COURSE_ID
-        and resource.source == COURSE_SOURCE_NAME
-        and resource.file_path.startswith(COURSE_SOURCE_PREFIX)
+        getattr(resource, "course_id", None) == SOFTWARE_ENGINEERING_COURSE_ID
+        and getattr(resource, "source", None) == COURSE_SOURCE_NAME
+        and str(getattr(resource, "file_path", "")).startswith(COURSE_SOURCE_PREFIX)
     )
 
 

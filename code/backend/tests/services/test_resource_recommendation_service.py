@@ -32,28 +32,29 @@ def test_recommendations_are_new_profile_candidates_or_external_not_old_resource
             UserMemoryProfile(
                 user_id=user_id,
                 memory_profile={
-                    "weak_points": ["TCP拥塞控制"],
+                    "weak_points": ["数据结构"],
                     "learning_style": "视觉化学习",
-                    "current_goal": "掌握计算机网络",
-                    "mastery_map": {"TCP拥塞控制": 0.35},
+                    "current_goal": "掌握数据结构",
+                    "mastery_map": {"数据结构": 0.35},
                 },
             )
         )
         old_resource = Resource(
-            title="以前生成的TCP知识图谱",
+            title="以前生成的数据结构知识图谱",
             type="knowledge_graph",
-            knowledge_point="TCP拥塞控制",
+            knowledge_point="数据结构",
             source="agent",
             uploader_id=user_id,
         )
         session.add(old_resource)
         session.add(
             ExternalResource(
-                title="TCP拥塞控制动画讲解",
-                source="verified-teaching-site",
-                url="https://example.edu/tcp-congestion",
-                type="video",
-                knowledge_point="TCP拥塞控制",
+                title="数据结构",
+                source="国家高等教育智慧教育平台",
+                url="https://higher.smartedu.cn/course/622aca59bee70ef79f441af1",
+                type="course",
+                provider="smartedu",
+                knowledge_point="数据结构",
                 difficulty="foundation",
                 created_by=user_id,
             )
@@ -73,9 +74,9 @@ def test_recommendations_are_new_profile_candidates_or_external_not_old_resource
         generated_types = {item.type for item in result.items if item.origin == "generated"}
         assert {"document", "question", "knowledge_graph", "video", "code", "image"} <= generated_types
         external = next(item for item in result.items if item.origin == "external")
-        assert external.url == "https://example.edu/tcp-congestion"
-        assert external.source == "verified-teaching-site"
-        assert external.source_domain == "example.edu"
+        assert external.url == "https://higher.smartedu.cn/course/622aca59bee70ef79f441af1"
+        assert external.source == "国家高等教育智慧教育平台"
+        assert external.source_domain == "higher.smartedu.cn"
         assert all(item.source == "智屿个性化生成" for item in result.items if item.origin == "generated")
         assert any("薄弱知识点" in signal for signal in result.profile_signals)
 
@@ -102,7 +103,7 @@ def test_recommendations_are_new_profile_candidates_or_external_not_old_resource
         saved = session.get(Resource, added.resource_id)
         assert saved is not None
         assert saved.type == "external"
-        assert saved.url == "https://example.edu/tcp-congestion"
+        assert saved.url == "https://higher.smartedu.cn/course/622aca59bee70ef79f441af1"
 
 
 def test_refresh_keeps_favorites_and_cools_down_explicitly_dismissed_pair(monkeypatch) -> None:
@@ -144,7 +145,7 @@ def test_refresh_keeps_favorites_and_cools_down_explicitly_dismissed_pair(monkey
         )
 
 
-def test_six_card_batch_keeps_two_relevant_external_catalog_resources() -> None:
+def test_six_card_batch_keeps_relevant_domestic_catalog_resources() -> None:
     engine = create_engine("sqlite:///:memory:")
     SQLModel.metadata.create_all(engine)
     user_id = uuid4()
@@ -155,10 +156,26 @@ def test_six_card_batch_keeps_two_relevant_external_catalog_resources() -> None:
                 user_id=user_id, origin="generated", title=f"事务隔离 {item_type}",
                 type=item_type, subject="数据库", knowledge_point="事务隔离",
             ))
-        for kind, suffix in (("book", "图书"), ("paper", "论文"), ("video", "讲座")):
+        for url, provider, title in (
+            (
+                "https://higher.smartedu.cn/course/66d78e1a711dc30c34a0e833",
+                "smartedu",
+                "数据库系统",
+            ),
+            (
+                "https://higher.smartedu.cn/course/687eb4e316c43a09c0e584a6",
+                "smartedu",
+                "数据库系统原理与开发",
+            ),
+            (
+                "https://www.icourse163.org/course/WHU-1474003161",
+                "icourse163",
+                "数据库原理（理论）（武汉大学）",
+            ),
+        ):
             external = ExternalResource(
-                title=f"事务隔离 {suffix}", source="Open Catalog", url=f"https://example.edu/{kind}",
-                type=kind, provider="test", provider_kind=kind, subject="数据库",
+                title=title, source="国内课程目录", url=url,
+                type="course", provider=provider, provider_kind="course", subject="数据库",
                 knowledge_point="事务隔离", discovered_at=None,
             )
             session.add(external)
@@ -176,7 +193,7 @@ def test_six_card_batch_keeps_two_relevant_external_catalog_resources() -> None:
         external_items = [item for item in items if item.origin == "external"]
         assert len(items) == 6
         assert len(external_items) >= 2
-        assert len({item.type for item in external_items}) >= 2
+        assert all(item.url and "example.edu" not in item.url for item in external_items)
 
 
 def test_external_catalog_alias_keeps_chinese_profile_reason_and_english_title() -> None:
@@ -355,15 +372,28 @@ def test_external_recommendation_resource_and_evidence_keep_course_scope() -> No
     )
     with Session(engine) as session:
         session.add(course)
+        external = ExternalResource(
+            title="数据库系统",
+            source="国家高等教育智慧教育平台",
+            url="https://higher.smartedu.cn/course/66d78e1a711dc30c34a0e833",
+            type="course",
+            provider="smartedu",
+            provider_kind="course",
+            subject="数据库",
+            knowledge_point="ACID",
+        )
+        session.add(external)
+        session.flush()
         item = PersonalizedResourceRecommendation(
             user_id=user_id,
             origin="external",
-            title="ACID 公开课",
-            type="video",
+            title=external.title,
+            type=external.type,
             subject="数据库",
             knowledge_point="ACID",
-            url="https://example.edu/acid",
-            source="example.edu",
+            url=external.url,
+            source=external.source,
+            external_resource_id=external.id,
         )
         session.add(item)
         session.commit()
@@ -545,7 +575,10 @@ def test_external_url_rejects_embedded_credentials() -> None:
     ) is None
     assert resource_recommendation_service._safe_external_url(
         "https://example.org/public"
-    ) == "https://example.org/public"
+    ) is None
+    assert resource_recommendation_service._safe_external_url(
+        "https://higher.smartedu.cn/course/622aca59bee70ef79f441af1"
+    ) == "https://higher.smartedu.cn/course/622aca59bee70ef79f441af1"
 
 
 def test_knowledge_graph_preview_returns_only_validated_graph_content(monkeypatch) -> None:
@@ -607,60 +640,26 @@ def test_knowledge_graph_preview_returns_only_validated_graph_content(monkeypatc
         assert resource_recommendation_service._preview_resource(invalid).content is None
 
 
-def test_catalog_discovery_maps_bounded_provenance_and_persists_library_metadata(monkeypatch) -> None:
+def test_catalog_discovery_maps_domestic_provenance_and_persists_library_metadata() -> None:
     engine = create_engine("sqlite:///:memory:")
     SQLModel.metadata.create_all(engine)
     discovery_module = importlib.import_module(
         "app.services.external_resource_discovery_service"
     )
-    calls: list[str] = []
-    archive_query = ""
-
-    class FakeClient:
-        def __init__(self, **_kwargs: object) -> None:
-            pass
-
-        def __enter__(self) -> "FakeClient":
-            return self
-
-        def __exit__(self, *_args: object) -> None:
-            return None
-
-        def get(self, url: str, **_kwargs: object) -> object:
-            nonlocal archive_query
-            calls.append(url)
-            if url == discovery_module.INTERNET_ARCHIVE_URL:
-                archive_query = str((_kwargs.get("params") or {}).get("q") or "")
-            payloads = {
-                discovery_module.OPEN_LIBRARY_URL: {"docs": [{"key": "/works/OL1W", "title": "事务处理入门", "author_name": ["Ada"], "first_publish_year": 2020, "language": ["zh"], "cover_i": 12}]},
-                discovery_module.OPENALEX_URL: {"results": [{"id": "https://openalex.org/W1", "title": "Transaction Processing Study", "authorships": [{"author": {"display_name": "Grace"}}], "publication_year": 2023, "language": "en", "open_access": {"is_oa": True, "oa_status": "gold"}, "primary_location": {"license": "cc-by", "landing_page_url": "https://doi.org/10.1/example", "source": {"display_name": "Open Journal"}}, "abstract_inverted_index": {"Transaction": [0], "processing": [1]}}]},
-                discovery_module.INTERNET_ARCHIVE_URL: {"response": {"docs": [{"identifier": "transaction-lecture", "title": "Transaction Processing Lecture", "creator": "University", "year": "2022", "language": "en", "licenseurl": "https://creativecommons.org/licenses/by/4.0/"}]}},
-            }
-            import httpx
-            return httpx.Response(200, json=payloads[url], request=httpx.Request("GET", url))
-
-    monkeypatch.setattr(discovery_module.httpx, "Client", FakeClient)
 
     with Session(engine) as session:
-        discovered = resource_recommendation_service._discover_external(session, topic="事务")
-        assert set(calls) == {
-            discovery_module.OPEN_LIBRARY_URL,
-            discovery_module.OPENALEX_URL,
-            discovery_module.INTERNET_ARCHIVE_URL,
-        }
-        assert "mediatype:(movies)" in archive_query
-        assert {(item.provider, item.type) for item in discovered} == {
-            ("open_library", "book"), ("openalex", "paper"), ("internet_archive", "video")
-        }
-        paper = next(item for item in discovered if item.provider == "openalex")
-        assert paper.license_status == "cc-by"
-        assert paper.source_metadata["open_access"] is True
+        discovered = resource_recommendation_service._discover_external(session, topic="事务隔离")
+        assert discovered
+        assert {item.provider for item in discovered} <= {"smartedu", "icourse163"}
+        assert all(item.source_metadata["entry_type"] == "resource" for item in discovered)
+        course = next(item for item in discovered if item.provider == "smartedu")
+        assert course.source_metadata["quality_tier"] == "national_platform"
 
         user_id = uuid4()
         recommendation = PersonalizedResourceRecommendation(
-            user_id=user_id, origin="external", title=paper.title, type=paper.type,
-            subject=paper.subject, knowledge_point=paper.knowledge_point, source=paper.source,
-            url=paper.url, external_resource_id=paper.id,
+            user_id=user_id, origin="external", title=course.title, type=course.type,
+            subject=course.subject, knowledge_point=course.knowledge_point, source=course.source,
+            url=course.url, external_resource_id=course.id,
         )
         session.add(recommendation)
         session.commit()
@@ -669,8 +668,8 @@ def test_catalog_discovery_maps_bounded_provenance_and_persists_library_metadata
         )
         saved = session.get(Resource, result.resource_id)
         assert saved is not None
-        assert saved.content["source_metadata"]["provider"] == "openalex"
-        assert saved.content["source_metadata"]["canonical_url"] == paper.url
+        assert saved.content["source_metadata"]["provider"] == course.provider
+        assert saved.content["source_metadata"]["canonical_url"] == course.url
 
 
 def test_catalog_discovery_tolerates_failure_and_invalid_payload(monkeypatch) -> None:
@@ -678,43 +677,39 @@ def test_catalog_discovery_tolerates_failure_and_invalid_payload(monkeypatch) ->
         "app.services.external_resource_discovery_service"
     )
 
-    class FakeClient:
-        def __init__(self, **_kwargs: object) -> None:
-            pass
+    original = discovery_module.external_resource_discovery_service._provider_search_entry
 
-        def __enter__(self) -> "FakeClient":
-            return self
+    def failing_entry(provider: object, query: str) -> object:
+        if getattr(provider, "key", "") == "xuetangx":
+            raise RuntimeError("provider unavailable")
+        return original(provider, query)
 
-        def __exit__(self, *_args: object) -> None:
-            return None
-
-        def get(self, url: str, **_kwargs: object) -> object:
-            import httpx
-            if url == discovery_module.OPEN_LIBRARY_URL:
-                raise httpx.ConnectError("offline", request=httpx.Request("GET", url))
-            if url == discovery_module.OPENALEX_URL:
-                return httpx.Response(200, json={"results": "invalid"}, request=httpx.Request("GET", url))
-            return httpx.Response(200, json={"response": {"docs": [{"identifier": "", "title": "<b>bad</b>"}]}}, request=httpx.Request("GET", url))
-
-    monkeypatch.setattr(discovery_module.httpx, "Client", FakeClient)
-    assert discovery_module.external_resource_discovery_service.discover(topic="事务") == []
+    monkeypatch.setattr(
+        discovery_module.external_resource_discovery_service,
+        "_provider_search_entry",
+        failing_entry,
+    )
+    discovered = discovery_module.external_resource_discovery_service.discover(topic="机器学习")
+    assert {item.provider for item in discovered} == {"smartedu", "icourse163", "bilibili"}
+    assert all((item.metadata or {})["entry_type"] == "search_entry" for item in discovered)
 
 
-def test_database_topic_alias_is_transparent_and_allows_english_catalog_title() -> None:
+def test_domestic_topic_query_keeps_chinese_and_ranks_chinese_catalog_title() -> None:
     discovery_module = importlib.import_module(
         "app.services.external_resource_discovery_service"
     )
-    assert discovery_module.catalog_query_for_topic("事务隔离") == "database transaction isolation"
+    assert discovery_module.catalog_query_for_topic("事务隔离") == "事务隔离"
 
     ranked = rank_candidates(
         [Candidate(
-            title="Database Transaction Isolation Levels", subject="Computer Science",
-            source="OpenAlex", knowledge_point="事务隔离", modality="paper",
+            title="数据库系统：事务隔离级别", subject="数据库",
+            source="国家高等教育智慧教育平台", knowledge_point="事务隔离", modality="course",
             difficulty="standard", origin="external",
+            url="https://higher.smartedu.cn/course/66d78e1a711dc30c34a0e833",
+            provider="smartedu", language="zh",
         )],
         RecommendationContext(
             weak_points=["事务隔离"],
-            external_topic_aliases={"事务隔离": "database transaction isolation"},
         ),
     )
     assert ranked[0].external_relevant is True

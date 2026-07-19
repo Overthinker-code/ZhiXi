@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.ai.chat_tools import get_llm, message_text
 from app.ai.chat_engine import (
@@ -35,7 +35,7 @@ from app.api import deps
 from app.api.deps import CurrentUser
 from app.core.config import settings
 from app.core.upload_security import read_upload_limited, validate_upload
-from app.models import Course
+from app.models import Course, Resource
 from app.providers.chat_provider import chat_provider
 from app.providers.chat_thread_provider import chat_thread_provider
 from app.schemas.chat_thread import ChatThreadCreate
@@ -75,6 +75,12 @@ from app.services.resource_package_service import (
 from app.services.chat_artifact_service import hydrate_chat_artifacts
 from app.services.bailian_service import BailianImageRequest, bailian_service
 from app.services.teaching_artifact_service import teaching_artifact_service
+from app.services.media_generation_service import (
+    GeneratedMedia,
+    MediaGenerationError,
+    is_seedance_credit_error,
+    media_generation_service,
+)
 from app.services.vision_client import build_chat_image_context
 
 router = APIRouter()
@@ -91,6 +97,48 @@ ATTACHMENT_DIR = Path(settings.BASE_PATH) / "uploads" / "chat_attachments"
 ATTACHMENT_INDEX = ATTACHMENT_DIR / "index.json"
 GENERATED_IMAGE_DIR = Path(settings.BASE_PATH) / "uploads" / "generated_images"
 GENERATED_ARTIFACT_DIR = Path(settings.BASE_PATH) / "uploads" / "generated_artifacts"
+
+
+def _persist_chat_media(
+    db: Session,
+    *,
+    owner_id: UUID,
+    source_path: Path,
+    content_type: str,
+    provider: str,
+    title: str,
+    kind: str,
+    topic: str,
+    course_id: UUID | None,
+    revised_prompt: str | None = None,
+) -> dict[str, Any]:
+    """Move a generated local file into the authenticated resource library."""
+    course = db.get(Course, course_id) if course_id else None
+    persisted = media_generation_service.persist_resource(
+        db,
+        owner_id=owner_id,
+        media=GeneratedMedia(
+            path=source_path,
+            content_type=content_type,
+            provider=provider,
+            revised_prompt=revised_prompt,
+        ),
+        title=title,
+        kind=kind,
+        subject=course.name if course else "AI生成",
+        knowledge_point=topic,
+        course_id=getattr(course, "id", course_id) if course else None,
+    )
+    return {
+        "resource_id": str(persisted.resource.id),
+        "preview_url": persisted.preview_url,
+        "download_url": persisted.download_url,
+        "image_url": persisted.preview_url if kind == "image" else None,
+        "provider": provider,
+        "file_name": persisted.resource.file_name,
+        "file_size": persisted.resource.file_size,
+        "revised_prompt": revised_prompt or "",
+    }
 
 COURSES = [
     {
@@ -623,6 +671,8 @@ def _is_scientific_chart_intent(message: str) -> bool:
 
 
 def _seedance_video_topic(message: str) -> str:
+    if _is_stack_visual_topic(message):
+        return "栈的后进先出与入栈出栈"
     text = re.sub(r"\s+", " ", message or "").strip()
     text = re.sub(r"^(?:请|请你|帮我|麻烦你|给我|我想要|我要)?", "", text)
     text = re.sub(r"^(?:生成|创建|制作|做)(?:一个|一段|一条|一下)?", "", text)
@@ -630,14 +680,25 @@ def _seedance_video_topic(message: str) -> str:
     return text.strip(" ，。！？：:的") or "当前学习主题"
 
 
+def _is_stack_visual_topic(message: str) -> bool:
+    text = re.sub(r"\s+", "", message or "").lower()
+    return any(token in text for token in ("栈", "lifo", "入栈", "出栈", "push", "pop"))
+
+
 def _seedance_video_prompt(message: str) -> tuple[str, str]:
     topic = _seedance_video_topic(message)
+    if _is_stack_visual_topic(message):
+        return topic, (
+            "Wide 16:9 landscape, fixed-camera educational animation of a stack data structure. "
+            "Show exactly three unlabelled clean colored square blocks: orange at the bottom, blue in the middle, green at the top. "
+            "Demonstrate the green top block entering from above and then leaving upward with clear directional arrows. "
+            "Use a plain light background, stable framing, and reserve a clean lower subtitle-safe area. "
+            "No text, no letters, no numbers, no symbols, no captions, no watermark, no logos, no extra blocks."
+        )
     prompt = (
-        f"生成一段适合课堂学习的中文讲解视频，主题：{topic}。"
-        "画面风格为清晰教育信息图、简洁动画和白板讲解；"
-        "先用标题点明主题，再分步骤展示核心概念、过程变化和关键结论；"
-        "全程使用中文关键字幕，节奏适合初学者理解；"
-        "不要出现品牌水印，不要堆叠复杂公式。"
+        f"Generate a clear 16:9 educational animation about: {topic}. "
+        "Use simple information-graphics and a stable camera to show the core concept and process. "
+        "Leave a clean subtitle-safe lower area for frontend overlays; do not generate Chinese small text, captions, logos, or watermarks."
     )
     return topic, prompt
 
@@ -702,6 +763,8 @@ def _is_image_generation_intent(message: str) -> bool:
 
 
 def _image_generation_topic(message: str) -> str:
+    if _is_stack_visual_topic(message):
+        return "栈的后进先出与入栈出栈"
     text = re.sub(r"\s+", " ", message or "").strip()
     text = re.sub(r"^#{1,6}\s*\d*[.、]?\s*", "", text)
     text = re.sub(r"^(?:请|请你|帮我|麻烦你|给我|我想要|我要)?", "", text)
@@ -900,6 +963,14 @@ def _structured_diagram_mermaid(message: str) -> tuple[str, str]:
 
 def _image_generation_prompt(message: str) -> tuple[str, str]:
     topic = _image_generation_topic(message)
+    if _is_stack_visual_topic(message):
+        return topic, (
+            "Wide 16:9 teaching illustration of a stack data structure on a plain light background. "
+            "Show exactly three unlabelled large square blocks in one vertical stack: orange at the bottom, blue in the middle, green at the top. "
+            "Show one green downward arrow above the top block and one orange upward arrow beside the top block. "
+            "Leave the top-left corner and lower subtitle-safe area completely blank. "
+            "No text, no letters, no numbers, no symbols, no title, no caption, no footer, no watermark, no logo, no extra blocks."
+        )
     if _is_diagram_image_request(message):
         prompt = (
             f"生成一张白底软件工程图表，不要画插画、不要画人物、不要画办公室场景。主题：{topic}。"
@@ -912,10 +983,9 @@ def _image_generation_prompt(message: str) -> tuple[str, str]:
         )
         return topic, prompt
     prompt = (
-        f"生成一张适合教学课件使用的中文学习插图，主题：{topic}。"
-        "画面清晰、结构简洁、信息图风格、适合学生理解；"
-        "包含少量中文关键词标签，避免密集小字；"
-        "不要出现品牌水印，不要出现错误公式。"
+        f"Generate a clean 16:9 teaching illustration about: {topic}. "
+        "Use a simple information-graphic composition with stable visual hierarchy and a clean lower subtitle-safe area. "
+        "Do not generate Chinese small text, captions, logos, watermarks, or unverified formulas; explanatory text is added by the frontend."
     )
     return topic, prompt
 
@@ -1832,29 +1902,45 @@ def get_ai_attachment(*, file_id: str, current_user: CurrentUser) -> Any:
 
 
 @router.get("/generated-images/{file_name}")
-def get_generated_image(file_name: str) -> FileResponse:
+def get_generated_image(
+    file_name: str,
+    current_user: CurrentUser,
+    db: Session = Depends(deps.get_db),
+) -> FileResponse:
     safe_name = Path(file_name).name
     if safe_name != file_name:
         raise HTTPException(status_code=404, detail="Image not found")
-    path = GENERATED_IMAGE_DIR / safe_name
-    if not path.exists() or not path.is_file():
+    query = select(Resource).where(Resource.file_name == safe_name)
+    if not current_user.is_superuser:
+        query = query.where(Resource.uploader_id == current_user.id)
+    resource = db.exec(query).first()
+    if not resource:
         raise HTTPException(status_code=404, detail="Image not found")
-    return FileResponse(path)
+    path = Path(settings.UPLOAD_DIR) / "resources" / safe_name
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Image not found")
+    return FileResponse(path, media_type=resource.content_type, filename=safe_name)
 
 
 @router.get("/generated-artifacts/{file_name}")
-def get_generated_artifact(file_name: str, current_user: CurrentUser) -> FileResponse:
-    _ = current_user
+def get_generated_artifact(
+    file_name: str,
+    current_user: CurrentUser,
+    db: Session = Depends(deps.get_db),
+) -> FileResponse:
     safe_name = Path(file_name).name
     if safe_name != file_name:
         raise HTTPException(status_code=404, detail="Artifact not found")
-    path = GENERATED_ARTIFACT_DIR / safe_name
-    if not path.exists() or not path.is_file():
+    query = select(Resource).where(Resource.file_name == safe_name)
+    if not current_user.is_superuser:
+        query = query.where(Resource.uploader_id == current_user.id)
+    resource = db.exec(query).first()
+    if not resource:
         raise HTTPException(status_code=404, detail="Artifact not found")
-    allowed_suffixes = {".pptx", ".png", ".mp4"}
-    if path.suffix.lower() not in allowed_suffixes:
+    path = Path(settings.UPLOAD_DIR) / "resources" / safe_name
+    if not path.is_file():
         raise HTTPException(status_code=404, detail="Artifact not found")
-    return FileResponse(path, filename=safe_name)
+    return FileResponse(path, media_type=resource.content_type, filename=safe_name)
 
 
 @router.get("/context/courses")
@@ -1981,6 +2067,12 @@ def ai_chat_stream(
         )
 
     user_id = str(current_user.id) if current_user else None
+    try:
+        course_uuid = UUID(request.course_context.course_id) if request.course_context.course_id else None
+    except (TypeError, ValueError):
+        # Course context is advisory user input. An invalid identifier must not
+        # turn an otherwise valid chat request into an internal server error.
+        course_uuid = None
     if request.attachments and not request.session_id:
         raise HTTPException(status_code=422, detail="Chat session is required for attachments")
     session_id, created = _ensure_session(db, user_id, request.session_id)
@@ -2361,6 +2453,19 @@ def ai_chat_stream(
                     return
                 try:
                     artifact = teaching_artifact_service.generate_ppt(topic, request.message or "")
+                    artifact.update(
+                        _persist_chat_media(
+                            db,
+                            owner_id=current_user.id,
+                            source_path=GENERATED_ARTIFACT_DIR / str(artifact["file_name"]),
+                            content_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                            provider="qwen_pptx",
+                            title=str(artifact["title"]),
+                            kind="ppt",
+                            topic=topic,
+                            course_id=course_uuid,
+                        )
+                    )
                     package = {"package_id": f"ppt-{run_id}", "title": artifact["title"], "artifacts": [artifact]}
                     suggestions = ["下载 PPT 课件", "生成配套练习题", "生成课件讲稿"]
                     final_text = f"已使用千问生成并排版《{artifact['title']}》，共 {artifact.get('slide_count', 0)} 页，可从资源卡下载 PPTX 文件。"
@@ -2394,6 +2499,19 @@ def ai_chat_stream(
                     return
                 try:
                     artifact = teaching_artifact_service.generate_scientific_chart(topic, request.message or "")
+                    artifact.update(
+                        _persist_chat_media(
+                            db,
+                            owner_id=current_user.id,
+                            source_path=GENERATED_IMAGE_DIR / str(artifact["file_name"]),
+                            content_type="image/png",
+                            provider="matplotlib",
+                            title=str(artifact["title"]),
+                            kind="image",
+                            topic=topic,
+                            course_id=course_uuid,
+                        )
+                    )
                     package = {"package_id": f"chart-{run_id}", "title": artifact["title"], "artifacts": [artifact]}
                     suggestions = ["下载高清图表", "解释图表中的规律", "把图表加入PPT"]
                     final_text = f"已使用千问生成经过数值校验的图表规格，并由 Matplotlib 绘制《{artifact['title']}》。"
@@ -2511,7 +2629,8 @@ def ai_chat_stream(
 
             if _is_image_generation_intent(request.message or ""):
                 topic, image_prompt = _image_generation_prompt(request.message or "")
-                yield update_task("executor", "running", 15, "正在调用通义万相生成图片")
+                image_provider = "SiliconFlow" if media_generation_service.image_configured() else "通义万相（回退）"
+                yield update_task("executor", "running", 15, f"正在调用{image_provider}生成图片")
                 yield _phase_started(
                     "compose",
                     "生成教学图片",
@@ -2519,7 +2638,7 @@ def ai_chat_stream(
                 )
                 yield _phase_delta("compose", f"图片主题：{topic}")
                 yield _sse("artifact_started", {"label": "正在生成教学图片"})
-                if not bailian_service.configured():
+                if not media_generation_service.image_configured() and not bailian_service.configured():
                     yield task_event(
                         agent_task_service.fail_run(
                             db, run_id=run_id, message="图片生成 API Key 未配置"
@@ -2535,21 +2654,41 @@ def ai_chat_stream(
                         "error",
                         {
                             "code": "IMAGE_GENERATION_NOT_CONFIGURED",
-                            "message": "阿里云百炼 API Key 未配置。请在 code/.env 填写 DASHSCOPE_API_KEY，保存后重启后端。",
+                            "message": "图片生成服务未配置。请设置 IMAGE_GENERATION_API_KEY，或配置 DASHSCOPE_API_KEY 使用 Wanx 回退。",
                             "retryAction": "retry",
                         },
                     )
                     return
                 try:
-                    images = bailian_service.generate_and_store(
-                        BailianImageRequest(prompt=image_prompt)
+                    if media_generation_service.image_configured():
+                        media = media_generation_service.generate_image(image_prompt)
+                        provider = media.provider
+                    else:
+                        images = bailian_service.generate_and_store(BailianImageRequest(prompt=image_prompt))
+                        if not images or not images[0].file_name:
+                            raise RuntimeError("Wanx 未返回可保存图片")
+                        primary = images[0]
+                        media = GeneratedMedia(
+                            path=GENERATED_IMAGE_DIR / primary.file_name,
+                            content_type=mimetypes.guess_type(primary.file_name)[0] or "image/png",
+                            provider="wanx_fallback",
+                            revised_prompt=primary.revised_prompt,
+                        )
+                        provider = media.provider
+                    stored = _persist_chat_media(
+                        db,
+                        owner_id=current_user.id,
+                        source_path=media.path,
+                        content_type=media.content_type,
+                        provider=provider,
+                        title=f"{topic}教学图片",
+                        kind="image",
+                        topic=topic,
+                        course_id=course_uuid,
+                        revised_prompt=media.revised_prompt,
                     )
-                    if not images:
-                        raise RuntimeError("图片生成接口未返回可用图片")
-                    primary = images[0]
-                    image_url = primary.local_url or primary.url
-                    package_id = f"image-{primary.file_name or run_id}"
-                    image_markdown = f"![{topic}教学图片]({image_url})"
+                    package_id = f"image-{stored['resource_id']}"
+                    image_markdown = f"![{topic}教学图片]({stored['preview_url']})"
                     package = {
                         "package_id": package_id,
                         "title": f"{topic}教学图片",
@@ -2561,11 +2700,8 @@ def ai_chat_stream(
                                     f"{image_markdown}\n\n"
                                     f"生成提示词：{image_prompt}"
                                 ),
-                                "image_url": image_url,
-                                "download_url": image_url if primary.local_url else "",
-                                "file_name": primary.file_name or "",
-                                "provider_url": primary.url,
-                                "revised_prompt": primary.revised_prompt or "",
+                                **stored,
+                                "provider": provider,
                             }
                         ],
                     }
@@ -2579,7 +2715,8 @@ def ai_chat_stream(
                         "你可以打开下方资源卡预览；如果要参赛展示，建议再让我把它整理进 PPT。"
                     )
                     metrics = {
-                        "route_trace": ["orchestrator", "qwen_prompt_agent", "wanx_image"],
+                        "route_trace": ["orchestrator", "qwen_prompt_agent", provider],
+                        "provider": provider,
                         "resourcePackage": package,
                         "suggestions": suggestions,
                     }
@@ -2600,7 +2737,7 @@ def ai_chat_stream(
                             user_input=request.message or "生成图片",
                             response=final_text,
                             system_prompt=_system_prompt(request),
-                            agent="wanx_image",
+                            agent=provider,
                             intent="generate_image",
                             routing_reason="orchestrator intent=generate_image",
                             citations=[],
@@ -2620,6 +2757,11 @@ def ai_chat_stream(
                     }
                     yield _sse("run_finished", done_payload)
                     yield _sse("done", done_payload)
+                except MediaGenerationError as exc:
+                    logger.warning("image generation failed run_id=%s code=%s", run_id, exc.code)
+                    yield task_event(agent_task_service.fail_run(db, run_id=run_id, message=exc.message))
+                    yield _phase_finished("compose", "生成教学图片", "图片生成失败", status="error")
+                    yield _sse("error", {"code": exc.code, "message": exc.message, "retryAction": "retry"})
                 except Exception as exc:
                     logger.warning("image generation failed run_id=%s reason=%s", run_id, exc)
                     yield task_event(
@@ -2644,15 +2786,130 @@ def ai_chat_stream(
                 return
 
             if _is_seedance_video_intent(request.message or ""):
-                topic, _ = _seedance_video_prompt(request.message or "")
-                yield update_task("executor", "running", 15, "千问正在设计 Manim 教学分镜")
+                topic, video_prompt = _seedance_video_prompt(request.message or "")
+
+                def finish_video(media: GeneratedMedia, *, statuses: list[str], fallback_reason: str | None = None):
+                    provider = media.provider
+                    stored = _persist_chat_media(
+                        db,
+                        owner_id=current_user.id,
+                        source_path=media.path,
+                        content_type=media.content_type,
+                        provider=provider,
+                        title=f"{topic}教学视频",
+                        kind="video",
+                        topic=topic,
+                        course_id=course_uuid,
+                    )
+                    is_fallback = provider == "deterministic_stack_fallback"
+                    artifact = {
+                        "kind": "video",
+                        "title": f"{topic}教学视频",
+                        "preview": (
+                            "云端视频服务暂不可用，已自动切换本地动画引擎并生成 5 秒栈动画。"
+                            if is_fallback
+                            else "Seedance 已完成视频生成并已安全入库。"
+                        ),
+                        **stored,
+                        "provider": provider,
+                        "fallback_reason": fallback_reason,
+                    }
+                    package = {"package_id": f"{provider}-{stored['resource_id']}", "title": artifact["title"], "artifacts": [artifact]}
+                    suggestions = ["下载教学视频", "生成配套讲义", "生成视频讲解提纲"]
+                    final_text = (
+                        f"云端视频服务当前暂不可用；已自动切换本地动画引擎，"
+                        f"生成「{topic}」的 5 秒栈动画并保存到课程资料库。"
+                        if is_fallback
+                        else f"已使用 Seedance 生成「{topic}」教学视频，并已保存到你的课程资料库。"
+                    )
+                    metrics = {
+                        "route_trace": ["orchestrator", provider],
+                        "provider": provider,
+                        "provider_statuses": statuses,
+                        "fallback_reason": fallback_reason,
+                        "resourcePackage": package,
+                        "suggestions": suggestions,
+                    }
+                    completion_label = "本地确定性栈动画已生成并入库" if is_fallback else "Seedance 视频已生成并入库"
+                    yield _phase_finished("compose", "生成教学视频", completion_label)
+                    yield _sse("artifact_finished", package)
+                    yield _sse("answer_delta", {"text": final_text})
+                    yield _sse("suggestions", {"items": suggestions})
+                    yield update_task("executor", "completed", 100, "教学视频已生成")
+                    yield task_event(agent_task_service.complete_run(db, run_id=run_id, message=completion_label))
+                    if user_id:
+                        chat_provider.save_stream_turn(db, thread_id=session_id, user_input=request.message or "生成讲解视频", response=final_text, system_prompt=_system_prompt(request), agent=provider, intent="generate_video", routing_reason=f"orchestrator intent={provider}", citations=[], confidence="high", grounding_mode="tool", suggestions=suggestions, metrics=metrics)
+                        schedule_memory_profile_refresh(user_id)
+                    done_payload = {"runId": run_id, "sessionId": session_id, "messageId": uuid4().hex, "summary": completion_label, "usage": metrics, "suggestions": suggestions}
+                    yield _sse("run_finished", done_payload)
+                    yield _sse("done", done_payload)
+
+                if media_generation_service.seedance_configured():
+                    yield update_task("executor", "running", 15, "正在提交 Seedance 视频生成任务")
+                    yield _phase_started(
+                        "compose",
+                        "生成教学视频",
+                        "Seedance 正在生成文生视频并安全下载 MP4；当前同步轮询不会伪造中间 SSE 进度。",
+                    )
+                    yield _phase_delta("compose", f"视频主题：{topic}")
+                    yield _sse("artifact_started", {"label": "正在使用 Seedance 生成教学视频"})
+                    try:
+                        seedance_statuses: list[str] = []
+
+                        def record_seedance_status(status: str) -> None:
+                            # The provider request is synchronous in this SSE
+                            # handler. Keep genuine provider state for audit,
+                            # but do not emit delayed events as if they were
+                            # live progress. A future worker/queue boundary can
+                            # consume this callback without changing the API.
+                            seedance_statuses.append(status)
+                            logger.info("Seedance status run_id=%s status=%s", run_id, status)
+
+                        media = media_generation_service.generate_video(
+                            video_prompt,
+                            status_callback=record_seedance_status,
+                        )
+                        yield from finish_video(media, statuses=seedance_statuses)
+                    except MediaGenerationError as exc:
+                        if _is_stack_visual_topic(request.message or "") and is_seedance_credit_error(exc):
+                            yield _phase_delta("compose", "云端视频服务额度不足，正在切换本地动画引擎")
+                            try:
+                                media = media_generation_service.generate_deterministic_stack_fallback()
+                                yield from finish_video(media, statuses=[*seedance_statuses, "credit_fallback"], fallback_reason="Seedance insufficient_credits")
+                            except MediaGenerationError as fallback_exc:
+                                logger.warning("deterministic stack fallback failed run_id=%s code=%s", run_id, fallback_exc.code)
+                                yield task_event(agent_task_service.fail_run(db, run_id=run_id, message=fallback_exc.message))
+                                yield _phase_finished("compose", "生成教学视频", "本地栈动画生成失败", status="error")
+                                yield _sse("error", {"code": fallback_exc.code, "message": fallback_exc.message, "retryAction": "retry"})
+                        else:
+                            logger.warning("Seedance failed run_id=%s code=%s", run_id, exc.code)
+                            yield task_event(agent_task_service.fail_run(db, run_id=run_id, message=exc.message))
+                            yield _phase_finished("compose", "生成教学视频", "Seedance 视频生成失败", status="error")
+                            yield _sse("error", {"code": exc.code, "message": exc.message, "retryAction": "retry"})
+                    return
+
+                if _is_stack_visual_topic(request.message or ""):
+                    yield update_task("executor", "running", 15, "云端视频服务未配置，正在切换本地动画引擎")
+                    yield _phase_started("compose", "生成教学视频", "正在使用本地动画引擎生成 5 秒栈动画")
+                    yield _phase_delta("compose", f"视频主题：{topic}")
+                    yield _sse("artifact_started", {"label": "正在生成本地 5 秒栈动画"})
+                    try:
+                        media = media_generation_service.generate_deterministic_stack_fallback()
+                        yield from finish_video(media, statuses=["seedance_not_configured", "local_fallback"], fallback_reason="Seedance not configured")
+                    except MediaGenerationError as exc:
+                        yield task_event(agent_task_service.fail_run(db, run_id=run_id, message=exc.message))
+                        yield _phase_finished("compose", "生成教学视频", "本地栈动画生成失败", status="error")
+                        yield _sse("error", {"code": exc.code, "message": exc.message, "retryAction": "retry"})
+                    return
+
+                yield update_task("executor", "running", 15, "Seedance 未配置，正在使用 Manim 本地回退")
                 yield _phase_started(
                     "compose",
                     "生成教学动画",
-                    "Qwen 生成结构化教学分镜，Manim 负责本地渲染",
+                    "Seedance 未配置；Qwen 生成结构化教学分镜，Manim 负责本地回退渲染",
                 )
                 yield _phase_delta("compose", f"视频主题：{topic}")
-                yield _sse("artifact_started", {"label": "正在渲染 Manim 教学动画"})
+                yield _sse("artifact_started", {"label": "Seedance 未配置，正在渲染 Manim 教学动画（回退）"})
                 if not teaching_artifact_service.configured():
                     yield task_event(
                         agent_task_service.fail_run(
@@ -2678,6 +2935,19 @@ def ai_chat_stream(
                     artifact = teaching_artifact_service.generate_manim_video(
                         topic, request.message or ""
                     )
+                    artifact.update(
+                        _persist_chat_media(
+                            db,
+                            owner_id=current_user.id,
+                            source_path=GENERATED_ARTIFACT_DIR / str(artifact["file_name"]),
+                            content_type="video/mp4",
+                            provider="manim_fallback",
+                            title=str(artifact["title"]),
+                            kind="video",
+                            topic=topic,
+                            course_id=course_uuid,
+                        )
+                    )
                     package_id = f"manim-{run_id}"
                     package = {
                         "package_id": package_id,
@@ -2689,9 +2959,10 @@ def ai_chat_stream(
                         "再生成一版更短的视频",
                         f"生成{topic}配套讲义",
                     ]
-                    final_text = f"已使用千问生成「{topic}」教学分镜，并由 Manim 渲染为可下载的 MP4 动画。"
+                    final_text = f"Seedance 未配置；已使用千问生成「{topic}」教学分镜，并由 Manim 本地回退渲染为可下载的 MP4 动画。"
                     metrics = {
                         "route_trace": ["orchestrator", "qwen_storyboard_agent", "manim_renderer"],
+                        "provider": "manim_fallback",
                         "resourcePackage": package,
                         "suggestions": suggestions,
                     }

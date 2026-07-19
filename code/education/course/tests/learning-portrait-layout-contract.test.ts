@@ -12,7 +12,8 @@ const portraitPage = fs.readFileSync(
 
 const requiredLayoutRegions = [
   'class="metric-strip',
-  'class="portrait-card growth-card"',
+  '<DigitalTwinPanel',
+  'class="digital-twin-card"',
   'class="portrait-card capability-card"',
   'class="portrait-card rhythm-card"',
   'class="portrait-card preference-card"',
@@ -32,8 +33,7 @@ for (const region of requiredLayoutRegions) {
 }
 
 for (const heading of [
-  '我的学习画像',
-  '能力成长趋势',
+  'AI 学习数字分身',
   '核心能力画像',
   '学习节律',
   '下一步建议',
@@ -41,6 +41,12 @@ for (const heading of [
 ]) {
   assert.match(portraitPage, new RegExp(heading), `学习画像页面缺少“${heading}”`);
 }
+
+assert.doesNotMatch(
+  portraitPage,
+  /class="portrait-card growth-card"|我的学习画像|能力成长趋势/,
+  '数字分身已替代旧成长卡片，布局契约不应要求旧区域或文案'
+);
 assert.match(
   portraitPage,
   /resourceSectionTitle/,

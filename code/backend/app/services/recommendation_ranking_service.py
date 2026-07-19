@@ -11,6 +11,7 @@ import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Iterable
+from app.services.external_resource_discovery_service import provider_for_url
 
 
 BM25_K1 = 1.2
@@ -129,6 +130,12 @@ class Candidate:
     # This is set only for records returned by a fixed, reviewed catalog.  It
     # contains the server-selected catalog query, never arbitrary user content.
     trusted_catalog_context: str = ""
+    # Provenance fields are optional to retain deterministic ranking for
+    # first-party/generated candidates and older call sites.
+    url: str = ""
+    provider: str = ""
+    language: str = ""
+    entry_type: str = "resource"
 
     @property
     def external_document(self) -> str:
@@ -251,11 +258,47 @@ def rank_candidates(candidates: list[Candidate], context: RecommendationContext)
             score += 0.035
         if context.difficulty and candidate.difficulty == context.difficulty:
             score += 0.04
+        if candidate.origin == "external":
+            provider = provider_for_url(candidate.url) if candidate.url else None
+            # A non-empty URL is evidence-bearing provenance and must obey the
+            # domestic HTTPS policy.  URL-less Candidate values are retained
+            # for pure ranking unit tests; service-layer publication applies
+            # the same policy unconditionally to real database rows.
+            domestic_url_ok = not candidate.url or provider is not None
+            if provider:
+                authority_bonus = {
+                    "national_platform": 0.14,
+                    "national_mooc": 0.11,
+                    "university_mooc": 0.10,
+                    "video_platform": 0.06,
+                }.get(provider.quality_tier, 0.0)
+                if authority_bonus:
+                    score += authority_bonus
+                    evidence.append((authority_bonus, f"权威来源：{provider.name}"))
+            language = normalize_text(candidate.language)
+            chinese_title = any("\u4e00" <= char <= "\u9fff" for char in candidate.title)
+            if language.startswith("zh") or chinese_title:
+                score += 0.07
+                evidence.append((0.07, "中文学习资源"))
+            if candidate.entry_type == "search_entry":
+                # Search entries are useful, auditable fallbacks but cannot be
+                # presented as already verified concrete teaching materials.
+                score -= 0.16
+                evidence.append((-0.16, "平台搜索入口，需在站内确认具体资源"))
+        else:
+            domestic_url_ok = True
+        title_matches_topic = _title_matches_concrete_topic(
+            f"{candidate.title} {candidate.trusted_catalog_context}", context
+        )
+        # In a mixed batch BM25 is relative to all candidate texts, so a
+        # concrete exact title can otherwise lose its relevance flag merely
+        # because several first-party items repeat the same topic.  A visible
+        # concrete-title match is independently sufficient; service-layer URL
+        # and provider gates still apply to every persisted external record.
         external_relevant = candidate.origin != "external" or (
-            lexical_score >= EXTERNAL_RELEVANCE_FLOOR
-            and _title_matches_concrete_topic(
-                f"{candidate.title} {candidate.trusted_catalog_context}", context
-            )
+            (lexical_score >= EXTERNAL_RELEVANCE_FLOOR or title_matches_topic)
+            and title_matches_topic
+            and domestic_url_ok
         )
         if candidate.origin == "external" and not external_relevant:
             score = 0.0

@@ -26,7 +26,10 @@
 
   const selected = ref<ArtifactGroup | null>(null);
   const previewPanel = ref<HTMLElement | null>(null);
+  const previewObjectUrl = ref('');
+  const previewLoadError = ref('');
   let previouslyFocused: HTMLElement | null = null;
+  let previewRequestId = 0;
 
   const labelMap: Record<string, string> = {
     lecture_markdown: '讲义',
@@ -111,6 +114,24 @@
     const item = selectedArtifact.value;
     return item ? labelMap[item.kind] || item.kind || '资源' : '';
   });
+  const selectedPreviewUrl = computed(() => {
+    const item = selectedArtifact.value;
+    return String(item?.preview_url || item?.image_url || item?.download_url || '').trim();
+  });
+  const selectedFileName = computed(() => String(selectedArtifact.value?.file_name || '').toLowerCase());
+  const selectedIsImage = computed(() =>
+    String(selectedArtifact.value?.kind || '') === 'image' || /\.(png|jpe?g|webp|gif)$/i.test(selectedFileName.value)
+  );
+  const selectedIsVideo = computed(() =>
+    String(selectedArtifact.value?.kind || '') === 'video' || /\.(mp4|webm)$/i.test(selectedFileName.value)
+  );
+  const selectedPreviewDescriptor = computed(() => {
+    if (selectedGraph.value) return '交互式图谱';
+    if (selectedMermaidCode.value) return '结构图预览';
+    if (selectedIsImage.value) return '图片预览';
+    if (selectedIsVideo.value) return '视频预览';
+    return '内容摘要预览';
+  });
 
   function displayTitle(item: Record<string, any>) {
     return markdownToPlainText(item.title || item.file_name || '生成资源');
@@ -137,6 +158,36 @@
 
   function closePreview() {
     selected.value = null;
+  }
+
+  function revokePreviewObjectUrl() {
+    previewRequestId += 1;
+    if (previewObjectUrl.value) URL.revokeObjectURL(previewObjectUrl.value);
+    previewObjectUrl.value = '';
+  }
+
+  async function loadPreviewBlob(url: string) {
+    revokePreviewObjectUrl();
+    previewLoadError.value = '';
+    if (!url) return;
+    const requestId = previewRequestId;
+    try {
+      const token = getToken();
+      const trustedUrl = resolveTrustedApiAssetUrl(
+        url,
+        window.location.origin,
+        axios.defaults.baseURL || import.meta.env.VITE_API_BASE_URL
+      );
+      const response = await axios.get(trustedUrl, {
+        responseType: 'blob',
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      if (requestId !== previewRequestId) return;
+      previewObjectUrl.value = URL.createObjectURL(response.data);
+    } catch {
+      if (requestId !== previewRequestId) return;
+      previewLoadError.value = '资源预览加载失败，请尝试下载文件。';
+    }
   }
 
   function previewFocusableElements() {
@@ -200,6 +251,7 @@
 
   watch(selected, async (group) => {
     if (group) {
+      await loadPreviewBlob(selectedPreviewUrl.value);
       await nextTick();
       const firstFocusable = previewFocusableElements()[0];
       if (firstFocusable) {
@@ -209,6 +261,8 @@
       }
       return;
     }
+    revokePreviewObjectUrl();
+    previewLoadError.value = '';
     const focusTarget = previouslyFocused;
     previouslyFocused = null;
     await nextTick();
@@ -216,6 +270,7 @@
   });
 
   onBeforeUnmount(() => {
+    revokePreviewObjectUrl();
     previouslyFocused?.focus();
   });
 </script>
@@ -263,7 +318,7 @@
               <h2 id="artifact-preview-title">
                 {{ displayTitle(selectedArtifact || {}) }}
               </h2>
-              <small>内容摘要预览</small>
+              <small>{{ selectedPreviewDescriptor }}</small>
             </header>
             <KnowledgeGraphViewer
               v-if="selectedGraph"
@@ -277,19 +332,32 @@
                 v-html="renderMarkdown(selectedDiagramDescription)"
               />
             </div>
-            <div
-              v-else-if="selectedArtifact?.image_url"
-              class="artifact-preview__image-wrap"
-            >
+            <div v-else-if="previewObjectUrl && selectedIsImage" class="artifact-preview__image-wrap">
               <img
                 class="artifact-preview__image"
-                :src="selectedArtifact.image_url"
+                :src="previewObjectUrl"
                 :alt="displayTitle(selectedArtifact || {})"
               />
               <div
                 class="artifact-preview__content markdown-body"
                 v-html="renderMarkdown(selectedArtifact?.preview || '')"
               />
+            </div>
+            <video
+              v-else-if="previewObjectUrl && selectedIsVideo"
+              class="artifact-preview__media"
+              :src="previewObjectUrl"
+              controls
+            />
+            <iframe
+              v-else-if="previewObjectUrl && selectedPreviewUrl"
+              class="artifact-preview__frame"
+              :src="previewObjectUrl"
+              sandbox=""
+              :title="displayTitle(selectedArtifact || {})"
+            />
+            <div v-else-if="previewLoadError" class="artifact-preview__content">
+              {{ previewLoadError }}
             </div>
             <div
               v-else
@@ -401,6 +469,20 @@
     border-radius: 18px;
     background: #f8fafc;
     border: 1px solid rgba(15, 23, 42, 0.08);
+  }
+
+  .artifact-preview__media,
+  .artifact-preview__frame {
+    width: 100%;
+    min-height: 0;
+    flex: 1;
+    border: 0;
+    background: #0f172a;
+  }
+
+  .artifact-preview__frame {
+    min-height: min(54vh, 500px);
+    background: #fff;
   }
 
   .artifact-preview {

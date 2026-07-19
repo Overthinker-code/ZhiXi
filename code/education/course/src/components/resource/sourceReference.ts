@@ -26,6 +26,23 @@ type UnknownRecord = Record<string, unknown>;
 
 const COPY_BLOCKLIST = /即时预览|模型|爬取|生成后|未物化|内部|agent\s*trace|agent|trace|完整版本会在|资料暂时没有可预览内容/iu;
 
+const LANGUAGE_LABELS: Record<string, string> = {
+  zh: '中文',
+  'zh-cn': '中文',
+  'zh-hans': '中文',
+  'zh-tw': '中文（繁体）',
+  'zh-hant': '中文（繁体）',
+  en: '英文',
+  'en-us': '英文',
+  'en-gb': '英文',
+  ja: '日文',
+  ko: '韩文',
+  fr: '法文',
+  de: '德文',
+  es: '西班牙文',
+  ru: '俄文',
+};
+
 function record(value: unknown): UnknownRecord | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as UnknownRecord
@@ -74,6 +91,31 @@ export function webDomain(value: unknown) {
   } catch {
     return '';
   }
+}
+
+/** Render source metadata as student-facing Chinese rather than raw locale tags. */
+export function sourceLanguageLabel(value: unknown) {
+  const raw = text(value, 80);
+  if (!raw) return '';
+  const normalized = raw.toLowerCase().replace(/_/g, '-');
+  if (LANGUAGE_LABELS[normalized]) return LANGUAGE_LABELS[normalized];
+  const base = normalized.split('-')[0];
+  if (LANGUAGE_LABELS[base]) return LANGUAGE_LABELS[base];
+  if (/中文|汉语/.test(raw)) return '中文';
+  if (/英文|英语/.test(raw)) return '英文';
+  return '';
+}
+
+/** Keep the source date compact and stable instead of exposing an ISO timestamp. */
+export function sourceDateLabel(value: unknown) {
+  const raw = text(value, 80);
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/.exec(raw);
+  if (!match) return '';
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!Number.isInteger(year) || month < 1 || month > 12 || day < 1 || day > 31) return '';
+  return `${year}年${month}月${day}日`;
 }
 
 function metadataRecord(value: unknown) {

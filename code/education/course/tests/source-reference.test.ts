@@ -3,6 +3,8 @@ import {
   safeWebUrl,
   sourceActionLabel,
   sourceCategory,
+  sourceDateLabel,
+  sourceLanguageLabel,
   sourceReferenceFrom,
   studentFacingReason,
 } from '../src/components/resource/sourceReference';
@@ -35,5 +37,12 @@ assert.equal(reference.domain, 'openlibrary.org');
 assert.equal(sourceCategory(reference.kind), '开放图书');
 assert.equal(sourceActionLabel(reference.kind), '在原站阅读');
 assert.equal(studentFacingReason('这是基于推荐主题的即时预览', '围绕事务隔离安排复习'), '围绕事务隔离安排复习');
+assert.equal(sourceLanguageLabel('zh-CN'), '中文');
+assert.equal(sourceLanguageLabel('en_US'), '英文');
+assert.equal(sourceLanguageLabel('unknown-tag'), '');
+assert.equal(sourceLanguageLabel(''), '');
+assert.equal(sourceDateLabel('2026-07-19T15:30:00+08:00'), '2026年7月19日');
+assert.equal(sourceDateLabel('2026-07-19'), '2026年7月19日');
+assert.equal(sourceDateLabel('not-a-date'), '');
 
 console.log('source reference tests passed');

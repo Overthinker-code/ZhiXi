@@ -31,8 +31,9 @@ from app.schemas.resource_recommendation import (
 )
 from app.services.generated_knowledge_graph_service import knowledge_graph_service
 from app.services.external_resource_discovery_service import (
-    TOPIC_QUERY_ALIASES,
+    allowed_domestic_url,
     external_resource_discovery_service,
+    provider_for_url,
 )
 from app.services.quiz_service import quiz_service
 from app.services.resource_package_service import resource_package_service
@@ -375,13 +376,14 @@ class ResourceRecommendationService:
         item = self._owned(session, user_id=user_id, recommendation_id=recommendation_id)
         if item.origin == "external":
             replacement = self._next_external(session, item=item, user_id=user_id)
-            if replacement:
-                item.title = replacement.title
-                item.url = replacement.url
-                item.source = replacement.source
-                item.type = replacement.type
-                item.subject = replacement.subject
-                item.external_resource_id = replacement.id
+            if replacement is None:
+                raise ValueError("没有可用的国内正规来源可替换该推荐")
+            item.title = replacement.title
+            item.url = replacement.url
+            item.source = replacement.source
+            item.type = replacement.type
+            item.subject = replacement.subject
+            item.external_resource_id = replacement.id
             item.generation += 1
             item.reason = f"根据你的“{item.knowledge_point}”学习信号更新的公开来源资料。"
             item.updated_time = datetime.now(timezone.utc)
@@ -435,6 +437,10 @@ class ResourceRecommendationService:
             resource_id=item.resource_id,
         )
         if item.origin == "external":
+            if not self._is_public_domestic_recommendation(
+                session, item=item, user_id=user_id
+            ):
+                raise ValueError("外部来源不符合国内正规平台策略，无法加入资料库")
             safe_url = self._safe_external_url(item.url)
             if not safe_url:
                 raise ValueError("外部来源暂不可用，无法加入资料库")
@@ -606,55 +612,37 @@ class ResourceRecommendationService:
                     row for row in externals
                     if lexical_similarity(topic, f"{row.knowledge_point} {row.title}") >= 0.16
                 ]
-                # A single fresh paper must not suppress the book/video
-                # catalogs for the whole topic.  Refresh only skips network
-                # discovery when all fixed catalogs already have recent rows.
+                # Refresh only skips discovery when every reviewed domestic
+                # provider already has a recent entry for this topic.
                 fresh_providers = {
                     row.provider
                     for row in matching
-                    if row.discovered_at and row.discovered_at >= fresh_after
+                    if (
+                        self._is_discovery_fresh(row.discovered_at, fresh_after)
+                        and self._is_automatic_domestic_external(row, user_id=user_id)
+                    )
                 }
-                if {"open_library", "openalex", "internet_archive"} <= fresh_providers:
+                if {"smartedu", "icourse163", "xuetangx", "bilibili"} <= fresh_providers:
                     continue
                 discovered = self._discover_external(session, topic=topic)
                 externals.extend(discovered)
         seen_urls: set[str] = set()
         external_rows: list[tuple[ExternalResource, str]] = []
         for external in externals:
-            # Shared legacy/manual records have no reviewed catalog provenance.
-            # They remain useful to the student who saved them, but must not
-            # appear in another student's automatic recommendation batch.
-            if external.provider == "manual" and external.created_by != user_id:
-                continue
             safe_url = self._safe_external_url(external.url)
-            if not safe_url or safe_url in seen_urls:
+            if (
+                not self._is_automatic_domestic_external(external, user_id=user_id)
+                or not safe_url
+                or safe_url in seen_urls
+            ):
                 continue
             seen_urls.add(safe_url)
             external_rows.append((external, safe_url))
-        # Use the full profile context here rather than a new minimal context.
-        # Besides recent practice and feedback, this carries the reviewed
-        # Chinese-to-catalog aliases needed to judge an English catalog title
-        # against the original (Chinese) learning signal.  Without it, a
-        # successful Open Library/OpenAlex lookup could be dropped by the
-        # relevance gate before the student ever sees it.
         context = self._recommendation_context(session, user_id=user_id)
         if not context.query_topics:
-            aliases = {
-                topic: TOPIC_QUERY_ALIASES[self._normalize_course_text(topic)]
-                for topic in topics
-                if self._normalize_course_text(topic) in TOPIC_QUERY_ALIASES
-            }
-            context = RecommendationContext(
-                weak_points=topics,
-                external_topic_aliases=aliases,
-            )
+            context = RecommendationContext(weak_points=topics)
         candidates = [
-            Candidate(
-                title=external.title, subject=external.subject, source=external.source,
-                knowledge_point=external.knowledge_point, modality=external.type,
-                difficulty=external.difficulty, origin="external",
-                trusted_catalog_context=self._trusted_catalog_context(external),
-            )
+            self._external_candidate(external)
             for external, _ in external_rows
         ]
         ranked = rank_candidates(candidates, context)
@@ -681,14 +669,22 @@ class ResourceRecommendationService:
                     url=safe_url,
                     reason=self._external_reason(detail.reason, external),
                     evidence=detail.evidence + [f"公开来源：{external.source}"],
-                    content_spec={"preview": "打开公开来源查看完整内容", "external": True},
+                    content_spec={
+                        "preview": (
+                            "这是平台搜索入口；打开后请确认具体课程或视频。"
+                            if self._external_entry_type(external) == "search_entry"
+                            else "打开公开来源查看完整内容"
+                        ),
+                        "external": True,
+                        "entry_type": self._external_entry_type(external),
+                    },
                     external_resource_id=external.id,
                 )
             )
         session.commit()
 
     def _discover_external(self, session: Session, *, topic: str) -> list[ExternalResource]:
-        """Persist bounded metadata from the three fixed public catalogs."""
+        """Persist only fixed domestic-provider search/catalog metadata."""
         topic = self._clean_query_topic(topic)
         if not topic:
             return []
@@ -703,7 +699,8 @@ class ResourceRecommendationService:
         text = " ".join(str(value or "").split())[:80]
         # A query must contain a genuine word/Chinese character rather than a
         # concatenated URL/prompt fragment.
-        if len(text) < 2 or not any(character.isalnum() for character in text):
+        has_chinese = any("\u4e00" <= character <= "\u9fff" for character in text)
+        if (len(text) < 2 and not has_chinese) or not any(character.isalnum() for character in text):
             return ""
         return text
 
@@ -713,6 +710,19 @@ class ResourceRecommendationService:
         if len(title) < 2 or title.count("http") > 0:
             return ""
         return title
+
+    @staticmethod
+    def _is_discovery_fresh(
+        discovered_at: datetime | None, fresh_after: datetime
+    ) -> bool:
+        """Compare DB timestamps safely across SQLite and timezone-aware DBs."""
+        if discovered_at is None:
+            return False
+        if discovered_at.tzinfo is None:
+            discovered_at = discovered_at.replace(tzinfo=timezone.utc)
+        if fresh_after.tzinfo is None:
+            fresh_after = fresh_after.replace(tzinfo=timezone.utc)
+        return discovered_at >= fresh_after
 
     def _materialize_generated(
         self,
@@ -806,17 +816,12 @@ class ResourceRecommendationService:
         ).all()
         context = self._recommendation_context(session, user_id=user_id)
         candidate_rows = [
-            row
-            for row in candidates
-            if self._safe_external_url(row.url)
-            and (row.provider != "manual" or row.created_by == user_id)
+            row for row in candidates
+            if self._is_automatic_domestic_external(row, user_id=user_id)
+            and self._safe_external_url(row.url)
         ]
         candidate_models = [
-            Candidate(
-                row.title, row.subject, row.source, row.knowledge_point,
-                row.type, row.difficulty, "external",
-                self._trusted_catalog_context(row),
-            )
+            self._external_candidate(row)
             for row in candidate_rows
         ]
         ranked = rank_candidates(candidate_models, context)
@@ -829,13 +834,13 @@ class ResourceRecommendationService:
         if matched:
             return matched
         discovered = self._discover_external(session, topic=item.knowledge_point)
-        safe_discovered = [row for row in discovered if self._safe_external_url(row.url)]
+        safe_discovered = [
+            row for row in discovered
+            if self._is_automatic_domestic_external(row, user_id=user_id)
+            and self._safe_external_url(row.url)
+        ]
         discovered_models = [
-            Candidate(
-                row.title, row.subject, row.source, row.knowledge_point,
-                row.type, row.difficulty, "external",
-                self._trusted_catalog_context(row),
-            )
+            self._external_candidate(row)
             for row in safe_discovered
         ]
         discovered_ranked = rank_candidates(discovered_models, context)
@@ -869,6 +874,75 @@ class ResourceRecommendationService:
             trusted_catalog_context=(
                 self._trusted_catalog_context(external) if external else ""
             ),
+            url=item.url or "",
+            provider=external.provider if external else "",
+            language=external.language if external else "",
+            entry_type=self._external_entry_type(external) if external else "resource",
+        )
+
+    @staticmethod
+    def _external_entry_type(external: ExternalResource | None) -> str:
+        if not external or not isinstance(external.source_metadata, dict):
+            return "resource"
+        value = str(external.source_metadata.get("entry_type") or "resource").strip()
+        return value if value in {"resource", "search_entry"} else "resource"
+
+    @staticmethod
+    def _is_domestic_platform_record(external: ExternalResource) -> bool:
+        provider = provider_for_url(external.url)
+        return bool(
+            provider
+            and external.provider in {provider.key, "manual"}
+        )
+
+    @classmethod
+    def _is_automatic_domestic_external(
+        cls, external: ExternalResource, *, user_id: UUID
+    ) -> bool:
+        """Automatic batches never surface historic foreign/manual URLs.
+
+        A user-owned manual row remains stored and can be used privately by
+        its owner elsewhere, but automatic recommendation is deliberately
+        stricter: it must also resolve to one reviewed domestic provider.
+        """
+        if not cls._is_domestic_platform_record(external):
+            return False
+        if external.provider == "manual":
+            return external.created_by == user_id
+        return external.provider in {"smartedu", "icourse163", "xuetangx", "bilibili"}
+
+    @classmethod
+    def _is_public_domestic_recommendation(
+        cls,
+        session: Session,
+        *,
+        item: PersonalizedResourceRecommendation,
+        user_id: UUID,
+    ) -> bool:
+        if not cls._safe_external_url(item.url):
+            return False
+        external = (
+            session.get(ExternalResource, item.external_resource_id)
+            if item.external_resource_id
+            else None
+        )
+        return bool(external and cls._is_automatic_domestic_external(external, user_id=user_id))
+
+    @classmethod
+    def _external_candidate(cls, external: ExternalResource) -> Candidate:
+        return Candidate(
+            title=external.title,
+            subject=external.subject,
+            source=external.source,
+            knowledge_point=external.knowledge_point,
+            modality=external.type,
+            difficulty=external.difficulty,
+            origin="external",
+            trusted_catalog_context=cls._trusted_catalog_context(external),
+            url=external.url,
+            provider=external.provider,
+            language=external.language or "",
+            entry_type=cls._external_entry_type(external),
         )
 
     def _rank_public_items(
@@ -880,7 +954,10 @@ class ResourceRecommendationService:
         ranked = rank_candidates(candidates, context)
         eligible = [
             index for index, (item, detail) in enumerate(zip(items, ranked, strict=True))
-            if item.origin != "external" or detail.external_relevant
+            if item.origin != "external" or (
+                detail.external_relevant
+                and self._is_public_domestic_recommendation(session, item=item, user_id=user_id)
+            )
         ]
         # Favorites receive only a bounded relevance prior before MMR; do not
         # sort afterward or that would erase diversity and bypass the gate.
@@ -1106,16 +1183,10 @@ class ResourceRecommendationService:
 
     @staticmethod
     def _trusted_catalog_context(external: ExternalResource) -> str:
-        """Return only server-generated context from the fixed source set."""
-        if external.provider not in {"open_library", "openalex", "internet_archive"}:
+        """Return only Chinese, server-persisted topic context for ranking."""
+        if not ResourceRecommendationService._is_domestic_platform_record(external):
             return ""
-        metadata = external.source_metadata if isinstance(external.source_metadata, dict) else {}
-        parts = [external.knowledge_point]
-        for name in ("query_alias", "video_query_alias"):
-            value = metadata.get(name)
-            if isinstance(value, str):
-                parts.append(value)
-        return " ".join(" ".join(str(value or "").split())[:160] for value in parts if value)[:480]
+        return " ".join(str(external.knowledge_point or "").split())[:160]
 
     @staticmethod
     def _external_reason(base_reason: str, external: ExternalResource) -> str:
@@ -1130,18 +1201,7 @@ class ResourceRecommendationService:
 
     @staticmethod
     def _safe_external_url(value: str | None) -> str | None:
-        try:
-            parsed = urlparse(str(value or "").strip())
-        except (TypeError, ValueError):
-            return None
-        if (
-            parsed.scheme not in {"http", "https"}
-            or not parsed.netloc
-            or parsed.username
-            or parsed.password
-        ):
-            return None
-        return parsed.geturl()
+        return allowed_domestic_url(value)
 
     @staticmethod
     def _external_domain(url: str) -> str:
@@ -1266,11 +1326,6 @@ class ResourceRecommendationService:
         kb_topics = [str(value).strip() for value in (kb_context or {}).get("topic_signals", []) if str(value).strip()]
         interests = [str(value).strip() for value in (profile.get("interest_topics") or []) if str(value).strip()]
         preferred = affinities("modalities")
-        aliases = {
-            topic: TOPIC_QUERY_ALIASES[self._normalize_course_text(topic)]
-            for topic in [*weak_points, *practice_gaps, *mastery_gaps, *goals, *interests, *kb_topics]
-            if self._normalize_course_text(topic) in TOPIC_QUERY_ALIASES
-        }
         return RecommendationContext(
             weak_points=weak_points,
             practice_gaps=practice_gaps,
@@ -1284,7 +1339,7 @@ class ResourceRecommendationService:
             subject_affinity=affinities("subjects"),
             seen_topics=list(affinities("topics")),
             difficulty="foundation" if practice_gaps or weak_points else "standard",
-            external_topic_aliases=aliases,
+            external_topic_aliases={},
         )
 
     def _profile_signals(

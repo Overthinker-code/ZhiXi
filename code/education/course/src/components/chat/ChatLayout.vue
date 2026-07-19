@@ -819,8 +819,11 @@
       mode: requestMode,
       actionId: autoDeepResearch ? 'auto_deep_research' : activeAction.value.id,
       agentKey: routeAgentKey.value || undefined,
-      courseContext: autoCourseRag
-        ? { ...courseContext.value, useCourseRag: true }
+      // Keep the selected course as ownership/organization context even when
+      // course RAG is disabled.  The RAG switch controls retrieval only; it
+      // must not detach generated resources from the course the learner chose.
+      courseContext: courseContext.value.courseId
+        ? { ...courseContext.value, useCourseRag: autoCourseRag }
         : { courseId: '', chapterId: '', knowledgePointIds: [], useCourseRag: false },
       tools: {
         ...tools.value,

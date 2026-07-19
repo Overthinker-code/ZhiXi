@@ -50,8 +50,14 @@ assert.match(dialogSource, /new Blob\(\[result\.svg\], \{ type: 'image\/svg\+xml
 assert.match(dialogSource, /function normalizeMindmapRoots\(source: string\)/);
 assert.match(dialogSource, /Mermaid mindmaps permit exactly one root/);
 assert.match(dialogSource, /previewHtml\.value = await blob\.text\(\)/);
-assert.match(dialogSource, /v-else-if="mode === 'document'"[\s\S]*?:srcdoc="previewHtml"[\s\S]*?sandbox="allow-same-origin"/);
-assert.match(dialogSource, /v-else-if="mode === 'pdf'"[\s\S]*?:src="objectUrl"/);
+assert.match(
+  dialogSource,
+  /v-else-if="mode === 'document' \|\| mode === 'presentation'"[\s\S]*?:srcdoc="previewHtml"[\s\S]*?sandbox="allow-same-origin"/
+);
+assert.match(
+  dialogSource,
+  /v-else-if="mode === 'pdf' \|\| mode === 'presentation-pdf'"[\s\S]*?:src="presentationUrl"/
+);
 assert.doesNotMatch(
   dialogSource,
   /sandbox=(?:"[^"]*\ballow-scripts\b[^"]*"|'[^']*\ballow-scripts\b[^']*')/,

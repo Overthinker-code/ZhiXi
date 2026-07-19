@@ -10,6 +10,8 @@
   import {
     sourceActionLabel,
     sourceCategory,
+    sourceDateLabel,
+    sourceLanguageLabel,
     sourceReferenceFrom,
   } from './sourceReference';
   import useUserStore from '@/store/modules/user';
@@ -70,6 +72,8 @@
   const sourceSummary = computed(() => sourceReference.value.summary || '这是一项已加入资料库的开放学习参考。');
   const sourceCategoryLabel = computed(() => sourceCategory(sourceReference.value.kind));
   const sourceAction = computed(() => sourceActionLabel(sourceReference.value.kind));
+  const sourceLanguage = computed(() => sourceLanguageLabel(sourceReference.value.language));
+  const sourceDate = computed(() => sourceDateLabel(sourceReference.value.verifiedAt));
   const sourceIcon = computed(() => {
     if (sourceReference.value.kind === 'video') return Video;
     if (sourceReference.value.kind === 'paper') return FileText;
@@ -484,12 +488,12 @@
                   <span class="source-kind"><component :is="sourceIcon" :size="14" />{{ sourceCategoryLabel }}</span>
                   <p>{{ sourceSummary }}</p>
                   <dl>
-                    <div><dt>{{ sourceReference.verifiedAt ? '已核验来源' : '来源提供方' }}</dt><dd>{{ sourceReference.provider }}</dd></div>
+                    <div v-if="sourceReference.provider"><dt>平台信息</dt><dd>{{ sourceReference.provider }}</dd></div>
                     <div v-if="sourceReference.authors || sourceReference.year"><dt>作者 / 年份</dt><dd>{{ [sourceReference.authors, sourceReference.year].filter(Boolean).join(' · ') }}</dd></div>
-                    <div v-if="sourceReference.language"><dt>语言</dt><dd>{{ sourceReference.language }}</dd></div>
+                    <div v-if="sourceLanguage"><dt>语言</dt><dd>{{ sourceLanguage }}</dd></div>
                     <div v-if="sourceReference.accessLabel"><dt>访问方式</dt><dd>{{ sourceReference.accessLabel }}</dd></div>
-                    <div><dt>来源域名</dt><dd>{{ sourceReference.domain || '链接暂不可用' }}</dd></div>
-                    <div v-if="sourceReference.verifiedAt"><dt>核验信息</dt><dd>{{ sourceReference.verifiedAt }}</dd></div>
+                    <div v-if="sourceReference.domain"><dt>来源信息</dt><dd>{{ sourceReference.domain }}</dd></div>
+                    <div v-if="sourceDate"><dt>收录日期</dt><dd>{{ sourceDate }}</dd></div>
                   </dl>
                 </div>
               </section>
