@@ -796,6 +796,11 @@ def _is_diagram_image_request(message: str) -> bool:
 
 
 def _is_structured_diagram_intent(message: str) -> bool:
+    # A topic such as "TCP 拥塞控制" is diagram-capable, but an explicit
+    # video/animation request must reach the video provider instead of being
+    # intercepted by the earlier Mermaid branch.
+    if _is_seedance_video_intent(message):
+        return False
     text = re.sub(r"\s+", "", message or "")
     diagram_word = any(
         word in text
@@ -838,6 +843,14 @@ def _is_structured_diagram_intent(message: str) -> bool:
         for word in ("生成", "创建", "制作", "画", "绘制", "给我生成", "帮我生成", "描绘")
     )
     return diagram_word and action_word
+
+
+def _prefers_rendered_diagram_image(message: str) -> bool:
+    """Honor an explicit request for a raster diagram instead of Mermaid."""
+    text = re.sub(r"\s+", "", message or "").lower()
+    explicit_raster = any(word in text for word in ("png", "jpg", "jpeg", "生成图片", "图片文件", "黑字白底", "白底黑字"))
+    rejects_mermaid = any(word in text for word in ("不要mermaid", "不用mermaid", "禁止mermaid", "非mermaid"))
+    return _is_structured_diagram_intent(message) and (explicit_raster or rejects_mermaid)
 
 
 def _structured_diagram_topic(message: str) -> str:
@@ -2535,6 +2548,88 @@ def ai_chat_stream(
                     yield _sse("error", {"code": "SCIENTIFIC_CHART_FAILED", "message": str(exc), "retryAction": "retry"})
                 return
 
+            if _prefers_rendered_diagram_image(request.message or ""):
+                topic = _structured_diagram_topic(request.message or "")
+                yield update_task("executor", "running", 25, "正在绘制黑白数据流图")
+                yield _phase_started(
+                    "compose",
+                    "生成数据流图图片",
+                    "DFD 专用绘图器正在生成黑字白底 PNG，不使用 Mermaid 或插画模型",
+                )
+                yield _sse("artifact_started", {"label": "正在绘制数据流图 PNG"})
+                try:
+                    artifact = teaching_artifact_service.generate_data_flow_diagram(
+                        topic, request.message or ""
+                    )
+                    artifact.update(
+                        _persist_chat_media(
+                            db,
+                            owner_id=current_user.id,
+                            source_path=GENERATED_IMAGE_DIR / str(artifact["file_name"]),
+                            content_type="image/png",
+                            provider="matplotlib_dfd",
+                            title=str(artifact["title"]),
+                            kind="image",
+                            topic=topic,
+                            course_id=course_uuid,
+                        )
+                    )
+                    package = {
+                        "package_id": f"dfd-image-{run_id}",
+                        "title": artifact["title"],
+                        "artifacts": [artifact],
+                    }
+                    suggestions = ["下载高清 PNG", "检查数据流名称", "生成该系统的数据字典"]
+                    final_text = (
+                        f"已生成《{artifact['title']}》黑字白底 PNG。"
+                        "本次使用 DFD 专用确定性绘图器，未使用 Mermaid，也未调用插画模型。"
+                    )
+                    metrics = {
+                        "route_trace": ["orchestrator", "dfd_agent", "matplotlib_dfd_renderer"],
+                        "diagram_source": artifact.get("diagram_source"),
+                        "resourcePackage": package,
+                        "suggestions": suggestions,
+                    }
+                    yield _phase_finished("compose", "生成数据流图图片", "黑白 PNG 已生成")
+                    yield _sse("artifact_finished", package)
+                    yield _sse("answer_delta", {"text": final_text})
+                    yield _sse("suggestions", {"items": suggestions})
+                    yield update_task("executor", "completed", 100, "数据流图 PNG 已生成")
+                    yield task_event(agent_task_service.complete_run(db, run_id=run_id, message="数据流图图片生成完成"))
+                    if user_id:
+                        chat_provider.save_stream_turn(
+                            db,
+                            thread_id=session_id,
+                            user_input=request.message or "生成数据流图图片",
+                            response=final_text,
+                            system_prompt=_system_prompt(request),
+                            agent="dfd_agent",
+                            intent="generate_dfd_image",
+                            routing_reason="explicit raster diagram request",
+                            citations=[],
+                            confidence="high",
+                            grounding_mode="tool",
+                            suggestions=suggestions,
+                            metrics=metrics,
+                        )
+                        schedule_memory_profile_refresh(user_id)
+                    done_payload = {
+                        "runId": run_id,
+                        "sessionId": session_id,
+                        "messageId": uuid4().hex,
+                        "summary": "数据流图图片生成完成",
+                        "usage": metrics,
+                        "suggestions": suggestions,
+                    }
+                    yield _sse("run_finished", done_payload)
+                    yield _sse("done", done_payload)
+                except Exception as exc:
+                    logger.warning("DFD image generation failed run_id=%s reason=%s", run_id, exc)
+                    yield task_event(agent_task_service.fail_run(db, run_id=run_id, message="数据流图图片生成失败"))
+                    yield _phase_finished("compose", "生成数据流图图片", "数据流图图片生成失败", status="error")
+                    yield _sse("error", {"code": "DFD_IMAGE_FAILED", "message": str(exc), "retryAction": "retry"})
+                return
+
             if _is_structured_diagram_intent(request.message or ""):
                 topic = _structured_diagram_topic(request.message or "")
                 if not bailian_service.configured():
@@ -2802,26 +2897,35 @@ def ai_chat_stream(
                         course_id=course_uuid,
                     )
                     is_fallback = provider == "deterministic_stack_fallback"
+                    is_manim_fallback = provider == "qwen_manim_fallback"
+                    if is_fallback:
+                        preview_text = "云端视频服务暂不可用，已自动切换本地动画引擎并生成 5 秒栈动画。"
+                        final_text = (
+                            f"云端视频服务当前暂不可用；已自动切换本地动画引擎，"
+                            f"生成「{topic}」的 5 秒栈动画并保存到课程资料库。"
+                        )
+                        completion_label = "本地确定性栈动画已生成并入库"
+                    elif is_manim_fallback:
+                        preview_text = "Seedance 额度不足，已由千问生成教学分镜并使用 Manim 本地渲染。"
+                        final_text = (
+                            f"Seedance 额度不足；已使用千问生成「{topic}」教学分镜，"
+                            "并由 Manim 本地渲染为 MP4，已保存到课程资料库。"
+                        )
+                        completion_label = "千问 + Manim 教学动画已生成并入库"
+                    else:
+                        preview_text = "Seedance 已完成视频生成并已安全入库。"
+                        final_text = f"已使用 Seedance 生成「{topic}」教学视频，并已保存到你的课程资料库。"
+                        completion_label = "Seedance 视频已生成并入库"
                     artifact = {
                         "kind": "video",
                         "title": f"{topic}教学视频",
-                        "preview": (
-                            "云端视频服务暂不可用，已自动切换本地动画引擎并生成 5 秒栈动画。"
-                            if is_fallback
-                            else "Seedance 已完成视频生成并已安全入库。"
-                        ),
+                        "preview": preview_text,
                         **stored,
                         "provider": provider,
                         "fallback_reason": fallback_reason,
                     }
                     package = {"package_id": f"{provider}-{stored['resource_id']}", "title": artifact["title"], "artifacts": [artifact]}
                     suggestions = ["下载教学视频", "生成配套讲义", "生成视频讲解提纲"]
-                    final_text = (
-                        f"云端视频服务当前暂不可用；已自动切换本地动画引擎，"
-                        f"生成「{topic}」的 5 秒栈动画并保存到课程资料库。"
-                        if is_fallback
-                        else f"已使用 Seedance 生成「{topic}」教学视频，并已保存到你的课程资料库。"
-                    )
                     metrics = {
                         "route_trace": ["orchestrator", provider],
                         "provider": provider,
@@ -2830,7 +2934,6 @@ def ai_chat_stream(
                         "resourcePackage": package,
                         "suggestions": suggestions,
                     }
-                    completion_label = "本地确定性栈动画已生成并入库" if is_fallback else "Seedance 视频已生成并入库"
                     yield _phase_finished("compose", "生成教学视频", completion_label)
                     yield _sse("artifact_finished", package)
                     yield _sse("answer_delta", {"text": final_text})
@@ -2871,16 +2974,38 @@ def ai_chat_stream(
                         )
                         yield from finish_video(media, statuses=seedance_statuses)
                     except MediaGenerationError as exc:
-                        if _is_stack_visual_topic(request.message or "") and is_seedance_credit_error(exc):
-                            yield _phase_delta("compose", "云端视频服务额度不足，正在切换本地动画引擎")
+                        if is_seedance_credit_error(exc):
+                            if _is_stack_visual_topic(request.message or ""):
+                                yield _phase_delta("compose", "云端视频服务额度不足，正在切换本地动画引擎")
+                                try:
+                                    media = media_generation_service.generate_deterministic_stack_fallback()
+                                    yield from finish_video(media, statuses=[*seedance_statuses, "credit_fallback"], fallback_reason="Seedance insufficient_credits")
+                                except MediaGenerationError as fallback_exc:
+                                    logger.warning("deterministic stack fallback failed run_id=%s code=%s", run_id, fallback_exc.code)
+                                    yield task_event(agent_task_service.fail_run(db, run_id=run_id, message=fallback_exc.message))
+                                    yield _phase_finished("compose", "生成教学视频", "本地栈动画生成失败", status="error")
+                                    yield _sse("error", {"code": fallback_exc.code, "message": fallback_exc.message, "retryAction": "retry"})
+                                return
+                            yield _phase_delta("compose", "Seedance 额度不足，正在切换千问 + Manim 教学动画")
                             try:
-                                media = media_generation_service.generate_deterministic_stack_fallback()
-                                yield from finish_video(media, statuses=[*seedance_statuses, "credit_fallback"], fallback_reason="Seedance insufficient_credits")
-                            except MediaGenerationError as fallback_exc:
-                                logger.warning("deterministic stack fallback failed run_id=%s code=%s", run_id, fallback_exc.code)
-                                yield task_event(agent_task_service.fail_run(db, run_id=run_id, message=fallback_exc.message))
-                                yield _phase_finished("compose", "生成教学视频", "本地栈动画生成失败", status="error")
-                                yield _sse("error", {"code": fallback_exc.code, "message": fallback_exc.message, "retryAction": "retry"})
+                                manim_artifact = teaching_artifact_service.generate_manim_video(
+                                    topic, request.message or ""
+                                )
+                                media = GeneratedMedia(
+                                    path=GENERATED_ARTIFACT_DIR / str(manim_artifact["file_name"]),
+                                    content_type="video/mp4",
+                                    provider="qwen_manim_fallback",
+                                )
+                                yield from finish_video(
+                                    media,
+                                    statuses=[*seedance_statuses, "credit_manim_fallback"],
+                                    fallback_reason="Seedance insufficient_credits",
+                                )
+                            except Exception as fallback_exc:
+                                logger.warning("Qwen Manim fallback failed run_id=%s reason=%s", run_id, fallback_exc)
+                                yield task_event(agent_task_service.fail_run(db, run_id=run_id, message="千问 + Manim 回退生成失败"))
+                                yield _phase_finished("compose", "生成教学视频", "千问 + Manim 回退生成失败", status="error")
+                                yield _sse("error", {"code": "MANIM_FALLBACK_FAILED", "message": str(fallback_exc), "retryAction": "retry"})
                         else:
                             logger.warning("Seedance failed run_id=%s code=%s", run_id, exc.code)
                             yield task_event(agent_task_service.fail_run(db, run_id=run_id, message=exc.message))

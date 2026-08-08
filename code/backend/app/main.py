@@ -1,11 +1,12 @@
 import logging
-import subprocess
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import sentry_sdk
 import httpx
+from alembic import command as alembic_command
+from alembic.config import Config as AlembicConfig
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
@@ -56,7 +57,11 @@ from app.models.learning_evidence import (  # noqa: F401
 )
 
 logger = logging.getLogger(__name__)
-BACKEND_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT = (
+    Path(sys._MEIPASS) / "backend"  # type: ignore[attr-defined]
+    if getattr(sys, "frozen", False)
+    else Path(__file__).resolve().parents[1]
+)
 
 
 def custom_generate_unique_id(route: APIRoute) -> str:
@@ -70,26 +75,26 @@ if settings.SENTRY_DSN and settings.ENVIRONMENT != "local":
 def run_schema_migrations() -> None:
     """在应用启动时补齐增量 schema 变更。"""
     alembic_ini = BACKEND_ROOT / "alembic.ini"
-    subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "alembic",
-            "-c",
-            str(alembic_ini),
-            "upgrade",
-            "head",
-        ],
-        cwd=BACKEND_ROOT,
-        check=True,
-    )
+    # Use Alembic's Python API instead of spawning ``python -m alembic``.
+    # Besides avoiding an unnecessary child process, this also works when the
+    # backend is launched from a frozen Windows executable where
+    # ``sys.executable`` is the application launcher rather than python.exe.
+    config = AlembicConfig(str(alembic_ini))
+    config.set_main_option("script_location", str(BACKEND_ROOT / "app" / "alembic"))
+    alembic_command.upgrade(config, "head")
 
 
 def ensure_sqlalchemy_tables() -> None:
     # Legacy revisions assume a pre-Alembic baseline. Bootstrap only a strictly
     # empty database; all existing databases remain on normal upgrade semantics.
-    bootstrap_legacy_empty_database(engine, alembic_ini=BACKEND_ROOT / "alembic.ini")
-    run_schema_migrations()
+    bootstrapped = bootstrap_legacy_empty_database(
+        engine, alembic_ini=BACKEND_ROOT / "alembic.ini"
+    )
+    # A strictly empty database is created from the current metadata and
+    # stamped directly at the Alembic head. Running ``upgrade head`` again in
+    # the same startup is redundant and can wait on PostgreSQL DDL locks.
+    if not bootstrapped:
+        run_schema_migrations()
     # SQLModel tables used by auth/business modules + bootstrap admin user
     with Session(engine) as session:
         init_db(session)

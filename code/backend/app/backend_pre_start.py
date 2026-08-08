@@ -32,8 +32,9 @@ def schema_revision_status(
     schema this application expects is actually installed".  This check is
     read-only and supports repositories that may acquire multiple heads later.
     """
-    config = Config(str(alembic_ini or (BACKEND_ROOT / "alembic.ini")))
-    config.set_main_option("script_location", str(BACKEND_ROOT / "app" / "alembic"))
+    ini_path = Path(alembic_ini or (BACKEND_ROOT / "alembic.ini")).resolve()
+    config = Config(str(ini_path))
+    config.set_main_option("script_location", str(ini_path.parent / "app" / "alembic"))
     expected_heads = tuple(sorted(ScriptDirectory.from_config(config).get_heads()))
     current_heads = tuple(
         sorted(MigrationContext.configure(connection).get_current_heads())
@@ -80,7 +81,9 @@ def bootstrap_legacy_empty_database(
     )
     Base.metadata.create_all(bind=db_engine)
     sqlmodel.SQLModel.metadata.create_all(bind=db_engine)
-    config = Config(str(alembic_ini or (BACKEND_ROOT / "alembic.ini")))
+    ini_path = Path(alembic_ini or (BACKEND_ROOT / "alembic.ini")).resolve()
+    config = Config(str(ini_path))
+    config.set_main_option("script_location", str(ini_path.parent / "app" / "alembic"))
     with db_engine.begin() as connection:
         config.attributes["connection"] = connection
         command.stamp(config, "head")
