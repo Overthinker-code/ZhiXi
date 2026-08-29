@@ -219,9 +219,16 @@
   }) => {
     if (loading.value) return;
     if (!errors) {
+      const trimmed: LoginData = {
+        username: String(values.username || '').trim(),
+        password: String(values.password || '').trim(),
+      };
+      loginForm.username = trimmed.username;
+      loginForm.password = trimmed.password;
+      errorMessage.value = '';
       setLoading(true);
       try {
-        await userStore.login(values as LoginData);
+        await userStore.login(trimmed);
         try {
           await userStore.info();
         } catch (infoErr) {

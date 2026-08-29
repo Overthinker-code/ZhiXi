@@ -36,12 +36,25 @@ def update_user(*, session: Session, db_user: User, user_in: UserUpdate) -> Any:
 
 
 def get_user_by_email(*, session: Session, email: str) -> User | None:
+    # 终局修复：邮箱去空格且大小写不敏感，避免“ student@example.com ”等输入导致登录失败
+    normalized = (email or "").strip().casefold()
+    # 先尝试精确匹配，再回退到大小写不敏感匹配，兼容历史数据
     statement = select(User).where(User.email == email)
     session_user = session.exec(statement).first()
-    return session_user
+    if session_user:
+        return session_user
+    # 回退：遍历匹配（用户量小，性能可接受；如量大可改为 ilike）
+    all_users = session.exec(select(User)).all()
+    for u in all_users:
+        if (u.email or "").strip().casefold() == normalized:
+            return u
+    return None
 
 
 def authenticate(*, session: Session, email: str, password: str) -> User | None:
+    # 前端已 trim，这里再做一次防御
+    email = (email or "").strip()
+    password = (password or "").strip()
     db_user = get_user_by_email(session=session, email=email)
     if not db_user:
         return None
