@@ -38,6 +38,18 @@ from app.core.upload_security import read_upload_limited, validate_upload
 from app.models import Course, Resource
 from app.providers.chat_provider import chat_provider
 from app.providers.chat_thread_provider import chat_thread_provider
+
+# 简单问候快速通道：避免“你好”触发重型学习任务与资源规划
+_GREETING_RE = re.compile(r"^(你好|您好|hello|hi|嗨|哈喽|hey|早上好|下午好|晚上好)[，。！？\s]*$", re.IGNORECASE)
+_SIMPLE_GREETING_SET = {"你好", "您好", "hello", "hi", "嗨", "哈喽", "hey", "早上好", "下午好", "晚上好"}
+
+def _is_simple_greeting(text: str) -> bool:
+    t = (text or "").strip()
+    if not t:
+        return False
+    # 去掉标点后长度很短且匹配问候语
+    core = re.sub(r"[，。！？,.!?~\s]+", "", t).lower()
+    return core in _SIMPLE_GREETING_SET or bool(_GREETING_RE.match(t))
 from app.schemas.chat_thread import ChatThreadCreate
 from app.schemas.resource_generation import ResourceGenerationRequest, ResourceKind
 from app.services.background_tasks import schedule_memory_profile_refresh
@@ -1752,7 +1764,11 @@ def _resource_generation_request(req: AIChatStreamRequest) -> ResourceGeneration
         source="tutor-chat",
         subject=_course_title(req.course_context.course_id),
         topic=(requested_target or req.message or "课程重点")[:120],
-        learning_goal=req.message[:240] if req.message else "围绕当前薄弱点生成个性化学习资源",
+        learning_goal=(
+            "围绕当前薄弱点生成个性化学习资源"
+            if _is_simple_greeting(req.message or "")
+            else (req.message[:240] if req.message else "围绕当前薄弱点生成个性化学习资源")
+        ),
         difficulty=difficulty,  # type: ignore[arg-type]
         target_minutes=45,
         resource_types=_resource_kinds(requested_types),
@@ -2134,12 +2150,15 @@ def ai_chat_stream(
             )
 
         try:
-            learning_task = learning_task_service.upsert_from_message(
-                db,
-                user_id=user_id or "",
-                session_id=session_id,
-                message=request.message or "",
-            )
+            if _is_simple_greeting(request.message or ""):
+                learning_task = None
+            else:
+                learning_task = learning_task_service.upsert_from_message(
+                    db,
+                    user_id=user_id or "",
+                    session_id=session_id,
+                    message=request.message or "",
+                )
             initial_tasks = agent_task_service.start_run(
                 db,
                 session_id=session_id,
@@ -3500,15 +3519,16 @@ def ai_chat_stream(
                     yield _sse("error", {"code": "RESOURCE_GENERATION_FAILED", "message": "资源生成未完成，请稍后重试。"})
                 return
 
+            is_greeting = _is_simple_greeting(request.message or "")
             chat_request = ChatRequest(
                 user_input=_message_for_model(request),
                 thread_id=session_id,
                 system_prompt=_system_prompt(request),
                 prompt_key="tutor",
-                rag_k=4,
+                rag_k=3 if is_greeting else 4,
                 strict_mode=bool(request.tools.citation_required),
-                active_tools=_active_tools(request),
-                max_tokens=20000 if request.reasoning.level == "deep" else 14000,
+                active_tools=[] if is_greeting else _active_tools(request),
+                max_tokens=800 if is_greeting else (20000 if request.reasoning.level == "deep" else 14000),
                 temperature=0.35,
                 user_id=user_id,
                 is_admin=bool(getattr(current_user, "is_superuser", False)) if current_user else False,
@@ -3525,9 +3545,9 @@ def ai_chat_stream(
                 },
                 context_refs=request.course_context.model_dump(by_alias=True),
                 image_base64_list=image_base64_list,
-                tool_mode=_tool_mode(request),  # type: ignore[arg-type]
-                force_agent=_force_agent(request),  # type: ignore[arg-type]
-                reasoning_enabled=request.reasoning.level in {"balanced", "deep"},
+                tool_mode='chat' if is_greeting else _tool_mode(request),  # type: ignore[arg-type]
+                force_agent=None if is_greeting else _force_agent(request),  # type: ignore[arg-type]
+                reasoning_enabled=False if is_greeting else request.reasoning.level in {"balanced", "deep"},
                 debug_mode=False,
             )
             log_user = resolve_stream_user_text_for_storage(chat_request)
@@ -3778,8 +3798,11 @@ def ai_chat_stream(
             }
             yield _sse("run_finished", done_payload)
             yield _sse("done", done_payload)
-        except Exception:
-            yield _sse("error", {"code": "MODEL_PROVIDER_ERROR", "message": "模型服务暂时不可用，请稍后重试。"})
+        except Exception as exc:
+            import traceback
+            tb = traceback.format_exc()
+            print(f"[CHAT STREAM ERROR] {exc}\n{tb}", flush=True)
+            yield _sse("error", {"code": "MODEL_PROVIDER_ERROR", "message": "模型服务暂时不可用，请稍后重试。", "detail": str(exc)[:300]})
         finally:
             if resource_run_id and not resource_run_terminal:
                 try:
