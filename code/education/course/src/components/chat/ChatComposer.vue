@@ -3,6 +3,7 @@
   import { Square } from 'lucide-vue-next';
   import type { ChatToolPayload, ReasoningLevel, ResourceRequestPayload, TutorMode } from '@/api/ai-chat';
   import { DEFAULT_RESOURCE_TYPES, type TutorPanel } from './tutorActions';
+  import ReasoningSlider from './ReasoningSlider.vue';
 
   const props = defineProps<{
     loading?: boolean;
@@ -44,13 +45,15 @@
     code_case: '代码案例',
     video_script: '视频脚本',
   };
-  const reasoningOptions: Array<{ id: string; label: string; level: ReasoningLevel }> = [
-    { id: 'smart', label: '智能', level: 'balanced' },
-    { id: 'fast', label: '极速', level: 'fast' },
-    { id: 'balanced', label: '均衡', level: 'balanced' },
-    { id: 'high', label: '高级', level: 'deep' },
-    { id: 'ultra', label: '超高', level: 'deep' },
+  const reasoningOptions: Array<{ id: string; label: string; level: ReasoningLevel; hint: string }> = [
+    { id: 'smart', label: '智能', level: 'balanced', hint: '自动判断' },
+    { id: 'fast', label: '极速', level: 'fast', hint: '< 5s' },
+    { id: 'balanced', label: '均衡', level: 'balanced', hint: '推荐' },
+    { id: 'high', label: '高级', level: 'deep', hint: '深度思考' },
+    { id: 'ultra', label: '超高', level: 'deep', hint: '最强推理' },
   ];
+  const reasoningOrder = ['smart', 'fast', 'balanced', 'high', 'ultra'] as const;
+  const reasoningIndex = computed(() => Math.max(0, reasoningOrder.indexOf(selectedReasoningId.value as any)) );
 
   const canSend = computed(
     () => Boolean(input.value.trim() || files.value.length) && !props.loading
@@ -225,8 +228,13 @@
     const option = reasoningOptions.find((item) => item.id === id);
     if (!option) return;
     selectedReasoningId.value = option.id;
-    reasoningMenuOpen.value = false;
+    // 保持菜单打开以便拖拽预览，Claude 风格为即时生效不自动关闭
     emit('setReasoning', option.level);
+  };
+  // 推理滑杆（ReasoningSlider.vue）：档位下标 → 既有 5 档语义（保持 setReasoning 链路不变）
+  const onReasoningSliderChange = (idx: number) => {
+    const option = reasoningOptions[idx];
+    if (option) chooseReasoning(option.id);
   };
 
   watch(
@@ -441,19 +449,12 @@
             <i />
           </button>
 
-          <div v-if="reasoningMenuOpen" id="tutor-reasoning-menu" class="reasoning-menu" role="menu">
-            <button
-              v-for="option in reasoningOptions"
-              :key="option.id"
-              type="button"
-              :class="{ active: selectedReasoningId === option.id }"
-              @click="chooseReasoning(option.id)"
-            >
-              <span>
-                <strong>{{ option.label }}</strong>
-              </span>
-              <b v-if="selectedReasoningId === option.id">✓</b>
-            </button>
+          <div v-if="reasoningMenuOpen" id="tutor-reasoning-menu" class="reasoning-menu reasoning-slider-menu" role="menu">
+            <reasoning-slider
+              :options="reasoningOptions"
+              :index="reasoningIndex"
+              @change="onReasoningSliderChange"
+            />
           </div>
         </div>
 
@@ -885,6 +886,14 @@
       opacity: 1;
       transform: translateY(0);
     }
+  }
+
+  /* 推理滑杆（ReasoningSlider.vue）菜单容器：紧凑白卡，无基座标题（档位名即标题） */
+  .reasoning-slider-menu {
+    width: 264px !important;
+    padding: 12px 16px 16px !important;
+
+    &::before { display: none; }
   }
 
   @media (max-width: 1280px) {
